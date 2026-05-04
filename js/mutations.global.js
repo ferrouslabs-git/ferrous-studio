@@ -6,6 +6,7 @@
     const stripCmp = component => {
       const out = { id: component.id, type: component.type, label: component.label };
       if (component.customId) out.customId = component.customId;
+      if (component.props && Object.keys(component.props).length) out.props = component.props;
       return out;
     };
     if (frame.layoutMode === 'regions') {
@@ -28,6 +29,61 @@
     return { id: page.id, name: page.name, route: page.route, frames: page.frames.map(serializeFrame) };
   }
 
+  function createEditableDefinition(seedLabel = 'Editable component') {
+    const base = (seedLabel || 'Editable component').trim() || 'Editable component';
+    const taken = new Set(api.state.customComponents.map(d => (d.name || '').toLowerCase()));
+    let name = base;
+    let n = 2;
+    while (taken.has(name.toLowerCase())) {
+      name = `${base} ${n++}`;
+    }
+    return {
+      id: api.uid('cdef'),
+      name,
+      desc: 'Editable custom block',
+      icon: 'EDT',
+      color: '#6aa0ff',
+      rootLayout: 'col',
+      rootAlign: 'start',
+      rootGridCols: 2,
+      rootGap: 8,
+      rootPadding: 8,
+      slots: [
+        { id: api.uid('sl'), type: 'heading', label: 'Section title' },
+        { id: api.uid('sl'), type: 'text', label: 'Helper text' },
+        { id: api.uid('sl'), type: 'input', label: '' },
+        { id: api.uid('sl'), type: 'button-row', label: 'Cancel, Save' },
+      ],
+    };
+  }
+
+  function ensureEditableComponentLink(cmp) {
+    if (!cmp || cmp.type !== 'editable-component') return null;
+    if (cmp.customId) {
+      const existing = api.state.customComponents.find(d => d.id === cmp.customId);
+      if (existing) return existing;
+    }
+    const created = createEditableDefinition(cmp.label || api.DEFAULT_LABELS['editable-component']);
+    api.state.customComponents.push(created);
+    cmp.customId = created.id;
+    if (!cmp.label || cmp.label === api.DEFAULT_LABELS['editable-component']) cmp.label = created.name;
+    return created;
+  }
+
+  function editEditableComponentByCmpId(cmpId) {
+    const hit = getCmpById(cmpId);
+    if (!hit) return;
+    const { cmp } = hit;
+    if (cmp.type !== 'editable-component' && cmp.type !== 'custom') return;
+    if (cmp.type === 'custom') {
+      if (cmp.customId) api.openBuilder(cmp.customId);
+      return;
+    }
+    const def = ensureEditableComponentLink(cmp);
+    if (!def) return;
+    api.openBuilder(def.id);
+  }
+
   function setLayoutMode(mode) {
     const frame = api.getActiveFrame();
     if (!frame || frame.layoutMode === mode) return;
@@ -46,7 +102,12 @@
     if (!pattern) return;
     const frame = api.getActiveFrame();
     if (!frame) return;
-    const newCmps = pattern.components.map(type => ({ id: api.uid('c'), type, label: api.DEFAULT_LABELS[type] || type }));
+    const newCmps = pattern.components.map(type => {
+      const cmp = { id: api.uid('c'), type, label: api.DEFAULT_LABELS[type] || type };
+      const defaults = api.getDefaultProps(type);
+      if (Object.keys(defaults).length) cmp.props = JSON.parse(JSON.stringify(defaults));
+      return cmp;
+    });
 
     // Full preset apply is region-first: map each component into its contract slot.
     if (region == null && atIndex == null) {
@@ -90,6 +151,14 @@
     const label = def ? def.name : (api.DEFAULT_LABELS[type] || type);
     const component = { id: api.uid('c'), type, label };
     if (type === 'custom' && customId) component.customId = customId;
+    if (type === 'editable-component') {
+      const created = createEditableDefinition(label);
+      api.state.customComponents.push(created);
+      component.customId = created.id;
+      component.label = created.name;
+    }
+    const defaults = api.getDefaultProps(type);
+    if (Object.keys(defaults).length) component.props = JSON.parse(JSON.stringify(defaults));
 
     const wantsRegions = frame.layoutMode === 'regions' || region != null;
     if (wantsRegions && frame.layoutMode !== 'regions') {
@@ -226,7 +295,11 @@
     const src = api.getActiveFrame();
     let frame;
     if (clone && src) {
-      const dup = arr => arr.map(c => ({ ...c, id: api.uid('c') }));
+      const dup = arr => arr.map(c => ({
+        ...c,
+        id: api.uid('c'),
+        props: c.props ? JSON.parse(JSON.stringify(c.props)) : c.props,
+      }));
       if (src.layoutMode === 'regions') {
         const regions = {};
         api.REGION_ORDER.forEach(region => { regions[region] = dup(src.layout.regions[region] || []); });
@@ -244,6 +317,185 @@
     page.frames.push(frame);
     api.state.activeFrameId = frame.id;
     api.state.selectedCmpId = null;
+    api.renderAll();
+  }
+
+  function getCmpById(id) {
+    const frame = api.getActiveFrame();
+    if (!frame) return null;
+    const loc = api.locateCmp(frame, id);
+    if (!loc) return null;
+    return { frame, loc, cmp: loc.list[loc.index] };
+  }
+
+  function ensureCmpProps(cmp) {
+    if (cmp.props && typeof cmp.props === 'object') return cmp.props;
+    const defaults = api.getDefaultProps(cmp.type);
+    cmp.props = Object.keys(defaults).length ? JSON.parse(JSON.stringify(defaults)) : {};
+    return cmp.props;
+  }
+
+  function addComponentPropItem(id, key = 'items') {
+    const hit = getCmpById(id);
+    if (!hit) return;
+    const { cmp } = hit;
+    const props = ensureCmpProps(cmp);
+    if (!Array.isArray(props[key])) {
+      const defaults = api.getDefaultProps(cmp.type);
+      props[key] = Array.isArray(defaults[key]) ? [...defaults[key]] : [];
+    }
+    const next = `Item ${props[key].length + 1}`;
+    props[key].push(next);
+    api.state.selectedCmpId = cmp.id;
+    api.renderAll();
+  }
+
+  function renameComponentPropItem(id, key, itemIndex, nextText) {
+    const hit = getCmpById(id);
+    if (!hit) return;
+    const { cmp } = hit;
+    const props = ensureCmpProps(cmp);
+    if (!Array.isArray(props[key])) return;
+    if (itemIndex < 0 || itemIndex >= props[key].length) return;
+    const value = (nextText || '').trim();
+    if (!value) return;
+    props[key][itemIndex] = value;
+    api.state.selectedCmpId = cmp.id;
+    api.renderAll();
+  }
+
+  function setComponentPropValue(id, key, nextText) {
+    const hit = getCmpById(id);
+    if (!hit) return;
+    const { cmp } = hit;
+    const value = (nextText || '').trim();
+    const props = ensureCmpProps(cmp);
+    props[key] = value;
+    api.state.selectedCmpId = cmp.id;
+    api.renderAll();
+  }
+
+  function setComponentPropPathValue(id, path, nextText) {
+    const hit = getCmpById(id);
+    if (!hit) return;
+    const { cmp } = hit;
+    const props = ensureCmpProps(cmp);
+    const parts = String(path || '').split('.').filter(Boolean);
+    if (!parts.length) return;
+
+    let node = props;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = /^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i];
+      if (node[key] == null) return;
+      node = node[key];
+    }
+    const last = parts[parts.length - 1];
+    const finalKey = /^\d+$/.test(last) ? Number(last) : last;
+    node[finalKey] = (nextText || '').trim();
+
+    api.state.selectedCmpId = cmp.id;
+    api.renderAll();
+  }
+
+  function addComponentPropRow(id, key = 'rows') {
+    const hit = getCmpById(id);
+    if (!hit) return;
+    const { cmp } = hit;
+    const props = ensureCmpProps(cmp);
+    const rows = Array.isArray(props[key]) ? props[key] : [];
+    props[key] = rows;
+
+    const cols = Array.isArray(props.columns) ? props.columns.length : 3;
+    rows.push(Array.from({ length: Math.max(1, cols) }, (_, i) => `Value ${rows.length + 1}.${i + 1}`));
+
+    api.state.selectedCmpId = cmp.id;
+    api.renderAll();
+  }
+
+  function addComponentPropColumn(id, columnsKey = 'columns', rowsKey = 'rows') {
+    const hit = getCmpById(id);
+    if (!hit) return;
+    const { cmp } = hit;
+    const props = ensureCmpProps(cmp);
+
+    const columns = Array.isArray(props[columnsKey]) ? props[columnsKey] : [];
+    const rows = Array.isArray(props[rowsKey]) ? props[rowsKey] : [];
+    props[columnsKey] = columns;
+    props[rowsKey] = rows;
+
+    const nextColIndex = columns.length + 1;
+    columns.push(`Column ${nextColIndex}`);
+
+    rows.forEach((row, ri) => {
+      if (!Array.isArray(row)) {
+        rows[ri] = [];
+      }
+      rows[ri].push(`Value ${ri + 1}.${nextColIndex}`);
+    });
+
+    api.state.selectedCmpId = cmp.id;
+    api.renderAll();
+  }
+
+  function renameShellGroupTitle(id, groupIndex, nextText) {
+    const frame = api.getActiveFrame();
+    if (!frame) return;
+    const loc = api.locateCmp(frame, id);
+    if (!loc) return;
+    const cmp = loc.list[loc.index];
+    if (!cmp.props || !Array.isArray(cmp.props.groups)) return;
+    if (groupIndex < 0 || groupIndex >= cmp.props.groups.length) return;
+    const value = (nextText || '').trim();
+    cmp.props.groups[groupIndex].title = value;
+    api.state.selectedCmpId = cmp.id;
+    api.renderAll();
+  }
+
+  function addShellItem(id, groupIndex = null) {
+    const frame = api.getActiveFrame();
+    if (!frame) return;
+    const loc = api.locateCmp(frame, id);
+    if (!loc) return;
+    const cmp = loc.list[loc.index];
+    const defaults = api.getDefaultProps(cmp.type);
+    cmp.props = cmp.props || (Object.keys(defaults).length ? JSON.parse(JSON.stringify(defaults)) : {});
+
+    if (cmp.type === 'sidenav-grouped') {
+      const groups = Array.isArray(cmp.props.groups) ? cmp.props.groups : [];
+      const idx = Number.isInteger(groupIndex) ? groupIndex : 0;
+      if (!groups[idx]) return;
+      const nextLabel = `Item ${groups[idx].items.length + 1}`;
+      groups[idx].items.push(nextLabel);
+    } else {
+      addComponentPropItem(id, 'items');
+      return;
+    }
+
+    api.state.selectedCmpId = cmp.id;
+    api.renderAll();
+  }
+
+  function renameShellItem(id, itemIndex, nextText, groupIndex = null) {
+    const frame = api.getActiveFrame();
+    if (!frame) return;
+    const loc = api.locateCmp(frame, id);
+    if (!loc) return;
+    const cmp = loc.list[loc.index];
+    const value = (nextText || '').trim();
+    if (!value) return;
+
+    if (cmp.type === 'sidenav-grouped') {
+      if (!cmp.props || !Array.isArray(cmp.props.groups)) return;
+      const g = cmp.props.groups[groupIndex];
+      if (!g || !Array.isArray(g.items)) return;
+      if (itemIndex < 0 || itemIndex >= g.items.length) return;
+      g.items[itemIndex] = value;
+    } else {
+      renameComponentPropItem(id, 'items', itemIndex, value);
+      return;
+    }
+
+    api.state.selectedCmpId = cmp.id;
     api.renderAll();
   }
 
@@ -271,10 +523,21 @@
     reorderById,
     appendToRegion,
     moveToRegion,
+    ensureEditableComponentLink,
+    editEditableComponentByCmpId,
     addPage,
     deletePage,
     switchPage,
     addFrame,
     deleteFrame,
+    addComponentPropItem,
+    renameComponentPropItem,
+    setComponentPropValue,
+    setComponentPropPathValue,
+    addComponentPropRow,
+    addComponentPropColumn,
+    renameShellGroupTitle,
+    addShellItem,
+    renameShellItem,
   });
 })();

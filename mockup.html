@@ -61,50 +61,58 @@
 <div class="builder-overlay" id="builderOverlay">
   <div class="builder-panel">
     <div class="builder-head">
-      <div style="display:flex;align-items:center;gap:10px;">
+      <div class="builder-head-id">
         <div class="builder-icon-preview" id="bIconPreview">CMP</div>
-        <div>
-          <div style="font-weight:600;font-size:13px;">Component Builder</div>
-          <div style="font-size:11px;color:var(--text-mute);">Design a reusable custom component</div>
+        <div class="builder-head-meta">
+          <input id="bName" class="builder-name-input" placeholder="Component name" />
+          <input id="bDesc" class="builder-desc-input" placeholder="Short description (optional)" />
         </div>
       </div>
-      <div style="display:flex;gap:8px;">
+      <div class="builder-head-actions">
         <button class="btn" id="bDelete" style="color:#e06060;border-color:#e06060;display:none;">Delete</button>
         <button class="btn" id="bCancel">Cancel</button>
         <button class="btn primary" id="bSave">Save component</button>
       </div>
     </div>
-    <div class="builder-body">
-      <div class="builder-form">
-        <div class="insp-section">
-          <h4>Identity</h4>
-          <div class="field"><label>Name</label><input id="bName" placeholder="e.g. Product card" /></div>
-          <div class="field"><label>Description</label><input id="bDesc" placeholder="Short description" /></div>
-          <div class="field"><label>Icon</label><input id="bIcon" maxlength="4" placeholder="PRD" /></div>
-          <div class="field"><label>Color</label><div id="bColorPicker" style="display:flex;gap:6px;flex-wrap:wrap;"></div></div>
-        </div>
-        <div class="insp-section" style="border-bottom:0;">
-          <h4 style="display:flex;align-items:center;">Slots <span id="bSlotCount" style="color:var(--text-mute);font-weight:400;margin-left:4px;"></span>
-            <button id="bAddSlot" class="btn" style="margin-left:auto;height:22px;padding:0 8px;font-size:11px;">+ Add slot</button>
-          </h4>
-          <div id="bSlotList"></div>
-        </div>
-      </div>
-      <div class="builder-preview">
-        <div class="builder-preview-label">Live preview</div>
-        <div class="device" style="max-width:360px;">
-          <div class="device-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-          <div style="padding:14px;">
-            <div class="cmp" style="position:relative;">
-              <span class="cmp-tag" id="bPreviewTag">custom</span>
-              <div id="bPreviewContent"></div>
-            </div>
+    <div class="builder-body builder-body-3col">
+      <!-- LEFT: PALETTE -->
+      <aside class="bldr-palette">
+        <div class="bldr-section-title">Slot palette</div>
+        <div class="bldr-palette-hint">Click to add into the selected group (or root).</div>
+        <div id="bPalette" class="bldr-palette-grid"></div>
+        <div class="bldr-section-title" style="margin-top:14px;">Identity</div>
+        <div class="field"><label>Icon</label><input id="bIcon" maxlength="4" placeholder="PRD" /></div>
+        <div class="field"><label>Color</label><div id="bColorPicker" style="display:flex;gap:6px;flex-wrap:wrap;"></div></div>
+      </aside>
+
+      <!-- CENTER: CANVAS -->
+      <section class="bldr-canvas-wrap">
+        <div class="bldr-toolbar">
+          <div class="bldr-toolbar-group">
+            <button class="btn small" id="bGroupCol" title="Group selected as flex column">⬇ Column</button>
+            <button class="btn small" id="bGroupRow" title="Group selected as flex row">➡ Row</button>
+            <button class="btn small" id="bGroupGrid" title="Group selected as grid">▦ Grid</button>
+            <button class="btn small" id="bUngroup" title="Ungroup">⤺ Ungroup</button>
           </div>
+          <div class="bldr-toolbar-group">
+            <button class="btn small" id="bMoveUp" title="Move up">▲</button>
+            <button class="btn small" id="bMoveDown" title="Move down">▼</button>
+            <button class="btn small" id="bDuplicate" title="Duplicate">⎘</button>
+            <button class="btn small" id="bDeleteNode" title="Delete">✕</button>
+          </div>
+          <div class="bldr-toolbar-group">
+            <button class="btn small" id="bUndo" title="Undo (Ctrl/Cmd+Z)">↶ Undo</button>
+            <button class="btn small" id="bRedo" title="Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)">↷ Redo</button>
+          </div>
+          <div class="bldr-toolbar-spacer"></div>
+          <div class="bldr-selection-info" id="bSelInfo">Nothing selected</div>
         </div>
-        <div style="font-size:11px;color:var(--text-mute);line-height:1.7;">
-          <b>Slot types:</b> heading &nbsp;·&nbsp; text &nbsp;·&nbsp; label &nbsp;·&nbsp; badge &nbsp;·&nbsp; button &nbsp;·&nbsp; input &nbsp;·&nbsp; image &nbsp;·&nbsp; row &nbsp;·&nbsp; divider
-        </div>
-      </div>
+        <div class="bldr-canvas" id="bCanvas"></div>
+        <div class="bldr-canvas-hint">Click to select &nbsp;·&nbsp; Shift/Ctrl-click to multi-select &nbsp;·&nbsp; selection must share the same parent to group</div>
+      </section>
+
+      <!-- RIGHT: PROPERTIES -->
+      <aside class="bldr-props" id="bProps"></aside>
     </div>
   </div>
 </div>

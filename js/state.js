@@ -28,6 +28,95 @@
   const classifyRegion = type => REGION_RULES[type] || 'main';
   const emptyRegions = () => ({ header: [], sidebar: [], main: [], right: [], footer: [] });
 
+  function getDefaultProps(type) {
+    switch (type) {
+      case 'navbar':
+      case 'nav-basic':
+      case 'nav-search':
+        return { items: ['Overview', 'Users', 'Reports'] };
+      case 'nav-cta':
+        return { items: ['Overview', 'Users'], ctaText: 'Get started' };
+      case 'sidebar':
+      case 'sidenav-simple':
+        return {
+          sectionTitle: 'Navigation',
+          workspaceTitle: 'Workspace',
+          items: ['Overview', 'Users', 'Reports', 'Settings'],
+        };
+      case 'sidenav-grouped':
+        return {
+          groups: [
+            { title: 'Main', items: ['Overview', 'Reports'] },
+            { title: 'Admin', items: ['Users', 'Billing'] },
+          ],
+        };
+      case 'sidenav-workspace':
+        return {
+          sectionTitle: 'Workspace',
+          workspace: 'Acme Workspace',
+          items: ['Dashboard', 'Members', 'Projects', 'Settings'],
+        };
+      case 'tabs':
+        return { items: ['All', 'Active', 'Invited', 'Disabled'] };
+      case 'breadcrumb':
+        return { items: ['Home', 'Section', 'Detail'] };
+      case 'footer':
+        return { items: ['Privacy', 'Terms', 'Support'] };
+      case 'hero':
+        return { items: ['Title', 'Subtitle', 'Get started'] };
+      case 'kpi':
+        return { items: ['Users', 'Active', 'Revenue', 'Churn'] };
+      case 'list':
+        return {
+          columns: ['Name', 'Email', 'Status', 'Joined'],
+          rows: [
+            ['Ada Lovelace', 'ada@acme.io', 'Active', 'Mar 4, 2025'],
+            ['Linus Torvalds', 'linus@acme.io', 'Active', 'Jan 12, 2024'],
+            ['Grace Hopper', 'grace@acme.io', 'Inactive', 'Aug 22, 2023'],
+          ],
+        };
+      case 'chart':
+        return { items: ['Jan', 'Feb', 'Mar', 'Apr'] };
+      case 'detail':
+      case 'rightpanel-detail':
+        return { items: ['Status', 'Email', 'Role', 'Joined'] };
+      case 'rightpanel-filters':
+        return { items: ['Status', 'Date range', 'Assigned to'] };
+      case 'rightpanel-activity':
+        return { items: ['Created record', 'Updated status', 'Added note'] };
+      case 'empty':
+        return { items: ['Nothing here yet', 'Create record'] };
+      case 'main':
+        return { items: ['Summary', 'Highlights', 'Notes'] };
+      case 'form':
+        return { items: ['Name', 'Email', 'Role', 'Team'] };
+      case 'filters':
+        return { items: ['Role', 'Joined', 'Clear'] };
+      case 'editable-component':
+        return {};
+      case 'stepper':
+        return { items: ['Account', 'Profile', 'Team', 'Review'] };
+      case 'modal':
+        return { items: ['Cancel', 'Confirm'] };
+      case 'actions':
+        return { items: ['Cancel', 'Save changes'] };
+      default:
+      {
+        // Extensibility contract:
+        // 1) If a new component type defines COMPONENT_TYPES[type].defaultProps, use it.
+        // 2) Otherwise auto-enable generic editing with a single item from its label.
+        const metaDefault = api.COMPONENT_TYPES?.[type]?.defaultProps;
+        if (metaDefault && typeof metaDefault === 'object') {
+          return JSON.parse(JSON.stringify(metaDefault));
+        }
+        if (type === 'custom') return {};
+        const label = api.DEFAULT_LABELS?.[type] || api.COMPONENT_TYPES?.[type]?.label || type;
+        if (!label) return {};
+        return { items: [label] };
+      }
+    }
+  }
+
   function flatToRegions(components) {
     const r = emptyRegions();
     components.forEach(c => r[classifyRegion(c.type)].push(c));
@@ -116,6 +205,7 @@
     STRUCTURAL_TYPES,
     classifyRegion,
     emptyRegions,
+    getDefaultProps,
     flatToRegions,
     regionsToFlat,
     makeFrame,

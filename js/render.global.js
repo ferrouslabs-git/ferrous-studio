@@ -289,6 +289,46 @@
     return wrap;
   }
 
+  function startInlineEdit(target, initialValue, onCommit) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'inline-edit-input';
+    input.value = initialValue || '';
+    input.style.width = `${Math.max(72, Math.ceil(target.getBoundingClientRect().width))}px`;
+
+    const parent = target.parentElement;
+    if (!parent) return;
+    const prevDisplay = target.style.display;
+    target.style.display = 'none';
+    parent.insertBefore(input, target.nextSibling);
+
+    const cleanup = () => {
+      if (input.parentElement) input.parentElement.removeChild(input);
+      target.style.display = prevDisplay;
+    };
+
+    const commit = () => {
+      onCommit(input.value);
+      cleanup();
+    };
+
+    const cancel = () => cleanup();
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+    });
+    input.addEventListener('blur', commit, { once: true });
+
+    input.focus();
+    input.select();
+  }
+
   function renderComponent(component, index, frame, region) {
     const el = document.createElement('div');
     el.className = 'cmp' + (component.id === api.state.selectedCmpId ? ' selected' : '');
@@ -323,15 +363,106 @@
       mk('↓', 'Move down', () => api.moveComponent(component.id, 1)),
       mk('×', 'Remove', () => api.removeComponent(component.id))
     );
+    if (component.type === 'editable-component' || component.type === 'custom') {
+      actions.prepend(mk('✎', 'Edit component structure', () => api.editEditableComponentByCmpId(component.id)));
+    }
     el.appendChild(actions);
     el.appendChild(api.renderSchematic(component, region));
 
     el.addEventListener('click', e => {
+      const addColBtn = e.target.closest('[data-prop-add-col]');
+      if (addColBtn) {
+        e.stopPropagation();
+        api.addComponentPropColumn(
+          component.id,
+          addColBtn.dataset.propAddCol || 'columns',
+          addColBtn.dataset.propRowsKey || 'rows'
+        );
+        return;
+      }
+      const addRowBtn = e.target.closest('[data-prop-add-row]');
+      if (addRowBtn) {
+        e.stopPropagation();
+        api.addComponentPropRow(component.id, addRowBtn.dataset.propAddRow || 'rows');
+        return;
+      }
+      const propAddBtn = e.target.closest('[data-prop-add-key]');
+      if (propAddBtn) {
+        e.stopPropagation();
+        api.addComponentPropItem(component.id, propAddBtn.dataset.propAddKey || 'items');
+        return;
+      }
+      const addBtn = e.target.closest('[data-shell-add]');
+      if (addBtn) {
+        e.stopPropagation();
+        const rawGroup = addBtn.dataset.shellGroupIndex;
+        const groupIndex = rawGroup == null ? null : Number(rawGroup);
+        api.addShellItem(component.id, Number.isNaN(groupIndex) ? null : groupIndex);
+        return;
+      }
+      // Let the browser detect native double-click on editable tokens.
+      if (e.target.closest('[data-prop-key], [data-prop-path], [data-shell-item-index], [data-shell-group-title-index]')) {
+        return;
+      }
       if (e.target.closest('.cmp-actions')) return;
       api.state.selectedCmpId = component.id;
       renderAll();
     });
+    el.addEventListener('dblclick', e => {
+      if (!e.target.closest('[data-prop-key], [data-prop-path], [data-shell-item-index], [data-shell-group-title-index]')) {
+        if (component.type === 'editable-component' || component.type === 'custom') {
+          e.stopPropagation();
+          api.editEditableComponentByCmpId(component.id);
+          return;
+        }
+      }
+      const groupTitleTarget = e.target.closest('[data-shell-group-title-index]');
+      if (groupTitleTarget) {
+        e.stopPropagation();
+        const groupIndex = Number(groupTitleTarget.dataset.shellGroupTitleIndex);
+        if (Number.isNaN(groupIndex)) return;
+        const current = groupTitleTarget.dataset.shellGroupTitleText || groupTitleTarget.textContent.trim();
+        startInlineEdit(groupTitleTarget, current, next => api.renameShellGroupTitle(component.id, groupIndex, next));
+        return;
+      }
+      const propTarget = e.target.closest('[data-prop-key]');
+      if (propTarget) {
+        e.stopPropagation();
+        const key = propTarget.dataset.propKey;
+        const rawIndex = propTarget.dataset.propIndex;
+        const itemIndex = rawIndex == null ? null : Number(rawIndex);
+        const current = propTarget.dataset.propText || propTarget.textContent.trim();
+        startInlineEdit(propTarget, current, next => {
+          if (itemIndex == null || Number.isNaN(itemIndex)) api.setComponentPropValue(component.id, key, next);
+          else api.renameComponentPropItem(component.id, key, itemIndex, next);
+        });
+        return;
+      }
+      const propPathTarget = e.target.closest('[data-prop-path]');
+      if (propPathTarget) {
+        e.stopPropagation();
+        const path = propPathTarget.dataset.propPath;
+        const current = propPathTarget.dataset.propText || propPathTarget.textContent.trim();
+        startInlineEdit(propPathTarget, current, next => api.setComponentPropPathValue(component.id, path, next));
+        return;
+      }
+      const target = e.target.closest('[data-shell-item-index]');
+      if (!target) return;
+      e.stopPropagation();
+      const itemIndex = Number(target.dataset.shellItemIndex);
+      if (Number.isNaN(itemIndex)) return;
+      const rawGroup = target.dataset.shellGroupIndex;
+      const groupIndex = rawGroup == null ? null : Number(rawGroup);
+      const current = target.dataset.shellItemText || target.textContent.trim();
+      startInlineEdit(target, current, next => {
+        api.renameShellItem(component.id, itemIndex, next, Number.isNaN(groupIndex) ? null : groupIndex);
+      });
+    });
     el.addEventListener('dragstart', e => {
+      if (e.target.closest('.shell-pill, .prop-pill, .editable-title, .editable-text, .editable-pill, .tbl-edit, .inline-edit-input')) {
+        e.preventDefault();
+        return;
+      }
       el.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('application/x-vsub', JSON.stringify({ kind: 'reorder', id: component.id }));
@@ -444,9 +575,13 @@
         <div class="field"><label>Type</label><select id="cmpType"></select></div>
         <div class="field"><label>Label</label><input id="cmpLabel" /></div>
         <div class="field"><label>ID</label><input id="cmpId" disabled /></div>
-        <div style="font-size:11px;color:var(--text-mute);margin-top:6px;">V1 schema · only <code style="font-family:var(--mono)">type</code> + <code style="font-family:var(--mono)">label</code> are stored.</div>`;
+        <div style="font-size:11px;color:var(--text-mute);margin-top:6px;">V1 schema stores <code style="font-family:var(--mono)">type</code>, <code style="font-family:var(--mono)">label</code>, and optional <code style="font-family:var(--mono)">props</code> for shell/item content.</div>`;
       const typeSel = cmpSec.querySelector('#cmpType');
-      Object.keys(api.COMPONENT_TYPES).forEach(type => {
+      const typeOptions = [...new Set([
+        ...Object.keys(api.COMPONENT_TYPES),
+        ...Object.keys(api.DEFAULT_LABELS || {}),
+      ])];
+      typeOptions.forEach(type => {
         const option = document.createElement('option');
         option.value = type;
         option.textContent = type;
@@ -455,6 +590,11 @@
       });
       typeSel.addEventListener('change', e => {
         cmp.type = e.target.value;
+        if (cmp.type === 'editable-component') api.ensureEditableComponentLink(cmp);
+        if (cmp.type !== 'editable-component' && cmp.type !== 'custom') delete cmp.customId;
+        const defaults = api.getDefaultProps(cmp.type);
+        if (Object.keys(defaults).length) cmp.props = JSON.parse(JSON.stringify(defaults));
+        if (!Object.keys(defaults).length) delete cmp.props;
         renderCanvas();
         renderJson();
       });

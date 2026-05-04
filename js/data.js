@@ -2,6 +2,8 @@
 (() => {
   const api = window.VSUB = window.VSUB || {};
 
+  // Extensibility: new component types can optionally provide `defaultProps` here.
+  // If omitted, state.js auto-falls back to { items: [label] } so inline editing still works.
   api.COMPONENT_TYPES = {
     navbar:     { group: 'Structure',    label: 'Nav bar',           desc: 'App header with logo, links, avatar' },
     sidebar:    { group: 'Structure',    label: 'Sidebar',           desc: 'Vertical nav rail or section list' },
@@ -17,6 +19,7 @@
     main:       { group: 'Content',      label: 'Main content',      desc: 'Generic rich-text or summary area' },
     form:       { group: 'Interaction',  label: 'Form',              desc: 'Input fields for create / edit' },
     filters:    { group: 'Interaction',  label: 'Filter / search',   desc: 'Search box + filter chips' },
+    'editable-component': { group: 'Interaction',  label: 'Editable component', desc: 'Reusable custom block editable with the builder' },
     stepper:    { group: 'Interaction',  label: 'Stepper',           desc: 'Multi-step progress indicator' },
     modal:      { group: 'Interaction',  label: 'Modal / dialog',    desc: 'Overlay dialog box' },
     actions:    { group: 'Interaction',  label: 'Footer actions',    desc: 'Save / cancel button row' },
@@ -26,6 +29,7 @@
     navbar: 'App', sidebar: 'Sidebar', tabs: 'Tabs', breadcrumb: 'Breadcrumb', footer: 'Footer',
     hero: 'Hero', kpi: 'Metrics', list: 'List', chart: 'Chart', detail: 'Detail',
     empty: 'No data yet', main: 'Main', form: 'Form', filters: 'Search bar',
+    'editable-component': 'Editable component',
     stepper: 'Steps', modal: 'Dialog', actions: 'Actions',
     'nav-basic': 'Nav', 'nav-search': 'Nav', 'nav-cta': 'Nav',
     'sidenav-simple': 'Side Nav', 'sidenav-grouped': 'Side Nav', 'sidenav-workspace': 'Side Nav',
