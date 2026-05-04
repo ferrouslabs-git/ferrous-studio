@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Visual Spec UI Builder — Mockup</title>
+<link rel="stylesheet" href="css/styles.css" />
+
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">Visual Spec UI Builder <span class="v">v1.0 · mockup</span></div>
+  <div class="crumbs">Project: <b>Acme Admin</b> · Schema <b>v1</b></div>
+  <div class="spacer"></div>
+  <button class="btn ghost" id="themeToggle" title="Toggle theme" aria-label="Toggle theme"><span id="themeIcon">☾</span> <span id="themeLabel">Light</span></button>
+  <button class="btn ghost" id="addPageBtn">Add page</button>
+  <button class="btn ghost" id="addFrameBtn">Add frame</button>
+  <button class="btn primary" id="copyJsonBtn">Copy JSON</button>
+</div>
+
+
+<div class="workspace">
+<div class="app" id="app">
+
+  <!-- LEFT: LIBRARY -->
+  <aside class="panel" id="leftPanel">
+    <div class="tabs">
+      <div class="tab" data-libtab="patterns">Screen patterns</div>
+      <div class="tab active" data-libtab="components">Components</div>
+      <div class="tab" data-libtab="custom">My components</div>
+    </div>
+    <div class="panel-body" id="libraryBody"></div>
+  </aside>
+
+  <!-- CENTER: CANVAS -->
+  <section class="panel center">
+    <div class="page-tabs" id="pageTabs"></div>
+    <div class="frame-tabs" id="frameTabs"></div>
+    <div class="canvas-wrap">
+      <div class="device">
+        <div class="device-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="url" id="deviceUrl">acme-admin.app/</span>
+        </div>
+        <div class="frame-body" id="frameBody"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: INSPECTOR -->
+  <aside class="panel" id="rightPanel">
+    <div class="panel-head">Inspector</div>
+    <div class="panel-body" id="inspectorBody"></div>
+  </aside>
+</div>
+<button class="toggle left"  id="toggleLeft"  title="Collapse library (Ctrl/⌘+B)" aria-label="Toggle library panel">‹</button>
+<button class="toggle right" id="toggleRight" title="Collapse inspector (Ctrl/⌘+I)" aria-label="Toggle inspector panel">›</button>
+</div>
+
+<div class="builder-overlay" id="builderOverlay">
+  <div class="builder-panel">
+    <div class="builder-head">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="builder-icon-preview" id="bIconPreview">CMP</div>
+        <div>
+          <div style="font-weight:600;font-size:13px;">Component Builder</div>
+          <div style="font-size:11px;color:var(--text-mute);">Design a reusable custom component</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" id="bDelete" style="color:#e06060;border-color:#e06060;display:none;">Delete</button>
+        <button class="btn" id="bCancel">Cancel</button>
+        <button class="btn primary" id="bSave">Save component</button>
+      </div>
+    </div>
+    <div class="builder-body">
+      <div class="builder-form">
+        <div class="insp-section">
+          <h4>Identity</h4>
+          <div class="field"><label>Name</label><input id="bName" placeholder="e.g. Product card" /></div>
+          <div class="field"><label>Description</label><input id="bDesc" placeholder="Short description" /></div>
+          <div class="field"><label>Icon</label><input id="bIcon" maxlength="4" placeholder="PRD" /></div>
+          <div class="field"><label>Color</label><div id="bColorPicker" style="display:flex;gap:6px;flex-wrap:wrap;"></div></div>
+        </div>
+        <div class="insp-section" style="border-bottom:0;">
+          <h4 style="display:flex;align-items:center;">Slots <span id="bSlotCount" style="color:var(--text-mute);font-weight:400;margin-left:4px;"></span>
+            <button id="bAddSlot" class="btn" style="margin-left:auto;height:22px;padding:0 8px;font-size:11px;">+ Add slot</button>
+          </h4>
+          <div id="bSlotList"></div>
+        </div>
+      </div>
+      <div class="builder-preview">
+        <div class="builder-preview-label">Live preview</div>
+        <div class="device" style="max-width:360px;">
+          <div class="device-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          <div style="padding:14px;">
+            <div class="cmp" style="position:relative;">
+              <span class="cmp-tag" id="bPreviewTag">custom</span>
+              <div id="bPreviewContent"></div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-mute);line-height:1.7;">
+          <b>Slot types:</b> heading &nbsp;·&nbsp; text &nbsp;·&nbsp; label &nbsp;·&nbsp; badge &nbsp;·&nbsp; button &nbsp;·&nbsp; input &nbsp;·&nbsp; image &nbsp;·&nbsp; row &nbsp;·&nbsp; divider
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script defer src="js/data.js"></script>
+<script defer src="js/state.js"></script>
+<script defer src="js/schematics.global.js"></script>
+<script defer src="js/render.global.js"></script>
+<script defer src="js/mutations.global.js"></script>
+<script defer src="js/dnd.global.js"></script>
+<script defer src="js/builder.global.js"></script>
+<script defer src="js/app.global.js"></script>
+</body>
+</html>

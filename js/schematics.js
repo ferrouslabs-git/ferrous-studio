@@ -1,0 +1,243 @@
+// Schematic HTML generators for each component type.
+import { state } from './state.js';
+
+export function renderCustomSchematicHtml(def) {
+  const lines = def.slots.map(s => {
+    if (s.type === 'text')   return `<div class="sk-bar dim" style="width:80%;"></div>`;
+    if (s.type === 'image')  return `<div style="height:48px;background:var(--skeleton);border-radius:4px;"></div>`;
+    if (s.type === 'action') return `<span class="sk-pill accent">${s.label || 'Action'}</span>`;
+    if (s.type === 'list')   return `<div style="display:flex;flex-direction:column;gap:4px;">${[1,2,3].map(() => `<div class="sk-bar dim" style="width:90%;"></div>`).join('')}</div>`;
+    if (s.type === 'badge')  return `<span class="sk-pill" style="background:${def.color || 'var(--skeleton-dim)'}22;color:${def.color || 'var(--accent)'};">${s.label || 'Badge'}</span>`;
+    return `<div class="sk-bar dim" style="width:70%;"></div>`;
+  }).join('');
+
+  return `<div style="display:flex;flex-direction:column;gap:8px;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:28px;height:28px;border-radius:6px;display:grid;place-items:center;
+        font-family:var(--mono);font-size:10px;font-weight:700;
+        background:${def.color ? def.color + '22' : 'var(--accent-soft)'};
+        color:${def.color || 'var(--accent)'};border:1px solid ${def.color || 'var(--accent)'};">
+        ${(def.icon || 'CMP').slice(0, 3).toUpperCase()}
+      </div>
+      <div class="sk-bar" style="width:100px;height:10px;"></div>
+    </div>
+    ${lines}
+  </div>`;
+}
+
+export function renderSchematic(c, region) {
+  const wrap = document.createElement('div');
+  switch (c.type) {
+    case 'navbar':
+      wrap.innerHTML = `
+        <div class="nv">
+          <div class="sk-bar logo" style="width:64px;height:10px;"></div>
+          <div class="links">
+            <div class="sk-bar" style="width:48px;"></div>
+            <div class="sk-bar" style="width:48px;"></div>
+            <div class="sk-bar" style="width:48px;"></div>
+          </div>
+          <div class="avatar"></div>
+        </div>`;
+      break;
+
+    case 'sidebar':
+      if (region === 'sidebar') {
+        wrap.innerHTML = `
+          <div class="sidebar-shell">
+            <div class="section">
+              <div class="title">Navigation</div>
+              <div class="sk-pill accent" style="width:100%;justify-content:flex-start;">Overview</div>
+              <div class="sk-pill" style="width:100%;justify-content:flex-start;">Users</div>
+              <div class="sk-pill" style="width:100%;justify-content:flex-start;">Billing</div>
+              <div class="sk-pill" style="width:100%;justify-content:flex-start;">Settings</div>
+            </div>
+            <div class="section" style="margin-top:auto;">
+              <div class="title">Workspace</div>
+              <div class="sk-bar dim" style="width:100%;"></div>
+              <div class="sk-bar dim" style="width:82%;"></div>
+            </div>
+          </div>`;
+      } else {
+        wrap.innerHTML = `
+          <div style="display:flex;gap:14px;">
+            <div style="width:120px;display:flex;flex-direction:column;gap:6px;">
+              <div class="sk-pill accent" style="width:100px;">Overview</div>
+              <div class="sk-pill" style="width:100px;">Users</div>
+              <div class="sk-pill" style="width:100px;">Billing</div>
+              <div class="sk-pill" style="width:100px;">Settings</div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+              <div class="sk-bar" style="width:60%;height:10px;"></div>
+              <div class="sk-bar dim" style="width:90%;"></div>
+              <div class="sk-bar dim" style="width:80%;"></div>
+            </div>
+          </div>`;
+      }
+      break;
+
+    case 'tabs':
+      wrap.innerHTML = `
+        <div class="sk-row">
+          <span class="sk-pill accent">All</span>
+          <span class="sk-pill">Active</span>
+          <span class="sk-pill">Invited</span>
+          <span class="sk-pill">Disabled</span>
+        </div>`;
+      break;
+
+    case 'breadcrumb':
+      wrap.innerHTML = `
+        <div class="sk-row" style="font-family:var(--mono);font-size:11px;color:var(--text-mute);">
+          Home <span style="opacity:.6;">/</span> Section <span style="opacity:.6;">/</span>
+          <span style="color:var(--text);">Detail</span>
+        </div>`;
+      break;
+
+    case 'footer':
+      wrap.innerHTML = `
+        <div class="sk-row" style="justify-content:space-between;color:var(--text-mute);font-size:11px;">
+          <span>© 2026 Acme</span><span>Privacy · Terms · Support</span>
+        </div>`;
+      break;
+
+    case 'hero':
+      wrap.innerHTML = `
+        <div style="padding:8px 4px;display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+          <div class="sk-bar" style="width:60%;height:14px;"></div>
+          <div class="sk-bar dim" style="width:80%;"></div>
+          <div class="sk-bar dim" style="width:70%;"></div>
+          <span class="sk-pill accent" style="margin-top:4px;">Get started ›</span>
+        </div>`;
+      break;
+
+    case 'kpi':
+      wrap.innerHTML = `
+        <div class="kpi">
+          ${[['Users','12,408','+4.2%'],['Active','3,120','+1.1%'],['Revenue','$84.3k','+8.0%'],['Churn','1.4%','-0.2%']]
+            .map(([l,v,d]) => `<div class="tile">
+              <div class="label">${l}</div>
+              <div class="value">${v}</div>
+              <div class="delta">${d}</div>
+            </div>`).join('')}
+        </div>`;
+      break;
+
+    case 'list':
+      wrap.innerHTML = `
+        <table class="tbl">
+          <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Joined</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Ada Lovelace</td><td>ada@acme.io</td><td><span class="status active">Active</span></td><td>Mar 4, 2025</td><td style="color:var(--text-mute)">⋯</td></tr>
+            <tr><td>Linus Torvalds</td><td>linus@acme.io</td><td><span class="status active">Active</span></td><td>Jan 12, 2024</td><td style="color:var(--text-mute)">⋯</td></tr>
+            <tr><td>Grace Hopper</td><td>grace@acme.io</td><td><span class="status inactive">Inactive</span></td><td>Aug 22, 2023</td><td style="color:var(--text-mute)">⋯</td></tr>
+            <tr><td>Alan Turing</td><td>alan@acme.io</td><td><span class="status active">Active</span></td><td>Feb 1, 2026</td><td style="color:var(--text-mute)">⋯</td></tr>
+          </tbody>
+        </table>`;
+      break;
+
+    case 'chart': {
+      const heights = [40,55,30,72,48,65,82,58,70,90,62,78];
+      wrap.innerHTML = `<div class="chart">${heights.map(h => `<div class="b" style="height:${h}%"></div>`).join('')}</div>`;
+      break;
+    }
+
+    case 'detail':
+      wrap.innerHTML = `
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:8px 14px;font-size:12px;">
+          <div style="color:var(--text-mute);">Name</div><div>Ada Lovelace</div>
+          <div style="color:var(--text-mute);">Email</div><div>ada@acme.io</div>
+          <div style="color:var(--text-mute);">Status</div><div><span class="status active">Active</span></div>
+          <div style="color:var(--text-mute);">Joined</div><div>Mar 4, 2025</div>
+        </div>`;
+      break;
+
+    case 'empty':
+      wrap.innerHTML = `
+        <div style="text-align:center;padding:18px;color:var(--text-mute);">
+          <div style="font-size:13px;color:var(--text);margin-bottom:4px;">Nothing here yet</div>
+          <div style="font-size:11px;margin-bottom:10px;">Get started by creating your first record.</div>
+          <span class="sk-pill accent">Create record</span>
+        </div>`;
+      break;
+
+    case 'main':
+      wrap.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:8px;padding:6px 0;">
+          <div class="sk-bar" style="width:40%;height:12px;"></div>
+          <div class="sk-bar dim" style="width:90%;"></div>
+          <div class="sk-bar dim" style="width:85%;"></div>
+          <div class="sk-bar dim" style="width:60%;"></div>
+        </div>`;
+      break;
+
+    case 'form':
+      wrap.innerHTML = `
+        <div class="sk-grid" style="grid-template-columns:1fr 1fr;">
+          ${['Name','Email','Role','Team','Notes','Avatar'].map(f => `
+            <div>
+              <div style="font-size:11px;color:var(--text-mute);margin-bottom:4px;">${f}</div>
+              <div class="sk-input"></div>
+            </div>
+          `).join('')}
+        </div>`;
+      break;
+
+    case 'filters':
+      wrap.innerHTML = `
+        <div class="filters">
+          <div class="sk-input search"></div>
+          <span class="sk-pill">Role ▾</span>
+          <span class="sk-pill">Joined ▾</span>
+          <span class="sk-pill">Clear</span>
+        </div>`;
+      break;
+
+    case 'stepper':
+      wrap.innerHTML = `
+        <div class="sk-row" style="gap:14px;">
+          ${['Account','Profile','Team','Review'].map((s,i) => `
+            <div class="sk-row" style="gap:6px;">
+              <div style="width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10px;
+                background:${i===1?'var(--accent)':'var(--skeleton-dim)'};
+                color:${i===1?'var(--on-accent)':'var(--text-mute)'};">${i+1}</div>
+              <span style="font-size:11px;color:${i===1?'var(--text)':'var(--text-mute)'};">${s}</span>
+            </div>
+          `).join('<div class="sk-bar dim" style="flex:1;height:2px;"></div>')}
+        </div>`;
+      break;
+
+    case 'modal':
+      wrap.innerHTML = `
+        <div style="border:1px solid var(--border-strong);border-radius:6px;padding:12px;background:var(--inset);">
+          <div class="sk-bar" style="width:50%;height:12px;margin-bottom:8px;"></div>
+          <div class="sk-bar dim" style="width:90%;"></div>
+          <div class="sk-bar dim" style="width:80%;margin-top:6px;"></div>
+          <div class="sk-row" style="justify-content:flex-end;margin-top:10px;gap:6px;">
+            <span class="sk-pill">Cancel</span>
+            <span class="sk-pill accent">Confirm</span>
+          </div>
+        </div>`;
+      break;
+
+    case 'actions':
+      wrap.innerHTML = `
+        <div class="sk-row" style="justify-content:flex-end;gap:8px;">
+          <span class="sk-pill">Cancel</span>
+          <span class="sk-pill accent">Save changes</span>
+        </div>`;
+      break;
+
+    case 'custom': {
+      const def = state.customComponents.find(d => d.id === c.customId);
+      wrap.innerHTML = def
+        ? renderCustomSchematicHtml(def)
+        : `<div style="font-family:var(--mono);font-size:11px;color:var(--text-mute);">[custom: ${c.customId || '?'}]</div>`;
+      break;
+    }
+
+    default:
+      wrap.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:var(--text-mute);">[${c.type}]</div>`;
+  }
+  return wrap;
+}
