@@ -1,0 +1,17 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+boto3==1.38.20
+pydantic==2.11.4
+httpx==0.28.1
+python-jose[cryptography]==3.3.0
+python-dotenv==1.0.1
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg[binary]==3.2.3   # sync engine
+asyncpg==0.30.0          # async engine (app/auth/); Windows-loop friendly
+greenlet==3.1.1          # required by SQLAlchemy async
+# app/auth module deps
+pydantic-settings==2.7.0
+python-json-logger==2.0.7
+PyYAML==6.0.2
+email-validator==2.2.0

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv312/
+*.egg-info/
+
+# Env / secrets
+*.local
+.env
+.env.local
+.env.production
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+package-lock.json.bak
+*.tsbuildinfo
+
+# AWS scratch (rendered task defs, credentials dumps)
+infra/ecs/generated/
+*.tmp.json
+
+# Terraform (state has secrets in it -- never commit; .terraform.lock.hcl IS committed)
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/crash.log
+infra/terraform/*.tfvars
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

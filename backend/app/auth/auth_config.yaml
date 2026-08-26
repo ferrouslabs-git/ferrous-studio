@@ -1,0 +1,68 @@
+version: "3.0"
+
+layers:
+  account:
+    enabled: true
+    display_name: "Account"
+  space:
+    enabled: true
+    display_name: "Space"
+
+inheritance:
+  account_member_space_access: none   # none | space_viewer | space_member
+
+roles:
+  platform:
+    - name: super_admin
+      display_name: "Super Admin"
+      permissions:
+        - platform:configure
+        - accounts:manage
+        - users:suspend
+
+  account:
+    - name: account_owner
+      display_name: "Account Owner"
+      permissions:
+        - account:delete
+        - account:read
+        - spaces:create
+        - members:manage
+        - members:invite
+
+    - name: account_admin
+      display_name: "Account Admin"
+      permissions:
+        - account:read
+        - spaces:create
+        - members:invite
+
+    - name: account_member
+      display_name: "Account Member"
+      permissions:
+        - account:read
+
+  space:
+    - name: space_admin
+      display_name: "Space Admin"
+      permissions:
+        - space:delete
+        - space:configure
+        - space:read
+        - members:manage
+        - members:invite
+        - data:read
+        - data:write
+
+    - name: space_member
+      display_name: "Space Member"
+      permissions:
+        - space:read
+        - data:read
+        - data:write
+
+    - name: space_viewer
+      display_name: "Space Viewer"
+      permissions:
+        - space:read
+        - data:read

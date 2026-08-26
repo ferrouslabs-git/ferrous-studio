@@ -1,0 +1,31 @@
+/* Base element styles. Ported from legacy/css/styles.css. */
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  transition: background-color .2s ease, color .2s ease;
+}
+
+/* ── Global input base ── */
+input, select, textarea {
+  background: var(--inset-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  padding: 0 8px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.25);
+}
+input::placeholder, textarea::placeholder { color: var(--text-mute); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
+::-webkit-scrollbar-track { background: transparent; }

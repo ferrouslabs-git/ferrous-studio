@@ -1,0 +1,44 @@
+/* Public landing page. */
+.landing { min-height: 100vh; }
+.landing h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
+.landing h3 { font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+.landing p { line-height: 1.6; }
+.landing section { max-width: 1040px; margin: 0 auto; padding: 48px 20px; }
+.landing section + section { border-top: 1px solid var(--border); }
+
+.landing-nav {
+  height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+.landing-nav .btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+.landing-hero { text-align: center; padding-top: 72px !important; padding-bottom: 64px !important; }
+.landing-kicker { color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin: 0 0 14px; }
+.landing-hero h1 { font-size: 36px; line-height: 1.2; font-weight: 700; margin: 0 auto 18px; max-width: 760px; }
+.landing-lead { color: var(--text-dim); font-size: 15px; max-width: 640px; margin: 0 auto 26px; }
+.landing-cta { display: flex; gap: 10px; justify-content: center; }
+.landing-cta .btn { height: 36px; padding: 0 18px; font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; }
+
+.landing-problem { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.landing-problem p { color: var(--text-dim); font-size: 14px; margin: 0; }
+.landing-problem em { color: var(--text); font-style: normal; font-weight: 600; }
+
+.landing-steps ol { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.landing-steps li p { color: var(--text-dim); font-size: 13px; margin: 0; }
+.landing-step-n { display: block; font-family: var(--mono); color: var(--accent); font-size: 12px; margin-bottom: 8px; }
+
+.landing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.landing-grid .card p { font-size: 13px; line-height: 1.55; }
+
+.landing-roadmap ul { margin: 10px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 13px; line-height: 1.8; }
+
+.landing-footer {
+  max-width: 1040px; margin: 0 auto; padding: 20px; display: flex; justify-content: space-between;
+  color: var(--text-mute); font-size: 12px; border-top: 1px solid var(--border);
+}
+.landing-footer a { color: var(--text-dim); }
+
+@media (max-width: 800px) {
+  .landing-problem, .landing-steps ol, .landing-grid { grid-template-columns: 1fr; }
+  .landing-hero h1 { font-size: 28px; }
+}

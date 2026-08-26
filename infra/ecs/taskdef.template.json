@@ -1,0 +1,48 @@
+{
+  "family": "{{PRODUCT_NAME}}-{{ENV}}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "{{EXECUTION_ROLE_ARN}}",
+  "taskRoleArn": "{{TASK_ROLE_ARN}}",
+  "runtimePlatform": { "cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX" },
+  "containerDefinitions": [
+    {
+      "name": "{{PRODUCT_NAME}}",
+      "image": "{{IMAGE}}",
+      "essential": true,
+      "portMappings": [{ "containerPort": {{CONTAINER_PORT}}, "protocol": "tcp" }],
+      "environment": [
+        { "name": "APP_ENV", "value": "{{ENV}}" },
+        { "name": "APP_NAME", "value": "{{PRODUCT_NAME}}-api" },
+        { "name": "AWS_REGION", "value": "{{AWS_REGION}}" },
+
+        { "name": "COGNITO_REGION", "value": "{{AWS_REGION}}" },
+        { "name": "COGNITO_USER_POOL_ID", "value": "{{COGNITO_USER_POOL_ID}}" },
+        { "name": "COGNITO_CLIENT_ID", "value": "{{COGNITO_CLIENT_ID}}" },
+        { "name": "COGNITO_DOMAIN", "value": "{{COGNITO_DOMAIN}}" },
+
+        { "name": "AUTH_MODE", "value": "hosted_ui" },
+        { "name": "AUTH_API_PREFIX", "value": "/api/um" },
+        { "name": "AUTH_COOKIE_PATH", "value": "/api/um" },
+        { "name": "COOKIE_SECURE", "value": "true" },
+
+        { "name": "APP_PUBLIC_URL", "value": "{{APP_PUBLIC_URL}}" },
+        { "name": "FRONTEND_URL", "value": "{{APP_PUBLIC_URL}}" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/{{PRODUCT_NAME}}-{{ENV}}",
+          "awslogs-region": "{{AWS_REGION}}",
+          "awslogs-stream-prefix": "web",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# Local Postgres for development.
+#
+# There's no local Cognito — auth always talks to the real STAGING user pool
+# (see infra/scripts/create-local-dev-user.ps1). This compose file is Postgres
+# only.
+#
+# Usage:
+#   cd infra/local
+#   docker compose up -d
+#
+# Credentials/port here must match backend/.env.local's DATABASE_URL.
+services:
+  postgres:
+    image: postgres:16
+    container_name: webapp-template-local-db
+    ports:
+      - "5442:5432"
+    environment:
+      - POSTGRES_USER=app
+      - POSTGRES_PASSWORD=local_dev_pw
+      - POSTGRES_DB=app_local
+    volumes:
+      - webapp-template-local-db-data:/var/lib/postgresql/data
+
+volumes:
+  webapp-template-local-db-data:
