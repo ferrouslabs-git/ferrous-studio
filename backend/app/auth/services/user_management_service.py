@@ -11,6 +11,19 @@ from ..models.membership import Membership
 from ..models.user import User
 
 
+async def _active_admin_count(db: AsyncSession, tenant_id: UUID) -> int:
+    """Active organisation admins, counting the legacy role name too."""
+    result = await db.execute(
+        select(func.count()).select_from(Membership).where(
+            Membership.scope_type == "account",
+            Membership.scope_id == tenant_id,
+            Membership.status == "active",
+            Membership.role_name.in_(["account_admin", "admin"]),
+        )
+    )
+    return result.scalar() or 0
+
+
 async def list_tenant_users(
     db: AsyncSession,
     tenant_id: UUID,
@@ -26,7 +39,9 @@ async def list_tenant_users(
             Membership.scope_id == tenant_id,
         )
     )
-    if status_filter:
+    # "all" returns every membership regardless of status (the Users page
+    # shows archived members alongside active ones).
+    if status_filter and status_filter != "all":
         stmt = stmt.where(Membership.status == status_filter)
     else:
         stmt = stmt.where(Membership.status == "active")
@@ -117,35 +132,44 @@ async def update_user_role(
 
     current_role = membership.role_name
 
-    if not actor_is_platform_admin:
-        actor_effective = actor_role or ""
+    # Admin is the top organisation role, so an admin may assign any of the
+    # three (including admin); anyone below cannot change roles at all.
+    if not actor_is_platform_admin and (actor_role or "") not in ("admin", "account_admin"):
+        raise ValueError("Only organisation admins can change member roles")
 
-        # Only owners (or platform admins, handled above) can assign owner roles.
-        if new_role in {"owner", "account_owner"}:
-            if actor_effective not in ("owner", "account_owner"):
-                raise ValueError("Only account owners can assign the owner role")
-
-        if actor_effective in ("admin", "account_admin"):
-            if current_role in ("owner", "account_owner"):
-                raise ValueError("Admins cannot modify owner roles")
-            if new_role in {"admin", "account_admin"}:
-                raise ValueError("Admins can only assign member or viewer roles")
-
-    # Prevent removing the last owner / account_owner.
-    if current_role in ("owner", "account_owner") and new_role not in ("owner", "account_owner"):
-        count_result = await db.execute(
-            select(func.count()).select_from(Membership).where(
-                Membership.scope_type == "account",
-                Membership.scope_id == tenant_id,
-                Membership.status == "active",
-                Membership.role_name.in_(["account_owner", "owner"]),
-            )
-        )
-        owner_count = count_result.scalar()
-        if owner_count <= 1:
-            raise ValueError("Cannot remove last owner")
+    # Prevent removing the last admin -- an organisation with none is
+    # unmanageable by anyone short of a platform admin.
+    if current_role in ("admin", "account_admin") and new_role not in ("admin", "account_admin"):
+        if await _active_admin_count(db, tenant_id) <= 1:
+            raise ValueError("Cannot remove the last organisation admin")
 
     membership.role_name = new_role
+    await db.commit()
+    await db.refresh(membership)
+    return membership
+
+
+async def update_tenant_user_name(
+    db: AsyncSession, tenant_id: UUID, user_id: UUID, name: str | None
+) -> Membership | None:
+    """Set a member's display name. The name lives on the user, not the
+    membership, so it shows in every organisation they belong to -- an admin
+    here may only edit it for someone who is an active member here."""
+    result = await db.execute(
+        select(Membership)
+        .options(selectinload(Membership.user))
+        .where(
+            Membership.scope_type == "account",
+            Membership.scope_id == tenant_id,
+            Membership.user_id == user_id,
+            Membership.status == "active",
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if not membership:
+        return None
+
+    membership.user.name = (name or "").strip() or None
     await db.commit()
     await db.refresh(membership)
     return membership
@@ -167,19 +191,10 @@ async def remove_user_from_tenant(db: AsyncSession, tenant_id: UUID, user_id: UU
 
     current_role = membership.role_name
 
-    # Prevent removing the last owner / account_owner.
-    if current_role in ("owner", "account_owner"):
-        count_result = await db.execute(
-            select(func.count()).select_from(Membership).where(
-                Membership.scope_type == "account",
-                Membership.scope_id == tenant_id,
-                Membership.status == "active",
-                Membership.role_name.in_(["account_owner", "owner"]),
-            )
-        )
-        owner_count = count_result.scalar()
-        if owner_count <= 1:
-            raise ValueError("Cannot remove last owner")
+    # Prevent removing the last admin.
+    if current_role in ("admin", "account_admin"):
+        if await _active_admin_count(db, tenant_id) <= 1:
+            raise ValueError("Cannot remove the last organisation admin")
 
     membership.status = "removed"
     await db.commit()

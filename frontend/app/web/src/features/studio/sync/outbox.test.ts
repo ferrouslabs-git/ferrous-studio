@@ -12,7 +12,7 @@ function batch(id: string, pageId = "page-a", baseVersion = 0): OpBatch {
     clientBatchId: id,
     pageId,
     baseVersion,
-    ops: [{ op: "set", target: { frame: "f1", cmp: "c1" }, path: "label", value: id }],
+    ops: [{ op: "set", target: { cmp: "c1" }, path: "label", value: id }],
   };
 }
 

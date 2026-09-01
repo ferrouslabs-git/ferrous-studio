@@ -37,3 +37,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Playwright MCP output (screenshots, snapshots)
+.playwright-mcp/

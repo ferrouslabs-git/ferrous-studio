@@ -1,15 +1,12 @@
 version: "3.0"
 
+# One scope layer only. Organisations own projects directly -- there is no
+# intermediate workspace/space layer, so `data:read` / `data:write` sit on the
+# organisation roles.
 layers:
   account:
     enabled: true
-    display_name: "Account"
-  space:
-    enabled: true
-    display_name: "Space"
-
-inheritance:
-  account_member_space_access: none   # none | space_viewer | space_member
+    display_name: "Organisation"
 
 roles:
   platform:
@@ -21,48 +18,25 @@ roles:
         - users:suspend
 
   account:
-    - name: account_owner
-      display_name: "Account Owner"
+    - name: account_admin
+      display_name: "Organisation Admin"
       permissions:
         - account:delete
         - account:read
-        - spaces:create
         - members:manage
         - members:invite
-
-    - name: account_admin
-      display_name: "Account Admin"
-      permissions:
-        - account:read
-        - spaces:create
-        - members:invite
+        - data:read
+        - data:write
 
     - name: account_member
-      display_name: "Account Member"
+      display_name: "Member"
       permissions:
         - account:read
-
-  space:
-    - name: space_admin
-      display_name: "Space Admin"
-      permissions:
-        - space:delete
-        - space:configure
-        - space:read
-        - members:manage
-        - members:invite
         - data:read
         - data:write
 
-    - name: space_member
-      display_name: "Space Member"
+    - name: account_viewer
+      display_name: "Viewer"
       permissions:
-        - space:read
-        - data:read
-        - data:write
-
-    - name: space_viewer
-      display_name: "Space Viewer"
-      permissions:
-        - space:read
+        - account:read
         - data:read

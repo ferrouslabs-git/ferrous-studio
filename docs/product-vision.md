@@ -1,5 +1,27 @@
 # Visual Spec UI Builder — Mockup
 
+> **Superseded (2026-09-01).** This document describes the original vanilla
+> prototype (`legacy/`), whose model was *pages › frames › five named regions*
+> compiled through `layoutTemplate` slots. The product has since moved to a
+> different model:
+>
+> - **No frames, no named regions.** A page is a **split tree**: it starts as
+>   one region; any region can be split in two, horizontally or vertically,
+>   without limit. Each node carries a size (`"auto"` hug-content, a fixed
+>   pixel count set by dragging the divider, or `{"fr": n}` fill weight).
+> - **Document shape:** `{"root": <region|split node>, "regions": {regionId:
+>   [component, ...]}}`; the export embeds each region's components inside its
+>   tree node (`layout` on each page of the envelope).
+> - **Links:** nav items, buttons and similar elements carry `props.links`
+>   targeting a **page**. A page with a `placement` (`{page_id, region_id}`)
+>   is a **child page** that renders inside that region of its parent — the
+>   outlet/nested-route model — so "region-targeted" links swap only that
+>   region's content while parent regions stay unchanged.
+>
+> Consumers should read the layout tree recursively (splits → flex/grid rows
+> and columns, regions → containers) and map child-page placements to nested
+> routes. The sections below are kept for the prototype's history only.
+
 A zero-dependency, browser-native tool for visually composing page specifications. Drag library components onto a canvas, arrange them into layout regions, inspect state as live JSON, and export the result — all without a build step or server.
 
 ---

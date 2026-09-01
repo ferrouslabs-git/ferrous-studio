@@ -3,24 +3,14 @@
 // conflict, and by the reducer to keep local state and emitted ops in step.
 // Same rules as the server: id-addressed, generic, no domain knowledge.
 import { produce } from "immer";
-import { ComponentNode, Frame, Op, PageDocument, REGION_ORDER, RegionName } from "./types";
+import { regionIds } from "./tree";
+import { ComponentNode, LayoutNode, Op, PageDocument } from "./types";
 
 export class OpApplyError extends Error {}
 
-function findFrame(doc: PageDocument, frameId: string): Frame {
-  const frame = doc.frames.find((f) => f.id === frameId);
-  if (!frame) throw new OpApplyError(`frame not found: ${frameId}`);
-  return frame;
-}
-
-function componentLists(frame: Frame): ComponentNode[][] {
-  if (frame.layoutMode === "regions") return REGION_ORDER.map((r) => frame.layout.regions[r]);
-  return [frame.layout.components];
-}
-
-function findComponent(frame: Frame): (cmpId: string) => { list: ComponentNode[]; index: number } {
+function findComponent(doc: PageDocument): (cmpId: string) => { list: ComponentNode[]; index: number } {
   return (cmpId) => {
-    for (const list of componentLists(frame)) {
+    for (const list of Object.values(doc.regions)) {
       const index = list.findIndex((c) => c.id === cmpId);
       if (index >= 0) return { list, index };
     }
@@ -28,12 +18,11 @@ function findComponent(frame: Frame): (cmpId: string) => { list: ComponentNode[]
   };
 }
 
-function targetList(frame: Frame, region: RegionName | undefined): ComponentNode[] {
-  if (frame.layoutMode === "regions") {
-    if (!region || !REGION_ORDER.includes(region)) throw new OpApplyError("region required");
-    return frame.layout.regions[region];
+function targetList(doc: PageDocument, region: string | undefined): ComponentNode[] {
+  if (!region || !regionIds(doc.root).includes(region)) {
+    throw new OpApplyError("region required and must exist in the layout tree");
   }
-  return frame.layout.components;
+  return (doc.regions[region] ??= []);
 }
 
 function setPath(obj: Record<string, unknown>, path: string, value: unknown): void {
@@ -71,18 +60,19 @@ export function applyOps<T extends PageLike>(page: T, ops: Op[]): T {
 
 function applyOne(page: PageLike, op: Op): void {
   const doc = page.document;
-  const target = op.target ?? {};
 
   switch (op.op) {
     case "set": {
-      if (target.cmp) {
-        if (!target.frame) throw new OpApplyError("set on a component requires target.frame");
-        const { list, index } = findComponent(findFrame(doc, target.frame))(target.cmp);
+      if (op.target?.cmp) {
+        const { list, index } = findComponent(doc)(op.target.cmp);
         setPath(list[index] as unknown as Record<string, unknown>, op.path, op.value);
         return;
       }
-      if (target.frame) {
-        setPath(findFrame(doc, target.frame) as unknown as Record<string, unknown>, op.path, op.value);
+      if (op.path === "root") {
+        // Replace the layout tree wholesale. Component lists are left alone:
+        // lists for regions no longer in the tree are inert (ignored on
+        // render/export, pruned on the next normalise).
+        doc.root = op.value as LayoutNode;
         return;
       }
       if (op.path === "name" || op.path === "route" || op.path === "pos") {
@@ -92,41 +82,25 @@ function applyOne(page: PageLike, op: Op): void {
       throw new OpApplyError(`page field not settable: ${op.path}`);
     }
     case "insert": {
-      if (target.frame) {
-        const frame = findFrame(doc, target.frame);
-        if (componentLists(frame).some((l) => l.some((c) => c.id === op.value.id))) {
-          throw new OpApplyError(`duplicate component id: ${op.value.id}`);
-        }
-        targetList(frame, op.into.region).push(op.value as unknown as ComponentNode);
-        return;
+      if (Object.values(doc.regions).some((l) => l.some((c) => c.id === op.value.id))) {
+        throw new OpApplyError(`duplicate component id: ${op.value.id}`);
       }
-      if (op.into.list !== "frames") throw new OpApplyError("insert without target.frame must use into.list = 'frames'");
-      if (doc.frames.some((f) => f.id === op.value.id)) throw new OpApplyError(`duplicate frame id: ${op.value.id}`);
-      doc.frames.push(op.value as unknown as Frame);
+      targetList(doc, op.into.region).push(op.value as unknown as ComponentNode);
       return;
     }
     case "remove": {
-      if (target.cmp) {
-        if (!target.frame) throw new OpApplyError("remove on a component requires target.frame");
-        const { list, index } = findComponent(findFrame(doc, target.frame))(target.cmp);
-        list.splice(index, 1);
-        return;
-      }
-      if (target.frame) {
-        const index = doc.frames.findIndex((f) => f.id === target.frame);
-        if (index < 0) throw new OpApplyError(`frame not found: ${target.frame}`);
-        doc.frames.splice(index, 1);
-        return;
-      }
-      throw new OpApplyError("remove requires target.frame or target.cmp");
+      if (!op.target.cmp) throw new OpApplyError("remove requires target.cmp");
+      const { list, index } = findComponent(doc)(op.target.cmp);
+      list.splice(index, 1);
+      return;
     }
     case "move": {
-      if (!target.frame || !target.cmp) throw new OpApplyError("move requires target.frame and target.cmp");
-      const frame = findFrame(doc, target.frame);
-      const { list, index } = findComponent(frame)(target.cmp);
+      if (!op.target.cmp) throw new OpApplyError("move requires target.cmp");
+      const { list, index } = findComponent(doc)(op.target.cmp);
       const [cmp] = list.splice(index, 1);
       cmp.pos = op.to.pos;
-      const dest = "region" in op.to && op.to.region !== undefined ? targetList(frame, op.to.region) : list;
+      // A same-region reorder carries no region; only re-home when one is given.
+      const dest = op.to.region ? targetList(doc, op.to.region) : list;
       dest.push(cmp);
       return;
     }
@@ -136,11 +110,8 @@ function applyOne(page: PageLike, op: Op): void {
 /** The entity an op is about, for conflict bookkeeping. Inserts return the new id. */
 export function entityKeyOf(op: Op): string {
   if (op.op === "insert") return op.value.id;
-  const t = op.target ?? {};
-  return t.cmp ?? t.frame ?? "page";
+  if (op.op === "set" && !op.target?.cmp && op.path === "root") return "layout";
+  return op.target?.cmp ?? "page";
 }
 
-/** Sort helper: lists are stored in insertion order and read in `pos` order. */
-export function byPos<T extends { pos: string }>(items: readonly T[]): T[] {
-  return [...items].sort((a, b) => (a.pos < b.pos ? -1 : a.pos > b.pos ? 1 : 0));
-}
+export { byPos } from "./positions";

@@ -202,14 +202,15 @@ def create_invited_cognito_user(email: str) -> dict:
     The user is created with MessageAction=SUPPRESS (Cognito does NOT
     send its own welcome email — our invitation email handles that)
     and a temporary password.  The user lands in FORCE_CHANGE_PASSWORD
-    state so the frontend can present a "set your password" form.
+    state so the invitation link can present a "set your password" form.
 
-    Returns dict with 'cognito_sub' and 'status' on success, or
-    'error' key on failure.
+    Returns dict with 'cognito_sub', 'status' and 'existing' on success,
+    or an 'error' key on failure.
 
-    If the user already exists in Cognito the function is idempotent:
-    it resets the user to FORCE_CHANGE_PASSWORD so the invite flow
-    still works.
+    Idempotent: if the address already has a Cognito user the account is
+    left untouched (never reset a confirmed user's password — they may be
+    an existing member being invited to a second organisation) and its
+    current status is reported so callers can decide how to proceed.
     """
     settings = get_settings()
     client = _get_cognito_client()
@@ -238,43 +239,85 @@ def create_invited_cognito_user(email: str) -> dict:
         )
         return {
             "cognito_sub": cognito_sub,
-            "temp_password": temp_password,
             "status": "FORCE_CHANGE_PASSWORD",
+            "existing": False,
         }
 
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
 
         if error_code == "UsernameExistsException":
-            # User already exists — reset to FORCE_CHANGE_PASSWORD
-            try:
-                client.admin_set_user_password(
-                    UserPoolId=settings.cognito_user_pool_id,
-                    Username=email,
-                    Password=temp_password,
-                    Permanent=False,  # Temporary = FORCE_CHANGE_PASSWORD
-                )
-                logger.info(
-                    "Reset existing Cognito user to FORCE_CHANGE_PASSWORD",
-                    extra={"email": email},
-                )
-                return {
-                    "cognito_sub": None,
-                    "temp_password": temp_password,
-                    "status": "FORCE_CHANGE_PASSWORD",
-                }
-            except ClientError as reset_err:
-                logger.error(
-                    "Failed to reset Cognito user password",
-                    extra={"email": email, "error": str(reset_err)},
-                )
-                return {"error": f"Cognito reset failed: {reset_err.response['Error']['Message']}"}
+            existing = admin_get_user(email)
+            if "error" in existing:
+                return existing
+            logger.info(
+                "Cognito user already exists for invitation; left untouched",
+                extra={"email": email, "status": existing.get("status")},
+            )
+            return {
+                "cognito_sub": existing.get("attributes", {}).get("sub"),
+                "status": existing.get("status"),
+                "existing": True,
+            }
 
         logger.error(
             "Cognito AdminCreateUser failed",
             extra={"email": email, "error_code": error_code, "error": str(e)},
         )
         return {"error": f"Cognito error: {e.response['Error']['Message']}"}
+
+
+def admin_initiate_auth(email: str, password: str) -> dict:
+    """Authenticate server-side via ADMIN_USER_PASSWORD_AUTH.
+
+    Used by the invitation flow right after the invitee's password has been
+    set, so they are signed in without a second round trip. Requires
+    ALLOW_ADMIN_USER_PASSWORD_AUTH on the app client (infra/terraform/cognito.tf)
+    and cognito-idp:AdminInitiateAuth on the task role.
+    """
+    settings = get_settings()
+    client = _get_cognito_client()
+
+    try:
+        response = client.admin_initiate_auth(
+            UserPoolId=settings.cognito_user_pool_id,
+            ClientId=settings.cognito_client_id,
+            AuthFlow="ADMIN_USER_PASSWORD_AUTH",
+            AuthParameters={"USERNAME": email, "PASSWORD": password},
+        )
+        if "AuthenticationResult" in response:
+            result = response["AuthenticationResult"]
+            return {
+                "authenticated": True,
+                "access_token": result["AccessToken"],
+                "id_token": result["IdToken"],
+                "refresh_token": result.get("RefreshToken"),
+                "expires_in": result.get("ExpiresIn", 3600),
+            }
+        if "ChallengeName" in response:
+            return {
+                "authenticated": False,
+                "challenge": response["ChallengeName"],
+                "session": response.get("Session"),
+            }
+        return {"error": "Unexpected Cognito response"}
+
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        error_msg = e.response["Error"]["Message"]
+        if error_code in ("NotAuthorizedException", "UserNotFoundException"):
+            return {"error": "Invalid email or password"}
+        if error_code == "UserNotConfirmedException":
+            return {"error": "Account not confirmed. Please check your email."}
+        if error_code == "PasswordResetRequiredException":
+            return {"error": "Password reset required"}
+        logger.error(
+            "Cognito AdminInitiateAuth failed",
+            extra={"email": email, "error_code": error_code, "error": error_msg},
+        )
+        if error_code == "InvalidParameterException" and "flow" in error_msg.lower():
+            return {"error": "Server-side sign-in is not enabled on the Cognito app client"}
+        return {"error": f"Sign-in failed: {error_msg}"}
 
 
 def initiate_auth(email: str, password: str) -> dict:
@@ -795,6 +838,10 @@ async def create_invited_cognito_user_async(email: str) -> dict:
 
 async def initiate_auth_async(email: str, password: str) -> dict:
     return await asyncio.to_thread(initiate_auth, email, password)
+
+
+async def admin_initiate_auth_async(email: str, password: str) -> dict:
+    return await asyncio.to_thread(admin_initiate_auth, email, password)
 
 
 async def respond_to_new_password_challenge_async(

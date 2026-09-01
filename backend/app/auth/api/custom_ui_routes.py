@@ -1,5 +1,11 @@
 """
-Custom UI auth endpoints — active only when AUTH_MODE=custom_ui.
+Custom UI auth endpoints — the app's own sign-in page.
+
+/custom/login, /custom/forgot-password and /custom/confirm-forgot-password
+back the branded sign-in and password-reset forms in the React app and are
+always on. Self-service sign-up (/custom/signup, /custom/confirm,
+/custom/resend-code, /custom/set-password) stays behind AUTH_MODE=custom_ui:
+accounts are created by invitation (see invitation_routes.py).
 
 These endpoints proxy Cognito API calls so the frontend never needs
 AWS credentials.  They produce the same Cognito JWTs as the Hosted UI
@@ -18,10 +24,10 @@ from pydantic import BaseModel, EmailStr, Field
 
 from ..config import get_settings
 from ..services.cognito_admin_service import (
+    admin_initiate_auth_async,
     confirm_forgot_password_async,
     confirm_sign_up_async,
     forgot_password_async,
-    initiate_auth_async,
     resend_confirmation_code_async,
     respond_to_new_password_challenge_async,
     sign_up_user_async,
@@ -95,21 +101,33 @@ class ConfirmForgotPasswordRequest(BaseModel):
 
 @router.post("/custom/login", response_model=LoginResponse)
 async def custom_login(body: LoginRequest):
-    """Authenticate with email + password (USER_PASSWORD_AUTH flow).
+    """Authenticate with email + password.
 
-    Returns tokens on success, or a challenge object if the user must
-    set a new password (invitation flow).
+    Uses the server-side ADMIN_USER_PASSWORD_AUTH flow (the app client does
+    not allow passwords straight from the browser). An invited user who has
+    not yet set a password through their invitation link gets a
+    NEW_PASSWORD_REQUIRED challenge from Cognito; that is reported as a
+    sign-in error pointing them back to the link.
     """
-    _require_custom_ui()
-    result = await initiate_auth_async(body.email, body.password)
+    result = await admin_initiate_auth_async(body.email, body.password)
 
     if "error" in result:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=result["error"],
         )
+    if result.get("challenge") == "NEW_PASSWORD_REQUIRED":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account has not been set up yet. Open the link in your invitation email to choose a password.",
+        )
+    if not result.get("authenticated"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Sign-in needs an unsupported step ({result.get('challenge')})",
+        )
 
-    return LoginResponse(**result)
+    return LoginResponse(**{k: v for k, v in result.items() if k in LoginResponse.model_fields})
 
 
 @router.post("/custom/signup", response_model=SignupResponse)
@@ -188,7 +206,6 @@ async def custom_resend_code(body: ResendCodeRequest):
 @router.post("/custom/forgot-password")
 async def custom_forgot_password(body: ForgotPasswordRequest):
     """Initiate forgot-password flow — sends a reset code to the user's email."""
-    _require_custom_ui()
     result = await forgot_password_async(body.email)
 
     if "error" in result:
@@ -203,7 +220,6 @@ async def custom_forgot_password(body: ForgotPasswordRequest):
 @router.post("/custom/confirm-forgot-password")
 async def custom_confirm_forgot_password(body: ConfirmForgotPasswordRequest):
     """Complete forgot-password with reset code + new password."""
-    _require_custom_ui()
     result = await confirm_forgot_password_async(body.email, body.code, body.new_password)
 
     if "error" in result:

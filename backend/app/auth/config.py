@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     # SES (optional)
     ses_region: str = os.getenv("SES_REGION", "")
     ses_sender_email: str = os.getenv("SES_SENDER_EMAIL", "")
+    # Human-readable product name used in outbound email (sender display name,
+    # subject, body). The machine slug lives in app.config.json.
+    product_display_name: str = os.getenv("PRODUCT_DISPLAY_NAME", "Ferrous Studio")
+    # Legal footer line on outgoing emails (deploys set it from app.config.json email.legal).
+    email_legal: str = os.getenv(
+        "EMAIL_LEGAL", "Entendex Ltd trading as Ferrous Labs · 1 Empire Mews, Streatham, London SW16 2BF"
+    )
 
     # Frontend
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:5173")

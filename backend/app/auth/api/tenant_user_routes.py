@@ -9,6 +9,7 @@ from ..database import get_db
 from ..schemas.user_management import (
     RemoveUserResponse,
     TenantUserResponse,
+    UpdateTenantUserRequest,
     UpdateUserRoleRequest,
     UpdateUserRoleResponse,
 )
@@ -18,6 +19,7 @@ from ..services.user_management_service import (
     list_tenant_users,
     reactivate_user_in_tenant,
     remove_user_from_tenant,
+    update_tenant_user_name,
     update_user_role,
 )
 from .route_helpers import ensure_scope_access
@@ -28,14 +30,66 @@ router = APIRouter()
 @router.get("/tenants/{tenant_id}/users", response_model=List[TenantUserResponse])
 async def get_tenant_users(
     tenant_id: UUID,
-    role: str | None = Query(None, description="Filter by role name (e.g. account_owner, account_admin)"),
-    user_status: str | None = Query(None, alias="status", description="Filter by membership status: active, removed"),
+    role: str | None = Query(None, description="Filter by role name (e.g. account_admin, account_member)"),
+    user_status: str | None = Query(None, alias="status", description="Filter by membership status: active, removed, or all"),
     ctx: ScopeContext = Depends(require_permission("account:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """List users in tenant. Supports ?role= and ?status= filters."""
     ensure_scope_access(tenant_id, ctx)
     return await list_tenant_users(db, tenant_id, role=role, status_filter=user_status)
+
+
+@router.patch("/tenants/{tenant_id}/users/{user_id}", response_model=UpdateUserRoleResponse)
+async def patch_tenant_user(
+    tenant_id: UUID,
+    user_id: UUID,
+    payload: UpdateTenantUserRequest,
+    ctx: ScopeContext = Depends(require_permission("members:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit a member's name and/or role in one call (admin+)."""
+    ensure_scope_access(tenant_id, ctx)
+    fields = payload.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to update")
+
+    membership = None
+    if "name" in fields:
+        membership = await update_tenant_user_name(db, tenant_id, user_id, fields["name"])
+        if not membership:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in tenant")
+
+    if fields.get("role") is not None:
+        try:
+            membership = await update_user_role(
+                db,
+                tenant_id,
+                user_id,
+                fields["role"],
+                actor_role=ctx.active_roles[0] if ctx.active_roles else None,
+                actor_is_platform_admin=ctx.is_super_admin,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        if not membership:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in tenant")
+
+    await log_audit_event(
+        "tenant_user_updated",
+        actor_user_id=str(ctx.user_id),
+        db=db,
+        tenant_id=str(tenant_id),
+        target_user_id=str(user_id),
+        fields=sorted(fields.keys()),
+    )
+
+    return UpdateUserRoleResponse(
+        user_id=membership.user_id,
+        tenant_id=tenant_id,
+        role=membership.role_name,
+        message="User updated successfully",
+    )
 
 
 @router.patch("/tenants/{tenant_id}/users/{user_id}/role", response_model=UpdateUserRoleResponse)

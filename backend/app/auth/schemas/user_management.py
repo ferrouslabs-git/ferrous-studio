@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field, EmailStr
 
 
 class TenantUserResponse(BaseModel):
@@ -38,6 +38,36 @@ class PlatformUserResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     memberships: list[PlatformUserMembershipResponse]
+
+
+class PlatformInvitationResponse(BaseModel):
+    """An invitation as seen from the platform Users page: the organisation
+    name comes along because the list spans every organisation."""
+    invitation_id: UUID
+    tenant_id: UUID
+    tenant_name: str | None = None
+    email: str
+    name: str | None = None
+    role: str
+    status: str
+    target_scope_type: str | None = None
+    target_scope_id: UUID | None = None
+    created_at: datetime
+    expires_at: datetime
+    accepted_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class UpdatePlatformUserRequest(BaseModel):
+    """Edit a user from the platform Users page. Platform admins hold no
+    memberships, so this bypasses the per-organisation name edit."""
+    name: str | None = Field(None, max_length=255, description="Display name; blank clears it")
+
+
+class UpdateTenantUserRequest(BaseModel):
+    """Edit a member from the organisation's Users page. Both fields optional."""
+    name: str | None = Field(None, max_length=255, description="Display name; blank clears it")
+    role: Literal["admin", "member", "viewer"] | None = None
 
 
 class UpdateUserRoleRequest(BaseModel):

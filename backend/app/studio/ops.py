@@ -1,24 +1,31 @@
 """Generic, id-addressed op application for one page document.
 
 Pure functions over plain dicts so this is unit-testable without a database.
-Deliberately knows nothing about Ferrous's region rules, smart dock or slot
-trees: it resolves an entity by id, checks its version, and applies a
-set / insert / remove / move. Domain logic lives in the TypeScript reducer
-and is never duplicated here.
+Deliberately knows nothing about Ferrous's component vocabulary: it resolves
+an entity by id, checks its version, and applies a set / insert / remove /
+move. Domain logic lives in the TypeScript reducer and is never duplicated
+here.
 
 Document shape (per page)::
 
-    {"frames": [ {"id", "label", "pos", "layoutMode": "regions"|"flat",
-                  "layout": {"regions": {region: [cmp, ...]}, "options": {...}}
-                        | {"components": [cmp, ...]} } ]}
+    {"root": <layout node>, "regions": {region_id: [cmp, ...]}}
+
+A layout node is either a region leaf ``{"kind": "region", "id", "label"?,
+"size"}`` or a split ``{"kind": "split", "id", "dir": "row"|"col", "size",
+"children": [node, ...]}``. The tree is authoritative for which regions
+exist; component lists live beside it keyed by region id. Replacing the tree
+(``set`` with path ``root`` and no target) never deletes component lists --
+lists for regions the tree lost are inert and pruned by the client on its
+next normalise.
 
 Components carry ``pos`` (a fractional index string); lists are kept in
 insertion order here and sorted by ``pos`` on read and export.
 
-Conflict rule: every op names an entity (the page itself, a frame, or a
-component). If that entity changed after the ``base_version`` the client last
-saw, the whole batch is rejected with the conflicting ids. Inserts are exempt:
-two people adding to the same frame at once should both succeed.
+Conflict rule: every op names an entity (the page's own columns, the layout
+tree, or a component). If that entity changed after the ``base_version`` the
+client last saw, the whole batch is rejected with the conflicting ids.
+Inserts are exempt: two people adding to the same region at once should both
+succeed.
 """
 from __future__ import annotations
 
@@ -26,8 +33,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-REGIONS = ("header", "sidebar", "main", "right", "footer")
 PAGE_KEY = "page"  # entity_versions key for the page's own columns
+LAYOUT_KEY = "layout"  # entity_versions key for the layout tree
 PAGE_SETTABLE = {"name", "route", "pos"}
 
 
@@ -41,6 +48,7 @@ class PageState:
     document: dict[str, Any]
     entity_versions: dict[str, int]
     version: int
+    placement: dict[str, Any] | None = None
 
 
 @dataclass
@@ -63,44 +71,44 @@ class OpConflict(Exception):
 # ── Resolution ──────────────────────────────────────────────────────────────
 
 
-def _frames(doc: dict[str, Any]) -> list[dict[str, Any]]:
-    return doc.setdefault("frames", [])
+def _regions(doc: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    return doc.setdefault("regions", {})
 
 
-def _find_frame(doc: dict[str, Any], frame_id: str) -> dict[str, Any]:
-    for f in _frames(doc):
-        if f.get("id") == frame_id:
-            return f
-    raise OpError(f"frame not found: {frame_id}")
+def _tree_region_ids(node: Any) -> list[str]:
+    if not isinstance(node, dict):
+        return []
+    if node.get("kind") == "split":
+        out: list[str] = []
+        for child in node.get("children") or []:
+            out.extend(_tree_region_ids(child))
+        return out
+    node_id = node.get("id")
+    return [node_id] if isinstance(node_id, str) else []
 
 
-def _component_lists(frame: dict[str, Any]) -> list[tuple[str | None, list[dict[str, Any]]]]:
-    layout = frame.setdefault("layout", {})
-    if frame.get("layoutMode") == "regions":
-        regions = layout.setdefault("regions", {})
-        return [(r, regions.setdefault(r, [])) for r in REGIONS]
-    return [(None, layout.setdefault("components", []))]
-
-
-def _find_component(frame: dict[str, Any], cmp_id: str) -> tuple[list[dict[str, Any]], int]:
-    for _region, items in _component_lists(frame):
+def _find_component(doc: dict[str, Any], cmp_id: str) -> tuple[list[dict[str, Any]], int]:
+    for items in _regions(doc).values():
         for i, c in enumerate(items):
             if c.get("id") == cmp_id:
                 return items, i
     raise OpError(f"component not found: {cmp_id}")
 
 
-def _target_list(frame: dict[str, Any], region: str | None) -> list[dict[str, Any]]:
-    if frame.get("layoutMode") == "regions":
-        if region not in REGIONS:
-            raise OpError(f"region required and must be one of {REGIONS}")
-        return frame["layout"]["regions"].setdefault(region, [])
-    return frame["layout"].setdefault("components", [])
+def _target_list(doc: dict[str, Any], region: str | None) -> list[dict[str, Any]]:
+    if not region or region not in _tree_region_ids(doc.get("root")):
+        raise OpError("region required and must exist in the layout tree")
+    return _regions(doc).setdefault(region, [])
 
 
 def _entity_key(op: dict[str, Any]) -> str:
     target = op.get("target") or {}
-    return target.get("cmp") or target.get("frame") or PAGE_KEY
+    cmp = target.get("cmp")
+    if cmp:
+        return cmp
+    if op.get("op") == "set" and op.get("path") == "root":
+        return LAYOUT_KEY
+    return PAGE_KEY
 
 
 def _set_path(obj: dict[str, Any], path: str, value: Any) -> None:
@@ -148,6 +156,7 @@ def apply_batch(state: PageState, ops: list[dict[str, Any]], base_version: int) 
         document=deepcopy(state.document),
         entity_versions=dict(state.entity_versions),
         version=state.version + 1,
+        placement=deepcopy(state.placement),
     )
     touched: list[str] = []
     for op in ops:
@@ -160,7 +169,6 @@ def apply_batch(state: PageState, ops: list[dict[str, Any]], base_version: int) 
 def _apply_one(state: PageState, op: dict[str, Any]) -> list[str]:
     kind = op.get("op")
     target = op.get("target") or {}
-    frame_id = target.get("frame")
     cmp_id = target.get("cmp")
     doc = state.document
 
@@ -170,15 +178,16 @@ def _apply_one(state: PageState, op: dict[str, Any]) -> list[str]:
             raise OpError("set requires a path")
         value = op.get("value")
         if cmp_id:
-            frame = _find_frame(doc, frame_id) if frame_id else None
-            if frame is None:
-                raise OpError("set on a component requires target.frame")
-            items, i = _find_component(frame, cmp_id)
+            items, i = _find_component(doc, cmp_id)
             _set_path(items[i], path, value)
             return [cmp_id]
-        if frame_id:
-            _set_path(_find_frame(doc, frame_id), path, value)
-            return [frame_id]
+        if path == "root":
+            if not isinstance(value, dict) or not isinstance(value.get("id"), str):
+                raise OpError("root must be a layout node")
+            doc.pop("frames", None)  # pre-tree format, replaced wholesale
+            _regions(doc)
+            doc["root"] = value
+            return [LAYOUT_KEY]
         if path not in PAGE_SETTABLE:
             raise OpError(f"page fields settable via ops: {sorted(PAGE_SETTABLE)}")
         setattr(state, path, value)
@@ -189,47 +198,31 @@ def _apply_one(state: PageState, op: dict[str, Any]) -> list[str]:
         if not isinstance(value, dict) or not isinstance(value.get("id"), str) or not value["id"]:
             raise OpError("insert value must be an object with a string id")
         into = op.get("into") or {}
-        if frame_id:
-            frame = _find_frame(doc, frame_id)
-            for _r, items in _component_lists(frame):
-                if any(c.get("id") == value["id"] for c in items):
-                    raise OpError(f"duplicate component id: {value['id']}")
-            _target_list(frame, into.get("region")).append(value)
-            return [value["id"]]
-        if into.get("list") != "frames":
-            raise OpError("insert without target.frame must use into.list = 'frames'")
-        if any(f.get("id") == value["id"] for f in _frames(doc)):
-            raise OpError(f"duplicate frame id: {value['id']}")
-        _frames(doc).append(value)
+        for items in _regions(doc).values():
+            if any(c.get("id") == value["id"] for c in items):
+                raise OpError(f"duplicate component id: {value['id']}")
+        _target_list(doc, into.get("region")).append(value)
         return [value["id"]]
 
     if kind == "remove":
-        if cmp_id:
-            if not frame_id:
-                raise OpError("remove on a component requires target.frame")
-            items, i = _find_component(_find_frame(doc, frame_id), cmp_id)
-            items.pop(i)
-            return [cmp_id]
-        if frame_id:
-            frames = _frames(doc)
-            idx = next((i for i, f in enumerate(frames) if f.get("id") == frame_id), None)
-            if idx is None:
-                raise OpError(f"frame not found: {frame_id}")
-            frames.pop(idx)
-            return [frame_id]
-        raise OpError("remove requires target.frame or target.cmp")
+        if not cmp_id:
+            raise OpError("remove requires target.cmp")
+        items, i = _find_component(doc, cmp_id)
+        items.pop(i)
+        return [cmp_id]
 
     if kind == "move":
-        if not (frame_id and cmp_id):
-            raise OpError("move requires target.frame and target.cmp")
+        if not cmp_id:
+            raise OpError("move requires target.cmp")
         to = op.get("to") or {}
         if not isinstance(to.get("pos"), str):
             raise OpError("move requires to.pos")
-        frame = _find_frame(doc, frame_id)
-        items, i = _find_component(frame, cmp_id)
+        items, i = _find_component(doc, cmp_id)
         cmp = items.pop(i)
         cmp["pos"] = to["pos"]
-        dest = _target_list(frame, to.get("region")) if "region" in to else items
+        # A same-region reorder carries no region (the schema still dumps
+        # `region: None`), so only re-home the component when one is given.
+        dest = _target_list(doc, to["region"]) if to.get("region") else items
         dest.append(cmp)
         return [cmp_id]
 
@@ -244,23 +237,42 @@ def _by_pos(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def export_page(page_id: str, state: PageState) -> dict[str, Any]:
-    """The page as it appears in the export envelope: lists ordered by pos,
-    with ``pos`` stripped so the payload matches the pre-existing format."""
+    """The page as it appears in the export envelope: the layout tree with
+    each region's components embedded in pos order, ``pos`` stripped."""
 
     def strip(obj: dict[str, Any]) -> dict[str, Any]:
-        # Drop pos (storage-only) and nulls (a client "unsets" a key by setting null).
-        return {k: v for k, v in obj.items() if k != "pos" and v is not None}
+        # Drop pos (storage-only) and nulls (a client "unsets" a key by setting
+        # null) at every level: a component's ``elements`` are pos-ordered
+        # child dicts and export like components do.
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            if k == "pos" or v is None:
+                continue
+            if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+                v = [strip(x) for x in sorted(v, key=lambda x: str(x.get("pos", "")))]
+            out[k] = v
+        return out
 
-    frames_out = []
-    for frame in _by_pos(_frames(deepcopy(state.document))):
-        layout = frame.get("layout", {})
-        if frame.get("layoutMode") == "regions":
-            regions = {r: [strip(c) for c in _by_pos(layout.get("regions", {}).get(r, []))] for r in REGIONS}
-            layout_out = {"regions": regions, "options": layout.get("options", {})}
-        else:
-            layout_out = {"components": [strip(c) for c in _by_pos(layout.get("components", []))]}
-        out = strip(frame)
-        out["layout"] = layout_out
-        frames_out.append(out)
+    doc = deepcopy(state.document)
+    regions = doc.get("regions") if isinstance(doc.get("regions"), dict) else {}
+    root = doc.get("root")
+    if not isinstance(root, dict):
+        root = {"kind": "region", "id": "r-root", "size": {"fr": 1}}
 
-    return {"id": page_id, "name": state.name, "route": state.route, "frames": frames_out}
+    def embed(node: dict[str, Any]) -> dict[str, Any]:
+        if node.get("kind") == "split":
+            return {
+                "kind": "split",
+                "id": node.get("id"),
+                "dir": node.get("dir"),
+                "size": node.get("size"),
+                "children": [embed(c) for c in node.get("children") or [] if isinstance(c, dict)],
+            }
+        out = {k: v for k, v in node.items() if v is not None}
+        out["components"] = [strip(c) for c in _by_pos(regions.get(node.get("id"), []))]
+        return out
+
+    out = {"id": page_id, "name": state.name, "route": state.route, "layout": embed(root)}
+    if state.placement:
+        out["placement"] = state.placement
+    return out

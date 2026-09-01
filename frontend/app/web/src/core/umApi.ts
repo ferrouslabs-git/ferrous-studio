@@ -1,12 +1,10 @@
 // Typed client for the auth module (/api/um/*): the logged-in user,
-// organisations ("tenants"/"accounts"), workspaces ("spaces"), members,
-// invitations, role definitions and platform administration. Shapes mirror
-// backend/app/auth/schemas/*.py.
+// organisations ("tenants"/"accounts"), members, invitations, role definitions
+// and platform administration. Shapes mirror backend/app/auth/schemas/*.py.
 //
-// User-scoped endpoints send no scope headers; organisation-level ones send an
-// explicit account scope so they work whatever the active workspace is.
+// User-scoped endpoints send no scope headers; the rest send an explicit
+// account scope so they work whatever organisation is currently active.
 import { apiDelete, apiGet, apiPatch, apiPost, RequestOptions } from "./api";
-import { ActiveScope } from "./scope";
 
 const NO_SCOPE: RequestOptions = { scope: null };
 const account = (accountId: string): RequestOptions => ({ scope: { type: "account", id: accountId } });
@@ -25,25 +23,15 @@ export interface UmMe {
 export interface UmTenant {
   id: string;
   name: string;
-  plan: string;
   status: string;
   role: string;
-  created_at: string;
-}
-
-/** A workspace. `account_id` is the owning organisation. */
-export interface UmSpace {
-  id: string;
-  name: string;
-  account_id: string | null;
-  status: string;
   created_at: string;
 }
 
 export interface RoleDefinition {
   name: string;
   display_name: string;
-  layer: "platform" | "account" | "space";
+  layer: "platform" | "account";
 }
 
 export interface RoleDefinitions {
@@ -53,15 +41,11 @@ export interface RoleDefinitions {
 
 export const getUmMe = () => apiGet<UmMe>("/um/me", NO_SCOPE);
 export const getMyTenants = () => apiGet<UmTenant[]>("/um/tenants/my", NO_SCOPE);
-export const getMySpaces = () => apiGet<UmSpace[]>("/um/spaces/my", NO_SCOPE);
-export const getAccountSpaces = (accountId: string) =>
-  apiGet<UmSpace[]>(`/um/accounts/${accountId}/spaces`, account(accountId));
 export const getRoleDefinitions = () => apiGet<RoleDefinitions>("/um/config/roles", NO_SCOPE);
 
 export interface TenantCreateResponse {
   tenant_id: string;
   name: string;
-  plan: string;
   role: string;
   message: string;
 }
@@ -69,11 +53,9 @@ export interface TenantCreateResponse {
 export const createTenant = (name: string) =>
   apiPost<TenantCreateResponse>("/um/tenants", { name }, NO_SCOPE);
 
-/** Requires `spaces:create` in the organisation. */
-export const createSpace = (accountId: string, name: string) =>
-  apiPost<UmSpace>("/um/spaces", { name, account_id: accountId }, account(accountId));
-
-export const spaceScope = (spaceId: string): ActiveScope => ({ type: "space", id: spaceId });
+/** Organisation admins and platform admins. */
+export const updateTenant = (tenantId: string, patch: { name?: string }) =>
+  apiPatch<unknown>(`/um/tenants/${tenantId}`, patch, NO_SCOPE);
 
 // ── Organisation members and invitations ───────────────────────────────────
 
@@ -88,16 +70,28 @@ export interface TenantUser {
 }
 
 /** The role-update endpoint still speaks the legacy vocabulary. */
-export type LegacyAccountRole = "owner" | "admin" | "member";
+export type LegacyAccountRole = "admin" | "member" | "viewer";
 
 export const LEGACY_TO_ACCOUNT_ROLE: Record<LegacyAccountRole, string> = {
-  owner: "account_owner",
   admin: "account_admin",
   member: "account_member",
+  viewer: "account_viewer",
 };
 
-export const getTenantUsers = (tenantId: string) =>
-  apiGet<TenantUser[]>(`/um/tenants/${tenantId}/users`, account(tenantId));
+/** `status` defaults server-side to active members; "all" includes archived ("removed") ones. */
+export const getTenantUsers = (tenantId: string, status?: "active" | "removed" | "all") =>
+  apiGet<TenantUser[]>(`/um/tenants/${tenantId}/users${status ? `?status=${status}` : ""}`, account(tenantId));
+/** Archive a membership: the user keeps their account but loses access to this organisation. */
+export const deactivateTenantUser = (tenantId: string, userId: string) =>
+  apiPatch<unknown>(`/um/tenants/${tenantId}/users/${userId}/deactivate`, {}, account(tenantId));
+export const reactivateTenantUser = (tenantId: string, userId: string) =>
+  apiPatch<unknown>(`/um/tenants/${tenantId}/users/${userId}/reactivate`, {}, account(tenantId));
+/** Edit a member's name and/or role. `name: ""` clears the name. */
+export const updateTenantUser = (
+  tenantId: string,
+  userId: string,
+  changes: { name?: string; role?: LegacyAccountRole },
+) => apiPatch<unknown>(`/um/tenants/${tenantId}/users/${userId}`, changes, account(tenantId));
 export const updateTenantUserRole = (tenantId: string, userId: string, role: LegacyAccountRole) =>
   apiPatch<unknown>(`/um/tenants/${tenantId}/users/${userId}/role`, { role }, account(tenantId));
 export const removeTenantUser = (tenantId: string, userId: string) =>
@@ -107,6 +101,8 @@ export interface TenantInvitation {
   invitation_id: string;
   tenant_id: string;
   email: string;
+  /** Display name typed by the inviter, if any. */
+  name: string | null;
   role: string;
   status: "pending" | "accepted" | "expired" | "revoked";
   target_scope_type: string | null;
@@ -129,36 +125,37 @@ export interface InvitationCreated {
 
 export const listTenantInvitations = (tenantId: string) =>
   apiGet<TenantInvitation[]>(`/um/tenants/${tenantId}/invitations`, account(tenantId));
-export const inviteToTenant = (tenantId: string, email: string, targetRoleName: string) =>
+export const inviteToTenant = (tenantId: string, email: string, targetRoleName: string, name?: string) =>
   apiPost<InvitationCreated>(
     `/um/tenants/${tenantId}/invite`,
-    { email, role: "member", target_role_name: targetRoleName },
+    { email, name: name || undefined, role: "member", target_role_name: targetRoleName },
     account(tenantId),
-  );
-export const inviteToSpace = (accountId: string, spaceId: string, email: string, targetRoleName: string) =>
-  apiPost<InvitationCreated>(
-    `/um/spaces/${spaceId}/invite`,
-    { email, role: "member", target_role_name: targetRoleName },
-    account(accountId),
   );
 export const revokeInvitation = (tenantId: string, invitationId: string) =>
   apiDelete(`/um/tenants/${tenantId}/invitations/${invitationId}`, account(tenantId));
 export const resendInvitation = (tenantId: string, invitationId: string) =>
   apiPost<unknown>(`/um/tenants/${tenantId}/invitations/${invitationId}/resend`, {}, account(tenantId));
 
-export interface SpaceMember {
-  user_id: string;
-  email: string;
-  name: string | null;
-  role: string;
-  status: string;
-  joined_at: string;
+// ── Sign-in (the app's own form; backend signs in against Cognito) ─────────
+
+export interface SignInTokens {
+  authenticated: boolean;
+  access_token: string | null;
+  id_token: string | null;
+  refresh_token: string | null;
+  expires_in: number | null;
 }
 
-export const getSpaceMembers = (accountId: string, spaceId: string) =>
-  apiGet<SpaceMember[]>(`/um/spaces/${spaceId}/members`, account(accountId));
-export const removeSpaceMember = (accountId: string, spaceId: string, userId: string) =>
-  apiDelete(`/um/spaces/${spaceId}/members/${userId}`, account(accountId));
+export const customLogin = (email: string, password: string) =>
+  apiPost<SignInTokens>("/um/custom/login", { email, password }, NO_SCOPE);
+export const forgotPassword = (email: string) =>
+  apiPost<{ sent: boolean; message: string }>("/um/custom/forgot-password", { email }, NO_SCOPE);
+export const confirmForgotPassword = (email: string, code: string, newPassword: string) =>
+  apiPost<{ confirmed: boolean; message: string }>(
+    "/um/custom/confirm-forgot-password",
+    { email, code, new_password: newPassword },
+    NO_SCOPE,
+  );
 
 // ── Invitation acceptance ───────────────────────────────────────────────────
 
@@ -167,27 +164,43 @@ export interface InvitePreview {
   tenant_id: string;
   tenant_name: string;
   email: string;
+  name: string | null;
   role: string | null;
   expires_at: string;
   status: "pending" | "accepted" | "expired" | "revoked";
   is_expired: boolean;
   is_accepted: boolean;
+  /** "new": no working login yet, show the set-password form. "existing": ask them to sign in. */
+  account_state: "new" | "existing";
+}
+
+export interface InviteCompleted {
+  tenant_id: string;
+  role: string;
+  email: string;
+  access_token: string;
+  id_token: string;
+  refresh_token: string | null;
+  expires_in: number;
+  message: string;
 }
 
 export const getInvitePreview = (token: string) => apiGet<InvitePreview>(`/um/invites/${token}`, NO_SCOPE);
 export const acceptInvite = (token: string) =>
   apiPost<{ tenant_id: string; role: string; message: string }>("/um/invites/accept", { token }, NO_SCOPE);
+/** New-account path: set a password, get signed in and join the organisation in one call. */
+export const completeInvite = (token: string, password: string) =>
+  apiPost<InviteCompleted>("/um/invites/complete", { token, password }, NO_SCOPE);
 
 // ── Platform administration ─────────────────────────────────────────────────
 
 export interface PlatformTenant {
   tenant_id: string;
   name: string;
-  plan: string;
   status: string;
   created_at: string;
   member_count: number;
-  owner_count: number;
+  admin_count: number;
 }
 
 export const getPlatformTenants = () => apiGet<PlatformTenant[]>("/um/platform/tenants", NO_SCOPE);
@@ -219,6 +232,19 @@ export interface PlatformUser {
 }
 
 export const getPlatformUsers = () => apiGet<PlatformUser[]>("/um/platform/users", NO_SCOPE);
+/** Platform admins hold no memberships, so this edits the name directly rather than via an organisation. */
+export const updatePlatformUser = (id: string, patch: { name?: string }) =>
+  apiPatch<PlatformUser>(`/um/platform/users/${id}`, patch, NO_SCOPE);
+/** Irreversible: removes the Cognito account, memberships and the user record. */
+export const deletePlatformUser = (id: string) => apiDelete(`/um/platform/users/${id}`, NO_SCOPE);
+
+/** An invitation as listed across every organisation. */
+export interface PlatformInvitation extends TenantInvitation {
+  tenant_name: string | null;
+}
+
+export const getPlatformInvitations = () =>
+  apiGet<PlatformInvitation[]>("/um/platform/invitations", NO_SCOPE);
 export const promoteUser = (id: string) => apiPatch<unknown>(`/um/platform/users/${id}/promote`, {}, NO_SCOPE);
 export const demoteUser = (id: string) => apiPatch<unknown>(`/um/platform/users/${id}/demote`, {}, NO_SCOPE);
 export const suspendUser = (id: string) => apiPatch<unknown>(`/um/users/${id}/suspend`, {}, NO_SCOPE);
@@ -241,7 +267,7 @@ export const getAuditEvents = (limit = 100) =>
 // ── Memberships (all scopes) ────────────────────────────────────────────────
 
 export interface UmMembership {
-  scope_type: "account" | "space";
+  scope_type: "account";
   scope_id: string;
   role: string;
   status: string;

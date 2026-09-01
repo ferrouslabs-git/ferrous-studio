@@ -22,18 +22,13 @@ STRUCTURAL_PERMISSIONS = frozenset({
     "accounts:manage",
     "account:delete",
     "account:read",
-    "spaces:create",
-    "space:delete",
-    "space:configure",
-    "space:read",
     "members:manage",
     "members:invite",
     "users:suspend",
 })
 
-VALID_LAYERS = {"platform", "account", "space"}
+VALID_LAYERS = {"platform", "account"}
 _PERM_RE = re.compile(r"^[a-z_]+:[a-z_]+$")
-_VALID_INHERITANCE = {"none", "space_viewer", "space_member"}
 
 
 class AuthConfigError(Exception):
@@ -48,7 +43,6 @@ class AuthConfig:
     __slots__ = (
         "version",
         "permission_map",
-        "inheritance_config",
         "layer_config",
         "role_display_names",
         "roles_by_layer",
@@ -58,14 +52,12 @@ class AuthConfig:
         self,
         version: str,
         permission_map: dict[str, set[str]],
-        inheritance_config: dict[str, Any],
         layer_config: dict[str, dict[str, Any]],
         role_display_names: dict[str, str],
         roles_by_layer: dict[str, list[dict[str, Any]]],
     ):
         self.version = version
         self.permission_map = permission_map
-        self.inheritance_config = inheritance_config
         self.layer_config = layer_config
         self.role_display_names = role_display_names
         self.roles_by_layer = roles_by_layer
@@ -86,8 +78,8 @@ def _validate_layers(raw: dict) -> dict[str, dict[str, Any]]:
         raise AuthConfigError("'layers' section is required and must be a mapping.")
     result: dict[str, dict[str, Any]] = {}
     for key, cfg in layers.items():
-        if key not in {"account", "space"}:
-            raise AuthConfigError(f"Unknown layer '{key}'. Allowed: account, space.")
+        if key != "account":
+            raise AuthConfigError(f"Unknown layer '{key}'. Allowed: account.")
         if not isinstance(cfg, dict):
             raise AuthConfigError(f"Layer '{key}' must be a mapping.")
         result[key] = {
@@ -97,20 +89,6 @@ def _validate_layers(raw: dict) -> dict[str, dict[str, Any]]:
     # platform layer is always implicitly enabled
     result["platform"] = {"enabled": True, "display_name": "Platform"}
     return result
-
-
-def _validate_inheritance(raw: dict, layer_config: dict, space_role_names: set[str]) -> dict:
-    inheritance = raw.get("inheritance", {})
-    if not isinstance(inheritance, dict):
-        raise AuthConfigError("'inheritance' must be a mapping.")
-    access = str(inheritance.get("account_member_space_access", "none"))
-    valid = _VALID_INHERITANCE | space_role_names
-    if access not in valid:
-        raise AuthConfigError(
-            f"inheritance.account_member_space_access='{access}' invalid. "
-            f"Allowed: {sorted(valid)}"
-        )
-    return {"account_member_space_access": access}
 
 
 def _validate_roles(raw: dict, layer_config: dict) -> tuple[
@@ -213,14 +191,9 @@ def load_and_validate_config(config_path: str | None = None) -> AuthConfig:
     layer_config = _validate_layers(raw)
     permission_map, role_display_names, roles_by_layer = _validate_roles(raw, layer_config)
 
-    # Collect space-layer role names for inheritance validation
-    space_role_names = {r["name"] for r in roles_by_layer.get("space", [])}
-    inheritance_config = _validate_inheritance(raw, layer_config, space_role_names)
-
     return AuthConfig(
         version=version,
         permission_map=permission_map,
-        inheritance_config=inheritance_config,
         layer_config=layer_config,
         role_display_names=role_display_names,
         roles_by_layer=roles_by_layer,

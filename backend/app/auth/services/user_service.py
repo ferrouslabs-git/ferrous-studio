@@ -639,30 +639,29 @@ async def delete_user(user_id: UUID, db: AsyncSession) -> dict:
     if user.is_platform_admin:
         raise ValueError("Cannot delete a platform admin. Demote them first.")
 
-    # Check that the user is not the last owner of any tenant
+    # Check that the user is not the last admin of any organisation
     result = await db.execute(
         select(Membership).where(
             Membership.user_id == user_id,
             Membership.status == "active",
             Membership.scope_type == "account",
-            Membership.role_name.in_(["owner", "account_owner"]),
+            Membership.role_name.in_(["admin", "account_admin"]),
         )
     )
-    owner_memberships = result.scalars().all()
+    admin_memberships = result.scalars().all()
 
-    for m in owner_memberships:
+    for m in admin_memberships:
         count_result = await db.execute(
             select(func.count()).select_from(Membership).where(
                 Membership.scope_type == "account",
                 Membership.scope_id == m.scope_id,
                 Membership.status == "active",
-                Membership.role_name.in_(["owner", "account_owner"]),
+                Membership.role_name.in_(["admin", "account_admin"]),
             )
         )
-        owner_count = count_result.scalar()
-        if owner_count <= 1:
+        if (count_result.scalar() or 0) <= 1:
             raise ValueError(
-                f"User is the last owner of tenant {m.scope_id}. Transfer ownership first."
+                f"User is the last admin of organisation {m.scope_id}. Promote another admin first."
             )
 
     # 1. Delete from Cognito (blocking boto3, offload to thread)

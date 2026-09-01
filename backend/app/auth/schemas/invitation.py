@@ -11,13 +11,18 @@ from pydantic import BaseModel, EmailStr, Field
 class InvitationCreateRequest(BaseModel):
     """Request schema for creating a tenant invitation."""
     email: EmailStr = Field(..., description="Email address to invite")
+    name: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Invitee's display name (optional); becomes their account name on acceptance",
+    )
     role: Literal["admin", "member", "viewer"] = Field(
         default="member",
         description="Legacy role to assign (backward compat)"
     )
     target_scope_type: str | None = Field(
         default=None,
-        description="Scope type: 'account' or 'space'. Defaults to context scope."
+        description="Scope type. Only 'account' is supported. Defaults to context scope."
     )
     target_scope_id: UUID | None = Field(
         default=None,
@@ -25,7 +30,7 @@ class InvitationCreateRequest(BaseModel):
     )
     target_role_name: str | None = Field(
         default=None,
-        description="v3 role name (e.g. 'account_admin', 'space_member'). Defaults from 'role' field."
+        description="v3 role name (e.g. 'account_admin', 'account_member'). Defaults from 'role' field."
     )
 
 
@@ -34,6 +39,7 @@ class InvitationCreateResponse(BaseModel):
     invitation_id: UUID
     tenant_id: UUID
     email: EmailStr
+    name: str | None = None
     role: str
     token: str
     expires_at: datetime
@@ -52,11 +58,38 @@ class InvitationPreviewResponse(BaseModel):
     tenant_id: UUID
     tenant_name: str
     email: EmailStr
+    name: str | None = None
     role: str
     expires_at: datetime
     status: Literal["pending", "accepted", "expired", "revoked"]
     is_expired: bool
     is_accepted: bool
+    account_state: Literal["new", "existing"] = Field(
+        default="new",
+        description=(
+            "'new' when the invited address has no working login yet (the invite "
+            "page shows a set-password form); 'existing' when it already does "
+            "(the invite page asks them to sign in to accept)."
+        ),
+    )
+
+
+class InvitationCompleteRequest(BaseModel):
+    """Set a password for a brand-new invited account and sign in."""
+    token: str = Field(..., min_length=20, description="Invitation token")
+    password: str = Field(..., min_length=8, max_length=256)
+
+
+class InvitationCompleteResponse(BaseModel):
+    """Tokens for the freshly created account plus the membership it joined."""
+    tenant_id: UUID
+    role: str
+    email: EmailStr
+    access_token: str
+    id_token: str
+    refresh_token: str | None = None
+    expires_in: int
+    message: str
 
 
 class InvitationRevokeResponse(BaseModel):

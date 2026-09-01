@@ -14,7 +14,6 @@ from ..security.scope_context import ScopeContext
 from ..services.user_service import get_user_by_cognito_sub
 from ..services.auth_config_loader import get_auth_config
 from ..models.membership import Membership
-from ..models.space import Space
 from ..models.user import User
 
 
@@ -86,18 +85,9 @@ async def get_current_user_optional(
 # ── Role mapping helpers ─────────────────────────────────────────
 
 _V3_TO_LEGACY_ROLE: dict[str, str] = {
-    "account_owner": "owner",
     "account_admin": "admin",
     "account_member": "member",
-    "space_admin": "admin",
-    "space_member": "member",
-    "space_viewer": "viewer",
-}
-
-# Inheritance: account role → inherited space role
-_ACCOUNT_SPACE_INHERITANCE: dict[str, str] = {
-    "account_owner": "space_admin",
-    "account_admin": "space_member",
+    "account_viewer": "viewer",
 }
 
 
@@ -112,7 +102,7 @@ async def get_scope_context(
     Resolve the current request's scope context (v3.0).
 
     Header precedence:
-      1. X-Scope-Type + X-Scope-ID (v3.0)
+      1. X-Scope-Type + X-Scope-ID (v3.0); the only scope type is "account"
       2. X-Tenant-ID fallback → scope_type=account (backward compat)
 
     Returns:
@@ -186,10 +176,10 @@ def _parse_scope_headers(request: Request) -> tuple[str, UUID]:
             detail="Scope headers required: X-Scope-Type + X-Scope-ID, or X-Tenant-ID",
         )
 
-    if scope_type not in ("account", "space"):
+    if scope_type != "account":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid X-Scope-Type: '{scope_type}'. Must be 'account' or 'space'.",
+            detail=f"Invalid X-Scope-Type: '{scope_type}'. Must be 'account'.",
         )
 
     try:
@@ -218,56 +208,7 @@ async def _resolve_active_roles(
             Membership.status == "active",
         )
     )
-    memberships = result.scalars().all()
-
-    active_roles: list[str] = []
-    for m in memberships:
-        active_roles.append(m.role_name)
-
-    # Space-scope inheritance from parent account
-    if scope_type == "space":
-        inherited = await _resolve_space_inheritance(db, current_user, scope_id)
-        active_roles.extend(inherited)
-
-    return active_roles
-
-
-async def _resolve_space_inheritance(
-    db: AsyncSession,
-    current_user: User,
-    space_id: UUID,
-) -> list[str]:
-    """Check parent account memberships for inherited space roles."""
-    result = await db.execute(select(Space).where(Space.id == space_id))
-    space = result.scalar_one_or_none()
-    if not space or not space.account_id:
-        return []
-
-    # New-style account memberships
-    acct_result = await db.execute(
-        select(Membership).where(
-            Membership.user_id == current_user.id,
-            Membership.scope_type == "account",
-            Membership.scope_id == space.account_id,
-            Membership.status == "active",
-        )
-    )
-    account_memberships = acct_result.scalars().all()
-
-    config = get_auth_config()
-    member_access = config.inheritance_config.get("account_member_space_access", "none")
-
-    inherited: list[str] = []
-    for m in account_memberships:
-        role = m.role_name
-        if not role:
-            continue
-        if role in _ACCOUNT_SPACE_INHERITANCE:
-            inherited.append(_ACCOUNT_SPACE_INHERITANCE[role])
-        elif role == "account_member" and member_access != "none":
-            inherited.append(member_access)
-
-    return inherited
+    return [m.role_name for m in result.scalars().all()]
 
 
 async def _set_rls_vars(

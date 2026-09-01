@@ -25,17 +25,16 @@ async def get_admin_settings(ctx: ScopeContext = Depends(require_permission("mem
     }
 
 
-@router.get("/owner/danger-zone")
-async def get_owner_settings(ctx: ScopeContext = Depends(require_permission("account:delete"))):
-    """Owner-only endpoint - requires account:delete permission."""
+@router.get("/admin/danger-zone")
+async def get_admin_danger_zone(ctx: ScopeContext = Depends(require_permission("account:delete"))):
+    """Admin-only endpoint - requires account:delete permission."""
     return {
         "scope_id": str(ctx.scope_id),
         "accessed_by": str(ctx.user_id),
         "active_roles": ctx.active_roles,
-        "message": "Owner-only danger zone accessed",
+        "message": "Admin-only danger zone accessed",
         "available_actions": [
-            "delete_tenant",
-            "transfer_ownership",
+            "delete_organisation",
             "view_billing",
             "cancel_subscription",
         ],
@@ -78,14 +77,10 @@ async def check_user_permissions(ctx: ScopeContext = Depends(get_scope_context))
     permissions_to_check = [
         "account:delete",
         "account:read",
-        "spaces:create",
         "members:manage",
         "members:invite",
         "data:read",
         "data:write",
-        "space:delete",
-        "space:configure",
-        "space:read",
     ]
 
     user_permissions = {

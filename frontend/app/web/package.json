@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@maxgraph/core": "0.24.0",
     "fractional-indexing": "^4.0.0",
     "idb": "^8.0.3",
     "immer": "^11.1.18",

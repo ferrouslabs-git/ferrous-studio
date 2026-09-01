@@ -27,6 +27,7 @@ $taskRoleArn = $tfOut.task_role_arn.value
 $repoUri = $tfOut.ecr_repository_url.value
 $appPublicUrl = $tfOut.app_public_url.value.$Env
 $cognito = $tfOut.cognito.value.$Env
+$documentsBucket = $tfOut.documents_bucket.value.$Env
 $poolId = $cognito.user_pool_id
 $clientId = $cognito.client_id
 $cognitoDomain = $cognito.domain
@@ -59,7 +60,11 @@ $rendered = $template `
     -replace "{{COGNITO_USER_POOL_ID}}", $poolId `
     -replace "{{COGNITO_CLIENT_ID}}", $clientId `
     -replace "{{COGNITO_DOMAIN}}", $cognitoDomain `
-    -replace "{{APP_PUBLIC_URL}}", $appPublicUrl
+    -replace "{{APP_PUBLIC_URL}}", $appPublicUrl `
+    -replace "{{SES_SENDER_EMAIL}}", $Config.email.sender `
+    -replace "{{EMAIL_FROM_NAME}}", $Config.email.from_name `
+    -replace "{{EMAIL_LEGAL}}", $Config.email.legal `
+    -replace "{{DOCUMENTS_BUCKET}}", $documentsBucket
 $genDir = Join-Path $RepoRoot "infra\ecs\generated"
 New-Item -ItemType Directory -Force -Path $genDir | Out-Null
 $renderedPath = Join-Path $genDir "$Product-$Env.taskdef.json"

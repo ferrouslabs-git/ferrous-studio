@@ -1,4 +1,4 @@
-// React binding for the outbox: one Outbox per open project, wired to the
+// React binding for the outbox: one Outbox per open wireframe, wired to the
 // API, IndexedDB and the page state held by the studio.
 //
 // commit(ops) is the single entry point for a committed action: it applies
@@ -8,7 +8,7 @@
 // be reported, everything else lands.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../../../core/api";
-import { getPage, sendOpBatch } from "../../projects/projectsApi";
+import { getWireframePage, sendWireframeOpBatch } from "../../project/wireframes/wireframesApi";
 import { applyOps } from "../model/applyOps";
 import { normalizePage } from "../model/positions";
 import { Op, OpBatch, PageRecord } from "../model/types";
@@ -23,8 +23,9 @@ function store(): IndexedDbOutboxStore {
   return sharedStore;
 }
 
-export function useProjectSync(
+export function useWireframeSync(
   projectId: string,
+  wireframeId: string,
   page: PageRecord | null,
   setPage: (p: PageRecord | null | ((prev: PageRecord | null) => PageRecord | null)) => void,
 ) {
@@ -37,8 +38,11 @@ export function useProjectSync(
   pageRef.current = page;
 
   useEffect(() => {
-    if (!projectId) return;
-    const outbox = new Outbox(projectId, (batch) => sendOpBatch(projectId, batch), store(), {
+    if (!projectId || !wireframeId) return;
+    // The outbox persists its queue under this key; a wireframe is the unit
+    // of editing, so each gets its own queue.
+    const key = `${projectId}:${wireframeId}`;
+    const outbox = new Outbox(key, (batch) => sendWireframeOpBatch(projectId, wireframeId, batch), store(), {
       onApplied: (batch, result) => {
         setPage((prev) => (prev && prev.id === batch.pageId ? { ...prev, version: result.version } : prev));
       },
@@ -46,7 +50,7 @@ export function useProjectSync(
         setConflict(
           `Changed elsewhere: your edit to ${body.conflicts.map((c) => c.entity_id).join(", ")} was not applied. Reloading.`,
         );
-        void getPage(projectId, batch.pageId)
+        void getWireframePage(projectId, wireframeId, batch.pageId)
           .then((raw) => {
             const fresh = normalizePage(raw);
             outbox.notePageVersion(fresh.id, fresh.version);
@@ -82,7 +86,7 @@ export function useProjectSync(
       outbox.dispose();
       outboxRef.current = null;
     };
-  }, [projectId, setPage]);
+  }, [projectId, wireframeId, setPage]);
 
   useEffect(() => {
     if (page) outboxRef.current?.notePageVersion(page.id, page.version);

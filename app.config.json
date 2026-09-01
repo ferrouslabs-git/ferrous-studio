@@ -8,6 +8,12 @@
   },
   "_alb_priority_base_comment": "Two ALB listener-rule priorities are claimed starting here (base=staging, base+1=prod) -- check `aws elbv2 describe-rules --listener-arn <alb_http_listener_arn>` for collisions before instantiating a second app and bump this if the block is taken.",
   "alb_priority_base": 100,
+  "_email_comment": "Invitation emails go out via Amazon SES. sender must be an address on an SES-verified identity in aws_region (the ferrouslabs.co.uk domain identity is verified); Terraform grants the task role ses:SendEmail on that identity only.",
+  "email": {
+    "sender": "noreply@ferrouslabs.co.uk",
+    "from_name": "Ferrous Studio",
+    "legal": "Entendex Ltd trading as Ferrous Labs \u00b7 1 Empire Mews, Streatham, London SW16 2BF"
+  },
   "shared_infra": {
     "_comment": "Known IDs for the shared VPC/ALB/ECS/RDS — see infra/docs/onboarding-runbook.md. These don't change per app; only product_name/container_port/domain above do.",
     "account_id": "690488446356",

@@ -1,37 +1,69 @@
 // Super admin: every organisation on the platform. Creating one here is the
-// only way an organisation comes into existence (invite-only onboarding);
-// the creator is recorded as its first owner and then invites the real one.
+// only way an organisation comes into existence (invite-only onboarding).
+// The super admin does not join it -- they open it and invite its first admin.
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSession } from "../../app/session";
+import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
 import {
   createTenant,
   deletePlatformTenant,
   getPlatformTenants,
+  PlatformTenant,
   suspendTenant,
   unsuspendTenant,
+  updateTenant,
 } from "../../core/umApi";
 import { useLoad } from "../../core/useLoad";
+
+type DrawerMode = { kind: "closed" } | { kind: "create" } | { kind: "edit"; tenant: PlatformTenant };
 
 export function AdminOrgsPage() {
   const tenants = useLoad(getPlatformTenants, []);
   const { refresh } = useSession();
+  const [mode, setMode] = useState<DrawerMode>({ kind: "closed" });
   const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  const create = async (e: FormEvent) => {
+  const close = () => setMode({ kind: "closed" });
+
+  const openCreate = () => {
+    setName("");
+    setFormError(null);
+    setMode({ kind: "create" });
+  };
+
+  const openEdit = (tenant: PlatformTenant) => {
+    setName(tenant.name);
+    setFormError(null);
+    setMode({ kind: "edit", tenant });
+  };
+
+  const save = async (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setSaving(true);
+    setFormError(null);
     try {
-      await createTenant(name.trim());
-      setName("");
+      if (mode.kind === "edit") {
+        await updateTenant(mode.tenant.tenant_id, { name: name.trim() });
+      } else {
+        await createTenant(name.trim());
+      }
+      close();
       await Promise.all([tenants.reload(), refresh()]);
     } catch (err) {
-      setError(errorMessage(err));
+      setFormError(errorMessage(err));
+    } finally {
+      setSaving(false);
     }
   };
+
+  const isEdit = mode.kind === "edit";
+  const unchanged = isEdit && name.trim() === mode.tenant.name;
 
   const act = async (id: string, fn: () => Promise<unknown>) => {
     setBusy(id);
@@ -49,49 +81,33 @@ export function AdminOrgsPage() {
   return (
     <div className="page stack">
       <div className="page-head">
-        <h1>All organisations</h1>
+        <h1>Organisations</h1>
+        <span className="sub">{tenants.data?.length ?? 0} on the platform</span>
         <span className="shell-spacer" />
-        <Link to="/admin/users" className="btn">
-          All users
-        </Link>
+        <button className="btn primary" onClick={openCreate}>
+          New organisation
+        </button>
       </div>
 
-      <section className="section">
-        <div className="section-head">
-          <h2>Create organisation</h2>
-        </div>
-        <form className="section-body row" onSubmit={create}>
-          <input
-            className="input"
-            required
-            placeholder="Organisation name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <button className="btn primary">Create</button>
-          <span className="muted">Then open it and invite its owner.</span>
-        </form>
-        {error && <div className="status-banner warn">{error}</div>}
-      </section>
+      {error && <div className="status-banner warn">{error}</div>}
 
       <section className="section">
-        <div className="section-head">
-          <h2>Organisations</h2>
-          <span className="muted">{tenants.data?.length ?? 0}</span>
-        </div>
         {tenants.loading ? (
           <div className="empty">Loading…</div>
         ) : tenants.error ? (
           <div className="empty error">{tenants.error}</div>
+        ) : tenants.data?.length === 0 ? (
+          <div className="empty">
+            <b>No organisations yet.</b> Create the first one to start inviting people.
+          </div>
         ) : (
           <table className="data-table">
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Plan</th>
                 <th>Status</th>
                 <th>Members</th>
-                <th>Owners</th>
+                <th>Admins</th>
                 <th>Created</th>
                 <th />
               </tr>
@@ -102,14 +118,16 @@ export function AdminOrgsPage() {
                   <td>
                     <Link to={`/orgs/${t.tenant_id}`}>{t.name}</Link>
                   </td>
-                  <td className="muted">{t.plan}</td>
                   <td>
                     <span className={`badge ${t.status === "active" ? "good" : ""}`}>{t.status}</span>
                   </td>
                   <td>{t.member_count}</td>
-                  <td>{t.owner_count}</td>
+                  <td>{t.admin_count}</td>
                   <td className="muted">{new Date(t.created_at).toLocaleDateString()}</td>
                   <td className="actions">
+                    <button className="btn small ghost" disabled={busy === t.tenant_id} onClick={() => openEdit(t)}>
+                      Edit
+                    </button>{" "}
                     {t.status === "active" ? (
                       <button
                         className="btn small ghost"
@@ -145,6 +163,39 @@ export function AdminOrgsPage() {
           </table>
         )}
       </section>
+
+      <Drawer
+        open={mode.kind !== "closed"}
+        title={isEdit ? "Edit organisation" : "New organisation"}
+        description={
+          isEdit
+            ? "Changes apply immediately for every member."
+            : "Organisations are invite-only. Once created, open it and invite its first admin."
+        }
+        onClose={close}
+        onSubmit={save}
+        footer={
+          <>
+            <button type="button" className="btn ghost" onClick={close}>
+              Cancel
+            </button>
+            <button className="btn primary" disabled={saving || !name.trim() || unchanged}>
+              {saving ? "Saving…" : isEdit ? "Save changes" : "Create organisation"}
+            </button>
+          </>
+        }
+      >
+        <Field label="Name" hint="Shown to members everywhere.">
+          <input
+            className="input"
+            required
+            placeholder="e.g. Acme Ltd"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        {formError && <div className="status-banner warn">{formError}</div>}
+      </Drawer>
     </div>
   );
 }

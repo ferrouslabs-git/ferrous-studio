@@ -1,4 +1,4 @@
-// Which organisation and workspace to open when a session starts.
+// Which organisation to open when a session starts.
 //
 // This is a product decision, not plumbing. Options with different feel:
 //   - first in the list      : predictable, but a user in three orgs always
@@ -9,15 +9,14 @@
 //                              don't bleed into each other.
 //   - most recently created  : good for "I just made this", bad afterwards.
 //
-// The placeholder below picks the first entry. Replace the bodies of
-// pickInitialOrg / pickInitialSpace to set the policy; rememberScope is
-// called whenever the user switches, so a "last used" policy has what it
-// needs in localStorage under `ferrous-scope:<userId>`.
-import { UmSpace, UmTenant } from "../core/umApi";
+// The placeholder below picks the first entry. Replace the body of
+// pickInitialOrg to set the policy; rememberScope is called whenever the user
+// switches, so a "last used" policy has what it needs in localStorage under
+// `ferrous-scope:<userId>`.
+import { UmTenant } from "../core/umApi";
 
 interface Remembered {
   orgId?: string;
-  spaceId?: string;
 }
 
 const key = (userId: string) => `ferrous-scope:${userId}`;
@@ -42,9 +41,4 @@ export function rememberScope(userId: string, next: Remembered): void {
 /** TODO(policy): choose the organisation to open. Placeholder = first. */
 export function pickInitialOrg(orgs: UmTenant[], _remembered: Remembered): UmTenant | null {
   return orgs[0] ?? null;
-}
-
-/** TODO(policy): choose the workspace within that organisation. Placeholder = first. */
-export function pickInitialSpace(spaces: UmSpace[], _remembered: Remembered): UmSpace | null {
-  return spaces[0] ?? null;
 }

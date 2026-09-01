@@ -51,8 +51,6 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
             f"{self.auth_prefix}/tenants",
             f"{self.auth_prefix}/tenants/my",
             f"{self.auth_prefix}/accounts",
-            f"{self.auth_prefix}/spaces",
-            f"{self.auth_prefix}/spaces/my",
             f"{self.auth_prefix}/config/roles",
             f"{self.auth_prefix}/config/permissions",
         }
@@ -93,10 +91,10 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
             )
 
         # Validate scope type
-        if scope_type not in ("account", "space"):
+        if scope_type != "account":
             return JSONResponse(
                 status_code=400,
-                content={"detail": f"Invalid X-Scope-Type: '{scope_type}'. Must be 'account' or 'space'."}
+                content={"detail": f"Invalid X-Scope-Type: '{scope_type}'. Must be 'account'."}
             )
 
         # Validate UUID format

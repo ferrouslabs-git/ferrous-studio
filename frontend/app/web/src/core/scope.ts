@@ -1,5 +1,5 @@
-// The active scope (organisation = "account", workspace = "space") that
-// scoped API calls run under. The auth module resolves membership and
+// The active scope -- an organisation, which the backend calls an "account" --
+// that scoped API calls run under. The auth module resolves membership and
 // permissions from the X-Scope-Type / X-Scope-ID headers, so rather than each
 // feature remembering to attach them, core/api.ts reads the value held here.
 //
@@ -7,7 +7,7 @@
 // studio sync outbox in particular -- can make scoped calls too. The
 // SessionProvider keeps it in step with the UI's current selection.
 
-export type ScopeType = "account" | "space";
+export type ScopeType = "account";
 
 export interface ActiveScope {
   type: ScopeType;

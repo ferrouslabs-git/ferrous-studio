@@ -13,6 +13,15 @@ locals {
 
   shared = local.config.shared_infra
 
+  # Invitation email sender (see app.config.json); its domain must be a
+  # verified SES identity in `region`.
+  sender_email  = local.config.email.sender
+  sender_domain = split("@", local.config.email.sender)[1]
+  # Display name on every From: header (app invitations and Cognito codes)
+  # and the legal footer line in the Cognito email template.
+  email_from_name = try(local.config.email.from_name, local.product_name)
+  email_legal     = try(local.config.email.legal, "")
+
   envs = ["staging", "prod"]
 
   # On Windows, a bare "bash" on PATH resolves to the WSL launcher shim
@@ -30,7 +39,7 @@ locals {
       local.domain_root != "" ?
       (env == "staging" ?
         "https://${local.staging_subdomain}.${local.domain_root}" :
-        "https://${local.domain_root}") :
+      "https://${local.domain_root}") :
       "https://${env}.${local.product_name}.invalid"
     )
   }

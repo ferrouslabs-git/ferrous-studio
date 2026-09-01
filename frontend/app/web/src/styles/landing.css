@@ -1,5 +1,7 @@
-/* Public landing page. */
-.landing { min-height: 100vh; }
+/* Public landing page. Always dark: the root carries .theme-dark (see
+   tokens.css), so it must paint its own ground rather than rely on body,
+   which still follows the visitor's stored theme. */
+.landing { min-height: 100vh; background: var(--bg); color: var(--text); color-scheme: dark; }
 .landing h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
 .landing h3 { font-size: 14px; font-weight: 600; margin: 0 0 6px; }
 .landing p { line-height: 1.6; }

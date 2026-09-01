@@ -7,7 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 
 from ..models.user import User
-from ..schemas.invitation import BulkInvitationCreateRequest, BulkInvitationCreateResponse, BulkInvitationResultItem
+from ..schemas.invitation import (
+    BulkInvitationCreateRequest,
+    BulkInvitationCreateResponse,
+    BulkInvitationResultItem,
+    InvitationCreateRequest,
+)
 from ..schemas.tenant import (
     TenantCreateRequest,
     TenantCreateResponse,
@@ -16,8 +21,9 @@ from ..schemas.tenant import (
     TenantListResponse,
     TenantUpdateRequest,
 )
-from ..security import ScopeContext, get_current_user, get_scope_context
+from ..security import ScopeContext, get_current_user, get_scope_context, require_permission
 from ..services.audit_service import log_audit_event
+from .route_helpers import create_invitation_response, ensure_scope_access
 from ..services.invitation_service import create_invitation, list_tenant_invitations
 from ..services.tenant_service import (
     create_tenant,
@@ -56,7 +62,6 @@ async def create_new_tenant(
         name=tenant_data.name,
         user=current_user,
         db=db,
-        plan=tenant_data.plan,
     )
 
     await log_audit_event(
@@ -65,13 +70,11 @@ async def create_new_tenant(
         db=db,
         tenant_id=str(tenant.id),
         tenant_name=tenant.name,
-        plan=tenant.plan,
     )
 
     return TenantCreateResponse(
         tenant_id=tenant.id,
         name=tenant.name,
-        plan=tenant.plan,
         role="owner",
         message="Tenant created successfully",
     )
@@ -121,17 +124,16 @@ async def get_tenant_detail(
     from ..models.membership import Membership
     active_memberships = [m for m in tenant.memberships if m.status == "active"]
     member_count = len(active_memberships)
-    owner_count = sum(1 for m in active_memberships if m.role_name in ("account_owner", "owner"))
+    admin_count = sum(1 for m in active_memberships if m.role_name in ("account_admin", "admin"))
 
     return TenantDetailResponse(
         id=tenant.id,
         name=tenant.name,
-        plan=tenant.plan,
         status=tenant.status,
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
         member_count=member_count,
-        owner_count=owner_count,
+        admin_count=admin_count,
     )
 
 
@@ -145,24 +147,24 @@ async def update_tenant_detail(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update tenant name/plan. Requires account_owner role or platform admin."""
+    """Update the organisation's name. Requires account_admin role or platform admin."""
     if not current_user.is_platform_admin:
         from ..services.tenant_service import get_user_tenant_role
         role = await get_user_tenant_role(current_user.id, tenant_id, db)
-        if role not in ("account_owner", "owner"):
+        if role not in ("account_admin", "admin"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only tenant owners or platform admins can update tenant details",
+                detail="Only organisation admins or platform admins can update organisation details",
             )
 
-    if payload.name is None and payload.plan is None:
+    if payload.name is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one field (name, plan) must be provided",
+            detail="A name must be provided",
         )
 
     try:
-        tenant = await update_tenant(tenant_id, db, name=payload.name, plan=payload.plan)
+        tenant = await update_tenant(tenant_id, db, name=payload.name)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -177,17 +179,16 @@ async def update_tenant_detail(
     from ..models.membership import Membership
     active_memberships = [m for m in tenant.memberships if m.status == "active"]
     member_count = len(active_memberships)
-    owner_count = sum(1 for m in active_memberships if m.role_name in ("account_owner", "owner"))
+    admin_count = sum(1 for m in active_memberships if m.role_name in ("account_admin", "admin"))
 
     return TenantDetailResponse(
         id=tenant.id,
         name=tenant.name,
-        plan=tenant.plan,
         status=tenant.status,
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
         member_count=member_count,
-        owner_count=owner_count,
+        admin_count=admin_count,
     )
 
 
@@ -222,25 +223,30 @@ async def list_invitations_for_tenant(
 async def bulk_create_invitations(
     tenant_id: UUID,
     payload: BulkInvitationCreateRequest,
+    ctx: ScopeContext = Depends(require_permission("members:invite")),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Send up to 50 invitations in one request. Requires membership or platform admin."""
-    if not current_user.is_platform_admin and not await verify_user_tenant_access(current_user.id, tenant_id, db):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this tenant")
+    """Send up to 50 invitations in one request.
+
+    Same authorisation as the single-invite endpoint: `members:invite` in the
+    active scope, and each target role must be a subset of the inviter's own
+    permissions (enforced inside create_invitation_response).
+    """
+    ensure_scope_access(tenant_id, ctx)
 
     results: list[BulkInvitationResultItem] = []
     for item in payload.invitations:
         try:
-            invitation, _raw_token = await create_invitation(
-                db=db,
-                tenant_id=tenant_id,
+            invite_data = InvitationCreateRequest(
                 email=item.email,
                 role=item.role,
-                created_by=current_user.id,
                 target_role_name=item.target_role_name,
             )
-            results.append(BulkInvitationResultItem(email=item.email, success=True, invitation_id=invitation.id))
+            resp = await create_invitation_response(db, tenant_id, invite_data, current_user, ctx)
+            results.append(BulkInvitationResultItem(email=item.email, success=True, invitation_id=resp.invitation_id))
+        except HTTPException as exc:
+            results.append(BulkInvitationResultItem(email=item.email, success=False, error=str(exc.detail)))
         except Exception as exc:
             results.append(BulkInvitationResultItem(email=item.email, success=False, error=str(exc)))
 

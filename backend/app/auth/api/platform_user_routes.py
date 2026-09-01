@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 
 from ..models.user import User
-from ..schemas.user_management import PlatformUserResponse
+from ..schemas.user_management import (
+    PlatformInvitationResponse,
+    PlatformUserResponse,
+    UpdatePlatformUserRequest,
+)
 from ..security import get_current_user
 from ..services.audit_service import log_audit_event
 from ..services.user_service import (
@@ -16,6 +20,7 @@ from ..services.user_service import (
     promote_to_platform_admin,
     suspend_user,
     unsuspend_user,
+    update_user_profile,
 )
 from ..services.cognito_admin_service import (
     admin_delete_user_by_username_async,
@@ -26,6 +31,7 @@ from ..services.cognito_admin_service import (
     list_users_by_email_async,
     admin_reset_user_password_async,
 )
+from ..services.invitation_service import list_platform_invitations
 from ..services.user_management_service import list_platform_users
 from .route_helpers import build_user_status_response, ensure_not_self_target, ensure_platform_admin
 
@@ -151,7 +157,7 @@ async def consolidate_federated_user(
 
 @router.get("/platform/users", response_model=list[PlatformUserResponse])
 async def get_platform_users(
-    role: str | None = Query(None, description="Filter by role name (e.g. account_owner)"),
+    role: str | None = Query(None, description="Filter by role name (e.g. account_admin)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -162,6 +168,47 @@ async def get_platform_users(
             detail="Only platform administrators can view all users",
         )
     return await list_platform_users(db, role=role)
+
+
+@router.get("/platform/invitations", response_model=list[PlatformInvitationResponse])
+async def get_platform_invitations(
+    status_filter: str | None = Query(None, alias="status", description="pending, accepted, expired or revoked"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Invitations across every organisation (platform admin only). Lets the
+    platform Users page show invited-but-not-joined people alongside users."""
+    ensure_platform_admin(current_user, "view invitations for")
+    return await list_platform_invitations(db, status_filter=status_filter)
+
+
+@router.patch("/platform/users/{user_id}", response_model=PlatformUserResponse)
+async def update_platform_user(
+    user_id: UUID,
+    payload: UpdatePlatformUserRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit a user's display name from the platform Users page (platform admin only)."""
+    ensure_platform_admin(current_user, "edit")
+    fields = payload.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to update")
+
+    try:
+        # A blank name clears it; the column is nullable rather than "".
+        await update_user_profile(user_id, db, name=(fields.get("name") or "").strip() or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    await log_audit_event(
+        "platform_user_updated",
+        actor_user_id=str(current_user.id),
+        db=db,
+        target_user_id=str(user_id),
+        fields=sorted(fields),
+    )
+    return await get_platform_user_detail(user_id, current_user, db)
 
 
 @router.get("/platform/users/{user_id}", response_model=PlatformUserResponse)

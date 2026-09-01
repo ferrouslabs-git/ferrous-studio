@@ -1,4 +1,7 @@
-:root, [data-theme="dark"] {
+/* .theme-dark pins a subtree to the dark palette regardless of the
+   html-level data-theme attribute (custom properties set on the element
+   itself win over values inherited from html). The landing page uses it. */
+:root, [data-theme="dark"], .theme-dark {
   --bg: #0f1115;
   --panel: #161922;
   --panel-2: #1c2030;

@@ -1,51 +1,14 @@
-// Region rules and per-type default props. Ported from legacy/js/state.js.
-// Pure functions: no state, no DOM. This is the domain knowledge the server
-// deliberately does not have.
-import { COMPONENT_TYPES, DEFAULT_LABELS } from "../catalog";
-import { ComponentNode, RegionName, REGION_ORDER } from "./types";
+// Per-type default props, element minting and id minting. Pure functions: no
+// state, no DOM. This is the domain knowledge the server deliberately does
+// not have.
+import { COMPONENTS, ElementSeed, elementMeta } from "../catalog";
+import { ElementNode } from "./types";
+import { reposition } from "./positions";
 
-/** Which region a component type belongs in when auto-classified. */
-export const REGION_RULES: Record<string, RegionName> = {
-  navbar: "header",
-  breadcrumb: "header",
-  tabs: "header",
-  "nav-basic": "header",
-  "nav-search": "header",
-  "nav-cta": "header",
-  sidebar: "sidebar",
-  "sidenav-simple": "sidebar",
-  "sidenav-grouped": "sidebar",
-  "sidenav-workspace": "sidebar",
-  detail: "right",
-  "rightpanel-detail": "right",
-  "rightpanel-filters": "right",
-  "rightpanel-activity": "right",
-  footer: "footer",
-};
-
-/** Shell chrome: types that own a region rather than stack inside one. */
-export const STRUCTURAL_TYPES = new Set<string>([
-  "navbar", "sidebar", "detail", "footer", "tabs", "breadcrumb", "main",
-  "nav-basic", "nav-search", "nav-cta",
-  "sidenav-simple", "sidenav-grouped", "sidenav-workspace",
-  "rightpanel-detail", "rightpanel-filters", "rightpanel-activity",
-]);
-
-export const classifyRegion = (type: string): RegionName => REGION_RULES[type] ?? "main";
-
-export function emptyRegions(): Record<RegionName, ComponentNode[]> {
-  return { header: [], sidebar: [], main: [], right: [], footer: [] };
-}
-
-export const REGION_LABEL: Record<RegionName, string> = {
-  header: "header",
-  sidebar: "sidebar",
-  main: "main",
-  right: "right",
-  footer: "footer",
-};
-
-export { REGION_ORDER };
+/** Shell chrome: types that fill a region edge-to-edge (nav bars, footers)
+ *  rather than stacking as padded content. Drives canvas spacing only —
+ *  placement is entirely the user's. */
+export const STRUCTURAL_TYPES = new Set<string>(["navbar", "footer"]);
 
 /** Short random ids. More entropy than the legacy counter-based uid, since
  *  ids now live in a shared database rather than one browser session. */
@@ -56,79 +19,50 @@ export function uid(prefix: string): string {
   return `${prefix}-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
-/** Placeholder content for a freshly added component, by type. */
+/** Scalar placeholder content for a freshly added component. Everything list-
+ *  shaped lives in `elements` now (see defaultElementsFor); these are the
+ *  remaining strings a renderer shows outside any element. */
 export function getDefaultProps(type: string): Record<string, unknown> {
   switch (type) {
-    case "navbar":
-    case "nav-basic":
-    case "nav-search":
-      return { items: ["Overview", "Users", "Reports"] };
-    case "nav-cta":
-      return { items: ["Overview", "Users"], ctaText: "Get started" };
-    case "sidebar":
-    case "sidenav-simple":
-      return { sectionTitle: "Navigation", workspaceTitle: "Workspace", items: ["Overview", "Users", "Reports", "Settings"] };
-    case "sidenav-grouped":
-      return {
-        groups: [
-          { title: "Main", items: ["Overview", "Reports"] },
-          { title: "Admin", items: ["Users", "Billing"] },
-        ],
-      };
-    case "sidenav-workspace":
-      return { sectionTitle: "Workspace", workspace: "Acme Workspace", items: ["Dashboard", "Members", "Projects", "Settings"] };
-    case "tabs":
-      return { items: ["All", "Active", "Invited", "Disabled"] };
-    case "breadcrumb":
-      return { items: ["Home", "Section", "Detail"] };
-    case "footer":
-      return { items: ["Privacy", "Terms", "Support"] };
-    case "hero":
-      return { items: ["Title", "Subtitle", "Get started"] };
-    case "kpi":
-      return { items: ["Users", "Active", "Revenue", "Churn"] };
     case "list":
-      return {
-        columns: ["Name", "Email", "Status", "Joined"],
-        rows: [
-          ["Ada Lovelace", "ada@acme.io", "Active", "Mar 4, 2025"],
-          ["Linus Torvalds", "linus@acme.io", "Active", "Jan 12, 2024"],
-          ["Grace Hopper", "grace@acme.io", "Inactive", "Aug 22, 2023"],
-        ],
-      };
-    case "chart":
-      return { items: ["Jan", "Feb", "Mar", "Apr"] };
+      // Three sample records; cells are keyed by column element id and fall
+      // back to kind-derived samples until edited.
+      return { rows: [{}, {}, {}] };
+    case "calendar":
+      return { period: "March 2026" };
     case "detail":
-    case "rightpanel-detail":
-      return { items: ["Status", "Email", "Role", "Joined"] };
-    case "rightpanel-filters":
-      return { items: ["Status", "Date range", "Assigned to"] };
-    case "rightpanel-activity":
-      return { items: ["Created record", "Updated status", "Added note"] };
-    case "empty":
-      return { items: ["Nothing here yet", "Create record"] };
-    case "main":
-      return { items: ["Summary", "Highlights", "Notes"] };
-    case "form":
-      return { items: ["Name", "Email", "Role", "Team"] };
-    case "filters":
-      return { items: ["Role", "Joined", "Clear"] };
-    case "editable-component":
+      return { heading: "Ada Lovelace", status: "Active" };
+    case "footer":
+      return { copyright: "© 2026 Acme" };
+    default:
       return {};
-    case "stepper":
-      return { items: ["Account", "Profile", "Team", "Review"] };
-    case "modal":
-      return { items: ["Cancel", "Confirm"] };
-    case "actions":
-      return { items: ["Cancel", "Save changes"] };
-    default: {
-      // Extensibility contract: a type may declare defaultProps in the
-      // catalogue; otherwise it gets a single editable item from its label.
-      const meta = COMPONENT_TYPES[type];
-      if (meta?.defaultProps) return JSON.parse(JSON.stringify(meta.defaultProps));
-      if (type === "custom") return {};
-      const label = DEFAULT_LABELS[type] ?? meta?.label ?? type;
-      return label ? { items: [label] } : {};
-    }
   }
+}
+
+/** Build one element instance from its catalogue meta plus an optional seed. */
+export function makeElement(componentType: string, seed: ElementSeed): ElementNode | null {
+  const meta = elementMeta(componentType, seed.type);
+  if (!meta) return null;
+  const node: ElementNode = {
+    id: uid("e"),
+    type: meta.type,
+    label: seed.label ?? meta.defaultLabel,
+    pos: "",
+  };
+  const data = { ...meta.defaultData, ...seed.data };
+  if (Object.keys(data).length) node.data = data;
+  return node;
+}
+
+/** The elements a fresh component of `type` starts with, in pos order. */
+export function defaultElementsFor(type: string, extra: ElementSeed[] = []): ElementNode[] {
+  const meta = COMPONENTS[type];
+  if (!meta) return [];
+  const out: ElementNode[] = [];
+  for (const seed of [...meta.defaultElements, ...extra]) {
+    const node = makeElement(type, seed);
+    if (node) out.push(node);
+  }
+  reposition(out);
+  return out;
 }

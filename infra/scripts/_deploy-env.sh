@@ -32,6 +32,10 @@ APP_PUBLIC_URL=$(echo "$TF_OUT" | jq -r --arg env "$ENV_NAME" '.app_public_url.v
 POOL_ID=$(echo "$TF_OUT" | jq -r --arg env "$ENV_NAME" '.cognito.value[$env].user_pool_id')
 CLIENT_ID=$(echo "$TF_OUT" | jq -r --arg env "$ENV_NAME" '.cognito.value[$env].client_id')
 COGNITO_DOMAIN=$(echo "$TF_OUT" | jq -r --arg env "$ENV_NAME" '.cognito.value[$env].domain')
+DOCUMENTS_BUCKET=$(echo "$TF_OUT" | jq -r --arg env "$ENV_NAME" '.documents_bucket.value[$env]')
+SES_SENDER_EMAIL=$(jq -r .email.sender "$REPO_ROOT/app.config.json")
+EMAIL_FROM_NAME=$(jq -r .email.from_name "$REPO_ROOT/app.config.json")
+EMAIL_LEGAL=$(jq -r .email.legal "$REPO_ROOT/app.config.json")
 
 # ── 1. Build + push image ──
 echo; echo "[1/5] Build + push :$ENV_NAME image"
@@ -60,6 +64,10 @@ sed \
   -e "s#{{COGNITO_CLIENT_ID}}#$CLIENT_ID#g" \
   -e "s#{{COGNITO_DOMAIN}}#$COGNITO_DOMAIN#g" \
   -e "s#{{APP_PUBLIC_URL}}#$APP_PUBLIC_URL#g" \
+  -e "s#{{SES_SENDER_EMAIL}}#$SES_SENDER_EMAIL#g" \
+  -e "s#{{EMAIL_FROM_NAME}}#$EMAIL_FROM_NAME#g" \
+  -e "s#{{EMAIL_LEGAL}}#$EMAIL_LEGAL#g" \
+  -e "s#{{DOCUMENTS_BUCKET}}#$DOCUMENTS_BUCKET#g" \
   "$REPO_ROOT/infra/ecs/taskdef.template.json" > "$RENDERED"
 aws ecs register-task-definition --region "$REGION" --cli-input-json "file://$RENDERED" >/dev/null
 echo "  registered $PRODUCT-$ENV_NAME"

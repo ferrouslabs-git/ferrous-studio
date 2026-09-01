@@ -1,36 +1,42 @@
-// Organisation management: members and their roles, pending invitations,
-// and workspaces with their own members. Workspace membership is where
-// viewers are granted -- a space_viewer sees every project in that workspace.
+// Organisation users: one list covering both members and people who have
+// been invited but not yet joined. An organisation owns its projects directly,
+// and membership is where access is granted -- an account_viewer sees every
+// project in the organisation.
 //
 // Every write here is also enforced server-side; the `can*` flags only hide
 // controls that would fail.
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useSession } from "../../app/session";
+import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
 import {
-  createSpace,
-  getSpaceMembers,
+  deactivateTenantUser,
   getTenantUsers,
-  inviteToSpace,
   inviteToTenant,
   LEGACY_TO_ACCOUNT_ROLE,
   LegacyAccountRole,
   listTenantInvitations,
-  removeSpaceMember,
-  removeTenantUser,
+  reactivateTenantUser,
   resendInvitation,
   revokeInvitation,
-  UmSpace,
-  updateTenantUserRole,
+  TenantInvitation,
+  TenantUser,
+  updateTenantUser,
 } from "../../core/umApi";
 import { useLoad } from "../../core/useLoad";
 import { RoleName, useRoles } from "./roleLabels";
 
 export function OrgPage() {
   const { orgId = "" } = useParams();
-  const { orgs, user, spaces, refresh } = useSession();
+  const { orgs, user, activeOrg, selectOrg } = useSession();
   const org = orgs.find((o) => o.id === orgId);
+
+  // Scoped calls run under the active organisation; keep it in step with the
+  // URL (deep links, back/forward). The sidebar switcher navigates here itself.
+  useEffect(() => {
+    if (org && activeOrg && org.id !== activeOrg.id) void selectOrg(org.id);
+  }, [org, activeOrg, selectOrg]);
   const isPlatformAdmin = !!user?.is_platform_admin;
 
   if (!org && !isPlatformAdmin) {
@@ -41,38 +47,72 @@ export function OrgPage() {
     );
   }
 
+  // Admin is the top organisation role: it both manages members and invites.
   const myRole = org?.role ?? null;
-  const canManage = isPlatformAdmin || myRole === "account_owner";
-  const canInvite = canManage || myRole === "account_admin";
+  const canManage = isPlatformAdmin || myRole === "account_admin";
 
   return (
     <div className="page stack">
       <div className="page-head">
-        <h1>{org?.name ?? "Organisation"}</h1>
-        {myRole && (
-          <span className="badge accent">
-            <RoleName name={myRole} />
-          </span>
-        )}
+        <h1>Users</h1>
       </div>
 
-      <MembersSection orgId={orgId} currentUserId={user?.id ?? ""} canManage={canManage} />
-      <InvitationsSection orgId={orgId} canInvite={canInvite} />
-      <WorkspacesSection
-        orgId={orgId}
-        spaces={spaces}
-        canCreate={canInvite}
-        canManage={canManage}
-        canInvite={canInvite}
-        onChanged={refresh}
-      />
+      <UsersSection orgId={orgId} currentUserId={user?.id ?? ""} canManage={canManage} />
     </div>
   );
 }
 
-// ── Members ────────────────────────────────────────────────────────────────
+// ── Users (members + open invitations) ─────────────────────────────────────
 
-function MembersSection({
+/** A user's standing in the organisation, whichever list they came from.
+ *  "archived" is a membership the backend calls "removed": the account still
+ *  exists, it just has no access here until restored. */
+type UserStatus = "active" | "archived" | "invited" | "expired";
+
+/** One row of the table: a member, or someone still to accept an invitation. */
+type UserRow =
+  | { kind: "member"; key: string; email: string; name: string | null; role: string; status: UserStatus; member: TenantUser }
+  | { kind: "invite"; key: string; email: string; name: string | null; role: string; status: UserStatus; invite: TenantInvitation };
+
+function toRows(members: TenantUser[], invites: TenantInvitation[]): UserRow[] {
+  const memberRows: UserRow[] = members.map((m) => ({
+    kind: "member",
+    key: `m:${m.user_id}`,
+    email: m.email,
+    name: m.name,
+    role: m.role,
+    status: m.status === "active" ? "active" : "archived",
+    member: m,
+  }));
+  // Accepted invitations already appear as members; revoked ones are history.
+  const inviteRows: UserRow[] = invites
+    .filter((i) => i.status === "pending" || i.status === "expired")
+    .map((i) => ({
+      kind: "invite",
+      key: `i:${i.invitation_id}`,
+      email: i.email,
+      name: i.name,
+      role: i.role,
+      status: i.status === "pending" ? "invited" : "expired",
+      invite: i,
+    }));
+  return [...memberRows, ...inviteRows];
+}
+
+const STATUS_LABEL: Record<UserStatus, string> = {
+  active: "Active",
+  archived: "Archived",
+  invited: "Invited",
+  expired: "Invite expired",
+};
+const STATUS_BADGE: Record<UserStatus, string> = {
+  active: "badge good",
+  archived: "badge",
+  invited: "badge accent",
+  expired: "badge",
+};
+
+function UsersSection({
   orgId,
   currentUserId,
   canManage,
@@ -81,16 +121,41 @@ function MembersSection({
   currentUserId: string;
   canManage: boolean;
 }) {
-  const members = useLoad(() => getTenantUsers(orgId), [orgId]);
+  const members = useLoad(() => getTenantUsers(orgId, "all"), [orgId]);
+  const invites = useLoad(() => listTenantInvitations(orgId), [orgId]);
+  const { byName } = useRoles();
+
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [editing, setEditing] = useState<TenantUser | null>(null);
 
-  const act = async (userId: string, fn: () => Promise<unknown>) => {
-    setBusy(userId);
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | UserStatus>("");
+
+  const rows = useMemo(() => toRows(members.data ?? [], invites.data ?? []), [members.data, invites.data]);
+  const roles = useMemo(() => Array.from(new Set(rows.map((r) => r.role))).sort(), [rows]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (roleFilter && r.role !== roleFilter) return false;
+      if (statusFilter && r.status !== statusFilter) return false;
+      if (!q) return true;
+      const roleLabel = (byName[r.role]?.display_name ?? r.role).toLowerCase();
+      return r.email.toLowerCase().includes(q) || (r.name ?? "").toLowerCase().includes(q) || roleLabel.includes(q);
+    });
+  }, [rows, query, roleFilter, statusFilter, byName]);
+
+  const reload = () => Promise.all([members.reload(), invites.reload()]);
+
+  const act = async (key: string, fn: () => Promise<unknown>) => {
+    setBusy(key);
     setError(null);
     try {
       await fn();
-      await members.reload();
+      await reload();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -98,17 +163,94 @@ function MembersSection({
     }
   };
 
+  const loading = members.loading || invites.loading;
+  const loadError = members.error ?? invites.error;
+  const filtered = query.trim() !== "" || roleFilter !== "" || statusFilter !== "";
+  const clearFilters = () => {
+    setQuery("");
+    setRoleFilter("");
+    setStatusFilter("");
+  };
+
   return (
     <section className="section">
       <div className="section-head">
-        <h2>Members</h2>
-        <span className="muted">{members.data?.length ?? 0}</span>
+        <h2>Users</h2>
+        <span className="muted">{filtered ? `${visible.length} of ${rows.length}` : rows.length}</span>
+        <span className="shell-spacer" />
+        {canManage && (
+          <InviteButton
+            orgId={orgId}
+            onInvited={(msg) => {
+              setNotice(msg);
+              void reload();
+            }}
+          />
+        )}
       </div>
+
+      <div className="toolbar">
+        <input
+          className="input search"
+          type="search"
+          placeholder="Search by email, name or role"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Search users"
+        />
+        <select
+          className="select"
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          aria-label="Filter by role"
+        >
+          <option value="">All roles</option>
+          {roles.map((r) => (
+            <option key={r} value={r}>
+              {byName[r]?.display_name ?? r.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+        <select
+          className="select"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as "" | UserStatus)}
+          aria-label="Filter by status"
+        >
+          <option value="">All statuses</option>
+          {(Object.keys(STATUS_LABEL) as UserStatus[]).map((s) => (
+            <option key={s} value={s}>
+              {STATUS_LABEL[s]}
+            </option>
+          ))}
+        </select>
+        {filtered && (
+          <button type="button" className="btn small ghost" onClick={clearFilters}>
+            Clear
+          </button>
+        )}
+      </div>
+
+      {notice && <div className="status-banner">{notice}</div>}
       {error && <div className="status-banner warn">{error}</div>}
-      {members.loading ? (
+
+      <EditUserDrawer
+        orgId={orgId}
+        user={editing}
+        canChangeRole={editing !== null && editing.user_id !== currentUserId}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          void reload();
+        }}
+      />
+
+      {loading ? (
         <div className="empty">Loading…</div>
-      ) : members.error ? (
-        <div className="empty error">{members.error}</div>
+      ) : loadError ? (
+        <div className="empty error">{loadError}</div>
+      ) : visible.length === 0 ? (
+        <div className="empty">{filtered ? "No users match these filters." : "No users yet."}</div>
       ) : (
         <table className="data-table">
           <thead>
@@ -116,51 +258,75 @@ function MembersSection({
               <th>Email</th>
               <th>Name</th>
               <th>Role</th>
+              <th>Status</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            {members.data?.map((m) => {
-              const isSelf = m.user_id === currentUserId;
+            {visible.map((r) => {
+              const isSelf = r.kind === "member" && r.member.user_id === currentUserId;
               return (
-                <tr key={m.user_id}>
-                  <td>{m.email}</td>
-                  <td className="muted">{m.name ?? "—"}</td>
+                <tr key={r.key}>
+                  <td>{r.email}</td>
+                  <td className="muted">{r.name ?? "—"}</td>
                   <td>
-                    {canManage && !isSelf ? (
-                      <select
-                        className="select"
-                        value={legacyOf(m.role)}
-                        disabled={busy === m.user_id}
-                        onChange={(e) =>
-                          void act(m.user_id, () =>
-                            updateTenantUserRole(orgId, m.user_id, e.target.value as LegacyAccountRole),
-                          )
-                        }
-                      >
-                        {(Object.keys(LEGACY_TO_ACCOUNT_ROLE) as LegacyAccountRole[]).map((r) => (
-                          <option key={r} value={r}>
-                            {LEGACY_TO_ACCOUNT_ROLE[r].replace("account_", "")}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <RoleName name={m.role} />
-                    )}
+                    <RoleName name={r.role} />
+                  </td>
+                  <td>
+                    <span
+                      className={STATUS_BADGE[r.status]}
+                      title={r.kind === "invite" ? `Expires ${new Date(r.invite.expires_at).toLocaleDateString()}` : undefined}
+                    >
+                      {STATUS_LABEL[r.status]}
+                    </span>
                   </td>
                   <td className="actions">
-                    {canManage && !isSelf && (
+                    {canManage && r.kind === "member" && r.status === "active" && (
+                      <>
+                        <button className="btn small ghost" disabled={busy === r.key} onClick={() => setEditing(r.member)}>
+                          Edit
+                        </button>{" "}
+                      </>
+                    )}
+                    {canManage && r.kind === "member" && !isSelf && r.status === "active" && (
                       <button
                         className="btn small ghost"
-                        disabled={busy === m.user_id}
+                        disabled={busy === r.key}
                         onClick={() => {
-                          if (confirm(`Remove ${m.email} from the organisation?`)) {
-                            void act(m.user_id, () => removeTenantUser(orgId, m.user_id));
+                          if (confirm(`Archive ${r.email}? They will lose access to this organisation until restored.`)) {
+                            void act(r.key, () => deactivateTenantUser(orgId, r.member.user_id));
                           }
                         }}
                       >
-                        Remove
+                        Archive
                       </button>
+                    )}
+                    {canManage && r.kind === "member" && r.status === "archived" && (
+                      <button
+                        className="btn small ghost"
+                        disabled={busy === r.key}
+                        onClick={() => void act(r.key, () => reactivateTenantUser(orgId, r.member.user_id))}
+                      >
+                        Restore
+                      </button>
+                    )}
+                    {canManage && r.kind === "invite" && (
+                      <>
+                        <button
+                          className="btn small ghost"
+                          disabled={busy === r.key}
+                          onClick={() => void act(r.key, () => resendInvitation(orgId, r.invite.invitation_id))}
+                        >
+                          Resend
+                        </button>{" "}
+                        <button
+                          className="btn small ghost"
+                          disabled={busy === r.key}
+                          onClick={() => void act(r.key, () => revokeInvitation(orgId, r.invite.invitation_id))}
+                        >
+                          Revoke
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>
@@ -180,52 +346,185 @@ function legacyOf(roleName: string): LegacyAccountRole {
   return found?.[0] ?? "member";
 }
 
-// ── Invitations ────────────────────────────────────────────────────────────
+// ── Edit user ──────────────────────────────────────────────────────────────
 
-function InvitationsSection({ orgId, canInvite }: { orgId: string; canInvite: boolean }) {
-  const invites = useLoad(() => listTenantInvitations(orgId), [orgId]);
+function EditUserDrawer({
+  orgId,
+  user,
+  canChangeRole,
+  onClose,
+  onSaved,
+}: {
+  orgId: string;
+  user: TenantUser | null;
+  /** You cannot change your own role (an admin could lock themselves out). */
+  canChangeRole: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<LegacyAccountRole>("member");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset the form each time a different user is opened.
+  useEffect(() => {
+    if (user) {
+      setName(user.name ?? "");
+      setRole(legacyOf(user.role));
+      setError(null);
+    }
+  }, [user]);
+
+  if (!user) return null;
+
+  const nameChanged = name.trim() !== (user.name ?? "");
+  const roleChanged = canChangeRole && role !== legacyOf(user.role);
+  const unchanged = !nameChanged && !roleChanged;
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await updateTenantUser(orgId, user.user_id, {
+        ...(nameChanged ? { name: name.trim() } : {}),
+        ...(roleChanged ? { role } : {}),
+      });
+      onSaved();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Drawer
+      open
+      title="Edit user"
+      description={user.email}
+      onClose={onClose}
+      onSubmit={save}
+      footer={
+        <>
+          <button type="button" className="btn ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={saving || unchanged}>
+            {saving ? "Saving…" : "Save changes"}
+          </button>
+        </>
+      }
+    >
+      <Field label="Name" hint="Shown wherever this user appears. Leave blank to clear.">
+        <input className="input" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field
+        label="Role"
+        hint={
+          canChangeRole
+            ? "Admins manage users and invitations; members create and edit projects; viewers have read-only access."
+            : "You cannot change your own role."
+        }
+      >
+        <select
+          className="select"
+          value={role}
+          disabled={!canChangeRole}
+          onChange={(e) => setRole(e.target.value as LegacyAccountRole)}
+        >
+          {(Object.keys(LEGACY_TO_ACCOUNT_ROLE) as LegacyAccountRole[]).map((lr) => (
+            <option key={lr} value={lr}>
+              {LEGACY_TO_ACCOUNT_ROLE[lr].replace("account_", "")}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {error && <div className="status-banner warn">{error}</div>}
+    </Drawer>
+  );
+}
+
+// ── Invite ─────────────────────────────────────────────────────────────────
+
+function InviteButton({ orgId, onInvited }: { orgId: string; onInvited: (notice: string) => void }) {
   const { byLayer } = useRoles();
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const [role, setRole] = useState("account_member");
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+
+  const openDrawer = () => {
+    setEmail("");
+    setName("");
+    setRole("account_member");
+    setFormError(null);
+    setOpen(true);
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setSending(true);
-    setError(null);
-    setNotice(null);
+    setFormError(null);
     try {
-      const created = await inviteToTenant(orgId, email.trim(), role);
-      setNotice(created.email_sent ? `Invitation sent to ${created.email}.` : created.message);
-      setEmail("");
-      await invites.reload();
+      const created = await inviteToTenant(orgId, email.trim(), role, name.trim());
+      setOpen(false);
+      onInvited(created.email_sent ? `Invitation sent to ${created.email}.` : created.message);
     } catch (err) {
-      setError(errorMessage(err));
+      setFormError(errorMessage(err));
     } finally {
       setSending(false);
     }
   };
 
-  const pending = (invites.data ?? []).filter((i) => i.status === "pending" || i.status === "expired");
-
   return (
-    <section className="section">
-      <div className="section-head">
-        <h2>Invitations</h2>
-        <span className="muted">{pending.length} open</span>
-      </div>
-      {canInvite && (
-        <form className="section-body row" onSubmit={submit}>
+    <>
+      <button className="btn small primary" onClick={openDrawer}>
+        Invite user
+      </button>
+      <Drawer
+        open={open}
+        title="Invite user"
+        description="They will receive an email with a link to join this organisation."
+        onClose={() => setOpen(false)}
+        onSubmit={submit}
+        footer={
+          <>
+            <button type="button" className="btn ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+            <button className="btn primary" disabled={sending || !email.trim()}>
+              {sending ? "Sending…" : "Send invitation"}
+            </button>
+          </>
+        }
+      >
+        <Field label="Email address">
           <input
             className="input"
             type="email"
             required
-            placeholder="email@example.com"
+            placeholder="name@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
+        </Field>
+        <Field label="Name" hint="Optional. Shown in the Users list and used for their account.">
+          <input
+            className="input"
+            autoComplete="off"
+            placeholder="e.g. Sam Taylor"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field
+          label="Role"
+          hint="Admins manage users and invitations; members create and edit projects; viewers have read-only access."
+        >
           <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
             {(byLayer.account ?? []).map((r) => (
               <option key={r.name} value={r.name}>
@@ -233,233 +532,9 @@ function InvitationsSection({ orgId, canInvite }: { orgId: string; canInvite: bo
               </option>
             ))}
           </select>
-          <button className="btn primary" disabled={sending}>
-            Invite
-          </button>
-        </form>
-      )}
-      {notice && <div className="status-banner">{notice}</div>}
-      {error && <div className="status-banner warn">{error}</div>}
-      {pending.length === 0 ? (
-        <div className="empty">No open invitations.</div>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Expires</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {pending.map((i) => (
-              <tr key={i.invitation_id}>
-                <td>{i.email}</td>
-                <td>
-                  <RoleName name={i.role} />
-                  {i.target_scope_type === "space" && <span className="badge"> workspace</span>}
-                </td>
-                <td>
-                  <span className={`badge ${i.status === "pending" ? "good" : ""}`}>{i.status}</span>
-                </td>
-                <td className="muted">{new Date(i.expires_at).toLocaleDateString()}</td>
-                <td className="actions">
-                  {canInvite && (
-                    <>
-                      <button
-                        className="btn small ghost"
-                        onClick={() =>
-                          void resendInvitation(orgId, i.invitation_id)
-                            .then(() => invites.reload())
-                            .catch((err) => setError(errorMessage(err)))
-                        }
-                      >
-                        Resend
-                      </button>{" "}
-                      <button
-                        className="btn small ghost"
-                        onClick={() =>
-                          void revokeInvitation(orgId, i.invitation_id)
-                            .then(() => invites.reload())
-                            .catch((err) => setError(errorMessage(err)))
-                        }
-                      >
-                        Revoke
-                      </button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </section>
-  );
-}
-
-// ── Workspaces ─────────────────────────────────────────────────────────────
-
-function WorkspacesSection({
-  orgId,
-  spaces,
-  canCreate,
-  canManage,
-  canInvite,
-  onChanged,
-}: {
-  orgId: string;
-  spaces: UmSpace[];
-  canCreate: boolean;
-  canManage: boolean;
-  canInvite: boolean;
-  onChanged: () => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(spaces[0]?.id ?? null);
-
-  const create = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    try {
-      await createSpace(orgId, name.trim());
-      setName("");
-      await onChanged();
-    } catch (err) {
-      setError(errorMessage(err));
-    }
-  };
-
-  return (
-    <section className="section">
-      <div className="section-head">
-        <h2>Workspaces</h2>
-        <span className="muted">{spaces.length}</span>
-      </div>
-      {canCreate && (
-        <form className="section-body row" onSubmit={create}>
-          <input
-            className="input"
-            required
-            placeholder="New workspace name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <button className="btn primary">Create workspace</button>
-        </form>
-      )}
-      {error && <div className="status-banner warn">{error}</div>}
-      {spaces.map((s) => (
-        <div key={s.id}>
-          <div className="section-head">
-            <button className="btn small ghost" onClick={() => setOpen(open === s.id ? null : s.id)}>
-              {open === s.id ? "▾" : "▸"} {s.name}
-            </button>
-            {s.status !== "active" && <span className="badge">{s.status}</span>}
-          </div>
-          {open === s.id && (
-            <WorkspaceMembers orgId={orgId} space={s} canManage={canManage} canInvite={canInvite} />
-          )}
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function WorkspaceMembers({
-  orgId,
-  space,
-  canManage,
-  canInvite,
-}: {
-  orgId: string;
-  space: UmSpace;
-  canManage: boolean;
-  canInvite: boolean;
-}) {
-  const members = useLoad(() => getSpaceMembers(orgId, space.id), [orgId, space.id]);
-  const { byLayer } = useRoles();
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState("space_viewer");
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const invite = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setNotice(null);
-    try {
-      const created = await inviteToSpace(orgId, space.id, email.trim(), role);
-      setNotice(created.email_sent ? `Invitation sent to ${created.email}.` : created.message);
-      setEmail("");
-    } catch (err) {
-      setError(errorMessage(err));
-    }
-  };
-
-  return (
-    <div className="section-body stack">
-      {canInvite && (
-        <form className="row" onSubmit={invite}>
-          <input
-            className="input"
-            type="email"
-            required
-            placeholder="Invite to this workspace"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
-            {(byLayer.space ?? []).map((r) => (
-              <option key={r.name} value={r.name}>
-                {r.display_name}
-              </option>
-            ))}
-          </select>
-          <button className="btn">Invite</button>
-        </form>
-      )}
-      {notice && <div className="status-banner">{notice}</div>}
-      {error && <div className="status-banner warn">{error}</div>}
-      {members.loading ? (
-        <div className="muted">Loading…</div>
-      ) : members.error ? (
-        <div className="error">{members.error}</div>
-      ) : members.data?.length === 0 ? (
-        <div className="muted">No direct members. Organisation owners and admins have access by inheritance.</div>
-      ) : (
-        <table className="data-table">
-          <tbody>
-            {members.data?.map((m) => (
-              <tr key={m.user_id}>
-                <td>{m.email}</td>
-                <td>
-                  <RoleName name={m.role} />
-                </td>
-                <td className="actions">
-                  {canManage && (
-                    <button
-                      className="btn small ghost"
-                      onClick={() => {
-                        if (confirm(`Remove ${m.email} from ${space.name}?`)) {
-                          void removeSpaceMember(orgId, space.id, m.user_id)
-                            .then(() => members.reload())
-                            .catch((err) => setError(errorMessage(err)));
-                        }
-                      }}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+        </Field>
+        {formError && <div className="status-banner warn">{formError}</div>}
+      </Drawer>
+    </>
   );
 }

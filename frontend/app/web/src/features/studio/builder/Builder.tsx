@@ -1,8 +1,10 @@
-// Component builder modal: slot palette, tree canvas with grouping,
+// Component builder drawer: slot palette, tree canvas with grouping,
 // drag-and-drop, marquee multi-select, undo/redo, and a properties panel.
 // Ported from legacy/js/builder.global.js on top of builderModel.ts.
 import { produce } from "immer";
 import { CSSProperties, DragEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
+import { Drawer } from "../../../components/Drawer";
 import { CustomDef, Slot } from "../model/actions";
 import {
   addSlot,
@@ -85,6 +87,7 @@ export function Builder({ initial, onSave, onDelete, onClose, toast }: Props) {
   const marquee = useRef<{ startX: number; startY: number; endX: number; endY: number; moved: boolean } | null>(null);
   const [marqueeBox, setMarqueeBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const isExisting = !!initial;
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Every mutation goes through here: it is the undo boundary.
   const mutate = useCallback((fn: (d: CustomDef) => void) => {
@@ -358,7 +361,32 @@ export function Builder({ initial, onSave, onDelete, onClose, toast }: Props) {
   const rootLayout = draft.rootLayout ?? "col";
 
   return (
-    <div className="builder-overlay open">
+    <Drawer
+      open
+      title={isExisting ? "Edit component" : "New component"}
+      onClose={onClose}
+      width={1280}
+      className="builder-drawer"
+      footer={
+        <>
+          {isExisting && (
+            <button type="button" className="btn danger" style={{ marginRight: "auto" }} onClick={() => setConfirmDelete(true)}>
+              Delete
+            </button>
+          )}
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn primary" onClick={save}>Save component</button>
+        </>
+      }
+    >
+      <ConfirmDrawer
+        open={confirmDelete}
+        title="Delete component"
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={async () => onDelete(draft.id)}
+      >
+        <p>Delete <b>{draft.name || "this component"}</b>? Instances already placed on pages keep their layout but lose the link to this definition.</p>
+      </ConfirmDrawer>
       <div className="builder-panel">
         <div className="builder-head">
           <div className="builder-head-id">
@@ -369,15 +397,6 @@ export function Builder({ initial, onSave, onDelete, onClose, toast }: Props) {
               <input className="builder-name-input" placeholder="Component name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
               <input className="builder-desc-input" placeholder="Short description (optional)" value={draft.desc ?? ""} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} />
             </div>
-          </div>
-          <div className="builder-head-actions">
-            {isExisting && (
-              <button className="btn" style={{ color: "#e06060", borderColor: "#e06060" }} onClick={() => confirm("Delete this component?") && onDelete(draft.id)}>
-                Delete
-              </button>
-            )}
-            <button className="btn" onClick={onClose}>Cancel</button>
-            <button className="btn primary" onClick={save}>Save component</button>
           </div>
         </div>
 
@@ -547,6 +566,6 @@ export function Builder({ initial, onSave, onDelete, onClose, toast }: Props) {
           </aside>
         </div>
       </div>
-    </div>
+    </Drawer>
   );
 }

@@ -67,6 +67,20 @@ entirely separate — nothing you sign up with in staging exists in prod.
    that association. It doesn't expose anything on the public internet by
    itself (nothing resolves the placeholder `.invalid` hostname) — see the
    next section for wiring a real, HTTPS domain.
+9. **Documents bucket** (`s3.tf`): `<product>-documents-staging` /
+   `<product>-documents-prod`, private, SSE-S3, with a CORS rule for the
+   environment's app origin (staging also allows `http://localhost:5173`
+   and `:8080`, since local dev uploads to the staging bucket). The task role
+   gets Put/Get/DeleteObject on both. Browsers upload straight to presigned
+   URLs, so until `domain.root` is set the prod origin is the `.invalid`
+   placeholder and prod uploads will fail CORS.
+10. **Claude API key secret** (`secrets.tf`): `<product>/staging/ANTHROPIC_API_KEY`
+    and `<product>/prod/ANTHROPIC_API_KEY` are created **empty** on purpose —
+    no `aws_secretsmanager_secret_version`, so the key never lands in
+    Terraform state. Set each once by hand:
+    `aws secretsmanager put-secret-value --secret-id <product>/<env>/ANTHROPIC_API_KEY --secret-string sk-ant-...`.
+    The deploy scripts pass it to the task as a secret and
+    `DOCUMENTS_BUCKET` as an environment variable.
 
 What Terraform does **not** create: the ECS task definition or service.
 Those change on every deploy (new image tag), so `infra/scripts/deploy-*`

@@ -9,6 +9,7 @@ from ..schemas.invitation import InvitationCreateRequest, InvitationCreateRespon
 from ..security import ScopeContext, TenantContext
 from ..services.audit_service import log_audit_event
 from ..services.auth_config_loader import get_auth_config
+from ..services.cognito_admin_service import create_invited_cognito_user_async
 from ..services.email_service import send_invitation_email
 from ..services.invitation_service import create_invitation
 
@@ -92,26 +93,28 @@ async def create_invitation_response(
         target_scope_type=target_scope_type,
         target_scope_id=target_scope_id,
         target_role_name=target_role_name,
+        name=invite_data.name,
     )
 
     settings = get_settings()
     invite_url = f"{settings.frontend_url}/invite/{raw_token}"
 
-    # In custom_ui mode, pre-create the user in Cognito so the frontend
-    # can show a "set password" form instead of the Hosted UI signup page.
-    if settings.auth_mode == "custom_ui":
-        from ..services.cognito_admin_service import create_invited_cognito_user_async
-        cognito_result = await create_invited_cognito_user_async(invitation.email)
-        if "error" in cognito_result:
-            _logger.warning(
-                "Cognito pre-creation failed; invitation still created",
-                extra={"email": invitation.email, "error": cognito_result["error"]},
-            )
+    # Pre-create the Cognito user (Cognito's own email suppressed) so the
+    # invitation link can offer a set-password form and sign the invitee in
+    # directly. Existing accounts are left untouched. If this fails the
+    # invitation still stands: /invites/complete retries the creation.
+    cognito_result = await create_invited_cognito_user_async(invitation.email)
+    if "error" in cognito_result:
+        _logger.warning(
+            "Cognito pre-creation failed; invitation still created",
+            extra={"email": invitation.email, "error": cognito_result["error"]},
+        )
 
     email_result = await send_invitation_email(
         to_email=invitation.email,
         invite_url=invite_url,
         tenant_name=invitation.tenant.name,
+        recipient_name=invitation.name,
     )
 
     await log_audit_event(

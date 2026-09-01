@@ -3,6 +3,7 @@
 // once per session and shared.
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 import { getRoleDefinitions, RoleDefinition } from "../../core/umApi";
+import { useSession } from "../../app/session";
 
 interface RoleCatalogue {
   byName: Record<string, RoleDefinition>;
@@ -14,8 +15,12 @@ const RoleContext = createContext<RoleCatalogue>(EMPTY);
 
 export function RoleCatalogueProvider({ children }: { children: ReactNode }) {
   const [catalogue, setCatalogue] = useState<RoleCatalogue>(EMPTY);
+  const { status } = useSession();
 
   useEffect(() => {
+    // The endpoint needs a bearer token; fetching while signed out just
+    // produces a 401 on every public page.
+    if (status !== "ready") return;
     getRoleDefinitions()
       .then((defs) => {
         const byName: Record<string, RoleDefinition> = {};
@@ -25,7 +30,7 @@ export function RoleCatalogueProvider({ children }: { children: ReactNode }) {
         setCatalogue({ byName, byLayer: defs.roles });
       })
       .catch((err) => console.error("Role definitions unavailable", err));
-  }, []);
+  }, [status]);
 
   return <RoleContext.Provider value={catalogue}>{children}</RoleContext.Provider>;
 }

@@ -1,6 +1,19 @@
-// Page and frame tab strips above the canvas.
-import { PageSummary } from "../../projects/projectsApi";
-import { Frame } from "../model/types";
+// Page tab strip above the canvas. Child pages (rendered inside a parent's
+// region) show their ancestry: "Home ▸ Users".
+import type { PageSummary } from "../../projects/projectsApi";
+
+export function pageDisplayName(page: PageSummary, all: readonly PageSummary[]): string {
+  const byId = new Map(all.map((p) => [p.id, p]));
+  const names = [page.name];
+  const seen = new Set([page.id]);
+  let cur = page;
+  while (cur.placement && byId.has(cur.placement.page_id) && !seen.has(cur.placement.page_id)) {
+    cur = byId.get(cur.placement.page_id)!;
+    seen.add(cur.id);
+    names.unshift(cur.name);
+  }
+  return names.join(" ▸ ");
+}
 
 export function PageTabs({
   pages, activeId, canWrite, onSelect, onAdd, onDelete,
@@ -12,7 +25,7 @@ export function PageTabs({
     <div className="page-tabs">
       {pages.map((p) => (
         <div key={p.id} className={`page-tab${p.id === activeId ? " active" : ""}`} onClick={() => onSelect(p.id)}>
-          <span>{p.name}</span>
+          <span>{pageDisplayName(p, pages)}</span>
           <span className="route">{p.route}</span>
           {canWrite && pages.length > 1 && (
             <span
@@ -29,40 +42,6 @@ export function PageTabs({
       ))}
       {canWrite && (
         <div className="add-btn" title="Add page" onClick={onAdd}>
-          +
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function FrameTabs({
-  frames, activeId, canWrite, onSelect, onAdd, onDelete,
-}: {
-  frames: Frame[]; activeId: string | null; canWrite: boolean;
-  onSelect(id: string): void; onAdd(): void; onDelete(id: string): void;
-}) {
-  return (
-    <div className="frame-tabs">
-      <span style={{ fontSize: 11, color: "var(--text-mute)", marginRight: 4 }}>Frames:</span>
-      {frames.map((f) => (
-        <div key={f.id} className={`frame-tab${f.id === activeId ? " active" : ""}`} onClick={() => onSelect(f.id)}>
-          {f.label}
-          {canWrite && frames.length > 1 && (
-            <span
-              className="close"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(f.id);
-              }}
-            >
-              ×
-            </span>
-          )}
-        </div>
-      ))}
-      {canWrite && (
-        <div className="add-btn" style={{ fontSize: 12, padding: "0 6px" }} onClick={onAdd}>
           +
         </div>
       )}

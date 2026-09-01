@@ -1,21 +1,25 @@
-// Cognito Hosted UI auth, wired against the app/auth/ backend module
-// (mounted at /api/um — see backend/app/main.py). There is no dev-login
-// bypass here on purpose: per this template's convention, local dev always
-// authenticates against the real STAGING Cognito pool (see
+// Cognito auth, wired against the app/auth/ backend module (mounted at
+// /api/um — see backend/app/main.py). There is no dev-login bypass here on
+// purpose: per this template's convention, local dev always authenticates
+// against the real STAGING Cognito pool (see
 // infra/scripts/create-local-dev-user.ps1) — there is no local Cognito to
 // bypass to.
 //
-// Flow:
-//   1. Redirect to the Cognito Hosted UI (getLoginUrl/getSignupUrl).
-//   2. Cognito redirects back to /auth/callback?code=... .
-//   3. handleCallback() exchanges the code for tokens directly against
-//      Cognito's public token endpoint (the app client has no secret), then
+// Flow (the app's own sign-in page, features/auth/LoginPage.tsx):
+//   1. The form posts email + password to /api/um/custom/login; the backend
+//      signs in against Cognito server-side and returns Cognito tokens.
+//      Accounts are created by invitation only (the invitation page posts
+//      the chosen password to /api/um/invites/complete, which returns the
+//      same tokens), so there is no sign-up entry point.
+//   2. completeSignIn() keeps the access token in memory + localStorage,
 //      calls POST /api/um/sync (creates/updates the user row) and
 //      POST /api/um/cookie/store-refresh (persists the refresh token
 //      server-side behind an HttpOnly cookie — it never touches localStorage).
-//   4. The access token is kept in memory + localStorage and silently
-//      refreshed via POST /api/um/token/refresh (cookie + CSRF-protected)
-//      shortly before it expires.
+//   3. The access token is silently refreshed via POST /api/um/token/refresh
+//      (cookie + CSRF-protected) shortly before it expires.
+//
+// The Cognito Hosted UI leg (getLoginUrl → /auth/callback → handleCallback)
+// is kept as a fallback but nothing links to it any more.
 
 const COGNITO_DOMAIN = import.meta.env.VITE_COGNITO_DOMAIN as string | undefined;
 const CLIENT_ID = import.meta.env.VITE_COGNITO_APP_CLIENT_ID as string | undefined;
@@ -91,17 +95,6 @@ function getLoginUrl(): string {
   return `${domain}/login?${params.toString()}`;
 }
 
-function getSignupUrl(): string {
-  const { domain, clientId } = requireConfig();
-  const params = new URLSearchParams({
-    client_id: clientId,
-    response_type: "code",
-    scope: SCOPES,
-    redirect_uri: REDIRECT_URI,
-  });
-  return `${domain}/signup?${params.toString()}`;
-}
-
 function getForgotPasswordUrl(): string {
   const { domain, clientId } = requireConfig();
   const params = new URLSearchParams({
@@ -142,11 +135,55 @@ async function handleCallback(code: string): Promise<void> {
   const tokens = await exchangeCodeForTokens(code);
   storeAccessToken(tokens.access_token, tokens.expires_in);
 
-  await fetch("/api/um/sync", {
+  // Provisioning needs the email claim, which Cognito puts only on the ID
+  // token (access tokens carry sub/username/scope). The backend accepts
+  // either token_use for this call; every other request uses the access token.
+  const syncResponse = await fetch("/api/um/sync", {
     method: "POST",
-    headers: { Authorization: `Bearer ${tokens.access_token}` },
+    headers: { Authorization: `Bearer ${tokens.id_token}` },
   });
+  if (!syncResponse.ok) {
+    throw new Error(`User sync failed: ${syncResponse.status}`);
+  }
 
+  await fetch("/api/um/cookie/store-refresh", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${tokens.access_token}`,
+    },
+    body: JSON.stringify({ refresh_token: tokens.refresh_token }),
+  });
+}
+
+/** Finish a sign-in whose tokens were issued server-side (our sign-in form
+ * or an invitation sign-up): keep the access token, optionally sync the user
+ * row (the invitation flow has already done that on the server), and park
+ * the refresh token behind the HttpOnly cookie. */
+async function completeSignIn(
+  tokens: {
+    access_token: string | null;
+    id_token?: string | null;
+    refresh_token: string | null;
+    expires_in: number | null;
+  },
+  opts: { sync?: boolean } = {},
+): Promise<void> {
+  if (!tokens.access_token) throw new Error("Sign-in did not return an access token");
+  storeAccessToken(tokens.access_token, tokens.expires_in ?? 3600);
+  if (opts.sync) {
+    // Provisioning needs the email claim, which only the ID token carries.
+    const syncResponse = await fetch("/api/um/sync", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tokens.id_token ?? tokens.access_token}` },
+    });
+    if (!syncResponse.ok) {
+      clearAccessToken();
+      throw new Error(`User sync failed: ${syncResponse.status}`);
+    }
+  }
+  if (!tokens.refresh_token) return;
   await fetch("/api/um/cookie/store-refresh", {
     method: "POST",
     credentials: "include",
@@ -237,26 +274,44 @@ function isPlatformAdmin(): boolean {
 /** Call this on a 401 from any API call: the session is no longer valid. */
 function handleExpiredSession(): void {
   clearAccessToken();
+  // Already on a public page: clearing the token is enough. A hard reload
+  // here would re-run the session load and could loop on a persistent 401.
+  const path = window.location.pathname;
+  if (path === "/signin" || path === "/" || path.startsWith("/auth/")) return;
   window.location.href = "/signin";
 }
 
-async function logout(): Promise<void> {
+/** Revoke the server-side refresh token and drop the local session. There is
+ * no Cognito browser session to end (sign-in happens server-side), so this
+ * stays on our own domain. */
+async function signOutLocally(): Promise<void> {
   try {
     await fetch("/api/um/cookie/clear-refresh", { method: "POST", credentials: "include" });
   } catch {
-    // best-effort — proceed to clear client state and sign out of Cognito regardless
+    // best-effort — clear client state regardless
   }
   clearAccessToken();
-  const { domain, clientId } = requireConfig();
-  const params = new URLSearchParams({ client_id: clientId, logout_uri: LOGOUT_URI });
-  window.location.href = `${domain}/logout?${params.toString()}`;
+}
+
+async function logout(): Promise<void> {
+  await signOutLocally();
+  window.location.href = LOGOUT_URI;
+}
+
+/** Sign out and go straight to the sign-in form. Used when the signed-in
+ * account is not the one an invitation was addressed to; the invite page has
+ * stashed its token so sign-in returns there. */
+async function switchAccount(): Promise<void> {
+  await signOutLocally();
+  window.location.href = "/signin";
 }
 
 export const authService = {
+  switchAccount,
   getLoginUrl,
-  getSignupUrl,
   getForgotPasswordUrl,
   handleCallback,
+  completeSignIn,
   getValidToken,
   isAuthenticated,
   fetchUserInfo,

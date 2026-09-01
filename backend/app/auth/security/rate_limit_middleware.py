@@ -61,6 +61,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             f"{self.auth_prefix}/sync",
             f"{self.auth_prefix}/invite",
             f"{self.auth_prefix}/invites/accept",
+            f"{self.auth_prefix}/invites/complete",
             f"{self.auth_prefix}/token/refresh",
             f"{self.auth_prefix}/cookie/store-refresh",
             f"{self.auth_prefix}/cookie/clear-refresh",
@@ -79,6 +80,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             f"{self.auth_prefix}/custom/set-password": strict,
             f"{self.auth_prefix}/custom/forgot-password": strict,
             f"{self.auth_prefix}/custom/confirm-forgot-password": strict,
+            f"{self.auth_prefix}/invites/complete": strict,
             # More lenient: user onboarding and code re-sends.
             f"{self.auth_prefix}/custom/signup": onboarding,
             f"{self.auth_prefix}/custom/confirm": onboarding,

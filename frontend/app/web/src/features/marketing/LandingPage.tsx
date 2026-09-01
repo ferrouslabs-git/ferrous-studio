@@ -11,7 +11,7 @@ const STEPS = [
   {
     n: "01",
     title: "Lay out the screens",
-    body: "Name your pages and frames, then drag components into named regions: header, sidebar, main, right, footer. No pixels, no colours; just what goes where.",
+    body: "Each page starts as one region. Split it horizontally or vertically as far as you need, drag the dividers to size things, and drop components in. No pixels to push; just what goes where.",
   },
   {
     n: "02",
@@ -33,19 +33,19 @@ const STEPS = [
 const FEATURES = [
   {
     title: "Regions, not pixels",
-    body: "Pages are frames with named regions. Components dock to the region they belong in, and the layout compiler on the other side decides how that becomes a DOM.",
+    body: "Pages are trees of regions: split any region in two, resize with the divider or let content set the size. The layout compiler on the other side decides how that becomes a DOM.",
   },
   {
-    title: "Speed over fidelity",
-    body: "Components render as labelled schematics: skeleton bars, sample rows, placeholder inputs. Enough to reason about a screen, never enough to argue about a shade of blue.",
+    title: "Real components, your words",
+    body: "Components render as the UI they stand for — nav bars, tables, forms, dialogs — and every piece of text on the screen is yours to edit in place. Enough to reason about a screen, never enough to argue about a shade of blue.",
   },
   {
     title: "Component builder",
     body: "Group primitives into rows, columns and grids, multi-select with a marquee, undo and redo, then save the result as a reusable component.",
   },
   {
-    title: "Multi-page, multi-frame",
-    body: "Model a whole product: several pages, each with several frames, each frame a distinct state of the same route.",
+    title: "Pages that link together",
+    body: "Nav items and buttons link to other pages — or to a single region, so only that part of the screen swaps while the shell stays put. Child pages nest like routes, ready for a router.",
   },
   {
     title: "Live JSON inspector",
@@ -58,7 +58,6 @@ const FEATURES = [
 ];
 
 const ROADMAP = [
-  "Screen linking: named, directional links between screens, exported as a map.",
   "Engineer notes: typed annotations on any component or page, carried in the payload.",
   "Schema linking: one named schema generates a form, a table and a card template.",
   "User types: project-level roles assigned to screens to communicate access intent.",
@@ -66,9 +65,12 @@ const ROADMAP = [
 
 export function LandingPage() {
   return (
-    <div className="landing">
+    <div className="landing theme-dark">
       <header className="landing-nav">
-        <span className="shell-brand">Ferrous Studio</span>
+        <span className="shell-brand landing-brand">
+          <span className="brand-symbol small" aria-hidden="true" />
+          Ferrous Studio
+        </span>
         <span className="shell-spacer" />
         <Link to="/signin" className="btn">
           Sign in

@@ -25,7 +25,6 @@ class Tenant(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     name = Column(String(255), nullable=False)
-    plan = Column(String(50), default="free")  # free, pro, enterprise
     status = Column(String(20), default="active")  # active, suspended
     
     created_at = Column(DateTime, default=utc_now, nullable=False)
@@ -41,4 +40,4 @@ class Tenant(Base):
     invitations = relationship("Invitation", back_populates="tenant", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<Tenant(id={self.id}, name='{self.name}', plan='{self.plan}')>"
+        return f"<Tenant(id={self.id}, name='{self.name}')>"

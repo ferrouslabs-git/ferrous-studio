@@ -27,3 +27,7 @@ output "cognito" {
     }
   }
 }
+
+output "documents_bucket" {
+  value = { for e in local.envs : e => aws_s3_bucket.documents[e].bucket }
+}

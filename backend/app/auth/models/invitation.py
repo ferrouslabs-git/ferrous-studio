@@ -25,6 +25,9 @@ class Invitation(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
     email = Column(String(255), nullable=False, index=True)
+    # Optional display name typed by the inviter; shown in the Users list
+    # while the invite is open and used as the new account's name.
+    name = Column(String(255), nullable=True)
     token = Column(String(255), unique=True, nullable=False, index=True)
     token_hash = Column(String(64), nullable=True, index=True)  # SHA256 hex digest
     expires_at = Column(DateTime, nullable=False)

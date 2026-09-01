@@ -3,8 +3,10 @@
 // so two people inserting into the same region concurrently both succeed.
 import { generateKeyBetween } from "fractional-indexing";
 import { produce } from "immer";
-import { byPos, PageLike } from "./applyOps";
-import { ComponentNode, Frame, REGION_ORDER } from "./types";
+import type { PageLike } from "./applyOps";
+import { migrateComponent } from "./migrate";
+import { blankDocument, isLayoutNode, regionIds } from "./tree";
+import { ComponentNode } from "./types";
 
 export const posBetween = (a: string | null | undefined, b: string | null | undefined): string =>
   generateKeyBetween(a ?? null, b ?? null);
@@ -27,6 +29,11 @@ export function reposition<T extends { pos: string }>(items: T[]): void {
   }
 }
 
+/** Sort helper: lists are stored in insertion order and read in `pos` order. */
+export function byPos<T extends { pos: string }>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => (a.pos < b.pos ? -1 : a.pos > b.pos ? 1 : 0));
+}
+
 function isStrictlySorted(items: readonly { pos: string }[]): boolean {
   for (let i = 1; i < items.length; i++) if (!(items[i - 1].pos < items[i].pos)) return false;
   return true;
@@ -41,27 +48,36 @@ function fixList<T extends { pos?: string }>(list: T[]): void {
   if (!isStrictlySorted(list as { pos: string }[])) reposition(list as { pos: string }[]);
 }
 
-/** Frames, regions and components sorted by pos with the invariant repaired. */
+/** True when a stored document predates the layout tree (the old frames
+ *  format) or is empty; such pages reset to a blank single region. */
+export function isLegacyDocument(doc: unknown): boolean {
+  return !doc || typeof doc !== "object" || !isLayoutNode((doc as { root?: unknown }).root);
+}
+
+/** Repair invariants on a fetched page: a valid tree, one component list per
+ *  tree region (sorted by pos), and no lists for regions the tree lost. A
+ *  legacy or malformed document resets to a blank single region. */
 export function normalizePage<T extends PageLike>(page: T): T {
   return produce(page, (draft) => {
-    fixList(draft.document.frames as Frame[]);
-    for (const frame of draft.document.frames) {
-      if (frame.layoutMode === "regions") {
-        const layout = frame.layout;
-        for (const r of REGION_ORDER) {
-          if (!Array.isArray(layout.regions[r])) layout.regions[r] = [];
-          fixList(layout.regions[r] as ComponentNode[]);
-        }
-        layout.options = {
-          smartDock: typeof layout.options?.smartDock === "boolean" ? layout.options.smartDock : true,
-          mainFlow: ["stack", "two-col", "three-col"].includes(layout.options?.mainFlow) ? layout.options.mainFlow : "stack",
-        };
-      } else {
-        if (!Array.isArray(frame.layout.components)) frame.layout.components = [];
-        fixList(frame.layout.components as ComponentNode[]);
+    const doc = draft.document as unknown as Record<string, unknown>;
+    delete doc.frames; // pre-tree format; content is not converted (greenfield reset)
+    if (isLegacyDocument(draft.document)) {
+      const blank = blankDocument();
+      doc.root = blank.root;
+      doc.regions = blank.regions;
+      return;
+    }
+    if (!doc.regions || typeof doc.regions !== "object") doc.regions = {};
+    const regions = doc.regions as Record<string, ComponentNode[]>;
+    const ids = new Set(regionIds(draft.document.root));
+    for (const id of Object.keys(regions)) if (!ids.has(id)) delete regions[id];
+    for (const id of ids) {
+      if (!Array.isArray(regions[id])) regions[id] = [];
+      fixList(regions[id]);
+      for (const cmp of regions[id]) {
+        migrateComponent(cmp);
+        if (cmp.elements) fixList(cmp.elements);
       }
     }
   });
 }
-
-export { byPos };

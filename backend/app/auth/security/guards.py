@@ -86,13 +86,14 @@ def require_super_admin(ctx: ScopeContext = Depends(get_scope_context)) -> Scope
 # Used only by deprecated guards below. New guards use get_scope_context directly.
 
 _LEGACY_ROLE_PERMISSIONS: dict[str, set[str]] = {
+    # "owner" is a legacy alias for the top organisation role, now "admin".
     "owner": {
-        "account:delete", "account:read", "spaces:create",
+        "account:delete", "account:read",
         "members:manage", "members:invite",
         "data:read", "data:write",
     },
     "admin": {
-        "account:read", "spaces:create",
+        "account:delete", "account:read",
         "members:manage", "members:invite",
         "data:read", "data:write",
     },

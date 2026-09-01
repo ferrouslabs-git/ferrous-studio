@@ -14,16 +14,33 @@ from ..models.invitation import Invitation
 from ..models.membership import Membership
 from ..models.user import User
 from ..models.tenant import Tenant
+from ..security.jwt_verifier import InvalidTokenError, verify_token_async
 from .auth_config_loader import get_auth_config
+from .cognito_admin_service import (
+    admin_get_user_async,
+    admin_initiate_auth_async,
+    admin_set_user_password_async,
+    create_invited_cognito_user_async,
+)
+from .user_service import sync_user_from_cognito
+
+
+class InvitationSignupError(Exception):
+    """A step of the set-password sign-up failed; ``detail`` is safe to show."""
+
+    def __init__(self, detail: str, *, status_code: int = 400):
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
 
 
 # Legacy role → v3 role name mapping (used to derive target_role_name from
 # the legacy 'role' API field when callers haven't migrated yet).
 _LEGACY_TO_V3 = {
-    "owner": "account_owner",
+    "owner": "account_admin",
     "admin": "account_admin",
     "member": "account_member",
-    "viewer": "account_member",
+    "viewer": "account_viewer",
 }
 
 
@@ -47,9 +64,11 @@ async def create_invitation(
     target_scope_type: str | None = None,
     target_scope_id: UUID | None = None,
     target_role_name: str | None = None,
+    name: str | None = None,
 ) -> tuple["Invitation", str]:
     """Create a new invitation token for a user email within a tenant/scope."""
     normalized_email = email.lower().strip()
+    normalized_name = (name or "").strip() or None
     now = utc_now()
 
     result = await db.execute(
@@ -75,6 +94,7 @@ async def create_invitation(
     invitation = Invitation(
         tenant_id=tenant_id,
         email=normalized_email,
+        name=normalized_name,
         token=hashed,
         token_hash=hashed,
         expires_at=now + timedelta(days=expires_in_days),
@@ -159,6 +179,11 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
         db.add(membership)
 
     invitation.accepted_at = utc_now()
+
+    # The inviter may have typed a name; use it for an account that has none.
+    # A name the user set themselves (or one from the identity provider) wins.
+    if invitation.name and not (user.name or "").strip():
+        user.name = invitation.name
 
     await db.commit()
     await db.refresh(membership)
@@ -262,6 +287,7 @@ async def list_tenant_invitations(
             "invitation_id": inv.id,
             "tenant_id": inv.tenant_id,
             "email": inv.email,
+            "name": inv.name,
             "role": inv.target_role_name,
             "status": inv_status,
             "target_scope_type": inv.target_scope_type,
@@ -272,3 +298,100 @@ async def list_tenant_invitations(
             "revoked_at": inv.revoked_at,
         })
     return results
+
+
+def _invitation_dict(inv: Invitation) -> dict:
+    return {
+        "invitation_id": inv.id,
+        "tenant_id": inv.tenant_id,
+        "email": inv.email,
+        "name": inv.name,
+        "role": inv.target_role_name,
+        "status": inv.status,
+        "target_scope_type": inv.target_scope_type,
+        "target_scope_id": inv.target_scope_id,
+        "created_at": inv.created_at,
+        "expires_at": inv.expires_at,
+        "accepted_at": inv.accepted_at,
+        "revoked_at": inv.revoked_at,
+    }
+
+
+async def list_platform_invitations(
+    db: AsyncSession,
+    *,
+    status_filter: str | None = None,
+) -> list[dict]:
+    """Every invitation on the platform, newest first, with the organisation
+    name attached so the platform Users page can show where each one leads.
+    Status is a computed property, so the filter is applied after the query."""
+    result = await db.execute(
+        select(Invitation)
+        .options(selectinload(Invitation.tenant))
+        .order_by(Invitation.created_at.desc())
+    )
+    results = []
+    for inv in result.scalars().all():
+        if status_filter and inv.status != status_filter:
+            continue
+        results.append({**_invitation_dict(inv), "tenant_name": inv.tenant.name if inv.tenant else None})
+    return results
+
+
+# ── Set-password sign-up (invitation link) ───────────────────────────────
+
+# Cognito statuses whose owner already has a working password. The invite
+# page shows "sign in to accept" for these instead of the set-password form,
+# because setting a password would overwrite the one they already use.
+_ESTABLISHED_STATUSES = {"CONFIRMED", "RESET_REQUIRED"}
+
+
+async def invitation_account_state(email: str) -> str:
+    """Return "existing" when the invited address already has a usable Cognito
+    login, otherwise "new" (no user yet, or pre-created and awaiting a password)."""
+    info = await admin_get_user_async(email)
+    if "error" in info:
+        return "new"
+    return "existing" if info.get("status") in _ESTABLISHED_STATUSES else "new"
+
+
+async def complete_invitation_signup(
+    db: AsyncSession, invitation: Invitation, password: str
+) -> tuple[Membership, User, dict]:
+    """Turn a pending invitation into a signed-in account in one step.
+
+    1. Refuse if the invitation is not pending.
+    2. Make sure a Cognito user exists for the invited address (pre-created at
+       invite time normally; created here if that failed). An address that
+       already has a password simply gets the new one: the emailed token
+       proves ownership of the address exactly as a reset link does.
+    3. Set the chosen password as permanent, which also confirms the user.
+    4. Sign in server-side (ADMIN_USER_PASSWORD_AUTH) to obtain Cognito tokens.
+    5. Provision the local user row from the ID token and accept the invitation.
+
+    Returns (membership, user, tokens).
+    """
+    if invitation.status != "pending":
+        raise InvitationSignupError(f"Invitation is {invitation.status}")
+
+    email = invitation.email
+    account = await create_invited_cognito_user_async(email)
+    if "error" in account:
+        raise InvitationSignupError(account["error"], status_code=502)
+
+    set_result = await admin_set_user_password_async(email, password, permanent=True)
+    if "error" in set_result:
+        raise InvitationSignupError(set_result["error"])
+
+    tokens = await admin_initiate_auth_async(email, password)
+    if "error" in tokens:
+        raise InvitationSignupError(tokens["error"], status_code=502)
+
+    try:
+        payload = await verify_token_async(tokens["id_token"], allowed_token_uses=("id",))
+    except InvalidTokenError as exc:
+        raise InvitationSignupError(f"Could not verify sign-in: {exc}", status_code=502) from exc
+
+    user = await sync_user_from_cognito(payload, db)
+    membership = await accept_invitation(db, invitation, user)
+    return membership, user, tokens

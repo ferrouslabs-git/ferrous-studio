@@ -35,5 +35,4 @@ async def get_permission_map(ctx: ScopeContext = Depends(require_super_admin)):
     return {
         "version": config.version,
         "permission_map": permission_map,
-        "inheritance": config.inheritance_config,
     }

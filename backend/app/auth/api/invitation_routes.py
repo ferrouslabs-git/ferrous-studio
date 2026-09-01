@@ -10,6 +10,8 @@ from ..config import get_settings
 from ..schemas.invitation import (
     InvitationAcceptRequest,
     InvitationAcceptResponse,
+    InvitationCompleteRequest,
+    InvitationCompleteResponse,
     InvitationCreateRequest,
     InvitationCreateResponse,
     InvitationPreviewResponse,
@@ -20,7 +22,10 @@ from ..security import ScopeContext, get_current_user, require_permission
 from ..services.audit_service import log_audit_event
 from ..services.email_service import send_invitation_email
 from ..services.invitation_service import (
+    InvitationSignupError,
     accept_invitation,
+    complete_invitation_signup,
+    invitation_account_state,
     get_invitation_by_id,
     get_invitation_by_token,
     get_tenant_invitation_by_token,
@@ -68,11 +73,60 @@ async def preview_invitation(token: str, db: AsyncSession = Depends(get_db)):
         tenant_id=invitation.tenant_id,
         tenant_name=invitation.tenant.name,
         email=invitation.email,
+        name=invitation.name,
         role=invitation.target_role_name,
         expires_at=invitation.expires_at,
         status=invitation.status,
         is_expired=invitation.is_expired,
         is_accepted=invitation.is_accepted,
+        account_state=await invitation_account_state(invitation.email),
+    )
+
+
+@router.post("/invites/complete", response_model=InvitationCompleteResponse)
+async def complete_invitation_token(
+    payload: InvitationCompleteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public: set the invitee's password, sign them in and accept the invitation.
+
+    This is the landing action of the emailed invitation link. For an address
+    that already has an account it sets the new password (the link proves
+    ownership, like a reset link); a visitor already signed in as the invitee
+    uses /invites/accept instead.
+    """
+    invitation = await get_invitation_by_token(db, payload.token)
+    if not invitation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+
+    try:
+        membership, user, tokens = await complete_invitation_signup(db, invitation, payload.password)
+    except InvitationSignupError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    await log_audit_event(
+        "invitation_accepted",
+        actor_user_id=str(user.id),
+        db=db,
+        tenant_id=str(invitation.tenant_id),
+        invitation_id=str(invitation.id),
+        role=membership.role_name,
+        via="set_password",
+    )
+
+    return InvitationCompleteResponse(
+        tenant_id=invitation.tenant_id,
+        role=membership.role_name,
+        email=user.email,
+        access_token=tokens["access_token"],
+        id_token=tokens["id_token"],
+        refresh_token=tokens.get("refresh_token"),
+        expires_in=int(tokens.get("expires_in") or 3600),
+        message="Account created and invitation accepted",
     )
 
 

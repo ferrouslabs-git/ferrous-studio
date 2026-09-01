@@ -1,29 +1,37 @@
-// Left panel: screen patterns, components (with shell families), and the
-// project's custom components. Ported from render.global.js renderLibrary.
+// Left panel: screen patterns, components (with shape variants), the
+// elements of the selected component, and the project's custom components.
+//
+// Two classes of library item: components stand alone in a region; elements
+// only ever drop into a compatible component. The Elements tab is contextual
+// — it shows the vocabulary of the component selected on the canvas.
 import { CSSProperties, ReactNode } from "react";
-import { COMPONENT_FAMILIES, COMPONENT_TYPES, PATTERNS } from "../catalog";
+import { ComponentMeta, COMPONENTS, PATTERNS, patternComponents } from "../catalog";
 import { CustomDef } from "../model/actions";
-import { STRUCTURAL_TYPES } from "../model/regions";
 import { DragPayload, setPayload } from "./dnd";
+import { PanelCollapse } from "./PanelRail";
 
-export type LibTab = "patterns" | "components" | "custom";
+export type LibTab = "patterns" | "components" | "elements" | "custom";
 
 interface Props {
   tab: LibTab;
   onTab(tab: LibTab): void;
   customComponents: readonly CustomDef[];
+  /** Type of the component selected on the canvas (contextual Elements tab). */
+  selectedCmpType: string | null;
   canWrite: boolean;
   onApplyPattern(id: string): void;
-  onAddComponent(type: string, customId?: string): void;
+  onAddComponent(type: string, customId?: string, shape?: string): void;
+  onAddElement(type: string): void;
   onNewCustom(): void;
   onEditCustom(id: string): void;
+  onCollapse(): void;
 }
 
 function LibItem({
-  icon, name, desc, meta, drag, onClick, canWrite, iconStyle, extra,
+  icon, name, desc, meta, drag, onClick, canWrite, iconStyle, extra, below,
 }: {
   icon: string; name: string; desc: string; meta: string; drag: DragPayload; onClick(): void; canWrite: boolean;
-  iconStyle?: CSSProperties; extra?: ReactNode;
+  iconStyle?: CSSProperties; extra?: ReactNode; below?: ReactNode;
 }) {
   return (
     <div
@@ -38,10 +46,11 @@ function LibItem({
       style={{ position: "relative" }}
     >
       <div className="lib-icon" style={iconStyle}>{icon}</div>
-      <div>
+      <div style={{ minWidth: 0 }}>
         <div className="lib-name">{name}</div>
         <div className="lib-desc">{desc}</div>
         <div className="lib-meta">{meta}</div>
+        {below}
       </div>
       {extra}
     </div>
@@ -49,9 +58,55 @@ function LibItem({
 }
 
 const PATTERN_GROUPS = ["Starter", "Top Nav", "Left Panel", "Right Panel", "Full Shell"];
+/** The six primary components lead; the kept content blocks follow. */
+const PRIMARY = ["navbar", "list", "form", "graph", "canvas", "calendar"];
 
-export function Library({ tab, onTab, customComponents, canWrite, onApplyPattern, onAddComponent, onNewCustom, onEditCustom }: Props) {
+export function Library({
+  tab, onTab, customComponents, selectedCmpType, canWrite,
+  onApplyPattern, onAddComponent, onAddElement, onNewCustom, onEditCustom, onCollapse,
+}: Props) {
   let body: ReactNode;
+
+  const componentItem = (meta: ComponentMeta) => (
+    <LibItem
+      key={meta.type}
+      icon={meta.icon}
+      name={meta.label}
+      desc={meta.desc}
+      meta={meta.layouts.length ? meta.layouts.map((l) => l.label.toLowerCase()).join(" · ") : meta.type}
+      drag={{ kind: "component", type: meta.type }}
+      onClick={() => onAddComponent(meta.type)}
+      canWrite={canWrite}
+      below={
+        meta.shapes.length > 1 ? (
+          <div className="lib-shapes">
+            {meta.shapes.map((s) => (
+              <span
+                key={s.id}
+                className="lib-shape"
+                title={s.desc ?? `${meta.label} · ${s.label}`}
+                draggable={canWrite}
+                onClick={
+                  canWrite
+                    ? (e) => {
+                        e.stopPropagation();
+                        onAddComponent(meta.type, undefined, s.id);
+                      }
+                    : undefined
+                }
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  setPayload(e, { kind: "component", type: meta.type, shape: s.id }, "copy");
+                }}
+              >
+                {s.label}
+              </span>
+            ))}
+          </div>
+        ) : null
+      }
+    />
+  );
 
   if (tab === "patterns") {
     const grouped = new Map<string, typeof PATTERNS>();
@@ -69,7 +124,7 @@ export function Library({ tab, onTab, customComponents, canWrite, onApplyPattern
               icon={p.icon}
               name={p.name}
               desc={p.desc}
-              meta={p.components.join(" · ")}
+              meta={patternComponents(p.template).join(" · ") || "blank"}
               drag={{ kind: "pattern", id: p.id }}
               onClick={() => onApplyPattern(p.id)}
               canWrite={canWrite}
@@ -79,46 +134,42 @@ export function Library({ tab, onTab, customComponents, canWrite, onApplyPattern
       );
     });
   } else if (tab === "components") {
-    const groups = new Map<string, [string, (typeof COMPONENT_TYPES)[string]][]>();
-    for (const [type, info] of Object.entries(COMPONENT_TYPES)) {
-      if (STRUCTURAL_TYPES.has(type)) continue; // shell chrome lives under Shell below
-      groups.set(info.group, [...(groups.get(info.group) ?? []), [type, info]]);
-    }
+    const kept = Object.values(COMPONENTS).filter((c) => !PRIMARY.includes(c.type));
     body = (
       <>
-        <div className="group-title">Shell</div>
-        {COMPONENT_FAMILIES.flatMap((fam) =>
-          fam.variants.map((v) => (
-            <LibItem
-              key={v.type}
-              icon={v.icon}
-              name={`${fam.name} · ${v.name}`}
-              desc={v.desc}
-              meta={`${v.type} → ${fam.region}`}
-              drag={{ kind: "component", type: v.type }}
-              onClick={() => onAddComponent(v.type)}
-              canWrite={canWrite}
-            />
-          )),
-        )}
-        {[...groups.entries()].map(([group, items]) => (
-          <div key={group}>
-            <div className="group-title">{group}</div>
-            {items.map(([type, info]) => (
-              <LibItem
-                key={type}
-                icon={type.slice(0, 3).toUpperCase()}
-                name={info.label}
-                desc={info.desc}
-                meta={type}
-                drag={{ kind: "component", type }}
-                onClick={() => onAddComponent(type)}
-                canWrite={canWrite}
-              />
-            ))}
-          </div>
-        ))}
+        <div className="group-title">Components</div>
+        {PRIMARY.map((type) => componentItem(COMPONENTS[type]))}
+        <div className="group-title">Content blocks</div>
+        {kept.map(componentItem)}
       </>
+    );
+  } else if (tab === "elements") {
+    const meta = selectedCmpType ? COMPONENTS[selectedCmpType] : null;
+    body = meta ? (
+      <>
+        <div className="group-title">Elements for {meta.label}</div>
+        {meta.elements.map((e) => (
+          <LibItem
+            key={e.type}
+            icon={e.icon}
+            name={e.label}
+            desc={e.desc}
+            meta={e.dataFields.length ? e.dataFields.map((f) => f.label.toLowerCase()).join(" · ") : e.max === 1 ? "max 1" : e.type}
+            drag={{ kind: "element", type: e.type }}
+            onClick={() => onAddElement(e.type)}
+            canWrite={canWrite}
+          />
+        ))}
+        <div className="empty-hint" style={{ margin: 8 }}>
+          Click to add to the selected {meta.label.toLowerCase()}, or drag onto any compatible component. Elements can't sit
+          in a region on their own.
+        </div>
+      </>
+    ) : (
+      <div className="empty-hint" style={{ margin: 8 }}>
+        Select a component on the canvas to see the elements it can hold — a list's columns, a form's fields, a nav bar's
+        links.
+      </div>
     );
   } else {
     body = (
@@ -170,10 +221,15 @@ export function Library({ tab, onTab, customComponents, canWrite, onApplyPattern
 
   return (
     <aside className="panel" id="leftPanel">
+      {/* Same header row as the Inspector so both collapse buttons sit in the same place. */}
+      <div className="panel-head">
+        Library
+        <PanelCollapse side="left" label="Library" shortcut="Ctrl/⌘+B" onCollapse={onCollapse} />
+      </div>
       <div className="tabs">
-        {(["patterns", "components", "custom"] as LibTab[]).map((t) => (
+        {(["patterns", "components", "elements", "custom"] as LibTab[]).map((t) => (
           <div key={t} className={`tab${tab === t ? " active" : ""}`} onClick={() => onTab(t)}>
-            {t === "patterns" ? "Screen patterns" : t === "components" ? "Components" : "My components"}
+            {t === "patterns" ? "Patterns" : t === "components" ? "Components" : t === "elements" ? "Elements" : "Mine"}
           </div>
         ))}
       </div>

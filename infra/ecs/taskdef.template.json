@@ -29,10 +29,19 @@
         { "name": "COOKIE_SECURE", "value": "true" },
 
         { "name": "APP_PUBLIC_URL", "value": "{{APP_PUBLIC_URL}}" },
-        { "name": "FRONTEND_URL", "value": "{{APP_PUBLIC_URL}}" }
+        { "name": "FRONTEND_URL", "value": "{{APP_PUBLIC_URL}}" },
+
+        { "name": "SES_REGION", "value": "{{AWS_REGION}}" },
+        { "name": "SES_SENDER_EMAIL", "value": "{{SES_SENDER_EMAIL}}" },
+        { "name": "PRODUCT_DISPLAY_NAME", "value": "{{EMAIL_FROM_NAME}}" },
+        { "name": "EMAIL_LEGAL", "value": "{{EMAIL_LEGAL}}" },
+
+        { "name": "DOCUMENTS_BUCKET", "value": "{{DOCUMENTS_BUCKET}}" },
+        { "name": "ANTHROPIC_MODEL", "value": "claude-opus-5" }
       ],
       "secrets": [
-        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" }
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" },
+        { "name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/ANTHROPIC_API_KEY" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
