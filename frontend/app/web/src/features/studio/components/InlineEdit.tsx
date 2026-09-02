@@ -25,9 +25,11 @@ interface Props {
   title?: string;
   children?: ReactNode;
   element?: TokenElement;
+  /** Drag-and-drop handlers (element reorder); spread on the idle button only. */
+  drag?: Record<string, unknown>;
 }
 
-export function EditableToken({ value, onCommit, className, style, title, children, element }: Props) {
+export function EditableToken({ value, onCommit, className, style, title, children, element, drag }: Props) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(value);
   const ref = useRef<HTMLButtonElement>(null);
@@ -137,6 +139,7 @@ export function EditableToken({ value, onCommit, className, style, title, childr
       onClick={onClick}
       onDoubleClick={onDouble}
       draggable={false}
+      {...drag}
     >
       {children ?? value}
     </button>

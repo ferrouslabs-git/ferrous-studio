@@ -12,8 +12,10 @@ export const DEFAULT_COLUMN_PX = 280;
 
 export const newRegion = (size: Size = { fr: 1 }): RegionNode => ({ kind: "region", id: uid("r"), size });
 
+/** Mirrors backend default_page_document (common.py) — keep them in step. */
 export function blankDocument(): PageDocument {
   const root = newRegion();
+  root.label = "Content";
   return { root, regions: { [root.id]: [] } };
 }
 
@@ -50,6 +52,23 @@ export function findNode(root: LayoutNode, id: string): FoundNode | null {
   return found;
 }
 
+/** The region a navigation element in `fromRegionId` opens its pages in:
+ *  the first fill-sized region after it in reading order (the content area a
+ *  header or sidebar wraps), else the next region, else the same preference
+ *  over the regions before it. Null when it is the page's only region. */
+export function contentRegionFor(root: LayoutNode, fromRegionId: string): string | null {
+  const ids = regionIds(root);
+  const at = ids.indexOf(fromRegionId);
+  const pick = (pool: string[]): string | null => {
+    const fill = pool.find((id) => {
+      const found = findNode(root, id);
+      return !!found && typeof found.node.size === "object";
+    });
+    return fill ?? pool[0] ?? null;
+  };
+  return pick(ids.slice(at + 1)) ?? pick(at > 0 ? ids.slice(0, at) : []);
+}
+
 /** Display name for a region: its label, else "Region n" by tree order. */
 export function regionDisplayName(root: LayoutNode, id: string): string {
   const found = findNode(root, id);
@@ -65,6 +84,20 @@ function replaceNode(doc: PageDocument, id: string, next: LayoutNode): void {
   else doc.root = next;
 }
 
+/** What a split names the region it creates, by the side it appears on. */
+const SIDE_LABELS: Record<SplitSide, string> = { top: "Header", bottom: "Footer", left: "Sidebar", right: "Panel" };
+
+/** `base`, or "`base` 2", "`base` 3"… — first label no region holds yet. */
+function nextRegionLabel(root: LayoutNode, base: string): string {
+  const taken = new Set<string>();
+  walkNodes(root, (n) => {
+    if (n.kind === "region" && n.label) taken.add(n.label.toLowerCase());
+  });
+  let label = base;
+  for (let n = 2; taken.has(label.toLowerCase()); n++) label = `${base} ${n}`;
+  return label;
+}
+
 /** Split a region in two along `side`; the region keeps its content, the new
  *  blank sibling appears on the chosen side. When the region's parent already
  *  splits in the same direction the sibling slots in beside it instead of
@@ -76,6 +109,7 @@ export function splitRegion(doc: PageDocument, regionId: string, side: SplitSide
   const dir: SplitNode["dir"] = side === "left" || side === "right" ? "row" : "col";
   const before = side === "left" || side === "top";
   const fresh = newRegion(dir === "row" ? DEFAULT_COLUMN_PX : "auto");
+  fresh.label = nextRegionLabel(doc.root, SIDE_LABELS[side]);
   doc.regions[fresh.id] = [];
 
   if (found.parent && found.parent.dir === dir) {
@@ -125,6 +159,15 @@ export function setNodeSize(doc: PageDocument, nodeId: string, size: Size): bool
   const found = findNode(doc.root, nodeId);
   if (!found) return false;
   found.node.size = size;
+  return true;
+}
+
+export function setRegionBg(doc: PageDocument, regionId: string, bg: string): boolean {
+  const found = findNode(doc.root, regionId);
+  if (!found || found.node.kind !== "region") return false;
+  const trimmed = (bg || "").trim();
+  if (trimmed) found.node.bg = trimmed;
+  else delete found.node.bg;
   return true;
 }
 

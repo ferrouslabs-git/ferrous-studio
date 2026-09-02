@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { blankDocument, findNode, firstRegionId, regionIds, removeRegion, splitRegion } from "./tree";
-import { PageDocument, SplitNode } from "./types";
+import { blankDocument, contentRegionFor, findNode, firstRegionId, regionIds, removeRegion, splitRegion } from "./tree";
+import { PageDocument, RegionNode, SplitNode } from "./types";
+
+const labelOf = (doc: PageDocument, id: string) => (findNode(doc.root, id)!.node as RegionNode).label;
 
 describe("splitRegion", () => {
   it("splits the root region into a row, new region on the right", () => {
@@ -40,6 +42,38 @@ describe("splitRegion", () => {
     expect(nested.kind).toBe("split");
     expect(nested.dir).toBe("col");
     expect(regionIds(doc.root)).toHaveLength(3);
+  });
+
+  it("names new regions after their side, numbering repeats", () => {
+    const doc = blankDocument();
+    const a = firstRegionId(doc.root);
+    expect(labelOf(doc, a)).toBe("Content");
+    const top = splitRegion(doc, a, "top")!;
+    const top2 = splitRegion(doc, a, "top")!;
+    const left = splitRegion(doc, a, "left")!;
+    expect(labelOf(doc, top)).toBe("Header");
+    expect(labelOf(doc, top2)).toBe("Header 2");
+    expect(labelOf(doc, left)).toBe("Sidebar");
+  });
+});
+
+describe("contentRegionFor", () => {
+  it("prefers the first fill region after the source in reading order", () => {
+    // Header on top, then sidebar (px) + content (fr) side by side.
+    const doc = blankDocument();
+    const content = firstRegionId(doc.root);
+    const header = splitRegion(doc, content, "top")!;
+    const sidebar = splitRegion(doc, content, "left")!;
+    expect(contentRegionFor(doc.root, header)).toBe(content);
+    expect(contentRegionFor(doc.root, sidebar)).toBe(content);
+  });
+
+  it("falls back to the regions before it, and to null when alone", () => {
+    const doc = blankDocument();
+    const content = firstRegionId(doc.root);
+    expect(contentRegionFor(doc.root, content)).toBeNull();
+    const footer = splitRegion(doc, content, "bottom")!;
+    expect(contentRegionFor(doc.root, footer)).toBe(content);
   });
 });
 

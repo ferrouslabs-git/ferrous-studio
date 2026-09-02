@@ -31,8 +31,9 @@ export function useWireframeSync(
 ) {
   const [snapshot, setSnapshot] = useState<OutboxSnapshot>(IDLE);
   const [conflict, setConflict] = useState<string | null>(null);
-  /** Increments whenever the page is replaced from the server; undo history must reset. */
-  const [resetToken, setResetToken] = useState(0);
+  /** Bumped whenever a page is reloaded from the server over a conflict;
+   *  undo history for that page must be dropped. */
+  const [reset, setReset] = useState<{ token: number; pageId: string | null }>({ token: 0, pageId: null });
   const outboxRef = useRef<Outbox | null>(null);
   const pageRef = useRef(page);
   pageRef.current = page;
@@ -66,10 +67,10 @@ export function useWireframeSync(
                 // Targets no longer exist; drop silently -- the server would 422 it anyway.
               }
             }
-            if (pageRef.current?.id === fresh.id) {
-              setPage(rebased);
-              setResetToken((n) => n + 1);
-            }
+            if (pageRef.current?.id === fresh.id) setPage(rebased);
+            // Even when the conflicted page is not on screen (its batches
+            // were still draining after a switch), its history is stale.
+            setReset((r) => ({ token: r.token + 1, pageId: fresh.id }));
             outbox.requeue(replayable);
           })
           .catch((err) => setConflict(errorMessage(err)));
@@ -129,7 +130,7 @@ export function useWireframeSync(
   const retryNow = useCallback(() => outboxRef.current?.retryNow(), []);
 
   return useMemo(
-    () => ({ snapshot, conflict, resetToken, commit, commitWith, retryNow }),
-    [snapshot, conflict, resetToken, commit, commitWith, retryNow],
+    () => ({ snapshot, conflict, reset, commit, commitWith, retryNow }),
+    [snapshot, conflict, reset, commit, commitWith, retryNow],
   );
 }

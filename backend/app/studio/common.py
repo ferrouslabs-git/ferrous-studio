@@ -22,10 +22,13 @@ FIRST_POS = FIRST_KEY
 
 
 def default_page_document() -> dict[str, Any]:
-    """A blank page: one region filling the screen, ready to be split."""
+    """A blank page: one named region filling the screen, ready to be split.
+
+    Mirrors the frontend's blankDocument (model/tree.ts) — keep them in step.
+    """
     region_id = f"r-{secrets.token_hex(4)}"
     return {
-        "root": {"kind": "region", "id": region_id, "size": {"fr": 1}},
+        "root": {"kind": "region", "id": region_id, "label": "Content", "size": {"fr": 1}},
         "regions": {region_id: []},
     }
 

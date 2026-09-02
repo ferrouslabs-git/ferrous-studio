@@ -1,10 +1,16 @@
 // Undo/redo over page snapshots, plus the bridge from an action to the
-// outbox. Snapshots are immer-produced states, so pushing one costs a
+// outbox. Snapshots are immer-produced states, so keeping one costs a
 // reference: untouched frames and regions are shared, and 200 steps is cheap.
 //
 // One committed action = one history entry = one op batch. Text fields
 // commit on blur/Enter (see InlineEdit), so a typed label is one step, not
 // one per keystroke; drags commit on drop.
+//
+// The timeline is wireframe-wide, not per page: every entry remembers which
+// page it was made on, and undoing (or redoing) a step from another page
+// first navigates there, then applies the reversal once that page has
+// loaded. Only a server-side conflict invalidates history, and only for the
+// page that conflicted — its snapshots no longer describe the server state.
 import { produce } from "immer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageLike } from "./applyOps";
@@ -17,6 +23,87 @@ const COALESCE_MS = 400;
 export interface CommitOptions {
   /** Consecutive commits with the same key inside COALESCE_MS collapse into one undo step. */
   coalesceKey?: string;
+}
+
+export interface HistoryEntry {
+  pageId: string;
+  /** The page as it was before the action: the undo target. */
+  before: PageRecord;
+  /** The page as the action left it: the redo target. */
+  after: PageRecord;
+}
+
+/** One step handed back by the timeline: apply `target` to page `pageId`. */
+export interface HistoryStep {
+  pageId: string;
+  target: PageRecord;
+}
+
+/** The wireframe-wide undo timeline: entries [0, index) are applied, the
+ *  rest are undone. Pure bookkeeping — applying a step to the document (and
+ *  navigating to its page) is the hook's job. */
+export class HistoryTimeline {
+  private entries: HistoryEntry[] = [];
+  private index = 0;
+
+  canUndo(): boolean {
+    return this.index > 0;
+  }
+
+  canRedo(): boolean {
+    return this.index < this.entries.length;
+  }
+
+  /** Record a step: any redo branch is discarded, and the oldest entry
+   *  falls off once the limit is reached. */
+  push(entry: HistoryEntry): void {
+    this.entries.length = this.index;
+    this.entries.push(entry);
+    if (this.entries.length > HISTORY_LIMIT) this.entries.shift();
+    this.index = this.entries.length;
+  }
+
+  /** Fold a follow-up commit into the newest entry (label typing, colour
+   *  drags). Only possible while that entry is the tip and on the same page;
+   *  returns false so the caller pushes a fresh entry instead. */
+  coalesce(after: PageRecord): boolean {
+    if (this.index === 0 || this.index !== this.entries.length) return false;
+    const top = this.entries[this.index - 1];
+    if (top.pageId !== after.id) return false;
+    this.entries[this.index - 1] = { ...top, after };
+    return true;
+  }
+
+  /** Move the cursor one step and hand back what to apply: dir -1 undoes
+   *  (target = before), +1 redoes (target = after). Entries whose page has
+   *  been deleted are discarded on the way past. */
+  step(dir: -1 | 1, pageExists: (id: string) => boolean): HistoryStep | null {
+    for (;;) {
+      const at = dir === -1 ? this.index - 1 : this.index;
+      const entry = this.entries[at];
+      if (!entry) return null;
+      if (pageExists(entry.pageId)) {
+        this.index += dir;
+        return { pageId: entry.pageId, target: dir === -1 ? entry.before : entry.after };
+      }
+      this.entries.splice(at, 1);
+      if (dir === -1) this.index -= 1;
+    }
+  }
+
+  /** Put the cursor back after a step whose application was abandoned. */
+  rollback(dir: -1 | 1): void {
+    this.index -= dir;
+  }
+
+  /** Forget every entry for one page: after a conflict reload its snapshots
+   *  no longer describe what the server holds. Other pages' entries stay. */
+  dropPage(pageId: string): void {
+    let removedBelow = 0;
+    for (let i = 0; i < this.index; i++) if (this.entries[i].pageId === pageId) removedBelow++;
+    this.entries = this.entries.filter((e) => e.pageId !== pageId);
+    this.index -= removedBelow;
+  }
 }
 
 export interface PageHistory {
@@ -32,21 +119,27 @@ interface Sink {
   commitWith(next: PageRecord, ops: Op[]): void;
 }
 
-export function usePageHistory(page: PageRecord | null, sink: Sink, resetToken: number): PageHistory {
-  const past = useRef<PageRecord[]>([]);
-  const future = useRef<PageRecord[]>([]);
+/** What the studio provides so history can reach across pages. */
+export interface HistoryHost {
+  /** The loaded page has settled: load-time migration/reset already sent. */
+  ready: boolean;
+  /** Bumped by the sync layer when a page was reloaded over a conflict. */
+  reset: { token: number; pageId: string | null };
+  pageExists(id: string): boolean;
+  /** Open a page (recorded as a navigation step, like a page-picker click). */
+  navigateTo(id: string): void;
+}
+
+export function usePageHistory(page: PageRecord | null, sink: Sink, host: HistoryHost): PageHistory {
+  const timeline = useRef(new HistoryTimeline());
   const lastKey = useRef<{ key: string; at: number } | null>(null);
+  /** A cross-page step waiting for its page to load before it can apply. */
+  const pending = useRef<{ dir: -1 | 1; step: HistoryStep } | null>(null);
   const pageRef = useRef(page);
   pageRef.current = page;
-  const [, bump] = useState(0);
-
-  // A page switch or a server-side conflict reload invalidates the stacks.
-  useEffect(() => {
-    past.current = [];
-    future.current = [];
-    lastKey.current = null;
-    bump((n) => n + 1);
-  }, [page?.id, resetToken]);
+  const hostRef = useRef(host);
+  hostRef.current = host;
+  const [rev, bump] = useState(0);
 
   const send = useCallback(
     (from: PageRecord, to: PageRecord) => {
@@ -70,14 +163,13 @@ export function usePageHistory(page: PageRecord | null, sink: Sink, resetToken: 
       if (!send(current, next)) return result;
 
       const now = Date.now();
-      const coalesce =
-        opts.coalesceKey && lastKey.current?.key === opts.coalesceKey && now - lastKey.current.at < COALESCE_MS;
-      if (!coalesce) {
-        past.current.push(current);
-        if (past.current.length > HISTORY_LIMIT) past.current.shift();
-      }
+      const coalesced =
+        !!opts.coalesceKey &&
+        lastKey.current?.key === opts.coalesceKey &&
+        now - lastKey.current.at < COALESCE_MS &&
+        timeline.current.coalesce(next);
+      if (!coalesced) timeline.current.push({ pageId: current.id, before: current, after: next });
       lastKey.current = opts.coalesceKey ? { key: opts.coalesceKey, at: now } : null;
-      future.current = [];
       bump((n) => n + 1);
       return result;
     },
@@ -87,7 +179,7 @@ export function usePageHistory(page: PageRecord | null, sink: Sink, resetToken: 
   const restore = useCallback(
     (snapshot: PageRecord) => {
       const current = pageRef.current;
-      if (!current) return;
+      if (!current || current.id !== snapshot.id) return;
       // Versions belong to the live row, not the snapshot.
       const target: PageRecord = { ...snapshot, version: current.version, entity_versions: current.entity_versions };
       send(current, target);
@@ -95,29 +187,65 @@ export function usePageHistory(page: PageRecord | null, sink: Sink, resetToken: 
     [send],
   );
 
-  const undo = useCallback(() => {
-    const current = pageRef.current;
-    const prev = past.current.pop();
-    if (!current || !prev) return;
-    future.current.push(current);
-    lastKey.current = null;
-    restore(prev);
-    bump((n) => n + 1);
-  }, [restore]);
+  const stepBy = useCallback(
+    (dir: -1 | 1) => {
+      // A step already waiting for its page counts as abandoned: put it
+      // back, then take a fresh step (usually the same one — this doubles
+      // as the retry when a page load failed underneath it).
+      if (pending.current) {
+        timeline.current.rollback(pending.current.dir);
+        pending.current = null;
+      }
+      lastKey.current = null;
+      const step = timeline.current.step(dir, hostRef.current.pageExists);
+      bump((n) => n + 1);
+      if (!step) return;
+      const current = pageRef.current;
+      if (current && current.id === step.pageId) {
+        restore(step.target);
+      } else {
+        // The step was made on another page: open it, apply on arrival.
+        pending.current = { dir, step };
+        hostRef.current.navigateTo(step.pageId);
+      }
+    },
+    [restore],
+  );
 
-  const redo = useCallback(() => {
-    const current = pageRef.current;
-    const next = future.current.pop();
-    if (!current || !next) return;
-    past.current.push(current);
-    lastKey.current = null;
-    restore(next);
+  const undo = useCallback(() => stepBy(-1), [stepBy]);
+  const redo = useCallback(() => stepBy(1), [stepBy]);
+
+  // Apply a pending cross-page step once its page has loaded and settled. A
+  // different page arriving means the user went elsewhere mid-flight: the
+  // step is rolled back rather than applied to the wrong page.
+  useEffect(() => {
+    const p = pending.current;
+    if (!p || !page) return;
+    if (page.id !== p.step.pageId) {
+      timeline.current.rollback(p.dir);
+      pending.current = null;
+      bump((n) => n + 1);
+      return;
+    }
+    if (!host.ready) return;
+    pending.current = null;
+    restore(p.step.target);
     bump((n) => n + 1);
-  }, [restore]);
+  }, [page, host.ready, restore]);
+
+  // A conflict reload invalidates one page's snapshots only.
+  useEffect(() => {
+    if (host.reset.token === 0 || !host.reset.pageId) return;
+    if (pending.current?.step.pageId === host.reset.pageId) pending.current = null;
+    timeline.current.dropPage(host.reset.pageId);
+    lastKey.current = null;
+    bump((n) => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [host.reset.token]);
 
   return useMemo(
-    () => ({ commit, undo, redo, canUndo: past.current.length > 0, canRedo: future.current.length > 0 }),
+    () => ({ commit, undo, redo, canUndo: timeline.current.canUndo(), canRedo: timeline.current.canRedo() }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [commit, undo, redo, past.current.length, future.current.length],
+    [commit, undo, redo, rev],
   );
 }

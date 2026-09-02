@@ -38,6 +38,7 @@
 
 /* ── Inspector ── */
 .insp-section { padding: 12px; border-bottom: 1px solid var(--border); }
+.insp-section:last-child { border-bottom: 0; }
 .insp-section h4 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--text-mute); font-weight: 600; }
 .field { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
 .field label { font-size: 12px; color: var(--text-dim); }
@@ -48,6 +49,45 @@
 }
 .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
 .field input[disabled] { color: var(--text-mute); cursor: not-allowed; }
+
+/* ── Inspector link picker ──
+   Expands in flow (the panel body scrolls; an absolute dropdown would be
+   clipped by its overflow), so the field row top-aligns while open. */
+.link-field { align-items: start; }
+.link-field > label { padding-top: 6px; }
+.link-picker { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.link-trigger {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 26px;
+  background: var(--inset-2); border: 1px solid var(--border-strong); border-radius: 5px;
+  color: var(--text); padding: 0 8px; font-size: 12px; font-family: inherit;
+  box-shadow: inset 0 1px 3px var(--sunken); cursor: pointer; text-align: left;
+}
+.link-trigger:focus { outline: none; border-color: var(--accent); }
+.link-trigger:disabled { color: var(--text-mute); cursor: not-allowed; }
+.link-trigger .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-trigger .caret { color: var(--text-mute); font-size: 9px; }
+.link-menu {
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px;
+  overflow: hidden;
+}
+.link-group {
+  padding: 8px 10px 3px; font-size: 10px; text-transform: uppercase; letter-spacing: .8px;
+  color: var(--text-mute); font-weight: 600;
+}
+.link-opt {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; font-size: 12px; color: var(--text-dim); cursor: pointer;
+}
+.link-opt:hover, .link-opt.highlight { background: var(--mute-soft); color: var(--text); }
+.link-opt.active { color: var(--text); font-weight: 600; }
+.link-opt.back { border-bottom: 1px solid var(--border); color: var(--text-mute); }
+.link-opt .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-opt .link-note { margin-left: auto; font-size: 10px; color: var(--text-mute); }
+.link-opt .twig { color: var(--text-mute); }
+.link-search { margin: 6px 8px; }
+.link-pages { max-height: 240px; overflow: auto; border-top: 1px solid var(--border); padding: 4px 0; }
+.link-empty { padding: 8px 10px; font-size: 12px; color: var(--text-mute); }
 
 
 /* ── Toast ── */

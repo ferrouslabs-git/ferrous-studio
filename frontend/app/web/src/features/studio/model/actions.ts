@@ -10,7 +10,7 @@
 // child node (ElementNode) is addressed by the key `el:<id>` with a null
 // index; a scalar prop token (the brand text, a heading) by its prop key.
 // Selection, Inspector editing and link targets all use this addressing.
-import { ComponentSeed, COMPONENTS, ElementSeed, elementMeta, PATTERNS, PatternTemplate } from "../catalog";
+import { ComponentSeed, COMPONENTS, ElementSeed, elementMeta, navAlign, PATTERNS, PatternTemplate } from "../catalog";
 import { PageLike } from "./applyOps";
 import { byPos, posAfterLast, posAtIndex, posBetween, reposition } from "./positions";
 import { defaultElementsFor, getDefaultProps, makeElement, uid } from "./regions";
@@ -19,6 +19,7 @@ import {
   newRegion,
   removeRegion,
   setNodeSize,
+  setRegionBg,
   setRegionLabel,
   splitRegion,
   SplitSide,
@@ -112,6 +113,12 @@ function newComponent(seedIn: ComponentSeed | string, label?: string): Component
     cmp.shape = seed.shape ?? meta.defaultShape;
     if (seed.layout ?? meta.defaultLayout) cmp.layout = seed.layout ?? meta.defaultLayout;
     cmp.elements = defaultElementsFor(seed.type, seed.elements ?? []);
+    // A default-seeded header titles the component, so it starts as the
+    // label ("Filters", "Activity") rather than the generic "Header".
+    if (!seed.elements?.some((s) => s.type === "header")) {
+      const header = cmp.elements.find((e) => e.type === "header");
+      if (header) header.label = cmp.label;
+    }
   }
   const defaults = getDefaultProps(seed.type);
   if (Object.keys(defaults).length) cmp.props = JSON.parse(JSON.stringify(defaults));
@@ -166,6 +173,10 @@ export function removeRegionAction(draft: Draft, _ctx: ActionContext, regionId: 
 
 export function setRegionLabelAction(draft: Draft, _ctx: ActionContext, regionId: string, label: string): void {
   setRegionLabel(draft.document, regionId, label);
+}
+
+export function setRegionBgAction(draft: Draft, _ctx: ActionContext, regionId: string, bg: string): void {
+  setRegionBg(draft.document, regionId, bg);
 }
 
 /** Apply divider-drag or inspector size changes; one commit per gesture. */
@@ -392,6 +403,8 @@ export function addElement(
     return { selectCmpId: cmpId, toast: `This component already has its ${meta.label.toLowerCase()}` };
   }
   const node = makeElement(cmp.type, seed)!;
+  // A header re-added from the library titles the component again.
+  if (node.type === "header" && !seed.label) node.label = cmp.label;
   if (cmp.type === "canvas") {
     const n = list.length;
     node.data = { x: String(16 + (n % 8) * 24), y: String(16 + (n % 8) * 24), ...node.data };
@@ -410,6 +423,9 @@ export function removeElement(draft: Draft, _ctx: ActionContext, cmpId: string, 
   if (index < 0) return;
   const [gone] = cmp.elements.splice(index, 1);
   dropLink(cmp, elKey(elementId));
+  // A removed header leaves props.title = "" as a persisted tombstone, or
+  // read-time migration would resurrect it from the label (migrateHeader).
+  if (gone.type === "header") ensureProps(cmp).title = "";
   // A removed column takes its cells with it.
   if (gone.type === "column" && Array.isArray(cmp.props?.rows)) {
     for (const row of cmp.props.rows as Record<string, unknown>[]) {
@@ -417,6 +433,32 @@ export function removeElement(draft: Draft, _ctx: ActionContext, cmpId: string, 
     }
   }
   return { selectCmpId: cmpId };
+}
+
+/** Drop one element before/after a sibling (drag-and-drop reorder). */
+export function reorderElement(
+  draft: Draft,
+  _ctx: ActionContext,
+  cmpId: string,
+  srcId: string,
+  targetId: string,
+  before: boolean,
+): ActionResult | void {
+  const cmp = cmpById(draft, cmpId);
+  if (!cmp?.elements || srcId === targetId) return;
+  const src = cmp.elements.find((e) => e.id === srcId);
+  const rest = byPos(cmp.elements).filter((e) => e.id !== srcId);
+  const ti = rest.findIndex((e) => e.id === targetId);
+  if (!src || ti < 0) return;
+  src.pos = posAtIndex(rest, before ? ti : ti + 1);
+  // A horizontal nav bar renders in left/centre/right zones (pos order within
+  // each), so landing beside a sibling also adopts its zone — one drag both
+  // reorders and re-aligns.
+  if (cmp.type === "navbar" && (cmp.layout ?? COMPONENTS.navbar.defaultLayout) === "horizontal") {
+    const zone = navAlign(rest[ti]);
+    if (navAlign(src) !== zone) (src.data ??= {}).align = zone;
+  }
+  return { selectElement: { cmpId, key: elKey(srcId), index: null } };
 }
 
 export function moveElement(draft: Draft, _ctx: ActionContext, cmpId: string, elementId: string, delta: -1 | 1): void {
@@ -451,6 +493,16 @@ export function setElementPosition(draft: Draft, _ctx: ActionContext, cmpId: str
   const data = (element.data ??= {});
   data.x = String(Math.max(0, Math.round(x)));
   data.y = String(Math.max(0, Math.round(y)));
+}
+
+/** Free sizing inside a canvas (corner drag); one call per completed drag. */
+export function setElementSize(draft: Draft, _ctx: ActionContext, cmpId: string, elementId: string, w: number, h: number): void {
+  const cmp = cmpById(draft, cmpId);
+  const element = cmp ? findElement(cmp, elementId) : null;
+  if (!element) return;
+  const data = (element.data ??= {});
+  data.w = String(Math.max(40, Math.round(w)));
+  data.h = String(Math.max(24, Math.round(h)));
 }
 
 // ── List rows ───────────────────────────────────────────────────────────────
@@ -521,19 +573,24 @@ function dropLink(cmp: ComponentNode, key: string): void {
   if (!Object.keys(links).length) delete cmp.props!.links;
 }
 
-/** Set an element's text. For element nodes an empty commit removes the
- *  element (with its link); scalars just take the value. */
+/** Set an element's text. An empty commit removes PURE-TEXT elements (nav
+ *  items, buttons — see blankRemoves in the catalogue); widget elements
+ *  (inputs, columns…) keep the element and just blank the label. Scalars
+ *  take the value as-is. */
 export function setElementText(draft: Draft, ctx: ActionContext, id: string, key: string, index: number | null, text: string): ActionResult | void {
   const cmp = cmpById(draft, id);
   if (!cmp) return;
   const value = (text || "").trim();
   if (isElKey(key)) {
     const elementId = key.slice(EL_PREFIX.length);
-    if (!value) return removeElement(draft, ctx, id, elementId);
     const element = findElement(cmp, elementId);
     if (!element) return;
+    if (!value && elementMeta(cmp.type, element.type)?.blankRemoves) {
+      return removeElement(draft, ctx, id, elementId);
+    }
     element.label = value;
-    return { selectCmpId: id };
+    // Keep the element selected — a rename (or blank) is not a deselection.
+    return { selectElement: { cmpId: id, key, index: null } };
   }
   if (index != null) return; // array tokens are gone; legacy docs migrate on read
   ensureProps(cmp)[key] = value;

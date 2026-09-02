@@ -101,3 +101,7 @@ export const listWireframeVersions = (projectId: string, wireframeId: string) =>
   apiGet<ProjectVersion[]>(`${base(projectId, wireframeId)}/versions`);
 export const createWireframeVersion = (projectId: string, wireframeId: string, label?: string) =>
   apiPost<ProjectVersion>(`${base(projectId, wireframeId)}/versions`, { label: label ?? null });
+/** Replace the wireframe's pages with a snapshot's; the server keeps an
+ *  automatic backup of the current state first. */
+export const restoreWireframeVersion = (projectId: string, wireframeId: string, versionId: string) =>
+  apiPost<void>(`${base(projectId, wireframeId)}/versions/${versionId}/restore`, {});

@@ -10,7 +10,7 @@
 // modal and footer stay as components with small element vocabularies.
 import { COMPONENTS, ElementSeed } from "../catalog";
 import type { LinksProp } from "./actions";
-import { reposition } from "./positions";
+import { byPos, posAtIndex, reposition } from "./positions";
 import { makeElement } from "./regions";
 import { ComponentNode, ElementNode, LinkTarget } from "./types";
 
@@ -144,14 +144,15 @@ function asFilterPanel(ctx: Ctx): void {
 }
 
 const MIGRATIONS: Record<string, (ctx: Ctx) => void> = {
-  navbar: asNavbar("links", "horizontal"),
-  "nav-basic": asNavbar("links", "horizontal"),
-  "nav-search": asNavbar("links", "horizontal"),
-  "nav-cta": asNavbar("links", "horizontal"),
-  sidebar: asNavbar("links", "vertical"),
-  "sidenav-simple": asNavbar("links", "vertical"),
+  navbar: asNavbar("plain", "horizontal"),
+  "nav-basic": asNavbar("plain", "horizontal"),
+  "nav-search": asNavbar("plain", "horizontal"),
+  "nav-cta": asNavbar("plain", "horizontal"),
+  // Old sidenavs drew icon + label; "icons" keeps that look.
+  sidebar: asNavbar("icons", "vertical"),
+  "sidenav-simple": asNavbar("icons", "vertical"),
   "sidenav-grouped": asNavbar("grouped", "vertical"),
-  "sidenav-workspace": asNavbar("links", "vertical"),
+  "sidenav-workspace": asNavbar("icons", "vertical"),
   tabs: asNavbar("tabs", "horizontal"),
   breadcrumb: asNavbar("breadcrumb", "horizontal"),
 
@@ -306,10 +307,56 @@ const MIGRATIONS: Record<string, (ctx: Ctx) => void> = {
   },
 };
 
+/** Component types whose header moved from the `title` prop to an element. */
+const HEADER_HOSTS = new Set(["list", "form", "graph", "calendar"]);
+
+/** Header prop → element (2026-09): the title of a list/form/graph/calendar
+ *  became a max-1 `header` element so it styles and places like any other
+ *  element. An unset `props.title` becomes a header from the label (the old
+ *  render-time fallback); a set one keeps its text and carries its link to
+ *  the element key. `props.title === ""` is the tombstone removeElement
+ *  leaves — the header was deliberately removed, so nothing is resurrected.
+ *  Runs on every read (already-migrated docs pass through); idempotent. */
+function migrateHeader(cmp: ComponentNode): void {
+  if (!HEADER_HOSTS.has(cmp.type)) return;
+  if (cmp.elements?.some((e) => e.type === "header")) {
+    // The element is authoritative; a stale scalar title just goes.
+    if (cmp.props && "title" in cmp.props) delete cmp.props.title;
+    return;
+  }
+  const raw = cmp.props?.title;
+  if (raw === "") return; // tombstone: the header was removed (or hidden)
+  const node = makeElement(cmp.type, { type: "header", label: raw == null ? cmp.label : String(raw) });
+  if (!node) return;
+  const list = (cmp.elements ??= []);
+  node.pos = posAtIndex(byPos(list), 0);
+  list.push(node);
+  if (cmp.props) {
+    delete cmp.props.title;
+    // A link set on the old scalar token follows the header to its element key.
+    const links = cmp.props.links as LinksProp | undefined;
+    const entry = links?.title;
+    if (links && entry && !Array.isArray(entry)) {
+      links[`el:${node.id}`] = entry;
+      delete links.title;
+    }
+  }
+}
+
 /** Convert one component in place. Safe to call on anything: already-migrated
  *  components (shape set), custom blocks and unknown types are left alone. */
 export function migrateComponent(cmp: ComponentNode): void {
-  if (cmp.shape !== undefined) return;
+  // Shape rename (2026-09): the navbar's "links" shape became the
+  // orientation-neutral "plain"; vertical rails rendered icons back then, so
+  // they map to "icons" to keep their look. Runs even on migrated docs.
+  if (cmp.type === "navbar" && cmp.shape === "links") {
+    cmp.shape = cmp.layout === "vertical" ? "icons" : "plain";
+  }
+  if (cmp.shape === undefined) migrateShapeless(cmp);
+  migrateHeader(cmp);
+}
+
+function migrateShapeless(cmp: ComponentNode): void {
   const migrate = MIGRATIONS[cmp.type];
   const meta = COMPONENTS[cmp.type];
   if (!migrate && !meta) return;

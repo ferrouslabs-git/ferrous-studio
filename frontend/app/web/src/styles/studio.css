@@ -13,6 +13,43 @@
 .crumbs { color: var(--text-dim); font-size: 12px; }
 .crumbs b { color: var(--text); font-weight: 500; }
 .spacer { flex: 1; }
+
+/* ── Page picker: searchable dropdown in the top bar ── */
+/* Back/forward through visited pages, browser-style, paired beside the picker. */
+.page-nav { display: flex; gap: 2px; }
+.page-nav .btn { width: 26px; padding: 0; justify-content: center; font-size: 15px; line-height: 1; }
+.page-select { position: relative; }
+.page-select-trigger {
+  max-width: 340px;
+  /* Page names are user content: shown as typed, not mono uppercase like action buttons. */
+  font-family: var(--font-display); text-transform: none; letter-spacing: 0; font-size: 12.5px;
+}
+.page-select-trigger .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-select-trigger .route, .page-select-item .route { color: var(--text-mute); font-family: var(--mono); font-size: 11px; }
+.page-select-trigger .caret { color: var(--text-mute); font-size: 9px; }
+.page-select-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 80;
+  width: 320px; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px;
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.page-select-search { margin: 8px; min-width: 0; }
+.page-select-list { max-height: 320px; overflow: auto; padding: 4px; border-top: 1px solid var(--border); }
+.page-select-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px;
+  font-size: 12.5px; color: var(--text-dim); cursor: pointer;
+}
+.page-select-item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-select-item.highlight { background: var(--mute-soft); color: var(--text); }
+.page-select-item.active .name { color: var(--text); font-weight: 600; }
+.page-select-empty { padding: 10px 12px; font-size: 12px; color: var(--text-mute); }
+.page-select-add {
+  border: 0; border-top: 1px solid var(--border); background: transparent;
+  color: var(--text-dim); font: inherit; font-size: 12px; text-align: left;
+  padding: 9px 12px; cursor: pointer;
+}
+.page-select-add:hover { background: var(--mute-soft); color: var(--text); }
+
 /* ── App grid ── */
 .app {
   display: grid;
@@ -67,40 +104,55 @@
 
 /* ── Center canvas ── */
 .center { background: var(--bg); display: flex; flex-direction: column; }
-.page-tabs {
-  height: 34px; display: flex; align-items: stretch; gap: 0;
-  background: var(--panel); border-bottom: 1px solid var(--border); padding: 0 8px;
-}
-.page-tab {
-  height: 100%; padding: 0 12px; display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--text-dim); cursor: pointer; border-right: 1px solid var(--border);
-}
-.page-tab.active { color: var(--text); background: var(--bg); }
-.page-tab .route { color: var(--text-mute); font-family: var(--mono); font-size: 11px; }
-.add-btn { color: var(--text-mute); font-size: 14px; padding: 0 10px; cursor: pointer; }
 
 /* The screen fills the whole canvas area: no browser chrome, no frame. It is
    painted like a real page — the layout tree sits edge to edge and dividers
    draw the seams. */
 .canvas-wrap { flex: 1; overflow: auto; display: flex; flex-direction: column; }
 .device { flex: 1; min-height: 100%; background: var(--bg); display: flex; flex-direction: column; }
+
+/* ── Device stage ──
+   The wireframe's interface type drives the shape of the editing area. Mobile
+   and tablet wireframes edit inside a device-shaped frame centred in a gutter,
+   fixed at the device's logical CSS resolution (390×844 phone, 768×1024
+   tablet) so the working area matches the aspect ratio the design will ship
+   at. `min-height` rather than `height`: content taller than the screen grows
+   the frame — a scrolling page, never clipped work. Auto margins centre the
+   frame yet keep the top reachable when it overflows the scroll area. */
+.canvas-wrap.framed { padding: 28px; background: var(--panel-2); }
+.canvas-wrap.framed .device {
+  flex: 0 0 auto; margin: auto; min-height: 0;
+  border: 1px solid var(--border-strong); box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.canvas-wrap.framed .device.mobile { width: min(100%, 390px); min-height: 844px; border-radius: 24px; }
+.canvas-wrap.framed .device.tablet { width: min(100%, 768px); min-height: 1024px; border-radius: 18px; }
+
 .frame-body { flex: 1; display: flex; flex-direction: column; min-height: 100%; }
 .frame-body.flat { padding: 20px; gap: 16px; }
 .frame-body.tree > .split, .frame-body.tree > .rg, .frame-body.tree > .host-level { flex: 1; }
 
 /* ── Canvas components ──
    A component is drawn as the UI element it stands for; the wrapper adds no
-   chrome. Hover and selection are thin rings, and the controls are a small
-   floating toolbar that only appears on hover or selection. */
+   chrome. Hover and selection are thin rings; the controls are a small
+   floating toolbar that only appears on selection (of the component or of
+   an element inside it — `has-sel`), never on hover. */
 .cmp {
   position: relative;
   border-radius: var(--radius-lg);
-  outline: 1px solid transparent; outline-offset: -1px;
-  transition: outline-color .12s;
   min-width: 0;
 }
-.cmp:hover { outline-color: var(--orange-border); }
-.cmp.selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The hover/selection ring is an overlay, not an outline: an inset outline
+   paints below positioned children, so a full-bleed opaque component (a
+   canvas, a nav bar) would bury all but its uncovered edges. The overlay
+   sits above the component's content but below the toolbars (z-index 5). */
+.cmp::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 4;
+  border: 1px solid transparent; border-radius: inherit;
+  transition: border-color .12s;
+}
+.cmp:hover::after { border-color: var(--orange-border); }
+.cmp.selected::after { border: 2px solid var(--accent); }
 .cmp.dragging { opacity: .5; }
 
 .cmp-actions {
@@ -110,7 +162,9 @@
   background: var(--panel-2); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
   opacity: 0; pointer-events: none; transition: opacity .12s;
 }
-.cmp:hover > .cmp-actions, .cmp.selected > .cmp-actions { opacity: 1; pointer-events: auto; }
+/* The component toolbar shows only when the COMPONENT itself is selected —
+   with an element selected, its controls are the ones on show. */
+.cmp.selected > .cmp-actions { opacity: 1; pointer-events: auto; }
 .cmp-actions button {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
   border: 0; border-radius: var(--radius); background: transparent; color: var(--text-dim); cursor: pointer;
@@ -125,10 +179,13 @@
   letter-spacing: inherit; text-transform: inherit; text-align: inherit; line-height: inherit;
   padding: 0; margin: 0; cursor: text; border-radius: 3px; min-width: 0;
 }
-button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
-/* A blanked value keeps a hover-only "…" so it can be recovered. */
+/* :not(.el-sel): hover outranks the selection ring on specificity, and the
+   pointer is always over an element just after clicking it — without the
+   guard the solid ring never shows. */
+button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); }
+/* A blanked value keeps a select-only "…" so it can be recovered. */
 .ui-edit.blank { opacity: 0; min-width: 14px; text-align: center; color: var(--text-mute); }
-.cmp:hover .ui-edit.blank, .cmp.selected .ui-edit.blank { opacity: .7; }
+.cmp.selected .ui-edit.blank, .cmp.has-sel .ui-edit.blank { opacity: .7; }
 
 .inline-edit-input {
   height: 24px; min-width: 72px;
@@ -139,8 +196,8 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 }
 .inline-edit-input:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
 
-/* "+" affordances: reserved in layout but invisible until the component is
-   hovered or selected. Viewers never get them. */
+/* "+" affordances: reserved in layout but invisible until the component (or
+   an element inside it) is selected. Viewers never get them. */
 .ui-add {
   height: 22px; min-width: 22px; padding: 0 6px; flex-shrink: 0;
   border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
@@ -148,7 +205,7 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
   font: 500 12px/1 var(--font-display); cursor: pointer;
   opacity: 0; transition: opacity .12s, color .12s, border-color .12s;
 }
-.cmp:hover .ui-add, .cmp.selected .ui-add { opacity: 1; }
+.cmp.selected .ui-add, .cmp.has-sel .ui-add { opacity: 1; }
 .ui-add:hover { border-color: var(--accent); color: var(--orange-ink); background: var(--accent-soft); }
 .ui-add.text { font-size: 11px; padding: 0 8px; }
 
@@ -218,6 +275,9 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 .ui-card-head .ui-row { flex-wrap: wrap; min-width: 0; }
 .ui-card-head .ui-input.sm { width: 180px; max-width: 100%; }
 .ui-card-title { font-size: 13px; font-weight: 600; }
+/* A header element placed "above": its own line over the component. */
+.ui-headed { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ui-headed > .ui-card-title { font-size: 14px; }
 .ui-h1 { font-family: var(--font-display); font-size: 30px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; margin: 0; }
 .ui-h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
 .ui-h3 { font-size: 14px; font-weight: 600; margin: 0; }
@@ -247,14 +307,26 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
   display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
   font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: -.01em;
 }
-.ui-brand::before { content: ""; width: 20px; height: 20px; border-radius: 5px; background: var(--gradient-iridescent); flex-shrink: 0; }
-.ui-nav-links { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow: hidden; }
+/* The brand's mark: the default gradient square, a chosen built-in icon, or
+   an uploaded image (the user can also choose none — nothing renders). */
+.ui-brand-default { width: 20px; height: 20px; border-radius: 5px; background: var(--gradient-iridescent); flex-shrink: 0; }
+.ui-brand-mark { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; color: var(--orange-ink); flex-shrink: 0; }
+.ui-brand-img { width: 20px; height: 20px; border-radius: 5px; object-fit: cover; flex-shrink: 0; }
+/* The bar is three zones in fixed order; elements land in one via data.align
+   (navAlign defaults). Equal flex on the outer zones keeps the middle one
+   visually centred. */
+.ui-nav-zone { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.ui-nav-zone.left { flex: 1 1 0; justify-content: flex-start; }
+.ui-nav-zone.centre { flex: 0 1 auto; justify-content: center; }
+.ui-nav-zone.right { flex: 1 1 0; justify-content: flex-end; }
+/* overflow keeps a long link list inside the bar; the padding/margin pair
+   moves the clip edge outward so the 2px selection ring is not cut off. */
+.ui-nav-links { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 3px; margin: -3px; }
 .ui-nav-link {
   height: 32px; padding: 0 10px; border-radius: var(--radius-lg); flex-shrink: 0;
   font-size: 13px; color: var(--text-dim); display: inline-flex; align-items: center; white-space: nowrap;
 }
 .ui-nav-link.active { color: var(--text); background: var(--mute-soft); }
-.ui-nav-end { display: flex; align-items: center; gap: 12px; margin-left: auto; flex-shrink: 0; }
 .ui-nav-search { flex: 0 1 260px; height: 32px; }
 
 /* ── Side nav ── */
@@ -288,6 +360,8 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
   border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--panel-2);
 }
 .ui-workspace-name { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* Compact variant for the horizontal bar. */
+.ui-workspace.bar { padding: 4px 8px; gap: 8px; flex-shrink: 0; }
 /* ── Right panel ── */
 .ui-rpanel {
   flex: 1; min-height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 16px;
@@ -322,6 +396,15 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 .ui-crumb { color: var(--text-dim); }
 .ui-crumb.current { color: var(--text); font-weight: 500; }
 .ui-crumb-sep { opacity: .5; }
+
+/* Nav bar shapes apply in the vertical rail too: tabs swap the underline for
+   a left-edge indicator; breadcrumb stacks its trail. */
+.ui-tab.vert {
+  height: 32px; width: 100%; padding: 0 10px; margin-bottom: 0; justify-content: flex-start;
+  border-bottom: 0; border-left: 2px solid transparent; border-radius: 0 var(--radius) var(--radius) 0;
+}
+.ui-tab.vert.active { border-bottom: 0; border-left-color: var(--accent); background: var(--accent-soft); }
+.ui-crumb.vert { display: block; width: 100%; text-align: left; padding: 4px 10px; font-size: 12.5px; }
 
 /* ── Content blocks ── */
 .ui-hero {
@@ -370,6 +453,8 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 .ui-article { display: flex; flex-direction: column; gap: 18px; max-width: 72ch; }
 .ui-article section { display: flex; flex-direction: column; gap: 6px; }
 .ui-form { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+/* The header bar sits flush with the card edges despite the form's padding. */
+.ui-form > .ui-card-head { margin: -20px -20px 0; }
 .ui-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .ui-field.wide { grid-column: 1 / -1; }
 .ui-form-grid .ui-add { align-self: end; justify-self: start; height: 32px; }
@@ -429,13 +514,13 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 }
 .frame-body.over-empty { outline: 2px dashed var(--accent); outline-offset: -8px; border-radius: 8px; }
 
-/* ── Tabs close buttons ── */
-.page-tab .close, .frame-tab .close {
-  margin-left: 6px; color: var(--text-mute); font-size: 11px;
+/* ── Page picker delete buttons ── */
+.page-select-item .close {
+  color: var(--text-mute); font-size: 11px;
   width: 14px; height: 14px; display: inline-grid; place-items: center;
   border-radius: 3px;
 }
-.page-tab .close:hover, .frame-tab .close:hover { background: var(--mute-soft); color: var(--text); }
+.page-select-item .close:hover { background: var(--mute-soft); color: var(--text); }
 
 /* ── The layout tree ──
    A page is a tree of splits and regions. Splits are flex rows/columns whose
@@ -443,7 +528,7 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
    dividers between children are both the drawn edge between areas and the
    drag handles that resize them. Regions are the drop targets components
    stack into; their editing chrome (toolbar, hints, rings) only appears on
-   hover or selection. */
+   selection. */
 .split { display: flex; min-width: 0; min-height: 0; }
 .split-row { flex-direction: row; }
 .split-col { flex-direction: column; }
@@ -460,8 +545,17 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 
 .rg { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .rg-body { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 40px; }
-.rg.selected { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 2; }
-.rg.over { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); z-index: 2; }
+/* Region rings ride an ::after overlay for the same reason .cmp's do: an
+   inset outline paints below positioned children, so a full-bleed component
+   (a nav bar, a canvas) would bury every edge it covers. Absolute, so the
+   pseudo never becomes a flex item of the region. */
+.rg.selected::after, .rg.over::after, .rg-outlet::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 4;
+}
+.rg.selected { z-index: 2; }
+.rg.selected::after { border: 2px solid var(--accent); }
+.rg.over { background: var(--accent-soft); z-index: 2; }
+.rg.over::after { border: 2px dashed var(--accent); }
 .rg-empty {
   flex: 1; display: grid; place-items: center; min-height: 96px; margin: 12px;
   border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
@@ -470,8 +564,8 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 
 /* Region toolbar: split four ways or remove. Top-left, so it never collides
    with component toolbars (top-right) — regions do not nest, so at most one
-   shows. Visible whenever the region is hovered, even through a full-bleed
-   component (a sidenav fills its region completely). */
+   shows. Visible only while the region is selected (click its background,
+   even through a full-bleed component — a sidenav fills its region). */
 .rg-toolbar {
   position: absolute; top: 6px; left: 6px; z-index: 5;
   display: flex; gap: 2px; padding: 2px;
@@ -479,7 +573,7 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
   background: var(--panel-2); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
   opacity: 0; pointer-events: none; transition: opacity .12s;
 }
-.rg:hover > .rg-toolbar, .rg.selected > .rg-toolbar { opacity: 1; pointer-events: auto; }
+.rg.selected > .rg-toolbar { opacity: 1; pointer-events: auto; }
 .rg-toolbar button {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
   border: 0; border-radius: var(--radius); background: transparent; color: var(--text-dim); cursor: pointer;
@@ -493,26 +587,14 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 .rg-body > .cmp.pad:last-child { padding-bottom: 16px; }
 
 /* ── Child pages (the outlet model) ──
-   Ancestor shells render read-only around the page being edited; a small cap
-   names each ancestor and opens it. The outlet region is faintly marked. */
-.host-level { position: relative; flex: 1; display: flex; min-width: 0; min-height: 0; }
+   Ancestor shells render read-only around the page being edited; the outlet
+   region is faintly marked. */
+.host-level { flex: 1; display: flex; min-width: 0; min-height: 0; }
 .host-level > .split, .host-level > .rg { flex: 1; }
-.host-cap {
-  position: absolute; top: 8px; left: 8px; z-index: 7;
-  height: 22px; padding: 0 8px; border-radius: 999px;
-  border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--text-dim);
-  font: 500 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
-  cursor: pointer; opacity: .85;
-}
-.host-cap:hover { color: var(--text); border-color: var(--accent); opacity: 1; }
-.rg-outlet { outline: 1px dashed var(--orange-border); outline-offset: -1px; }
+.rg-outlet::after { border: 1px dashed var(--orange-border); }
 
-/* ── Elements: selection and links ── */
+/* ── Elements: selection ── */
 .ui-edit.el-sel { box-shadow: 0 0 0 2px var(--accent); border-radius: 3px; }
-.ui-edit.linked::after {
-  content: "↗"; margin-left: 3px; font-size: 10px; line-height: 1;
-  color: var(--orange-ink); opacity: .8;
-}
 
 /* ── Component family rows (expandable) ── */
 .family-item {
@@ -824,8 +906,10 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 }
 .lib-shape:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 
-/* A component highlighted as the target of an element drag. */
-.cmp.el-target { outline: 2px dashed var(--good); outline-offset: -2px; background: var(--good-soft); }
+/* A component highlighted as the target of an element drag. The ring rides
+   the same ::after overlay as hover/selection, for the same reason. */
+.cmp.el-target { background: var(--good-soft); }
+.cmp.el-target::after { border: 2px dashed var(--good); }
 
 /* Nav bar as tabs/breadcrumb: the bar itself is the content. */
 .ui-nav.bare { background: transparent; border: 0; box-shadow: none; padding: 0 4px; }
@@ -866,6 +950,11 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 }
 .ui-image-ph.tall { min-height: 180px; flex: 1; align-self: stretch; }
 .ui-image-cap { font-size: 11.5px; color: var(--text-mute); text-align: center; }
+/* A real uploaded image: no placeholder chrome, resizes with its box. */
+.ui-image { display: flex; border-radius: var(--radius-lg); overflow: hidden; min-width: 0; }
+.ui-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ui-image.tall { min-height: 180px; flex: 1; align-self: stretch; }
+.ui-canvas-el .ui-image img { max-width: 100%; }
 .ui-box {
   min-height: 64px; min-width: 120px; padding: 10px; border-radius: var(--radius-lg);
   border: 1.5px dashed var(--border-strong); background: var(--inset-2);
@@ -946,6 +1035,8 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 .ui-cal { display: flex; flex-direction: column; gap: 10px; }
 .ui-cal.compact { font-size: 11px; }
 .ui-cal-nav { display: inline-flex; gap: 4px; margin-right: 10px; }
+/* The period shown beside the nav, demoted from card title now the header owns that slot. */
+.ui-cal-period { font-size: 12.5px; font-weight: 550; color: var(--text-dim); }
 .ui-tabs.sm { border-bottom: 0; gap: 2px; }
 .ui-tabs.sm .ui-tab { padding: 3px 8px; font-size: 11px; }
 .ui-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
@@ -990,25 +1081,34 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 }
 .ui-cal-legend { display: flex; gap: 14px; padding-top: 4px; border-top: 1px solid var(--border); }
 
-/* Canvas: a freeform container; children sit at their own x/y. */
+/* Canvas: a freeform container; children sit at their own x/y. Borderless
+   and edge-to-edge within its region (the Card shape opts back into a
+   frame); the cmp wrapper never pads it (see fillsRegion). No minimum
+   height: a fixed canvas is exactly the height it was dragged to (flex-basis
+   pinned so a squeezed region cannot shrink it either); fill mode keeps its
+   own floor below. */
 .ui-canvas {
-  position: relative; min-height: 280px; border-radius: var(--radius-lg);
-  border: 1.5px dashed var(--border-strong); overflow: hidden; background: var(--inset-2);
+  position: relative; flex: 0 0 auto; overflow: hidden; background: var(--inset-2);
 }
-.ui-canvas.fill { min-height: 100%; height: 100%; }
-.ui-canvas.card { border-style: solid; border-width: 1px; background: var(--panel); }
+.ui-canvas.card { border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--panel); }
 .ui-canvas.grid {
   background:
     radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 14px 14px,
     var(--inset-2);
 }
 .ui-canvas-el { position: absolute; max-width: calc(100% - 16px); }
-.ui-canvas-el.selected { outline: 1.5px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.ui-canvas-el.selected { outline: 1.5px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* One ring only: the wrapper's. The token's own el-sel ring would draw a
+   second, smaller box inside a resized element. */
+.ui-canvas-el.selected .ui-edit.el-sel { box-shadow: none; }
 .ui-canvas-el.dragging { opacity: .75; cursor: grabbing; }
+/* The move/remove toolbar sits fully above the element (never overlapping
+   it); near the canvas top — where overflow would clip it — it flips below. */
 .ui-canvas-tools {
-  position: absolute; top: -10px; right: -6px; z-index: 5; display: none; gap: 2px;
+  position: absolute; bottom: calc(100% + 7px); right: 0; z-index: 5; display: none; gap: 2px;
 }
-.ui-canvas-el:hover .ui-canvas-tools, .ui-canvas-el.selected .ui-canvas-tools { display: inline-flex; }
+.ui-canvas-el.tools-below .ui-canvas-tools { bottom: auto; top: calc(100% + 7px); }
+.ui-canvas-el.selected .ui-canvas-tools { display: inline-flex; }
 .ui-canvas-handle, .ui-canvas-x {
   width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border-strong);
   background: var(--panel); color: var(--text-dim); font-size: 10px; line-height: 1;
@@ -1017,7 +1117,85 @@ button.ui-edit:hover { box-shadow: 0 0 0 2px var(--orange-border); }
 .ui-canvas-handle { cursor: grab; }
 .ui-canvas-handle:active { cursor: grabbing; }
 .ui-canvas-x:hover { border-color: var(--bad, #e06060); color: var(--bad, #e06060); }
+
+/* Corner grip just outside the bottom-right corner (clear of the selection
+   ring): drag to set the element's width and height. */
+.ui-canvas-el-resize {
+  position: absolute; right: -12px; bottom: -12px; width: 11px; height: 11px; z-index: 5;
+  display: none; padding: 0; cursor: nwse-resize;
+  border: 1.5px solid var(--accent); border-radius: 3px; background: var(--panel);
+}
+.ui-canvas-el.selected .ui-canvas-el-resize { display: block; }
+/* An explicitly sized element stretches its widget — text tokens included —
+   to fill the box, so resizing visibly grows the element itself. */
+.ui-canvas-el.sized > :not(.ui-canvas-tools):not(.ui-canvas-el-resize) {
+  width: 100%; height: 100%; min-width: 0; min-height: 0;
+}
+.ui-canvas-el.sized > .ui-edit { display: inline-block; }
+.ui-canvas-el.sized .ui-h2 > .ui-edit,
+.ui-canvas-el.sized .ui-p > .ui-edit { display: inline-block; width: 100%; height: 100%; }
 .ui-canvas-hint {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--text-mute); font-size: 12px; pointer-events: none;
 }
+
+/* The canvas plus its height grab bar. The bar sits in flow BELOW the canvas
+   (outside the drawing area, so it never overlaps elements); select-gated
+   like the other controls. */
+.ui-canvas-wrap { display: flex; flex-direction: column; min-width: 0; }
+.ui-canvas-wrap.fill { height: 100%; }
+.ui-canvas-wrap.fill .ui-canvas { flex: 1; height: auto; min-height: 120px; }
+/* "Fill region": the cmp itself must grow inside the region's column. */
+.rg-body > div > .cmp:has(> .ui-canvas-wrap.fill) { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.cmp > .ui-canvas-wrap.fill { flex: 1; height: auto; }
+.ui-canvas-resize {
+  height: 12px; margin-top: 2px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  cursor: ns-resize; opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.cmp.selected .ui-canvas-resize { opacity: 1; pointer-events: auto; }
+.ui-canvas-resize span { width: 44px; height: 4px; border-radius: 999px; background: var(--border-strong); }
+.ui-canvas-resize:hover span, .ui-canvas-resize:active span { background: var(--accent); }
+
+/* Inspector style rows: colour swatch + clear, and the brand logo picker. */
+.insp-colour { display: flex; align-items: center; gap: 6px; }
+.insp-colour input[type="color"] {
+  width: 44px; height: 26px; padding: 2px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--panel-2); cursor: pointer;
+}
+.insp-logo { display: flex; align-items: center; gap: 6px; }
+.insp-logo select { flex: 1; min-width: 0; }
+.insp-upload { cursor: pointer; flex-shrink: 0; }
+
+/* Whole-widget selection: clicking anywhere in a field (label or input)
+   selects its element. The ring sits on the box, so the label token's own
+   ring — which would double up — is suppressed inside a selected box. */
+/* No blanket min-width: 0 here — the box often IS the widget (.ui-box,
+   .ui-input) whose own minimums must win; flex rows opt in below. */
+.el-box { border-radius: var(--radius); }
+.ui-filters .el-box { min-width: 0; }
+
+/* Reorder drag: the element under the pointer during a same-component drag. */
+.el-drop { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+
+/* A floating canvas overlays its region: it takes no space in the stack and
+   its surface is click-through, so the components underneath stay usable —
+   only its elements (and its toolbar when selected) catch the pointer.
+   Reach the canvas itself via an element + the `p` shortcut, or the empty
+   hint. Pairs with the "transparent" shape for annotation overlays. */
+.cmp.float { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.cmp.float .ui-canvas-el, .cmp.float > .cmp-actions, .cmp.float .ui-canvas-hint { pointer-events: auto; }
+.ui-canvas.transparent { border-color: transparent; background: transparent; }
+.el-box.el-sel { box-shadow: 0 0 0 2px var(--accent); }
+.el-box.el-sel .ui-edit.el-sel { box-shadow: none; }
+.ui-canvas-el .el-box.el-sel { box-shadow: none; } /* the canvas child wrapper draws this ring */
+
+/* Decorative chrome that belongs to a real element (dividers, a graph's
+   legend, table select boxes, the header row) is selectable too, so it can
+   be edited or removed like anything else. */
+.el-box.divider-box { display: flex; align-items: center; justify-content: center; align-self: stretch; padding: 2px 3px; }
+.el-box.divider-box > .ui-divider { width: 100%; margin: 0; }
+.el-box.ui-legend-box { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; }
+.ui-table thead tr.el-sel-row th { background: var(--accent-soft); }
+.ui-td-select.el-sel-cell { background: var(--accent-soft); }

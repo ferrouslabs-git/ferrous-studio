@@ -48,7 +48,9 @@ export type Transport = (batch: OpBatch) => Promise<OpBatchResult>;
 
 const DEFAULT_BACKOFF = [1000, 2000, 4000, 8000];
 
-function defaultBatchId(): string {
+/** Also the id minter for one-off batches sent outside the outbox (e.g. a
+ *  rename of a linked page, which is not the open page). */
+export function defaultBatchId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;

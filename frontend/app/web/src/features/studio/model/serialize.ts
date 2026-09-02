@@ -26,6 +26,7 @@ export function serializePage(page: PageLike & { id?: string; placement?: PagePl
     if (node.kind === "region") {
       const out: Record<string, unknown> = { kind: "region", id: node.id, size: node.size };
       if (node.label) out.label = node.label;
+      if (node.bg) out.bg = node.bg;
       out.components = byPos(page.document.regions[node.id] ?? []).map(stripCmp);
       return out;
     }

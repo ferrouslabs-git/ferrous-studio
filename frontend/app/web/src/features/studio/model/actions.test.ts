@@ -13,11 +13,14 @@ import {
   removeRegionAction,
   setComponentShape,
   setComponentType,
+  reorderElement,
   setElementLink,
+  setElementSize,
   setElementText,
   setListCell,
   splitRegionAction,
 } from "./actions";
+import { navAlign } from "../catalog";
 import { PageLike } from "./applyOps";
 import { byPos } from "./positions";
 import { firstRegionId, regionIds } from "./tree";
@@ -62,7 +65,7 @@ describe("layout actions", () => {
     const cmps = ids.flatMap((id) => p.document.regions[id]);
     expect(cmps.map((c) => c.type)).toEqual(["navbar", "navbar", "main", "detail"]);
     const [topNav, sideNav] = cmps;
-    expect(topNav.shape).toBe("links");
+    expect(topNav.shape).toBe("plain");
     expect(topNav.layout).toBe("horizontal");
     expect(sideNav.layout).toBe("vertical");
     expect(topNav.elements!.some((e) => e.type === "brand")).toBe(true);
@@ -83,7 +86,7 @@ describe("layout actions", () => {
 
 describe("element CRUD", () => {
   const navbar = (): ComponentNode => ({
-    id: "n", type: "navbar", label: "App", pos: "a0", shape: "links", layout: "horizontal",
+    id: "n", type: "navbar", label: "App", pos: "a0", shape: "plain", layout: "horizontal",
     elements: [el("e1", "brand", "Acme", "a0"), el("e2", "nav-item", "Overview", "a1"), el("e3", "avatar", "AL", "a2")],
   });
 
@@ -116,6 +119,51 @@ describe("element CRUD", () => {
     expect(b2.data!.x).toBe("40");
   });
 
+  it("reorderElement drops an element before/after a sibling", () => {
+    const p = page([navbar()]);
+    reorderElement(p, ctx, "n", "e3", "e1", true); // avatar before brand
+    expect(byPos(listOf(p)[0].elements!).map((e) => e.id)).toEqual(["e3", "e1", "e2"]);
+    reorderElement(p, ctx, "n", "e3", "e2", false); // avatar after nav item
+    expect(byPos(listOf(p)[0].elements!).map((e) => e.id)).toEqual(["e1", "e2", "e3"]);
+  });
+
+  it("reorderElement in a horizontal nav bar adopts the target's zone", () => {
+    const p = page([navbar()]);
+    // Avatar defaults to the right zone; dropping it beside the brand (left
+    // zone) re-aligns it so the drag reads spatially.
+    reorderElement(p, ctx, "n", "e3", "e1", false);
+    expect(listOf(p)[0].elements!.find((e) => e.id === "e3")!.data?.align).toBe("left");
+    expect(navAlign(listOf(p)[0].elements!.find((e) => e.id === "e3")!)).toBe("left");
+    // A same-zone drop writes nothing.
+    reorderElement(p, ctx, "n", "e2", "e1", true);
+    expect(listOf(p)[0].elements!.find((e) => e.id === "e2")!.data?.align).toBeUndefined();
+  });
+
+  it("reorderElement in a vertical nav bar never writes alignment", () => {
+    const p = page([{ ...navbar(), layout: "vertical" }]);
+    reorderElement(p, ctx, "n", "e3", "e1", true);
+    expect(listOf(p)[0].elements!.find((e) => e.id === "e3")!.data?.align).toBeUndefined();
+  });
+
+  it("navAlign defaults by type and honours an explicit data.align", () => {
+    expect(navAlign(el("x", "brand", "Acme", "a0"))).toBe("left");
+    expect(navAlign(el("x", "nav-item", "Home", "a0"))).toBe("left");
+    expect(navAlign(el("x", "search", "Search…", "a0"))).toBe("right");
+    expect(navAlign(el("x", "avatar", "AL", "a0"))).toBe("right");
+    expect(navAlign(el("x", "button", "Go", "a0", { align: "centre" }))).toBe("centre");
+    expect(navAlign(el("x", "brand", "Acme", "a0", { align: "nonsense" }))).toBe("left");
+  });
+
+  it("setElementSize stores a clamped w/h beside the position", () => {
+    const p = page([{ id: "cv", type: "canvas", label: "Canvas", pos: "a0", shape: "plain", layout: "fixed", elements: [] }]);
+    addElement(p, ctx, "cv", "box");
+    const box = listOf(p)[0].elements![0];
+    setElementSize(p, ctx, "cv", box.id, 220.4, 10);
+    expect(box.data!.w).toBe("220");
+    expect(box.data!.h).toBe("24"); // clamped to the minimum
+    expect(box.data!.x).toBe("16"); // position untouched
+  });
+
   it("removeElement drops the element and its link", () => {
     const p = page([navbar()]);
     setElementLink(p, ctx, "n", elKey("e2"), null, { pageId: "p1" });
@@ -131,12 +179,26 @@ describe("element CRUD", () => {
     expect(byPos(listOf(p)[0].elements!).map((e) => e.id)).toEqual(["e1", "e3", "e2"]);
   });
 
-  it("setElementText renames an element and removes it on an empty commit", () => {
+  it("setElementText renames an element and removes pure-text elements on an empty commit", () => {
     const p = page([navbar()]);
     setElementText(p, ctx, "n", elKey("e2"), null, "Home");
     expect(listOf(p)[0].elements!.find((e) => e.id === "e2")!.label).toBe("Home");
-    setElementText(p, ctx, "n", elKey("e2"), null, "");
+    setElementText(p, ctx, "n", elKey("e2"), null, ""); // nav item: label IS the element
     expect(listOf(p)[0].elements!.some((e) => e.id === "e2")).toBe(false);
+  });
+
+  it("blanking a widget element's label keeps the element", () => {
+    const p = page([
+      {
+        id: "f", type: "form", label: "Form", pos: "a0", shape: "simple", layout: "one-column",
+        elements: [el("e9", "text-input", "Email", "a0", { kind: "email" })],
+      },
+    ]);
+    setElementText(p, ctx, "f", elKey("e9"), null, "");
+    const input = listOf(p)[0].elements!.find((e) => e.id === "e9");
+    expect(input).toBeDefined(); // the input survives; only its label blanks
+    expect(input!.label).toBe("");
+    expect(input!.data!.kind).toBe("email");
   });
 
   it("elementValue and elementLink address element nodes and scalar props", () => {
@@ -203,5 +265,44 @@ describe("list rows", () => {
     addListRow(p, ctx, "l");
     removeElement(p, ctx, "l", "c2");
     expect(listOf(p)[0].props?.rows).toEqual([{ c1: "Ada" }, {}]);
+  });
+});
+
+describe("header element", () => {
+  it("seeds new components with a header titled from the label, sorted first", () => {
+    const p = page([]);
+    appendComponent(p, ctx, { type: "list", label: "Team members" });
+    const cmp = listOf(p)[0];
+    const header = cmp.elements!.find((e) => e.type === "header")!;
+    expect(header.label).toBe("Team members");
+    expect(header.data?.placement).toBe("inline");
+    expect(byPos(cmp.elements!)[0].type).toBe("header");
+  });
+
+  it("an explicit header seed replaces the default one (max 1)", () => {
+    const p = page([]);
+    appendComponent(p, ctx, { type: "form", label: "Filters", elements: [{ type: "header", label: "Refine" }] });
+    const headers = listOf(p)[0].elements!.filter((e) => e.type === "header");
+    expect(headers.map((h) => h.label)).toEqual(["Refine"]);
+  });
+
+  it("removing the header leaves a tombstone so migration cannot resurrect it", () => {
+    const p = page([]);
+    appendComponent(p, ctx, "graph");
+    const cmp = listOf(p)[0];
+    const header = cmp.elements!.find((e) => e.type === "header")!;
+    removeElement(p, ctx, cmp.id, header.id);
+    expect(cmp.elements!.some((e) => e.type === "header")).toBe(false);
+    expect(cmp.props?.title).toBe("");
+  });
+
+  it("re-adding a header from the library titles it from the label again", () => {
+    const p = page([]);
+    appendComponent(p, ctx, { type: "calendar", label: "Roadmap" });
+    const cmp = listOf(p)[0];
+    removeElement(p, ctx, cmp.id, cmp.elements!.find((e) => e.type === "header")!.id);
+    addElement(p, ctx, cmp.id, "header");
+    const header = cmp.elements!.find((e) => e.type === "header")!;
+    expect(header.label).toBe("Roadmap");
   });
 });

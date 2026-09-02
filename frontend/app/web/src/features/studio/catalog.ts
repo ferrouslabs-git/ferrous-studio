@@ -18,14 +18,41 @@ export const DATA_KINDS = [
   "percentage", "status", "person", "tags", "image", "boolean", "url", "actions",
 ] as const;
 
-/** One editable slot of an element's representative data. */
+/** One editable slot of an element's representative data. `logo` is a
+ *  built-in icon picker + image upload (stored as an icon name, a data URL,
+ *  or "none"); `image` is a plain image upload (stored as a data URL); the
+ *  Inspector renders both specially. */
 export interface DataFieldMeta {
   key: string;
   label: string;
-  kind: "text" | "select";
+  kind: "text" | "select" | "logo" | "image";
   options?: readonly string[];
-  /** Hint shown in the Inspector, e.g. "Comma-separated". */
-  hint?: string;
+}
+
+/** The built-in logo marks a brand element can use (drawn in Schematic). */
+export const LOGO_ICONS = ["bolt", "spark", "leaf", "cube", "ring", "wave", "peak", "heart"] as const;
+
+/** Web-safe font choices for the style controls (regions/components/elements
+ *  store the id; renderers resolve it to a stack via fontStack). */
+export const FONTS = [
+  { id: "arial", label: "Arial", stack: "Arial, Helvetica, sans-serif" },
+  { id: "verdana", label: "Verdana", stack: "Verdana, Geneva, sans-serif" },
+  { id: "trebuchet", label: "Trebuchet MS", stack: "'Trebuchet MS', Tahoma, sans-serif" },
+  { id: "georgia", label: "Georgia", stack: "Georgia, 'Times New Roman', serif" },
+  { id: "times", label: "Times New Roman", stack: "'Times New Roman', Times, serif" },
+  { id: "courier", label: "Courier New", stack: "'Courier New', Courier, monospace" },
+] as const;
+export const fontStack = (id: string | undefined): string | undefined => FONTS.find((f) => f.id === id)?.stack;
+
+/** Where an element sits in a horizontal nav bar (stored as `data.align`).
+ *  Unset falls back by type: content leads, chrome trails. */
+export const NAV_ALIGN_OPTIONS = ["left", "centre", "right"] as const;
+export type NavAlign = (typeof NAV_ALIGN_OPTIONS)[number];
+const NAV_TRAILING_TYPES = new Set(["search", "button", "avatar"]);
+export function navAlign(el: { type: string; data?: Record<string, string> }): NavAlign {
+  const a = el.data?.align;
+  if (a === "left" || a === "centre" || a === "right") return a;
+  return NAV_TRAILING_TYPES.has(el.type) ? "right" : "left";
 }
 
 export interface ElementTypeMeta {
@@ -38,6 +65,11 @@ export interface ElementTypeMeta {
   defaultData?: Record<string, string>;
   /** At most this many per component (a nav has one brand, one avatar). */
   max?: number;
+  /** Committing an empty label removes the element. Only for pure-text
+   *  elements (a nav item, a button — the label IS the element); widgets
+   *  with their own body (inputs, columns…) keep the element and just show
+   *  a blank label. Delete / "Remove element" removes either kind. */
+  blankRemoves?: boolean;
 }
 
 // ── Element vocabularies ────────────────────────────────────────────────────
@@ -45,14 +77,18 @@ export interface ElementTypeMeta {
 
 const el = (meta: ElementTypeMeta): ElementTypeMeta => meta;
 
-const BRAND = el({ type: "brand", label: "Brand / logo", desc: "Product name or logo mark", icon: "BR", dataFields: [], defaultLabel: "Acme", max: 1 });
-const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item" });
-const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section" });
+const BRAND = el({
+  type: "brand", label: "Brand / logo", desc: "Product name or logo mark", icon: "BR",
+  dataFields: [{ key: "logo", label: "Logo", kind: "logo" }],
+  defaultLabel: "Acme", max: 1,
+});
+const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item", blankRemoves: true });
+const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
 const SEARCH = el({ type: "search", label: "Search box", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1 });
 const BUTTON = el({
   type: "button", label: "Button", desc: "Action button", icon: "BT",
   dataFields: [{ key: "style", label: "Style", kind: "select", options: ["primary", "secondary", "danger"] }],
-  defaultLabel: "Action", defaultData: { style: "primary" },
+  defaultLabel: "Action", defaultData: { style: "primary" }, blankRemoves: true,
 });
 const AVATAR = el({
   type: "avatar", label: "Avatar / user", desc: "Signed-in user; the text is the initials", icon: "AV",
@@ -62,18 +98,27 @@ const AVATAR = el({
 const WORKSPACE = el({ type: "workspace-switcher", label: "Workspace switcher", desc: "Workspace selector", icon: "WS", dataFields: [], defaultLabel: "Acme Workspace", max: 1 });
 const DIVIDER = el({ type: "divider", label: "Divider", desc: "Separator line or spacer", icon: "—", dataFields: [], defaultLabel: "" });
 
+/** The component's title, as a real element so it styles and places like any
+ *  other. `placement` chooses between the chrome row (beside filters, search,
+ *  legends) and its own line above the component. */
+const HEADER = el({
+  type: "header", label: "Header", desc: "The component's title; inline with its controls, or on its own line above", icon: "HD",
+  dataFields: [{ key: "placement", label: "Placement", kind: "select", options: ["inline", "above"] }],
+  defaultLabel: "Header", defaultData: { placement: "inline" }, max: 1, blankRemoves: true,
+});
+
 const COLUMN = el({
   type: "column", label: "Column", desc: "One column / field of each record", icon: "CO",
   dataFields: [
     { key: "kind", label: "Data kind", kind: "select", options: DATA_KINDS },
-    { key: "samples", label: "Sample values", kind: "text", hint: "Comma-separated" },
+    { key: "samples", label: "Sample values", kind: "text" },
   ],
   defaultLabel: "Column", defaultData: { kind: "text" },
 });
 const COLUMN_HEADER = el({ type: "column-header", label: "Column header", desc: "The header row; remove it for a headerless table", icon: "CH", dataFields: [], defaultLabel: "", max: 1 });
-const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit" });
+const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit", blankRemoves: true });
 const SELECT_COLUMN = el({ type: "select-column", label: "Select column", desc: "Bulk-select checkboxes", icon: "☑", dataFields: [], defaultLabel: "", max: 1 });
-const FILTER = el({ type: "filter", label: "Filter chip", desc: "The field this list filters by", icon: "FL", dataFields: [], defaultLabel: "Filter" });
+const FILTER = el({ type: "filter", label: "Filter chip", desc: "The field this list filters by", icon: "FL", dataFields: [], defaultLabel: "Filter", blankRemoves: true });
 const PAGINATION = el({
   type: "pagination", label: "Pagination", desc: "Page controls", icon: "PG",
   dataFields: [{ key: "pageSize", label: "Page size", kind: "text" }],
@@ -94,30 +139,30 @@ const TEXT_AREA = el({
 });
 const SELECT = el({
   type: "select", label: "Select", desc: "Dropdown choice", icon: "SL",
-  dataFields: [{ key: "options", label: "Options", kind: "text", hint: "Comma-separated" }],
+  dataFields: [{ key: "options", label: "Options", kind: "text" }],
   defaultLabel: "Choice", defaultData: { options: "Option A, Option B" },
 });
 const RADIO_GROUP = el({
   type: "radio-group", label: "Radio group", desc: "One-of-many choice", icon: "RG",
-  dataFields: [{ key: "options", label: "Options", kind: "text", hint: "Comma-separated" }],
+  dataFields: [{ key: "options", label: "Options", kind: "text" }],
   defaultLabel: "Choice", defaultData: { options: "Yes, No" },
 });
 const CHECKBOX = el({ type: "checkbox", label: "Checkbox", desc: "On/off tick", icon: "CB", dataFields: [], defaultLabel: "Option" });
 const TOGGLE = el({ type: "toggle", label: "Toggle", desc: "On/off switch", icon: "TG", dataFields: [], defaultLabel: "Enabled" });
 const DATE_PICKER = el({ type: "date-picker", label: "Date picker", desc: "Date input", icon: "DP", dataFields: [], defaultLabel: "Date" });
 const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment" });
-const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section" });
-const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step" });
-const HELP_TEXT = el({ type: "help-text", label: "Help text", desc: "Guidance under a field", icon: "HT", dataFields: [], defaultLabel: "Explain what to enter here." });
+const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
+const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", blankRemoves: true });
+const HELP_TEXT = el({ type: "help-text", label: "Help text", desc: "Guidance under a field", icon: "HT", dataFields: [], defaultLabel: "Explain what to enter here.", blankRemoves: true });
 
 const SERIES = el({
   type: "series", label: "Series", desc: "A data series; values drive the plot", icon: "SE",
-  dataFields: [{ key: "values", label: "Sample values", kind: "text", hint: "Comma-separated numbers" }],
+  dataFields: [{ key: "values", label: "Sample values", kind: "text" }],
   defaultLabel: "Series", defaultData: { values: "42, 58, 35, 71" },
 });
 const CATEGORY_AXIS = el({
   type: "category-axis", label: "Category axis", desc: "What the x-axis counts along", icon: "CX",
-  dataFields: [{ key: "categories", label: "Categories", kind: "text", hint: "Comma-separated" }],
+  dataFields: [{ key: "categories", label: "Categories", kind: "text" }],
   defaultLabel: "", defaultData: { categories: "Jan, Feb, Mar, Apr" }, max: 1,
 });
 const VALUE_AXIS = el({
@@ -132,32 +177,36 @@ const STAT = el({
   defaultLabel: "Metric", defaultData: { value: "12,408", delta: "+4.2%" },
 });
 
-const HEADING = el({ type: "heading", label: "Heading", desc: "Large title text", icon: "H", dataFields: [], defaultLabel: "Heading" });
-const TEXT = el({ type: "text", label: "Text", desc: "Body copy", icon: "T", dataFields: [], defaultLabel: "Body text." });
-const LABEL = el({ type: "label", label: "Label", desc: "Small caption text", icon: "L", dataFields: [], defaultLabel: "Label" });
-const BADGE = el({ type: "badge", label: "Badge", desc: "Status pill", icon: "B", dataFields: [], defaultLabel: "Badge" });
-const LINK = el({ type: "link", label: "Link", desc: "Text link; link it to a page", icon: "LK", dataFields: [], defaultLabel: "Link" });
-const IMAGE = el({ type: "image", label: "Image", desc: "Picture placeholder; the text describes what appears", icon: "IM", dataFields: [], defaultLabel: "Describe the image" });
+const HEADING = el({ type: "heading", label: "Heading", desc: "Large title text", icon: "H", dataFields: [], defaultLabel: "Heading", blankRemoves: true });
+const TEXT = el({ type: "text", label: "Text", desc: "Body copy", icon: "T", dataFields: [], defaultLabel: "Body text.", blankRemoves: true });
+const LABEL = el({ type: "label", label: "Label", desc: "Small caption text", icon: "L", dataFields: [], defaultLabel: "Label", blankRemoves: true });
+const BADGE = el({ type: "badge", label: "Badge", desc: "Status pill", icon: "B", dataFields: [], defaultLabel: "Badge", blankRemoves: true });
+const LINK = el({ type: "link", label: "Link", desc: "Text link; link it to a page", icon: "LK", dataFields: [], defaultLabel: "Link", blankRemoves: true });
+const IMAGE = el({
+  type: "image", label: "Image", desc: "Picture: upload one, or a placeholder describing what appears", icon: "IM",
+  dataFields: [{ key: "src", label: "Image", kind: "image" }],
+  defaultLabel: "Describe the image",
+});
 const BOX = el({ type: "box", label: "Box", desc: "Container rectangle standing in for anything", icon: "BX", dataFields: [], defaultLabel: "Area" });
 
 const EVENT = el({
   type: "event", label: "Event", desc: "A calendar entry", icon: "EV",
   dataFields: [
-    { key: "when", label: "When", kind: "text", hint: "e.g. Tue 10:00" },
+    { key: "when", label: "When", kind: "text" },
     { key: "kind", label: "Kind", kind: "select", options: ["meeting", "task", "reminder", "all-day"] },
   ],
   defaultLabel: "Event", defaultData: { when: "Tue 10:00", kind: "meeting" },
 });
 const VIEW_SWITCHER = el({
   type: "view-switcher", label: "View switcher", desc: "Month / week / day toggle", icon: "VW",
-  dataFields: [{ key: "views", label: "Views", kind: "text", hint: "Comma-separated" }],
+  dataFields: [{ key: "views", label: "Views", kind: "text" }],
   defaultLabel: "", defaultData: { views: "Month, Week, Day" }, max: 1,
 });
 const CAL_NAV = el({ type: "calendar-nav", label: "Navigation", desc: "Previous / today / next", icon: "◂▸", dataFields: [], defaultLabel: "", max: 1 });
 const RESOURCE_ROW = el({ type: "resource-row", label: "Resource row", desc: "One lane of the schedule", icon: "RR", dataFields: [], defaultLabel: "Resource" });
 const CAL_LEGEND = el({
   type: "calendar-legend", label: "Legend", desc: "Names the event kinds", icon: "LG",
-  dataFields: [{ key: "kinds", label: "Kinds", kind: "text", hint: "Comma-separated" }],
+  dataFields: [{ key: "kinds", label: "Kinds", kind: "text" }],
   defaultLabel: "", defaultData: { kinds: "Meeting, Task, Reminder" }, max: 1,
 });
 
@@ -231,15 +280,16 @@ export interface ComponentMeta {
 
 export const COMPONENTS: Record<string, ComponentMeta> = {
   navbar: {
-    type: "navbar", label: "Nav bar", desc: "Navigation: links, tabs, crumbs or a side rail", icon: "NAV",
+    type: "navbar", label: "Nav bar", desc: "Navigation items as a top bar or side rail", icon: "NAV",
+    // Shapes are orientation-neutral: each applies in both layouts.
     shapes: [
-      { id: "links", label: "Links", desc: "Plain navigation links" },
+      { id: "plain", label: "Plain", desc: "Just the item labels" },
       { id: "tabs", label: "Tabs", desc: "Tab bar for sub-sections" },
       { id: "icons", label: "Icons", desc: "Icon + label items" },
       { id: "breadcrumb", label: "Breadcrumb", desc: "Location trail" },
       { id: "grouped", label: "Grouped", desc: "Items under section headings" },
     ],
-    defaultShape: "links",
+    defaultShape: "plain",
     layouts: [{ id: "horizontal", label: "Horizontal" }, { id: "vertical", label: "Vertical" }],
     defaultLayout: "horizontal",
     elements: [BRAND, NAV_ITEM, GROUP_HEADING, SEARCH, BUTTON, AVATAR, WORKSPACE, DIVIDER],
@@ -266,8 +316,9 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
       { id: "horizontal", label: "Horizontal" },
     ],
     defaultLayout: "vertical",
-    elements: LIST_ELEMENTS,
+    elements: [HEADER, ...LIST_ELEMENTS],
     defaultElements: [
+      { type: "header" },
       { type: "column-header" },
       { type: "column", label: "Name", data: { kind: "text", samples: "Ada Lovelace, Linus Torvalds, Grace Hopper" } },
       { type: "column", label: "Email", data: { kind: "email" } },
@@ -291,8 +342,9 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
       { id: "horizontal", label: "Labels beside" },
     ],
     defaultLayout: "one-column",
-    elements: FORM_ELEMENTS,
+    elements: [HEADER, ...FORM_ELEMENTS],
     defaultElements: [
+      { type: "header" },
       { type: "text-input", label: "Name" },
       { type: "text-input", label: "Email", data: { kind: "email" } },
       { type: "select", label: "Role", data: { options: "Administrator, Member, Viewer" } },
@@ -315,8 +367,9 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
     defaultShape: "bar",
     layouts: [{ id: "vertical", label: "Vertical" }, { id: "horizontal", label: "Horizontal" }],
     defaultLayout: "vertical",
-    elements: [SERIES, CATEGORY_AXIS, VALUE_AXIS, LEGEND, RANGE_SELECTOR, STAT],
+    elements: [HEADER, SERIES, CATEGORY_AXIS, VALUE_AXIS, LEGEND, RANGE_SELECTOR, STAT],
     defaultElements: [
+      { type: "header" },
       { type: "series", label: "This year" },
       { type: "category-axis" },
       { type: "range-selector" },
@@ -328,9 +381,14 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
       { id: "plain", label: "Plain" },
       { id: "card", label: "Card", desc: "Framed" },
       { id: "grid", label: "Grid", desc: "Dotted design surface" },
+      { id: "transparent", label: "Transparent", desc: "No frame or background — only the elements show" },
     ],
     defaultShape: "plain",
-    layouts: [{ id: "fixed", label: "Fixed height" }, { id: "fill", label: "Fill region" }],
+    layouts: [
+      { id: "fixed", label: "Fixed height" },
+      { id: "fill", label: "Fill region" },
+      { id: "float", label: "Float over region" },
+    ],
     defaultLayout: "fixed",
     elements: dedupe([
       [HEADING, TEXT, LABEL, BADGE, BUTTON, TEXT_INPUT, LINK, IMAGE, BOX, DIVIDER],
@@ -355,8 +413,9 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
     defaultShape: "month",
     layouts: [{ id: "full", label: "Full" }, { id: "compact", label: "Compact" }],
     defaultLayout: "full",
-    elements: [EVENT, VIEW_SWITCHER, CAL_NAV, RESOURCE_ROW, CAL_LEGEND],
+    elements: [HEADER, EVENT, VIEW_SWITCHER, CAL_NAV, RESOURCE_ROW, CAL_LEGEND],
     defaultElements: [
+      { type: "header" },
       { type: "calendar-nav" },
       { type: "view-switcher" },
       { type: "event", label: "Design review", data: { when: "Tue 10:00", kind: "meeting" } },
@@ -526,7 +585,7 @@ export interface Pattern {
 }
 
 const topNav = (extra?: ElementSeed[]): ComponentSeed => ({ type: "navbar", elements: extra });
-const sideNav = (seed: Partial<ComponentSeed> = {}): ComponentSeed => ({ type: "navbar", layout: "vertical", label: "Side Nav", ...seed });
+const sideNav = (seed: Partial<ComponentSeed> = {}): ComponentSeed => ({ type: "navbar", layout: "vertical", shape: "icons", label: "Side Nav", ...seed });
 const filterPanel: ComponentSeed = {
   type: "form", label: "Filters",
   elements: [

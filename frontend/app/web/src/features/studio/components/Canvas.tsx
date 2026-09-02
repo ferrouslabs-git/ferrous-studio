@@ -13,14 +13,13 @@ import { STRUCTURAL_TYPES } from "../model/regions";
 import { SplitSide } from "../model/tree";
 import { ComponentNode, LayoutNode, LinkTarget, PageDocument, Size, SplitNode } from "../model/types";
 import { draggedElementType, dropBefore, DropHint, hasPayload, readPayload, setPayload } from "./dnd";
-import { EDIT_TOKEN_SELECTOR, Schematic, SchematicChrome, SchematicEdit } from "./Schematic";
+import { EDIT_TOKEN_SELECTOR, Schematic, SchematicChrome, SchematicEdit, styleData } from "./Schematic";
 import { ElementSel, Selection } from "./selection";
 
 /** One ancestor shell around the page being edited: its document plus the
  *  region the next level renders into. Outermost first. */
 export interface HostLevel {
   pageId: string;
-  pageName: string;
   doc: PageDocument;
   regionId: string;
 }
@@ -30,7 +29,6 @@ export interface CanvasCallbacks {
   editFor(id: string): SchematicEdit;
   onEditEnd(): void;
   onFollow(target: LinkTarget): void;
-  onOpenPage(pageId: string): void;
   onMove(id: string, delta: -1 | 1): void;
   onRemove(id: string): void;
   onEditStructure(id: string): void;
@@ -51,12 +49,19 @@ interface Props extends CanvasCallbacks {
   editingElement: ElementSel | null;
   defs: readonly CustomDef[];
   canWrite: boolean;
+  /** The open page and its ancestor shells, for nav active states. */
+  activePageIds: readonly string[];
 }
 
 /** Components that fill a region edge-to-edge; everything else gets padding.
  *  A vertical nav bar always fills; so do nav bars and footers generally. */
 const fillsRegion = (cmp: ComponentNode): boolean =>
-  STRUCTURAL_TYPES.has(cmp.type) || (cmp.type === "navbar" && cmp.layout === "vertical");
+  STRUCTURAL_TYPES.has(cmp.type) ||
+  (cmp.type === "navbar" && cmp.layout === "vertical") ||
+  cmp.type === "canvas"; // a canvas is always edge-to-edge (float included)
+
+/** A floating canvas overlays its whole region instead of stacking in it. */
+const isFloating = (cmp: ComponentNode): boolean => cmp.type === "canvas" && cmp.layout === "float";
 
 const ICON = {
   pencil: "M11.5 2.5l2 2L5 13H3v-2l8.5-8.5Z",
@@ -163,9 +168,14 @@ export function Canvas(props: Props) {
 
   const renderComponent = (level: { doc: PageDocument; editable: boolean }, cmp: ComponentNode, regionId: string) => {
     const editable = level.editable && canWrite;
+    const sel = level.editable && selection?.kind === "element" && selection.cmpId === cmp.id ? selection : null;
     const cls = ["cmp"];
     if (!fillsRegion(cmp)) cls.push("pad");
+    if (isFloating(cmp)) cls.push("float");
     if (level.editable && selection?.kind === "cmp" && selection.id === cmp.id) cls.push("selected");
+    // Editing controls are select-gated, so "an element in me is selected"
+    // must keep them visible too.
+    if (sel) cls.push("has-sel");
     if (level.editable && overElCmp === cmp.id) cls.push("el-target");
     const structural = cmp.type === "editable-component" || cmp.type === "custom";
     const showHint = level.editable && hint?.cmpId === cmp.id;
@@ -173,11 +183,11 @@ export function Canvas(props: Props) {
       e.stopPropagation();
       fn();
     };
-    const sel = level.editable && selection?.kind === "element" && selection.cmpId === cmp.id ? selection : null;
     const chrome: SchematicChrome = {
       selected: sel,
       editing: level.editable && editingElement?.cmpId === cmp.id ? editingElement : null,
       linkOf: (key, index) => elementLink(cmp, key, index),
+      activePageIds: props.activePageIds,
       onSelectElement: editable ? (key, index) => props.onSelect({ kind: "element", cmpId: cmp.id, key, index }) : undefined,
       onFollow: props.onFollow,
       onEditEnd: props.onEditEnd,
@@ -188,6 +198,7 @@ export function Canvas(props: Props) {
         <div
           className={cls.join(" ")}
           data-cmp-id={cmp.id}
+          style={styleData(cmp.props)}
           draggable={editable}
           onClick={
             level.editable
@@ -324,7 +335,7 @@ export function Canvas(props: Props) {
         data-node-id={region.id}
         data-region-id={region.id}
         className={`rg${selected ? " selected" : ""}${level.editable && overRegion === region.id ? " over" : ""}${isOutlet ? " rg-outlet" : ""}`}
-        style={sizeStyle(region, parentDir)}
+        style={{ ...sizeStyle(region, parentDir), ...styleData(region.bg ? { bg: region.bg } : undefined) }}
         onClick={
           editable
             ? (e) => {
@@ -438,9 +449,6 @@ export function Canvas(props: Props) {
       return (
         <div key={h.pageId} className="host-level">
           {renderNode(level, h.doc.root, null)}
-          <button type="button" className="host-cap" title={`Open ${h.pageName}`} onClick={() => props.onOpenPage(h.pageId)}>
-            ◳ {h.pageName}
-          </button>
         </div>
       );
     }

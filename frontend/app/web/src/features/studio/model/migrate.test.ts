@@ -12,7 +12,7 @@ const linkOf = (c: ComponentNode, elementId: string): LinkTarget | undefined =>
   (c.props?.links as Record<string, LinkTarget> | undefined)?.[`el:${elementId}`];
 
 describe("migrateComponent: nav family", () => {
-  it("nav-cta becomes navbar links/horizontal with brand, items, button and avatar", () => {
+  it("nav-cta becomes navbar plain/horizontal with brand, items, button and avatar", () => {
     const c = cmp("nav-cta", {
       brand: "Acme",
       items: ["Overview", "Users"],
@@ -22,7 +22,7 @@ describe("migrateComponent: nav family", () => {
     });
     migrateComponent(c);
     expect(c.type).toBe("navbar");
-    expect(c.shape).toBe("links");
+    expect(c.shape).toBe("plain");
     expect(c.layout).toBe("horizontal");
     expect(types(c)).toEqual(["brand", "nav-item", "nav-item", "button", "avatar"]);
     const users = c.elements!.find((e) => e.label === "Users")!;
@@ -57,6 +57,17 @@ describe("migrateComponent: nav family", () => {
     migrateComponent(b);
     expect([b.type, b.shape]).toEqual(["navbar", "breadcrumb"]);
   });
+
+  it("renames the retired links shape on already-migrated navbars", () => {
+    const horizontal: ComponentNode = { ...cmp("navbar"), shape: "links", layout: "horizontal", elements: [] };
+    migrateComponent(horizontal);
+    expect(horizontal.shape).toBe("plain");
+    // Vertical rails drew icons under the old shape; keep the look.
+    const vertical: ComponentNode = { ...cmp("navbar"), shape: "links", layout: "vertical", elements: [] };
+    migrateComponent(vertical);
+    expect(vertical.shape).toBe("icons");
+    expect(vertical.elements).toEqual([]); // rename only — no re-migration
+  });
 });
 
 describe("migrateComponent: list family", () => {
@@ -71,7 +82,9 @@ describe("migrateComponent: list family", () => {
     });
     migrateComponent(c);
     expect(c.shape).toBe("table");
-    expect(types(c)).toEqual(["column-header", "column", "column", "column", "column", "search"]);
+    // The trailing header comes from the header migration (label fallback);
+    // it sorts first by pos despite its array position.
+    expect(types(c)).toEqual(["column-header", "column", "column", "column", "column", "search", "header"]);
     const cols = c.elements!.filter((e) => e.type === "column");
     expect(cols.map((e) => e.data!.kind)).toEqual(["text", "email", "status", "date"]);
     const rows = c.props!.rows as Record<string, string>[];
@@ -97,7 +110,7 @@ describe("migrateComponent: list family", () => {
     migrateComponent(c);
     expect(c.type).toBe("list");
     expect(c.shape).toBe("rows");
-    expect(types(c)).toEqual(["search", "filter", "filter"]);
+    expect(types(c)).toEqual(["search", "filter", "filter", "header"]);
   });
 });
 
@@ -122,7 +135,7 @@ describe("migrateComponent: graph and form families", () => {
   it("form fields keep their kind heuristics; stepper and actions fold in", () => {
     const f = cmp("form", { items: ["Name", "Email", "Role"], cancelText: "Cancel", submitText: "Save" });
     migrateComponent(f);
-    expect(types(f)).toEqual(["text-input", "text-input", "select", "button", "button"]);
+    expect(types(f)).toEqual(["text-input", "text-input", "select", "button", "button", "header"]);
     expect(f.elements![1].data!.kind).toBe("email");
     const st = cmp("stepper", { items: ["Account", "Review"] });
     migrateComponent(st);
@@ -185,6 +198,58 @@ describe("idempotence and safety", () => {
     migrateComponent(c);
     expect(c.shape).toBe("month");
     expect(c.layout).toBe("full");
+  });
+});
+
+describe("migrateComponent: header prop → element", () => {
+  const modern = (type: string, shape: string, props?: Record<string, unknown>): ComponentNode => ({
+    id: "c1", type, label: "X", pos: "a0", shape, elements: [], ...(props ? { props } : {}),
+  });
+
+  it("materialises a header element from props.title and carries its link", () => {
+    const c = modern("list", "table", { title: "Team", links: { title: { pageId: "p1" } } });
+    migrateComponent(c);
+    const header = c.elements!.find((e) => e.type === "header")!;
+    expect(header.label).toBe("Team");
+    expect(header.data?.placement).toBe("inline");
+    expect(linkOf(c, header.id)).toEqual({ pageId: "p1" });
+    expect(c.props?.title).toBeUndefined();
+    expect((c.props?.links as Record<string, unknown>).title).toBeUndefined();
+  });
+
+  it("falls back to the component label when no title was set", () => {
+    const c = modern("graph", "bar");
+    migrateComponent(c);
+    expect(c.elements!.find((e) => e.type === "header")!.label).toBe("X");
+  });
+
+  it("sorts the materialised header before existing elements", () => {
+    const c = modern("list", "table");
+    c.elements = [{ id: "e1", type: "column", label: "Name", pos: "a0" }];
+    migrateComponent(c);
+    const header = c.elements.find((e) => e.type === "header")!;
+    expect(header.pos < "a0").toBe(true);
+  });
+
+  it("honours the removal tombstone and never duplicates an existing header", () => {
+    const removed = modern("form", "simple", { title: "" });
+    migrateComponent(removed);
+    expect(removed.elements!.some((e) => e.type === "header")).toBe(false);
+    expect(removed.props?.title).toBe(""); // the tombstone survives the read
+
+    const existing = modern("calendar", "month", { title: "Stale" });
+    existing.elements = [{ id: "e1", type: "header", label: "Kept", pos: "a0" }];
+    migrateComponent(existing);
+    expect(existing.elements.filter((e) => e.type === "header")).toHaveLength(1);
+    expect(existing.elements[0].label).toBe("Kept");
+    expect(existing.props?.title).toBeUndefined();
+  });
+
+  it("leaves non-host types alone", () => {
+    const c = modern("navbar", "plain", { title: "Stray" });
+    migrateComponent(c);
+    expect(c.elements).toEqual([]);
+    expect(c.props?.title).toBe("Stray");
   });
 });
 

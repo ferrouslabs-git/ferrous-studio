@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import pytest
 
-from app.studio.ops import OpConflict, OpError, PageState, apply_batch, export_page
+from app.studio.ops import OpConflict, OpError, PageState, apply_batch, export_page, import_page
 
 
 def make_state(version: int = 3, entity_versions: dict | None = None) -> PageState:
@@ -270,3 +270,41 @@ def test_export_includes_placement_when_present():
     state.placement = {"page_id": "p0", "region_id": "rX"}
     out = export_page("p1", state)
     assert out["placement"] == {"page_id": "p0", "region_id": "rX"}
+
+
+# ── import (snapshot restore) ───────────────────────────────────────────────
+
+
+def test_import_page_round_trips_export():
+    state = make_state()
+    state.placement = {"page_id": "p0", "region_id": "rX"}
+    state.document["regions"]["rh"][0]["elements"] = [
+        {"id": "e2", "type": "nav-item", "label": "Users", "pos": "a1"},
+        {"id": "e1", "type": "brand", "label": "Acme", "pos": "a0", "data": {"href": "/"}},
+    ]
+    imported = import_page(export_page("p1", state))
+
+    assert imported["name"] == "Users"
+    assert imported["route"] == "/users"
+    assert imported["placement"] == {"page_id": "p0", "region_id": "rX"}
+    doc = imported["document"]
+    # The layout tree survives unchanged; component lists come back keyed by
+    # region with fresh strictly-increasing pos in the export's order.
+    assert doc["root"] == state.document["root"]
+    assert set(doc["regions"]) == {"rh", "rs", "rm"}
+    assert doc["regions"]["rs"] == []
+    assert [c["id"] for c in doc["regions"]["rm"]] == ["c2", "c3"]
+    assert doc["regions"]["rm"][0]["pos"] < doc["regions"]["rm"][1]["pos"]
+    assert doc["regions"]["rm"][0]["props"] == {"columns": ["Name"]}
+    elements = doc["regions"]["rh"][0]["elements"]
+    assert [e["id"] for e in elements] == ["e1", "e2"]  # export sorted them by old pos
+    assert elements[0]["pos"] < elements[1]["pos"]
+    assert elements[0]["data"] == {"href": "/"}
+
+
+def test_import_page_resets_malformed_layout_to_blank():
+    imported = import_page({"id": "p1", "name": "Broken", "layout": "nonsense"})
+    root = imported["document"]["root"]
+    assert root["kind"] == "region"
+    assert imported["document"]["regions"] == {root["id"]: []}
+    assert imported["placement"] is None

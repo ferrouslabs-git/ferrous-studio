@@ -29,7 +29,8 @@ from .models import (
     WireframePersona,
     utc_now,
 )
-from .ops import OpConflict, OpError, PageState, apply_batch, export_page
+from .ops import OpConflict, OpError, PageState, apply_batch, export_page, import_page
+from .positions import key_after
 from .schemas import (
     OpBatchRequest,
     OpBatchResponse,
@@ -648,15 +649,8 @@ async def create_version(
     return result.scalar_one()
 
 
-@router.get(
-    "/projects/{project_id}/wireframes/{wireframe_id}/versions/{version_id}", response_model=VersionDetail
-)
-async def get_version(
-    project_id: UUID,
-    wireframe_id: UUID,
-    version_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("data:read")),
-    db: AsyncSession = Depends(get_db),
+async def _version(
+    db: AsyncSession, ctx: ScopeContext, project_id: UUID, wireframe_id: UUID, version_id: UUID
 ) -> ProjectVersion:
     result = await db.execute(
         select(ProjectVersion).where(
@@ -668,5 +662,80 @@ async def get_version(
     )
     version = result.scalar_one_or_none()
     if version is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
     return version
+
+
+@router.get(
+    "/projects/{project_id}/wireframes/{wireframe_id}/versions/{version_id}", response_model=VersionDetail
+)
+async def get_version(
+    project_id: UUID,
+    wireframe_id: UUID,
+    version_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:read")),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectVersion:
+    return await _version(db, ctx, project_id, wireframe_id, version_id)
+
+
+@router.post(
+    "/projects/{project_id}/wireframes/{wireframe_id}/versions/{version_id}/restore",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def restore_version(
+    project_id: UUID,
+    wireframe_id: UUID,
+    version_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:write")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Replace the wireframe's pages with the ones in a saved snapshot.
+
+    Pages keep their snapshot ids so element links and child-page placements
+    inside the restored documents still resolve. Project-level state the
+    snapshot also captured (custom components, personas, user types) is left
+    untouched -- it is shared with the rest of the project.
+    """
+    project = await get_project(db, project_id, ctx)
+    wireframe = await get_wireframe(db, project, wireframe_id)
+    version = await _version(db, ctx, project_id, wireframe_id, version_id)
+    pages_data = version.snapshot.get("pages") if isinstance(version.snapshot, dict) else None
+    if not isinstance(pages_data, list) or not pages_data:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Snapshot has no pages")
+
+    # The current state becomes an automatic snapshot, so a restore is undoable.
+    await _snapshot(db, project, wireframe, "before_restore", ctx.user_id)
+
+    for page in await wireframe_pages(db, wireframe):
+        await db.delete(page)
+    await db.flush()  # deletes must land before pages with the same ids are re-inserted
+
+    pos: str | None = None
+    for data in pages_data:
+        if not isinstance(data, dict):
+            continue
+        imported = import_page(data)
+        try:
+            page_id = UUID(str(data.get("id")))
+        except ValueError:
+            page_id = uuid4()
+        pos = key_after(pos)
+        db.add(
+            ProjectPage(
+                id=page_id,
+                project_id=project.id,
+                wireframe_id=wireframe.id,
+                account_id=project.account_id,
+                name=imported["name"],
+                route=imported["route"],
+                pos=pos,
+                placement=imported["placement"],
+                document=imported["document"],
+                entity_versions={},
+                version=0,
+            )
+        )
+    wireframe.updated_at = utc_now()
+    project.updated_at = utc_now()
+    await db.commit()

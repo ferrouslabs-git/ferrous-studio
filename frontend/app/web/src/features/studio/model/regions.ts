@@ -54,12 +54,24 @@ export function makeElement(componentType: string, seed: ElementSeed): ElementNo
   return node;
 }
 
-/** The elements a fresh component of `type` starts with, in pos order. */
+/** The elements a fresh component of `type` starts with, in pos order.
+ *  Explicit seeds win over defaults for max-capped types (one header, one
+ *  search…): a default seed that would breach the cap is dropped. */
 export function defaultElementsFor(type: string, extra: ElementSeed[] = []): ElementNode[] {
   const meta = COMPONENTS[type];
   if (!meta) return [];
+  const counts = new Map<string, number>();
+  for (const seed of extra) counts.set(seed.type, (counts.get(seed.type) ?? 0) + 1);
+  const defaults = meta.defaultElements.filter((seed) => {
+    const max = elementMeta(type, seed.type)?.max;
+    if (max == null) return true;
+    const reserved = counts.get(seed.type) ?? 0;
+    if (reserved >= max) return false;
+    counts.set(seed.type, reserved + 1);
+    return true;
+  });
   const out: ElementNode[] = [];
-  for (const seed of [...meta.defaultElements, ...extra]) {
+  for (const seed of [...defaults, ...extra]) {
     const node = makeElement(type, seed);
     if (node) out.push(node);
   }

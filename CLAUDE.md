@@ -16,6 +16,15 @@ Key conventions:
 
 > **Note:** CSS property names, SVG attributes, and web-standard values (`color`, `text-align: center`, `currentColor`) are part of the W3C spec and must remain in their standardised American-English form. URL routes and code identifiers (variable/function names) are also excluded — only user-visible strings and comments follow this rule.
 
+## UI
+
+Never add inline help/hint text to inspector panels or form fields (e.g.
+grey explainer lines like "Shown at the top of the component; until set it
+follows the label."). Controls should be self-explanatory through their
+labels; if a control needs a paragraph to explain it, redesign the control
+instead. State readouts and warnings (e.g. "The target page no longer
+exists.") are fine — explanatory prose is not.
+
 ## Infra
 
 Read `infra/docs/onboarding-runbook.md` before touching AWS resources by

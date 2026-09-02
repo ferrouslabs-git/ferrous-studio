@@ -1,6 +1,6 @@
 // A project's wireframes: name, user types and personas it is designed for,
 // interface type. Opening one takes you into the studio.
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
@@ -12,9 +12,13 @@ import { listActors } from "../usecases/useCasesApi";
 import {
   createWireframe,
   deleteWireframe,
+  getWireframeExport,
   INTERFACE_TYPES,
   InterfaceType,
   listWireframes,
+  listWireframeVersions,
+  ProjectVersion,
+  restoreWireframeVersion,
   setWireframeActors,
   setWireframePersonas,
   updateWireframe,
@@ -36,6 +40,17 @@ export function WireframesPage() {
   const [actorIds, setActorIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // Copy JSON: which row just copied (for the "Copied" flash) and any failure.
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  // Snapshots drawer: which wireframe's history is open, its snapshots, and
+  // the snapshot awaiting restore confirmation.
+  const [snapsFor, setSnapsFor] = useState<Wireframe | null>(null);
+  const [snaps, setSnaps] = useState<ProjectVersion[] | null>(null);
+  const [snapsError, setSnapsError] = useState<string | null>(null);
+  // Captured with its display title so the confirm text survives the
+  // snapshot list being cleared while the drawers close.
+  const [restoring, setRestoring] = useState<{ version: ProjectVersion; title: string } | null>(null);
 
   const [wireframes, personas, actors] = data.data ?? [[], [], []];
   const personaNames = new Map(personas.map((p) => [p.id, p.name]));
@@ -78,9 +93,53 @@ export function WireframesPage() {
     }
   };
 
+  const copyJson = async (w: Wireframe) => {
+    setCopyError(null);
+    try {
+      const doc = await getWireframeExport(project.id, w.id);
+      await navigator.clipboard.writeText(JSON.stringify(doc, null, 2));
+      setCopiedId(w.id);
+      window.setTimeout(() => setCopiedId((cur) => (cur === w.id ? null : cur)), 2200);
+    } catch (err) {
+      setCopyError(errorMessage(err));
+    }
+  };
+
   const toggle = (id: string) => (ids: string[]) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
   const togglePersona = (id: string) => setPersonaIds(toggle(id));
   const toggleActor = (id: string) => setActorIds(toggle(id));
+
+  const openSnapshots = (w: Wireframe) => {
+    setSnapsFor(w);
+    setSnaps(null);
+    setSnapsError(null);
+    listWireframeVersions(project.id, w.id)
+      .then(setSnaps)
+      .catch((err) => setSnapsError(errorMessage(err)));
+  };
+
+  const closeSnapshots = () => {
+    setSnapsFor(null);
+    setSnaps(null);
+    setSnapsError(null);
+  };
+
+  // The API returns snapshots newest first; manual ones are numbered
+  // oldest-first so they match the "v3" readout in the studio's top bar.
+  const snapNumbers = useMemo(() => {
+    const numbers = new Map<string, number>();
+    if (snaps) {
+      let n = snaps.filter((v) => v.reason === "manual").length;
+      for (const v of snaps) if (v.reason === "manual") numbers.set(v.id, n--);
+    }
+    return numbers;
+  }, [snaps]);
+
+  const snapshotTitle = (v: ProjectVersion) => {
+    if (v.reason !== "manual") return AUTO_SNAPSHOT_TITLES[v.reason] ?? "Automatic backup";
+    const number = `v${snapNumbers.get(v.id)}`;
+    return v.label ? `${number} · ${v.label}` : number;
+  };
 
   return (
     <div className="page stack">
@@ -94,6 +153,15 @@ export function WireframesPage() {
           </button>
         )}
       </div>
+
+      {copyError && (
+        <div className="status-banner warn">
+          {copyError}{" "}
+          <button className="btn small ghost" onClick={() => setCopyError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <section className="section">
         {data.loading ? (
@@ -136,6 +204,12 @@ export function WireframesPage() {
                     <Link to={`${base}/${w.id}`} className="btn small">
                       Open
                     </Link>{" "}
+                    <button className="btn small ghost" onClick={() => void copyJson(w)}>
+                      {copiedId === w.id ? "Copied" : "Copy JSON"}
+                    </button>{" "}
+                    <button className="btn small ghost" onClick={() => openSnapshots(w)}>
+                      Snapshots
+                    </button>{" "}
                     {canWrite && (
                       <>
                         <button className="btn small ghost" onClick={() => openDrawer(w)}>
@@ -216,6 +290,53 @@ export function WireframesPage() {
         {formError && <div className="status-banner warn">{formError}</div>}
       </Drawer>
 
+      <Drawer open={snapsFor !== null} title="Snapshots" description={snapsFor?.name} onClose={closeSnapshots}>
+        {snapsError ? (
+          <div className="status-banner warn">{snapsError}</div>
+        ) : snaps === null ? (
+          <div className="empty">Loading…</div>
+        ) : snaps.length === 0 ? (
+          <div className="empty">
+            <b>No snapshots yet.</b>
+            {canWrite && " Save one from the studio's top bar."}
+          </div>
+        ) : (
+          <div className="snapshot-list">
+            {snaps.map((v) => (
+              <div key={v.id} className="snapshot-row">
+                <div className="snapshot-name">
+                  <b>{snapshotTitle(v)}</b>
+                  <span className="muted">{new Date(v.created_at).toLocaleString()}</span>
+                </div>
+                {canWrite && (
+                  <button className="btn small ghost" onClick={() => setRestoring({ version: v, title: snapshotTitle(v) })}>
+                    Restore
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Drawer>
+
+      <ConfirmDrawer
+        open={restoring !== null}
+        title="Restore snapshot"
+        confirmLabel="Restore"
+        onClose={() => setRestoring(null)}
+        onConfirm={async () => {
+          if (!snapsFor || !restoring) return;
+          await restoreWireframeVersion(project.id, snapsFor.id, restoring.version.id);
+          closeSnapshots();
+          await data.reload();
+        }}
+      >
+        <p>
+          Replace the current pages of <b>{snapsFor?.name}</b> with <b>{restoring?.title}</b>? The current pages are kept
+          as an automatic backup snapshot.
+        </p>
+      </ConfirmDrawer>
+
       <ConfirmDrawer
         open={deleting !== null}
         title="Delete wireframe"
@@ -227,7 +348,7 @@ export function WireframesPage() {
         }}
       >
         <p>
-          Permanently delete <b>{deleting?.name}</b>, including all of its pages and saved versions? This cannot be undone.
+          Permanently delete <b>{deleting?.name}</b>, including all of its pages and snapshots? This cannot be undone.
         </p>
       </ConfirmDrawer>
     </div>
@@ -237,6 +358,15 @@ export function WireframesPage() {
 export function interfaceLabel(t: InterfaceType): string {
   return INTERFACE_TYPES.find((x) => x.value === t)?.label ?? t;
 }
+
+/** The server saves these around restores/conflicts; only "manual" snapshots
+ *  come from the user's own Save snapshot button. */
+const AUTO_SNAPSHOT_TITLES: Record<string, string> = {
+  before_restore: "Backup before a restore",
+  before_conflict: "Backup before a conflict",
+  before_replay: "Backup before a replay",
+  after_replay: "Backup after a replay",
+};
 
 function NameChips({ ids, names }: { ids: string[]; names: Map<string, string> }) {
   if (ids.length === 0) return <span className="muted">—</span>;

@@ -222,7 +222,7 @@ class ProjectVersion(Base):
     account_id = Column(UUID(as_uuid=True), nullable=False)
     snapshot = Column(JSONB, nullable=False)
     label = Column(String(255), nullable=True)
-    reason = Column(String(40), nullable=False)  # manual | before_replay | after_replay | before_conflict
+    reason = Column(String(40), nullable=False)  # manual | before_restore | before_replay | after_replay | before_conflict
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 

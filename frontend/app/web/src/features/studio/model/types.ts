@@ -14,6 +14,8 @@ export interface RegionNode {
   id: string;
   label?: string;
   size: Size;
+  /** Optional background colour (any CSS colour; set from the Inspector). */
+  bg?: string;
 }
 
 /** An internal node: this rectangle is divided into 2+ children, side by
@@ -68,10 +70,17 @@ export interface PageDocument {
 
 /** A link an element (nav item, button, …) carries in props.links. The
  *  target is always a page; a page with a `placement` renders inside that
- *  region of its parent, so "region links" are links to placed pages. */
+ *  region of its parent, so "region links" are links to placed pages.
+ *  `BACK_PAGE_ID` is the one non-page target: return to the previously
+ *  visited page, the way a form's Cancel or Save button behaves. */
 export interface LinkTarget {
   pageId: string;
 }
+
+/** Sentinel `pageId`: follow the visit history backwards instead of going to
+ *  a fixed page. Real page ids are server-generated UUIDs, so the sentinel
+ *  cannot collide with one. */
+export const BACK_PAGE_ID = "@back";
 
 /** Where a child page renders: inside `region_id` of page `page_id`. */
 export interface PagePlacement {

@@ -33,6 +33,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+from .positions import key_after
+
 PAGE_KEY = "page"  # entity_versions key for the page's own columns
 LAYOUT_KEY = "layout"  # entity_versions key for the layout tree
 PAGE_SETTABLE = {"name", "route", "pos"}
@@ -276,3 +278,52 @@ def export_page(page_id: str, state: PageState) -> dict[str, Any]:
     if state.placement:
         out["placement"] = state.placement
     return out
+
+
+def import_page(data: dict[str, Any]) -> dict[str, Any]:
+    """Invert ``export_page``: rebuild the stored document (layout tree plus
+    per-region component lists) from the export shape. Array order is
+    authoritative where the export stripped ``pos`` -- region component lists
+    and each component's ``elements`` -- so fresh strictly-increasing keys are
+    assigned in that order."""
+
+    def repos(items: list[Any]) -> None:
+        last: str | None = None
+        for item in items:
+            if isinstance(item, dict):
+                last = key_after(last)
+                item["pos"] = last
+
+    regions: dict[str, list[dict[str, Any]]] = {}
+
+    def unembed(node: dict[str, Any]) -> dict[str, Any]:
+        if node.get("kind") == "split":
+            return {
+                "kind": "split",
+                "id": node.get("id"),
+                "dir": node.get("dir"),
+                "size": node.get("size"),
+                "children": [unembed(c) for c in node.get("children") or [] if isinstance(c, dict)],
+            }
+        out = {k: v for k, v in node.items() if k != "components"}
+        components = [deepcopy(c) for c in node.get("components") or [] if isinstance(c, dict)]
+        repos(components)
+        for cmp in components:
+            if isinstance(cmp.get("elements"), list):
+                repos(cmp["elements"])
+        regions[str(node.get("id"))] = components
+        return out
+
+    layout = data.get("layout")
+    root = unembed(layout) if isinstance(layout, dict) else None
+    if root is None or not regions:
+        root = {"kind": "region", "id": "r-root", "size": {"fr": 1}}
+        regions = {"r-root": []}
+    placement = data.get("placement")
+    route = data.get("route")
+    return {
+        "name": str(data.get("name") or "Page"),
+        "route": route if isinstance(route, str) else None,
+        "placement": deepcopy(placement) if isinstance(placement, dict) else None,
+        "document": {"root": root, "regions": regions},
+    }
