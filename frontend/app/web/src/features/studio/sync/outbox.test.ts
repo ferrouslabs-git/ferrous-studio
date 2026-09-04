@@ -47,9 +47,11 @@ function callbacks() {
     applied: [] as OpBatch[],
     conflicts: [] as OpBatch[][],
     rejected: [] as { batch: OpBatch; message: string }[],
+    locked: [] as string[],
     onApplied: (b: OpBatch) => void c.applied.push(b),
     onConflict: (_b: OpBatch, _body: unknown, dropped: OpBatch[]) => void c.conflicts.push(dropped),
     onRejected: (b: OpBatch, e: ApiError) => void c.rejected.push({ batch: b, message: e.message }),
+    onLocked: (e: ApiError) => void c.locked.push(e.message),
   } satisfies OutboxCallbacks & Record<string, unknown>;
   return c;
 }
@@ -133,6 +135,34 @@ describe("Outbox", () => {
     expect(t.calls.map((c) => c.clientBatchId)).toEqual(["b1", "b1", "b1", "b2"]);
     expect(cb.applied.map((b) => b.clientBatchId)).toEqual(["b1", "b2"]);
     expect(ob.snapshot()).toMatchObject({ pending: 0, offline: false, attempt: 0 });
+  });
+
+  it("holds the queue when the version is locked, and flushes it on resume", async () => {
+    // Someone versioned the project from another tab while this one was open.
+    // 423 is not a conflict and not transient: the work must survive until the
+    // version is unlocked, so nothing may be dropped and nothing may retry.
+    const t = scriptedTransport();
+    t.fail(new ApiError(423, { detail: "locked" }, "This version is locked."));
+    const cb = callbacks();
+    const ob = await make(t, cb);
+    ob.enqueue(batch("b1"));
+    ob.enqueue(batch("b2"));
+    await settle();
+
+    expect(cb.locked).toEqual(["This version is locked."]);
+    expect(cb.rejected).toEqual([]);
+    expect(ob.snapshot()).toMatchObject({ pending: 2, phase: "paused", locked: true });
+
+    // Paused means paused: no backoff timer quietly retries against the lock.
+    await vi.advanceTimersByTimeAsync(60_000);
+    await settle();
+    expect(t.calls.map((c) => c.clientBatchId)).toEqual(["b1"]);
+    expect(ob.snapshot().pending).toBe(2);
+
+    ob.resume();
+    await settle();
+    expect(cb.applied.map((b) => b.clientBatchId)).toEqual(["b1", "b2"]);
+    expect(ob.snapshot()).toMatchObject({ pending: 0, phase: "idle", locked: false });
   });
 
   it("drops a batch the server rejects (4xx), reports it, and carries on", async () => {

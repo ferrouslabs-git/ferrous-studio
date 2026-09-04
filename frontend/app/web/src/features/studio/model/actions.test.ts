@@ -8,11 +8,19 @@ import {
   elementLink,
   elementValue,
   elKey,
+  linkedRegionLabel,
   moveElement,
   removeElement,
+  relabelLinkedRegion,
   removeRegionAction,
+  setComponentFloat,
+  setComponentHeight,
+  setComponentPosition,
   setComponentShape,
+  setComponentSize,
   setComponentType,
+  setComponentWidth,
+  setRegionDirAction,
   reorderElement,
   setElementLink,
   setElementSize,
@@ -23,7 +31,7 @@ import {
 import { navAlign } from "../catalog";
 import { PageLike } from "./applyOps";
 import { byPos } from "./positions";
-import { firstRegionId, regionIds } from "./tree";
+import { firstRegionId, regionDisplayName, regionIds } from "./tree";
 import { ComponentNode, ElementNode, PageDocument } from "./types";
 
 function page(components: ComponentNode[]): PageLike {
@@ -48,12 +56,13 @@ describe("layout actions", () => {
     expect(p.document.regions[result!.selectRegionId!]).toEqual([]);
   });
 
-  it("removeRegionAction merges content back", () => {
-    const p = page([{ id: "c1", type: "main", label: "Main", pos: "a0" }]);
+  it("removeRegionAction deletes the region and its content", () => {
+    const p = page([{ id: "c1", type: "list", label: "Users", pos: "a0" }]);
     const created = splitRegionAction(p, ctx, "r1", "right")!.selectRegionId!;
     p.document.regions[created].push({ id: "c2", type: "form", label: "Form", pos: "a0" });
     removeRegionAction(p, ctx, created);
-    expect(p.document.regions.r1.map((c) => c.id)).toEqual(["c1", "c2"]);
+    expect(p.document.regions.r1.map((c) => c.id)).toEqual(["c1"]);
+    expect(p.document.regions[created]).toBeUndefined();
     expect(regionIds(p.document.root)).toEqual(["r1"]);
   });
 
@@ -63,7 +72,7 @@ describe("layout actions", () => {
     const ids = regionIds(p.document.root);
     expect(ids).toHaveLength(4); // header, sidebar, content, panel
     const cmps = ids.flatMap((id) => p.document.regions[id]);
-    expect(cmps.map((c) => c.type)).toEqual(["navbar", "navbar", "main", "detail"]);
+    expect(cmps.map((c) => c.type)).toEqual(["navbar", "navbar", "list"]);
     const [topNav, sideNav] = cmps;
     expect(topNav.shape).toBe("plain");
     expect(topNav.layout).toBe("horizontal");
@@ -164,6 +173,15 @@ describe("element CRUD", () => {
     expect(box.data!.x).toBe("16"); // position untouched
   });
 
+  it("setElementLink keeps the linked element selected, not its component", () => {
+    const p = page([navbar()]);
+    const result = setElementLink(p, ctx, "n", elKey("e2"), null, { pageId: "p1" });
+    expect(elementLink(listOf(p)[0], elKey("e2"), null)).toEqual({ pageId: "p1" });
+    // The link control lives in the element's inspector: selecting the parent
+    // component would close it out from under the user.
+    expect(result).toEqual({ selectElement: { cmpId: "n", key: elKey("e2"), index: null } });
+  });
+
   it("removeElement drops the element and its link", () => {
     const p = page([navbar()]);
     setElementLink(p, ctx, "n", elKey("e2"), null, { pageId: "p1" });
@@ -177,6 +195,25 @@ describe("element CRUD", () => {
     const p = page([navbar()]);
     moveElement(p, ctx, "n", "e3", -1);
     expect(byPos(listOf(p)[0].elements!).map((e) => e.id)).toEqual(["e1", "e3", "e2"]);
+  });
+
+  it("moveElement front/back jumps to either end", () => {
+    const p = page([navbar()]);
+    moveElement(p, ctx, "n", "e1", "front");
+    expect(byPos(listOf(p)[0].elements!).map((e) => e.id)).toEqual(["e2", "e3", "e1"]);
+    moveElement(p, ctx, "n", "e3", "back");
+    expect(byPos(listOf(p)[0].elements!).map((e) => e.id)).toEqual(["e3", "e2", "e1"]);
+  });
+
+  it("moveElement to an end it already occupies writes nothing", () => {
+    const p = page([navbar()]);
+    const posOf = (id: string) => listOf(p)[0].elements!.find((e) => e.id === id)!.pos;
+    const front = posOf("e3");
+    const back = posOf("e1");
+    moveElement(p, ctx, "n", "e3", "front");
+    moveElement(p, ctx, "n", "e1", "back");
+    expect(posOf("e3")).toBe(front);
+    expect(posOf("e1")).toBe(back);
   });
 
   it("setElementText renames an element and removes pure-text elements on an empty commit", () => {
@@ -208,8 +245,8 @@ describe("element CRUD", () => {
     };
     expect(elementValue(cmp, elKey("e2"), null)).toBe("Overview");
     expect(elementLink(cmp, elKey("e2"), null)).toEqual({ pageId: "p7" });
-    const detail: ComponentNode = { id: "d", type: "detail", label: "Detail", pos: "a0" };
-    expect(elementValue(detail, "heading", null)).toBe("Ada Lovelace"); // falls back to the type defaults
+    const calendar: ComponentNode = { id: "d", type: "calendar", label: "Calendar", pos: "a0" };
+    expect(elementValue(calendar, "period", null)).toBe("March 2026"); // falls back to the type defaults
   });
 });
 
@@ -241,6 +278,148 @@ describe("shape and type changes", () => {
     expect(cmp.shape).toBe("simple");
     expect(cmp.elements!.some((e) => e.type === "text-input")).toBe(true);
     expect(cmp.props).toBeUndefined();
+  });
+});
+
+describe("component sizing", () => {
+  it("setComponentSize sets, clamps and clears each axis independently", () => {
+    const p = page([{ id: "c1", type: "list", label: "Users", pos: "a0" }]);
+    setComponentSize(p, ctx, "c1", { w: 320, h: 10 });
+    expect(listOf(p)[0].props).toEqual({ w: 320, h: 24 }); // h clamps to the minimum
+    setComponentSize(p, ctx, "c1", { h: 400 });
+    expect(listOf(p)[0].props).toEqual({ w: 320, h: 400 }); // w untouched
+    setComponentSize(p, ctx, "c1", { w: null, h: null });
+    expect(listOf(p)[0].props).toBeUndefined(); // emptied props leave the node
+  });
+
+  it("a fixed height replaces fill-region", () => {
+    const p = page([{ id: "c1", type: "list", label: "Users", pos: "a0", props: { size: "fill" } }]);
+    setComponentSize(p, ctx, "c1", { h: 300 });
+    expect(listOf(p)[0].props).toEqual({ h: 300 });
+  });
+
+  it("grows the named layout nodes in the same step", () => {
+    const p = page([{ id: "c1", type: "list", label: "Users", pos: "a0" }]);
+    p.document.root = {
+      kind: "split",
+      id: "s1",
+      dir: "row",
+      size: { fr: 1 },
+      children: [
+        { kind: "region", id: "r1", size: 280 },
+        { kind: "region", id: "r2", size: { fr: 1 } },
+      ],
+    };
+    setComponentSize(p, ctx, "c1", { w: 400 }, [{ id: "r1", size: 400 }]);
+    expect(listOf(p)[0].props).toEqual({ w: 400 });
+    const sidebar = (p.document.root as { children: { id: string; size: unknown }[] }).children[0];
+    expect(sidebar.size).toBe(400);
+  });
+
+  it("setComponentHeight swaps cleanly between hug, fill and fixed", () => {
+    const p = page([{ id: "c1", type: "list", label: "Users", pos: "a0" }]);
+    setComponentHeight(p, ctx, "c1", 300);
+    expect(listOf(p)[0].props).toEqual({ h: 300 });
+    setComponentHeight(p, ctx, "c1", "fill");
+    expect(listOf(p)[0].props).toEqual({ size: "fill" });
+    setComponentHeight(p, ctx, "c1", "hug");
+    expect(listOf(p)[0].props).toBeUndefined();
+  });
+
+  it("setComponentWidth clears back to natural sizing with null", () => {
+    const p = page([{ id: "c1", type: "list", label: "Users", pos: "a0" }]);
+    setComponentWidth(p, ctx, "c1", 640);
+    expect(listOf(p)[0].props).toEqual({ w: 640 });
+    setComponentWidth(p, ctx, "c1", null);
+    expect(listOf(p)[0].props).toBeUndefined();
+  });
+
+  it("switching a region to free layout stamps measured boxes; back to a stack drops offsets", () => {
+    const p = page([
+      { id: "c1", type: "list", label: "Users", pos: "a0" },
+      { id: "c2", type: "form", label: "Form", pos: "a1" },
+    ]);
+    setRegionDirAction(p, ctx, "r1", "free", [
+      { id: "c1", x: 0, y: 0, w: 400, h: 120 },
+      { id: "c2", x: 0, y: 120, w: 400, h: 200 },
+      { id: "foreign", x: 5, y: 5, w: 50, h: 50 }, // not in the region: ignored
+    ]);
+    expect((p.document.root as { dir?: string }).dir).toBe("free");
+    expect(listOf(p)[0].props).toEqual({ x: 0, y: 0, w: 400, h: 120 });
+    expect(listOf(p)[1].props).toEqual({ x: 0, y: 120, w: 400, h: 200 });
+
+    setRegionDirAction(p, ctx, "r1", "col");
+    expect((p.document.root as { dir?: string }).dir).toBeUndefined();
+    // Offsets are stacking-irrelevant and go; sizes survive the switch.
+    expect(listOf(p)[0].props).toEqual({ w: 400, h: 120 });
+  });
+
+  it("setComponentFloat stamps the measured box on enable and drops offsets on disable", () => {
+    const p = page([{ id: "c1", type: "form", label: "Form", pos: "a0", props: { size: "fill" } }]);
+    setComponentFloat(p, ctx, "c1", true, { id: "c1", x: 12.4, y: 80, w: 360, h: 240 });
+    // Region-fill would fight the stamped height, so it goes.
+    expect(listOf(p)[0].props).toEqual({ float: true, x: 12, y: 80, w: 360, h: 240 });
+
+    setComponentFloat(p, ctx, "c1", false);
+    // Back in the flow: the float flag and offsets go, sizes survive.
+    expect(listOf(p)[0].props).toEqual({ w: 360, h: 240 });
+  });
+
+  it("setComponentFloat keeps user-set sizes and ignores a canvas", () => {
+    const p = page([
+      { id: "c1", type: "list", label: "Users", pos: "a0", props: { w: 500 } },
+      { id: "cv", type: "canvas", label: "Sketch", pos: "a1", shape: "plain", layout: "fixed" },
+    ]);
+    setComponentFloat(p, ctx, "c1", true, { id: "c1", x: 0, y: 0, w: 420, h: 180 });
+    // The user's width wins over the measured one; only the missing h freezes.
+    expect(listOf(p)[0].props).toEqual({ w: 500, float: true, x: 0, y: 0, h: 180 });
+
+    setComponentFloat(p, ctx, "cv", true, { id: "cv", x: 0, y: 0, w: 100, h: 100 });
+    expect(listOf(p)[1].props).toBeUndefined(); // a canvas floats via its layout
+  });
+
+  it("setComponentPosition stamps a measured size only onto unset axes", () => {
+    const p = page([{ id: "cv", type: "canvas", label: "Sketch", pos: "a0", shape: "plain", layout: "float", props: { w: 300 } }]);
+    setComponentPosition(p, ctx, "cv", 40, 60, [], { w: 562, h: 420 });
+    // w was already chosen by the user; only the missing h freezes.
+    expect(listOf(p)[0].props).toEqual({ w: 300, x: 40, y: 60, h: 420 });
+  });
+
+  it("setComponentPosition moves a component and grows the named nodes", () => {
+    const p = page([{ id: "c1", type: "list", label: "Users", pos: "a0" }]);
+    p.document.root = {
+      kind: "split",
+      id: "s1",
+      dir: "row",
+      size: { fr: 1 },
+      children: [
+        { kind: "region", id: "r1", size: 280, dir: "free" },
+        { kind: "region", id: "r2", size: { fr: 1 } },
+      ],
+    };
+    setComponentPosition(p, ctx, "c1", 150.6, -20, [{ id: "r1", size: 470 }]);
+    expect(listOf(p)[0].props).toEqual({ x: 151, y: 0 }); // rounded, clamped to 0
+    const sidebar = (p.document.root as { children: { size: unknown }[] }).children[0];
+    expect(sidebar.size).toBe(470);
+  });
+
+  it("Inspector pixel sizes expand a fixed-px region that would clip", () => {
+    const p = page([{ id: "c1", type: "list", label: "Users", pos: "a0" }]);
+    p.document.root = {
+      kind: "split",
+      id: "s1",
+      dir: "row",
+      size: { fr: 1 },
+      children: [
+        { kind: "region", id: "r1", size: 280 },
+        { kind: "region", id: "r2", size: { fr: 1 } },
+      ],
+    };
+    setComponentWidth(p, ctx, "c1", 500);
+    const sidebar = (p.document.root as { children: { size: unknown }[] }).children[0];
+    expect(sidebar.size).toBe(500); // grew to fit
+    setComponentWidth(p, ctx, "c1", 300);
+    expect(sidebar.size).toBe(500); // narrower never shrinks the region back
   });
 });
 
@@ -304,5 +483,76 @@ describe("header element", () => {
     addElement(p, ctx, cmp.id, "header");
     const header = cmp.elements!.find((e) => e.type === "header")!;
     expect(header.label).toBe("Roadmap");
+  });
+});
+
+describe("linkedRegionLabel", () => {
+  const cmp = (over: Partial<ComponentNode>): ComponentNode =>
+    ({ id: "c1", type: "list", label: "List", pos: "a0", ...over }) as ComponentNode;
+
+  it("pairs the component with the element that carries the link", () => {
+    const list = cmp({
+      label: "List",
+      elements: [{ id: "h", type: "header", label: "Users", pos: "a0" } as ElementNode],
+    });
+    expect(linkedRegionLabel(list, "Edit")).toBe("Users > Edit");
+  });
+
+  it("falls back to the component's own label when it has no header", () => {
+    expect(linkedRegionLabel(cmp({ label: "Users" }), "Edit")).toBe("Users > Edit");
+  });
+
+  it("puts a nav item first and calls what it reveals Content", () => {
+    const nav = cmp({ type: "navbar", label: "Nav" });
+    expect(linkedRegionLabel(nav, "Dashboard")).toBe("Dashboard > Content");
+  });
+
+  it("drops a blank half rather than leaving a dangling separator", () => {
+    expect(linkedRegionLabel(cmp({ label: "Users" }), "  ")).toBe("Users");
+    expect(linkedRegionLabel(cmp({ label: "" }), "Edit")).toBe("Edit");
+  });
+
+  it("falls back to Content when nothing names the page", () => {
+    expect(linkedRegionLabel(null, "")).toBe("Content");
+  });
+});
+
+describe("relabelLinkedRegion", () => {
+  const nav = { id: "c1", type: "navbar", label: "Nav", pos: "a0" } as ComponentNode;
+  const doc = (label: string): PageDocument => ({
+    root: { kind: "region", id: "r1", size: { fr: 1 }, label },
+    regions: { r1: [] },
+  });
+
+  it("carries a nav item's rename through to its page's region", () => {
+    // The nav-item flow seeds every page with the default label "Item", so
+    // without this every nav-created region would read "Item > Content".
+    const d = doc("Item > Content");
+    expect(relabelLinkedRegion(d, nav, "Item", "Dashboard")).toBe(true);
+    expect((d.root as { label?: string }).label).toBe("Dashboard > Content");
+  });
+
+  it("leaves a region the user renamed by hand alone", () => {
+    const d = doc("Reports");
+    expect(relabelLinkedRegion(d, nav, "Item", "Dashboard")).toBe(false);
+    expect((d.root as { label?: string }).label).toBe("Reports");
+  });
+
+  it("finds the region wherever the page has since been split", () => {
+    const d: PageDocument = {
+      root: {
+        kind: "split",
+        id: "s1",
+        dir: "col",
+        size: { fr: 1 },
+        children: [
+          { kind: "region", id: "r1", size: "auto", label: "Item > Content" },
+          { kind: "region", id: "r2", size: { fr: 1 }, label: "Content" },
+        ],
+      },
+      regions: { r1: [], r2: [] },
+    };
+    expect(relabelLinkedRegion(d, nav, "Item", "Dashboard")).toBe(true);
+    expect(regionIds(d.root).map((id) => regionDisplayName(d.root, id))).toEqual(["Dashboard > Content", "Content"]);
   });
 });

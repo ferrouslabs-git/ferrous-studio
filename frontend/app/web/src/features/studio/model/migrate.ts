@@ -7,7 +7,9 @@
 // The fold (user decision): tabs & breadcrumb → nav bar shapes; stepper &
 // action rows → form; KPI row → graph stat tiles; filters & activity feed →
 // list; the sidenavs → nav bar layout "vertical". Hero, detail, empty, main,
-// modal and footer stay as components with small element vocabularies.
+// modal and footer were withdrawn from the vocabulary altogether
+// (2026-09-03), so nothing migrates to them — normalizePage drops any
+// instance still stored (see RETIRED_TYPES).
 import { COMPONENTS, ElementSeed } from "../catalog";
 import type { LinksProp } from "./actions";
 import { byPos, posAtIndex, reposition } from "./positions";
@@ -239,72 +241,6 @@ const MIGRATIONS: Record<string, (ctx: Ctx) => void> = {
   stepper: asForm("wizard"),
   actions: asForm("inline"),
   "rightpanel-filters": asFilterPanel,
-
-  detail(ctx) {
-    ctx.cmp.shape = "panel";
-    const values = arr(ctx.props.values);
-    putItems(ctx, "items", arr(ctx.props.items), (label, i) => ({
-      type: "field",
-      label,
-      data: { value: values[i] ?? "—", kind: guessColumnKind(label, values[i] ? [values[i]] : []) },
-    }));
-    const buttons = arr(ctx.props.buttons);
-    buttons.forEach((label, i) => {
-      if (label) put(ctx, { type: "button", label, data: { style: /delete|remove/i.test(label) ? "danger" : "secondary" } }, linkAt(ctx, "buttons", i));
-    });
-    consume(ctx, ["items", "values", "buttons"]);
-  },
-
-  hero(ctx) {
-    ctx.cmp.shape = "centred";
-    const items = arr(ctx.props.items);
-    items.forEach((label, i) => {
-      if (!label) return;
-      const seed: ElementSeed =
-        i === 0 ? { type: "heading", label } : i === 1 ? { type: "text", label } : { type: "button", label, data: { style: i === 2 ? "primary" : "secondary" } };
-      put(ctx, seed, linkAt(ctx, "items", i));
-    });
-    consume(ctx, ["items"]);
-  },
-
-  empty(ctx) {
-    ctx.cmp.shape = "default";
-    const items = arr(ctx.props.items);
-    if (items[0]) put(ctx, { type: "heading", label: items[0] }, linkAt(ctx, "items", 0));
-    if (ctx.props.description != null) put(ctx, { type: "text", label: s(ctx.props.description) });
-    items.slice(1).forEach((label, j) => {
-      if (label) put(ctx, { type: "button", label, data: { style: j === 0 ? "primary" : "secondary" } }, linkAt(ctx, "items", j + 1));
-    });
-    consume(ctx, ["items", "description"]);
-  },
-
-  main(ctx) {
-    ctx.cmp.shape = "default";
-    const bodies = arr(ctx.props.bodies);
-    putItems(ctx, "items", arr(ctx.props.items), (label, i) => ({ type: "section", label, data: { body: bodies[i] ?? "" } }));
-    consume(ctx, ["items", "bodies"]);
-  },
-
-  modal(ctx) {
-    ctx.cmp.shape = "default";
-    if (ctx.props.body != null) put(ctx, { type: "text", label: s(ctx.props.body) });
-    const items = arr(ctx.props.items);
-    items.forEach((label, i) => {
-      if (label) put(ctx, { type: "button", label, data: { style: i === items.length - 1 ? "primary" : "secondary" } }, linkAt(ctx, "items", i));
-    });
-    consume(ctx, ["items", "body"]);
-  },
-
-  footer(ctx) {
-    ctx.cmp.shape = "default";
-    putItems(ctx, "items", arr(ctx.props.items), (label) => ({ type: "link", label }));
-    consume(ctx, ["items"]);
-  },
-
-  "rightpanel-detail"(ctx) {
-    ctx.cmp.type = "detail";
-    MIGRATIONS.detail(ctx);
-  },
 };
 
 /** Component types whose header moved from the `title` prop to an element. */
@@ -343,6 +279,24 @@ function migrateHeader(cmp: ComponentNode): void {
   }
 }
 
+/** Drop `el:` links whose element is no longer on the component. Nothing can
+ *  address such a link again (its key is the element's id), so it is dead
+ *  weight — and a stale-record commit once managed to persist the link while
+ *  losing its element, so stored documents do carry them. Catalogue
+ *  components only: custom blocks keep their element model in their
+ *  definition, not on the instance. */
+function pruneDanglingLinks(cmp: ComponentNode): void {
+  if (!COMPONENTS[cmp.type]) return;
+  const links = cmp.props?.links as LinksProp | undefined;
+  if (!links) return;
+  for (const key of Object.keys(links)) {
+    if (!key.startsWith("el:")) continue;
+    const id = key.slice("el:".length);
+    if (!cmp.elements?.some((e) => e.id === id)) delete links[key];
+  }
+  if (!Object.keys(links).length) delete cmp.props!.links;
+}
+
 /** Convert one component in place. Safe to call on anything: already-migrated
  *  components (shape set), custom blocks and unknown types are left alone. */
 export function migrateComponent(cmp: ComponentNode): void {
@@ -354,6 +308,9 @@ export function migrateComponent(cmp: ComponentNode): void {
   }
   if (cmp.shape === undefined) migrateShapeless(cmp);
   migrateHeader(cmp);
+  // After the header migration: a header element minted above must exist
+  // before its carried-over link is judged.
+  pruneDanglingLinks(cmp);
 }
 
 function migrateShapeless(cmp: ComponentNode): void {

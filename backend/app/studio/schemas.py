@@ -2,9 +2,12 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-InterfaceType = Literal["desktop", "tablet", "mobile"]
+# ``tablet`` is portrait; landscape is its own type rather than a separate
+# orientation column, so a wireframe is still described by one value and
+# existing tablets keep their (portrait) shape. Mobile is always portrait.
+InterfaceType = Literal["desktop", "tablet", "tablet_landscape", "mobile"]
 DiagramKind = Literal["usecase", "class", "activity", "sequence", "state", "freeform"]
 
 ShortList = Annotated[list[Annotated[str, Field(max_length=500)]], Field(max_length=50)]
@@ -37,8 +40,43 @@ class ProjectRead(BaseModel):
     rationale: str | None
     status: str
     schema_version: str
-    version: int
+    version: int  # custom_components concurrency counter, not the version number
+    lineage_id: UUID
+    parent_project_id: UUID | None
+    version_no: int
+    version_label: str | None
+    locked_at: datetime | None
+    locked_by: UUID | None
     created_at: datetime
+    updated_at: datetime
+
+
+class ProjectVersionCreate(BaseModel):
+    """Body for versioning a whole project.
+
+    Not to be confused with ``VersionCreate`` further down, which snapshots a
+    single wireframe. ``key`` makes the copy idempotent: a retry or a
+    double-click returns the version the key already created rather than
+    forking a second one that then diverges on its own.
+    """
+
+    key: str = Field(min_length=8, max_length=64)
+    label: str | None = Field(None, max_length=255)
+    lock_source: bool = True
+
+
+class ProjectLineageRead(BaseModel):
+    """One version in a project's lineage, for the switcher and the list."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    version_no: int
+    version_label: str | None
+    parent_project_id: UUID | None
+    status: str
+    locked_at: datetime | None
     updated_at: datetime
 
 
@@ -102,6 +140,46 @@ class PersonaRead(BaseModel):
     pos: str
     created_at: datetime
     updated_at: datetime
+
+
+# ── Datasets ────────────────────────────────────────────────────────────────
+
+# Mirrors the frontend catalogue's DATA_KINDS -- keep them in step.
+DataKind = Literal[
+    "text", "number", "date", "time", "email", "phone", "currency",
+    "percentage", "status", "person", "tags", "image", "boolean", "url", "actions",
+]
+
+DatasetValues = Annotated[list[Annotated[str, Field(max_length=500)]], Field(max_length=200)]
+
+
+class DatasetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    kind: DataKind = "text"
+    values: DatasetValues = []
+    pos: str | None = Field(None, min_length=1, max_length=64)
+
+
+class DatasetUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    kind: DataKind | None = None
+    values: DatasetValues | None = None
+    pos: str | None = Field(None, min_length=1, max_length=64)
+
+
+class DatasetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    kind: str
+    values: list[str]
+    pos: str
+    created_at: datetime
+    updated_at: datetime
+    # Platform defaults and project datasets share one listing; the scope says
+    # which side a row came from (platform rows are read-only in a project).
+    scope: Literal["platform", "project"] = "project"
 
 
 # ── Use case model ──────────────────────────────────────────────────────────
@@ -174,7 +252,11 @@ class WireframeCreate(BaseModel):
 class WireframeUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     interface_type: InterfaceType | None = None
+    status: Literal["active", "archived"] | None = None
     pos: str | None = Field(None, min_length=1, max_length=64)
+    # Explicit null clears the choice back to the automatic (nav-driven)
+    # landing, so the route tells "absent" and "null" apart via fields_set.
+    landing_page_id: UUID | None = None
 
 
 class WireframePersonasUpdate(BaseModel):
@@ -192,7 +274,9 @@ class WireframeRead(BaseModel):
     project_id: UUID
     name: str
     interface_type: InterfaceType
+    status: str
     pos: str
+    landing_page_id: UUID | None
     persona_ids: list[UUID]
     actor_ids: list[UUID]
     created_at: datetime
@@ -207,6 +291,7 @@ class PageSummary(BaseModel):
     route: str | None
     pos: str
     placement: dict[str, Any] | None = None
+    presentation: str | None = None
     version: int
 
 
@@ -236,6 +321,7 @@ class PageCreate(BaseModel):
     route: str | None = Field(None, max_length=255)
     pos: str = Field(min_length=1, max_length=64)
     placement: PagePlacement | None = None
+    presentation: Literal["modal", "drawer", "drawer-left"] | None = None
     document: dict[str, Any] | None = None
 
 
@@ -249,6 +335,7 @@ class PageRead(BaseModel):
     route: str | None
     pos: str
     placement: dict[str, Any] | None
+    presentation: str | None
     document: dict[str, Any]
     entity_versions: dict[str, int]
     version: int
@@ -332,6 +419,117 @@ class VersionRead(BaseModel):
 
 class VersionDetail(VersionRead):
     snapshot: dict[str, Any]
+
+
+class VersionPreviewPage(BaseModel):
+    """One page of a snapshot, rebuilt into the shape the canvas renders.
+    Matches PageRead's readable fields; there is no version to edit against,
+    so the write-side columns are absent."""
+
+    id: UUID
+    name: str
+    route: str | None
+    pos: str
+    placement: dict[str, Any] | None
+    presentation: str | None
+    document: dict[str, Any]
+
+
+class VersionPreview(VersionRead):
+    """Everything preview mode needs to render a snapshot without touching
+    the wireframe's live pages."""
+
+    wireframe_name: str
+    interface_type: InterfaceType
+    landing_page_id: UUID | None
+    pages: list[VersionPreviewPage]
+
+
+class VersionCopy(BaseModel):
+    """Body of "create as a new wireframe": the copy's name. Everything else
+    comes from the snapshot."""
+
+    name: str = Field(min_length=1, max_length=255)
+
+
+# ── Annotations ─────────────────────────────────────────────────────────────
+
+AnnotationKind = Literal["note", "task"]
+AnnotationTargetKind = Literal["region", "cmp", "element"]
+
+
+class AnnotationCreate(BaseModel):
+    page_id: UUID
+    kind: AnnotationKind = "note"
+    target_kind: AnnotationTargetKind
+    # Bare document ids -- the frontend strips its "el:" address prefix.
+    target_id: str = Field(min_length=1, max_length=64)
+    target_cmp_id: str | None = Field(None, min_length=1, max_length=64)
+    target_label: str = Field("", max_length=255)
+    text: str = Field(min_length=1, max_length=4000)
+
+    @model_validator(mode="after")
+    def _check_target(self) -> "AnnotationCreate":
+        if self.target_id.startswith("el:"):
+            raise ValueError("target_id must be a bare element id, not an el: address")
+        if self.target_kind == "element" and not self.target_cmp_id:
+            raise ValueError("element annotations must name their owning component")
+        if self.target_kind != "element" and self.target_cmp_id is not None:
+            raise ValueError("target_cmp_id is only valid for element annotations")
+        return self
+
+
+class AnnotationUpdate(BaseModel):
+    text: str | None = Field(None, min_length=1, max_length=4000)
+    resolved: bool | None = None
+
+
+class AnnotationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    wireframe_id: UUID
+    page_id: UUID
+    kind: str
+    seq: int
+    target_kind: str
+    target_id: str
+    target_cmp_id: str | None
+    target_label: str
+    text: str
+    created_by: UUID | None
+    author_name: str | None = None
+    author_email: str | None = None
+    updated_by: UUID | None
+    resolved_at: datetime | None
+    resolved_by: UUID | None
+    resolver_name: str | None = None
+    resolver_email: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Audit log ───────────────────────────────────────────────────────────────
+
+
+class AuditEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    event: str
+    user_id: UUID | None
+    user_name: str | None
+    user_email: str | None
+    page_id: UUID | None
+    detail: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class AuditPage(BaseModel):
+    events: list[AuditEventRead]
+    has_more: bool
+    next_before: datetime | None
 
 
 # ── Diagrams ────────────────────────────────────────────────────────────────

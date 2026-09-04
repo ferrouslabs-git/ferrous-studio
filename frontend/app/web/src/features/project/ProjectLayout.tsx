@@ -5,17 +5,23 @@
 // The organisation is in the URL on purpose: a project opens in a new tab,
 // where the session would otherwise fall back to the remembered organisation
 // and the first request would run under the wrong scope (404).
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { Link, Outlet, useParams } from "react-router-dom";
 import { useSession } from "../../app/session";
 import { useShellProject } from "../../app/shellProject";
 import { setActiveScope } from "../../core/scope";
 import { useLoad } from "../../core/useLoad";
-import { getProject, ProjectDetail } from "../projects/projectsApi";
+import { getProject, ProjectDetail, unlockProject } from "../projects/projectsApi";
 
 export interface ProjectContextValue {
   project: ProjectDetail;
   orgId: string;
+  /**
+   * Whether this project may be edited: the organisation role, narrowed by the
+   * lock. Versioning a project freezes the version it was taken from, and every
+   * section page and the studio already hide their editing affordances when
+   * this is false -- so the lock is enforced in the UI by this one value.
+   */
   canWrite: boolean;
   /** Re-fetch after an edit; the sidebar title follows. */
   reload: () => Promise<void>;
@@ -77,10 +83,56 @@ export function ProjectLayout() {
   }
   if (!project) return <div className="page muted">Loading…</div>;
 
+  const locked = project.locked_at !== null;
   return (
-    <ProjectContext.Provider value={{ project, orgId, canWrite, reload: load.reload }}>
+    <ProjectContext.Provider value={{ project, orgId, canWrite: canWrite && !locked, reload: load.reload }}>
+      {locked && <LockedBanner project={project} canUnlock={canWrite} onUnlocked={load.reload} />}
       <Outlet />
     </ProjectContext.Provider>
+  );
+}
+
+/**
+ * Shown while a version is frozen. The studio and every section page are
+ * already read-only by this point (canWrite is false above); this says why, and
+ * offers the way out.
+ */
+function LockedBanner({
+  project,
+  canUnlock,
+  onUnlocked,
+}: {
+  project: ProjectDetail;
+  canUnlock: boolean;
+  onUnlocked: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function unlock() {
+    setBusy(true);
+    setError(null);
+    try {
+      await unlockProject(project.id);
+      await onUnlocked();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not unlock this version.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="status-banner warn">
+      <b>v{project.version_no}{project.version_label ? ` · ${project.version_label}` : ""} is locked.</b>
+      <span className="muted">Frozen when a newer version was created.</span>
+      {error && <span className="muted">{error}</span>}
+      {canUnlock && (
+        <button type="button" className="btn ghost" onClick={unlock} disabled={busy}>
+          {busy ? "Unlocking…" : "Unlock"}
+        </button>
+      )}
+    </div>
   );
 }
 

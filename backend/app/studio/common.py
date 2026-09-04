@@ -15,20 +15,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security.scope_context import ScopeContext
 
-from .models import Project, Wireframe
+from .models import Project, ProjectPage, Wireframe
 from .positions import FIRST_KEY, key_after
 
 FIRST_POS = FIRST_KEY
 
 
-def default_page_document() -> dict[str, Any]:
+#: The first region of a wireframe's shell page holds the navigation; every
+#: other page is content until something names it. Mirrors the frontend's
+#: SHELL_REGION_LABEL / DEFAULT_REGION_LABEL (model/tree.ts).
+SHELL_REGION_LABEL = "Nav"
+DEFAULT_REGION_LABEL = "Content"
+
+
+def default_page_document(label: str = DEFAULT_REGION_LABEL) -> dict[str, Any]:
     """A blank page: one named region filling the screen, ready to be split.
 
     Mirrors the frontend's blankDocument (model/tree.ts) — keep them in step.
+    Clients that know what links to the page send their own document with the
+    region already named after it ("Users > Edit"); this is the fallback.
     """
     region_id = f"r-{secrets.token_hex(4)}"
     return {
-        "root": {"kind": "region", "id": region_id, "label": "Content", "size": {"fr": 1}},
+        "root": {"kind": "region", "id": region_id, "label": label, "size": {"fr": 1}},
         "regions": {region_id: []},
     }
 
@@ -38,6 +47,29 @@ async def get_project(db: AsyncSession, project_id: UUID, ctx: ScopeContext) -> 
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return project
+
+
+async def get_writable_project(db: AsyncSession, project_id: UUID, ctx: ScopeContext) -> Project:
+    """A project that may be edited, i.e. one that is not a frozen version.
+
+    Versioning a project locks the version it was taken from, so it stays a
+    faithful record of what was agreed; unlocking is explicit. 423 rather than
+    409 because this is a real lock with an affordance to release it, and
+    because 409 already means an op conflict, a diagram version conflict and
+    "archive it first" elsewhere in this API -- the studio outbox and the
+    diagram editor both branch on it.
+
+    Every route that writes something belonging to a project resolves it
+    through here rather than ``get_project``; ``tests/test_lock_coverage.py``
+    holds the list of deliberate exceptions.
+    """
+    project = await get_project(db, project_id, ctx)
+    if project.locked_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="This version is locked. Unlock it to make changes.",
+        )
     return project
 
 
@@ -53,6 +85,24 @@ async def get_wireframe(db: AsyncSession, project: Project, wireframe_id: UUID) 
     if wireframe is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wireframe not found")
     return wireframe
+
+
+async def get_wireframe_page(
+    db: AsyncSession, ctx: ScopeContext, wireframe_id: UUID, page_id: UUID, lock: bool = False
+) -> ProjectPage:
+    stmt = select(ProjectPage).where(
+        ProjectPage.id == page_id,
+        ProjectPage.wireframe_id == wireframe_id,
+        ProjectPage.account_id == ctx.scope_id,
+    )
+    if lock:
+        # FOR NO KEY UPDATE, not FOR UPDATE: no key columns change, and the
+        # stronger lock would block unrelated inserts referencing this row.
+        stmt = stmt.with_for_update(key_share=True)
+    page = (await db.execute(stmt)).scalar_one_or_none()
+    if page is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
+    return page
 
 
 async def allow_cross_account(db: AsyncSession) -> None:

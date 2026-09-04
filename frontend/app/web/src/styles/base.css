@@ -25,6 +25,19 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 
 
 /* ── Scrollbar ── */
+/* These are classic (space-consuming) bars, not overlay ones: styling the
+   scrollbar at all opts Chromium out of overlay bars, so a vertical bar takes
+   10px out of its container's content box the moment the content overflows —
+   and every child reflows sideways as it appears and disappears.
+   Every scroll container that can scroll VERTICALLY therefore carries
+   `scrollbar-gutter: stable`, which reserves those 10px whether or not the bar
+   is showing. Grep the stylesheets for it; add it to any new one.
+   It is no help to a strip that only scrolls horizontally — the gutter is
+   reserved on the inline edge, so there it would take width for a bar that
+   never appears and leave the horizontal bar still nudging content upwards.
+   The wireframe canvas is the one exception: everything under .device hides
+   its bars and releases the gutter, since the document there stands in for a
+   real interface. See the scrollbar block in studio.css. */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }

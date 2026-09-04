@@ -272,7 +272,41 @@ def test_export_includes_placement_when_present():
     assert out["placement"] == {"page_id": "p0", "region_id": "rX"}
 
 
+def test_export_includes_presentation_when_present():
+    state = make_state()
+    state.presentation = "modal"
+    out = export_page("p1", state)
+    assert out["presentation"] == "modal"
+    assert "presentation" not in export_page("p1", make_state())
+
+
+def test_set_presentation_is_a_page_field():
+    result = apply_batch(make_state(), [{"op": "set", "path": "presentation", "value": "drawer"}], 3)
+    assert result.page.presentation == "drawer"
+    assert result.page.entity_versions["page"] == 4
+
+    left = apply_batch(result.page, [{"op": "set", "path": "presentation", "value": "drawer-left"}], 4)
+    assert left.page.presentation == "drawer-left"
+
+    cleared = apply_batch(left.page, [{"op": "set", "path": "presentation", "value": None}], 5)
+    assert cleared.page.presentation is None
+
+
+def test_set_presentation_rejects_unknown_values():
+    with pytest.raises(OpError):
+        apply_batch(make_state(), [{"op": "set", "path": "presentation", "value": "popover"}], 3)
+
+
 # ── import (snapshot restore) ───────────────────────────────────────────────
+
+
+def test_import_page_round_trips_presentation():
+    state = make_state()
+    state.presentation = "drawer"
+    assert import_page(export_page("p1", state))["presentation"] == "drawer"
+    assert import_page(export_page("p1", make_state()))["presentation"] is None
+    # A tampered snapshot must not smuggle junk into the column.
+    assert import_page({"id": "p1", "name": "X", "presentation": "popover"})["presentation"] is None
 
 
 def test_import_page_round_trips_export():
@@ -300,6 +334,54 @@ def test_import_page_round_trips_export():
     assert [e["id"] for e in elements] == ["e1", "e2"]  # export sorted them by old pos
     assert elements[0]["pos"] < elements[1]["pos"]
     assert elements[0]["data"] == {"href": "/"}
+
+
+def test_import_page_round_trips_the_whole_studio_vocabulary():
+    """Every key the canvas can write must survive export -> import.
+
+    Project versioning copies pages through this round trip, so anything it
+    quietly drops is lost from the new version rather than merely unexported.
+    ``strip`` only recurses into top-level lists of dicts, which is what keeps
+    ``props`` (free-layout coordinates, float, fill, rows, links) intact --
+    nothing guarded that before.
+    """
+    state = make_state()
+    state.presentation = "modal"
+    free = state.document["root"]["children"][1]["children"][1]
+    free["dir"] = "free"
+    free["bg"] = "#f4f4f5"
+    state.document["regions"]["rm"][0].update(
+        customId="cdef-abc123",
+        props={
+            "x": 40,
+            "y": 12,
+            "w": 320,
+            "h": 180,
+            "float": True,
+            "size": "fill",
+            "rows": {"e1": ["Ada", "Grace"]},
+            # Index is meaning here, so a cleared link leaves a hole.
+            "links": {"el:e1": [{"pageId": "p9"}, None, {"pageId": "@back"}]},
+        },
+    )
+    state.document["regions"]["rm"][0]["elements"] = [
+        {"id": "e1", "type": "column", "label": "Name", "pos": "a0", "data": {"dataset": "ds-7"}}
+    ]
+
+    imported = import_page(export_page("p1", state))
+
+    assert imported["presentation"] == "modal"
+    region = imported["document"]["root"]["children"][1]["children"][1]
+    assert region["dir"] == "free"
+    assert region["bg"] == "#f4f4f5"
+    assert region["size"] == {"fr": 1}
+    assert imported["document"]["root"]["children"][0]["label"] == "Header"
+
+    card = imported["document"]["regions"]["rm"][0]
+    assert card["customId"] == "cdef-abc123"
+    assert card["props"] == state.document["regions"]["rm"][0]["props"]
+    assert card["props"]["links"]["el:e1"][1] is None
+    assert card["elements"][0]["data"] == {"dataset": "ds-7"}
 
 
 def test_import_page_resets_malformed_layout_to_blank():

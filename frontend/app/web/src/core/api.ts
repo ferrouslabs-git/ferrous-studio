@@ -11,6 +11,8 @@ export interface RequestOptions {
   /** Override the scope: an explicit scope, or `null` to send no scope headers. */
   scope?: ActiveScope | null;
   headers?: Record<string, string>;
+  /** Abort the request from an effect cleanup (e.g. a superseded page fetch). */
+  signal?: AbortSignal;
 }
 
 function detailOf(body: unknown): string | null {
@@ -39,6 +41,7 @@ async function request<T>(
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: opts.signal,
   });
 
   if (response.status === 401) {

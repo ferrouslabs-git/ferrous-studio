@@ -1,15 +1,19 @@
 // A project's wireframes: name, user types and personas it is designed for,
 // interface type. Opening one takes you into the studio.
-import { FormEvent, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
+import { RowMenu } from "../../../components/RowMenu";
 import { errorMessage } from "../../../core/api";
+import { formatDateTime } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import { listPersonas } from "../personas/personasApi";
 import { useProject } from "../ProjectLayout";
 import { listActors } from "../usecases/useCasesApi";
+import { snapshotNumbers, snapshotTitle } from "./snapshots";
 import {
+  copyWireframeVersion,
   createWireframe,
   deleteWireframe,
   getWireframeExport,
@@ -27,22 +31,26 @@ import {
 
 export function WireframesPage() {
   const { project, orgId, canWrite } = useProject();
+  const navigate = useNavigate();
+  const location = useLocation();
   const data = useLoad(
     () => Promise.all([listWireframes(project.id), listPersonas(project.id), listActors(project.id)]),
     [project.id],
   );
   const [editing, setEditing] = useState<Wireframe | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [deleting, setDeleting] = useState<Wireframe | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"active" | "archived" | "all">("active");
   const [name, setName] = useState("");
   const [interfaceType, setInterfaceType] = useState<InterfaceType>("desktop");
   const [personaIds, setPersonaIds] = useState<string[]>([]);
   const [actorIds, setActorIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  // Copy JSON: which row just copied (for the "Copied" flash) and any failure.
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [copyError, setCopyError] = useState<string | null>(null);
+  // Row actions outside the drawers (Copy JSON, Archive/Restore): success
+  // feedback as a toast, failures in the banner.
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   // Snapshots drawer: which wireframe's history is open, its snapshots, and
   // the snapshot awaiting restore confirmation.
   const [snapsFor, setSnapsFor] = useState<Wireframe | null>(null);
@@ -51,11 +59,34 @@ export function WireframesPage() {
   // Captured with its display title so the confirm text survives the
   // snapshot list being cleared while the drawers close.
   const [restoring, setRestoring] = useState<{ version: ProjectVersion; title: string } | null>(null);
+  // Snapshot being copied into a wireframe of its own, and the copy's name.
+  const [copying, setCopying] = useState<{ version: ProjectVersion; title: string } | null>(null);
+  const [copyName, setCopyName] = useState("");
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  // Archived wireframe awaiting delete confirmation.
+  const [deleting, setDeleting] = useState<Wireframe | null>(null);
 
   const [wireframes, personas, actors] = data.data ?? [[], [], []];
-  const personaNames = new Map(personas.map((p) => [p.id, p.name]));
-  const actorNames = new Map(actors.map((a) => [a.id, a.name]));
+  const personaNames = useMemo(() => new Map(personas.map((p) => [p.id, p.name])), [personas]);
+  const actorNames = useMemo(() => new Map(actors.map((a) => [a.id, a.name])), [actors]);
   const base = `/orgs/${orgId}/projects/${project.id}/wireframes`;
+
+  // Matches the name and the linked user type/persona names -- the columns the
+  // table shows.
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return wireframes.filter((w) => {
+      if (statusFilter !== "all" && w.status !== statusFilter) return false;
+      if (!q) return true;
+      const linked = [
+        ...w.actor_ids.map((id) => actorNames.get(id) ?? ""),
+        ...w.persona_ids.map((id) => personaNames.get(id) ?? ""),
+      ];
+      return [w.name, ...linked].some((s) => s.toLowerCase().includes(q));
+    });
+  }, [wireframes, actorNames, personaNames, query, statusFilter]);
+  const previewTarget = wireframes.find((w) => w.status !== "archived") ?? wireframes[0];
 
   const openDrawer = (w: Wireframe | null) => {
     setEditing(w);
@@ -93,15 +124,33 @@ export function WireframesPage() {
     }
   };
 
+  const toast = (msg: string) => {
+    setToastMsg(msg);
+    window.setTimeout(() => setToastMsg((cur) => (cur === msg ? null : cur)), 2200);
+  };
+
   const copyJson = async (w: Wireframe) => {
-    setCopyError(null);
+    setActionError(null);
     try {
       const doc = await getWireframeExport(project.id, w.id);
       await navigator.clipboard.writeText(JSON.stringify(doc, null, 2));
-      setCopiedId(w.id);
-      window.setTimeout(() => setCopiedId((cur) => (cur === w.id ? null : cur)), 2200);
+      toast(`Copied the JSON for "${w.name}"`);
     } catch (err) {
-      setCopyError(errorMessage(err));
+      setActionError(errorMessage(err));
+    }
+  };
+
+  // Archiving is reversible (Restore brings it back), so no confirmation. The
+  // toast matters here: with the filter on Active, an archived row vanishes.
+  const toggleArchived = async (w: Wireframe) => {
+    setActionError(null);
+    const restoring = w.status === "archived";
+    try {
+      await updateWireframe(project.id, w.id, { status: restoring ? "active" : "archived" });
+      await data.reload();
+      toast(`${restoring ? "Restored" : "Archived"} "${w.name}"`);
+    } catch (err) {
+      setActionError(errorMessage(err));
     }
   };
 
@@ -124,29 +173,60 @@ export function WireframesPage() {
     setSnapsError(null);
   };
 
-  // The API returns snapshots newest first; manual ones are numbered
-  // oldest-first so they match the "v3" readout in the studio's top bar.
-  const snapNumbers = useMemo(() => {
-    const numbers = new Map<string, number>();
-    if (snaps) {
-      let n = snaps.filter((v) => v.reason === "manual").length;
-      for (const v of snaps) if (v.reason === "manual") numbers.set(v.id, n--);
-    }
-    return numbers;
-  }, [snaps]);
+  // Exiting snapshot preview comes back here asking for that wireframe's
+  // snapshots again, so the next one is a click away rather than three. The
+  // request is consumed on arrival: a reload must not reopen the drawer.
+  const reopenSnapshotsFor = (location.state as { snapshotsFor?: string } | null)?.snapshotsFor;
+  useEffect(() => {
+    const wireframe = reopenSnapshotsFor ? wireframes.find((w) => w.id === reopenSnapshotsFor) : null;
+    if (!wireframe) return;
+    navigate(location.pathname, { replace: true, state: null });
+    openSnapshots(wireframe);
+  }, [reopenSnapshotsFor, wireframes]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const snapshotTitle = (v: ProjectVersion) => {
-    if (v.reason !== "manual") return AUTO_SNAPSHOT_TITLES[v.reason] ?? "Automatic backup";
-    const number = `v${snapNumbers.get(v.id)}`;
-    return v.label ? `${number} · ${v.label}` : number;
+  const snapNumbers = useMemo(() => snapshotNumbers(snaps ?? []), [snaps]);
+  const titleOf = (v: ProjectVersion) => snapshotTitle(v, snapNumbers.get(v.id));
+
+  /** Preview one snapshot, handing over its number — the preview cannot work
+   *  it out from a single snapshot (see snapshots.ts). */
+  const previewSnapshot = (w: Wireframe, v: ProjectVersion) =>
+    navigate(`${base}/${w.id}/snapshots/${v.id}/preview`, { state: { snapshotTitle: titleOf(v) } });
+
+  const openCopy = (w: Wireframe, v: ProjectVersion) => {
+    setCopying({ version: v, title: titleOf(v) });
+    // Names are capped at 255 server-side, and this default is two of them.
+    setCopyName(`${w.name} (${titleOf(v)})`.slice(0, 255));
+    setCopyError(null);
+  };
+
+  const copySnapshot = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!snapsFor || !copying) return;
+    setCopyBusy(true);
+    setCopyError(null);
+    try {
+      const created = await copyWireframeVersion(project.id, snapsFor.id, copying.version.id, copyName.trim());
+      setCopying(null);
+      closeSnapshots();
+      await data.reload();
+      toast(`Created "${created.name}" from ${copying.title}`);
+    } catch (err) {
+      setCopyError(errorMessage(err));
+    } finally {
+      setCopyBusy(false);
+    }
   };
 
   return (
     <div className="page stack">
       <div className="page-head">
         <h1>Wireframes</h1>
-        <span className="sub">{wireframes.length} in this project</span>
         <span className="shell-spacer" />
+        {previewTarget && (
+          <Link to={`${base}/${previewTarget.id}/preview`} className="btn">
+            Preview mode
+          </Link>
+        )}
         {canWrite && (
           <button className="btn primary" onClick={() => openDrawer(null)}>
             New wireframe
@@ -154,10 +234,31 @@ export function WireframesPage() {
         )}
       </div>
 
-      {copyError && (
+      <div className="toolbar">
+        <input
+          className="input search"
+          type="search"
+          placeholder="Search by name, user type or persona"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Search wireframes"
+        />
+        <select
+          className="select"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as "active" | "archived" | "all")}
+          aria-label="Filter by status"
+        >
+          <option value="active">Active</option>
+          <option value="archived">Archived</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+
+      {actionError && (
         <div className="status-banner warn">
-          {copyError}{" "}
-          <button className="btn small ghost" onClick={() => setCopyError(null)}>
+          {actionError}{" "}
+          <button className="btn small ghost" onClick={() => setActionError(null)}>
             Dismiss
           </button>
         </div>
@@ -172,6 +273,8 @@ export function WireframesPage() {
           <div className="empty">
             <b>No wireframes yet.</b> {canWrite ? "Create one to start laying out screens." : "Nothing here yet."}
           </div>
+        ) : visible.length === 0 ? (
+          <div className="empty">No wireframes match the current search and filter.</div>
         ) : (
           <table className="data-table">
             <thead>
@@ -180,12 +283,13 @@ export function WireframesPage() {
                 <th>User types</th>
                 <th>Personas</th>
                 <th>Interface</th>
+                <th>Status</th>
                 <th>Updated</th>
-                <th />
+                <th className="actions">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {wireframes.map((w) => (
+              {visible.map((w) => (
                 <tr key={w.id}>
                   <td>
                     <Link to={`${base}/${w.id}`}>{w.name}</Link>
@@ -199,27 +303,37 @@ export function WireframesPage() {
                   <td>
                     <span className="badge accent">{interfaceLabel(w.interface_type)}</span>
                   </td>
+                  <td>
+                    <span className={w.status === "archived" ? "badge" : "badge good"}>
+                      {w.status === "archived" ? "Archived" : "Active"}
+                    </span>
+                  </td>
                   <td className="muted">{new Date(w.updated_at).toLocaleDateString()}</td>
                   <td className="actions">
-                    <Link to={`${base}/${w.id}`} className="btn small">
-                      Open
-                    </Link>{" "}
-                    <button className="btn small ghost" onClick={() => void copyJson(w)}>
-                      {copiedId === w.id ? "Copied" : "Copy JSON"}
-                    </button>{" "}
-                    <button className="btn small ghost" onClick={() => openSnapshots(w)}>
-                      Snapshots
-                    </button>{" "}
-                    {canWrite && (
-                      <>
-                        <button className="btn small ghost" onClick={() => openDrawer(w)}>
-                          Edit
-                        </button>{" "}
-                        <button className="btn small ghost" onClick={() => setDeleting(w)}>
-                          Delete
-                        </button>
-                      </>
-                    )}
+                    <RowMenu
+                      label={`Actions for ${w.name}`}
+                      items={[
+                        { label: "Open", onSelect: () => navigate(`${base}/${w.id}`) },
+                        { label: "Preview", onSelect: () => navigate(`${base}/${w.id}/preview`) },
+                        { label: "Copy JSON", onSelect: () => void copyJson(w) },
+                        { label: "Snapshots", onSelect: () => openSnapshots(w) },
+                        { label: "Audit log", onSelect: () => navigate(`${base}/${w.id}/audit`) },
+                        ...(canWrite
+                          ? [
+                              { label: "Edit", onSelect: () => openDrawer(w) },
+                              {
+                                label: w.status === "archived" ? "Restore" : "Archive",
+                                onSelect: () => void toggleArchived(w),
+                              },
+                              // Hard delete only once archived -- archiving is
+                              // the reversible step in front of it.
+                              ...(w.status === "archived"
+                                ? [{ label: "Delete", onSelect: () => setDeleting(w), danger: true }]
+                                : []),
+                            ]
+                          : []),
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
@@ -290,7 +404,7 @@ export function WireframesPage() {
         {formError && <div className="status-banner warn">{formError}</div>}
       </Drawer>
 
-      <Drawer open={snapsFor !== null} title="Snapshots" description={snapsFor?.name} onClose={closeSnapshots}>
+      <Drawer open={snapsFor !== null} title="Snapshots" description={snapsFor?.name} onClose={closeSnapshots} width={560}>
         {snapsError ? (
           <div className="status-banner warn">{snapsError}</div>
         ) : snaps === null ? (
@@ -305,14 +419,24 @@ export function WireframesPage() {
             {snaps.map((v) => (
               <div key={v.id} className="snapshot-row">
                 <div className="snapshot-name">
-                  <b>{snapshotTitle(v)}</b>
-                  <span className="muted">{new Date(v.created_at).toLocaleString()}</span>
+                  <b>{titleOf(v)}</b>
+                  <span className="muted">{formatDateTime(v.created_at)}</span>
                 </div>
-                {canWrite && (
-                  <button className="btn small ghost" onClick={() => setRestoring({ version: v, title: snapshotTitle(v) })}>
-                    Restore
+                <div className="snapshot-actions">
+                  <button className="btn small ghost" onClick={() => snapsFor && previewSnapshot(snapsFor, v)}>
+                    Preview
                   </button>
-                )}
+                  {canWrite && (
+                    <>
+                      <button className="btn small ghost" onClick={() => setRestoring({ version: v, title: titleOf(v) })}>
+                        Restore
+                      </button>
+                      <button className="btn small ghost" onClick={() => snapsFor && openCopy(snapsFor, v)}>
+                        New wireframe
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -337,6 +461,33 @@ export function WireframesPage() {
         </p>
       </ConfirmDrawer>
 
+      <Drawer
+        open={copying !== null}
+        title="New wireframe from snapshot"
+        description={copying?.title}
+        onClose={() => setCopying(null)}
+        onSubmit={copySnapshot}
+        footer={
+          <>
+            <button type="button" className="btn ghost" onClick={() => setCopying(null)} disabled={copyBusy}>
+              Cancel
+            </button>
+            <button className="btn primary" disabled={copyBusy || !copyName.trim()}>
+              {copyBusy ? "Creating…" : "Create wireframe"}
+            </button>
+          </>
+        }
+      >
+        <p className="confirm-body">
+          Copies the pages <b>{snapsFor?.name}</b> had when <b>{copying?.title}</b> was saved into a new wireframe. The
+          original is untouched.
+        </p>
+        <Field label="Name">
+          <input className="input" required maxLength={255} value={copyName} onChange={(e) => setCopyName(e.target.value)} />
+        </Field>
+        {copyError && <div className="status-banner warn">{copyError}</div>}
+      </Drawer>
+
       <ConfirmDrawer
         open={deleting !== null}
         title="Delete wireframe"
@@ -345,12 +496,16 @@ export function WireframesPage() {
           if (!deleting) return;
           await deleteWireframe(project.id, deleting.id);
           await data.reload();
+          toast(`Deleted "${deleting.name}"`);
         }}
       >
         <p>
-          Permanently delete <b>{deleting?.name}</b>, including all of its pages and snapshots? This cannot be undone.
+          Permanently delete <b>{deleting?.name}</b>? Its pages and snapshots are deleted with it. This cannot be
+          undone.
         </p>
       </ConfirmDrawer>
+
+      <div className={`toast${toastMsg ? " show" : ""}`}>{toastMsg}</div>
     </div>
   );
 }
@@ -358,15 +513,6 @@ export function WireframesPage() {
 export function interfaceLabel(t: InterfaceType): string {
   return INTERFACE_TYPES.find((x) => x.value === t)?.label ?? t;
 }
-
-/** The server saves these around restores/conflicts; only "manual" snapshots
- *  come from the user's own Save snapshot button. */
-const AUTO_SNAPSHOT_TITLES: Record<string, string> = {
-  before_restore: "Backup before a restore",
-  before_conflict: "Backup before a conflict",
-  before_replay: "Backup before a replay",
-  after_replay: "Backup after a replay",
-};
 
 function NameChips({ ids, names }: { ids: string[]; names: Map<string, string> }) {
   if (ids.length === 0) return <span className="muted">—</span>;

@@ -15,14 +15,19 @@ import { PageLike } from "./applyOps";
 import { byPos, posAfterLast, posAtIndex, posBetween, reposition } from "./positions";
 import { defaultElementsFor, getDefaultProps, makeElement, uid } from "./regions";
 import {
+  cmpSize,
+  DEFAULT_REGION_LABEL,
   firstRegionId,
   newRegion,
+  nodePath,
   removeRegion,
   setNodeSize,
   setRegionBg,
+  setRegionDir,
   setRegionLabel,
   splitRegion,
   SplitSide,
+  walkNodes,
 } from "./tree";
 import { ComponentNode, ElementNode, LayoutNode, LinkTarget, PageDocument, Size } from "./types";
 
@@ -179,6 +184,108 @@ export function setRegionBgAction(draft: Draft, _ctx: ActionContext, regionId: s
   setRegionBg(draft.document, regionId, bg);
 }
 
+export type RegionLayout = "row" | "col" | "free";
+
+/** One measured component box, captured when a region switches to free
+ *  layout so everything stays exactly where it was rendered. */
+export interface FreeStamp {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Change a region's layout. Switching TO free freezes each component at
+ *  its measured place and size (the `stamps`); switching back to a stack
+ *  drops the offsets (order takes over again) but keeps any sizes. One
+ *  commit either way, so the whole switch is a single undo step. */
+export function setRegionDirAction(draft: Draft, _ctx: ActionContext, regionId: string, dir: RegionLayout, stamps?: FreeStamp[]): void {
+  if (!setRegionDir(draft.document, regionId, dir)) return;
+  const list = draft.document.regions[regionId] ?? [];
+  if (dir === "free") {
+    for (const stamp of stamps ?? []) {
+      const cmp = list.find((c) => c.id === stamp.id);
+      if (!cmp) continue;
+      const props = ensureProps(cmp);
+      props.x = Math.max(0, Math.round(stamp.x));
+      props.y = Math.max(0, Math.round(stamp.y));
+      props.w = Math.max(CMP_MIN_W, Math.round(stamp.w));
+      props.h = Math.max(CMP_MIN_H, Math.round(stamp.h));
+      if (props.size === "fill") delete props.size;
+    }
+  } else {
+    for (const cmp of list) {
+      if (!cmp.props) continue;
+      delete cmp.props.x;
+      delete cmp.props.y;
+      if (!Object.keys(cmp.props).length) delete cmp.props;
+    }
+  }
+}
+
+/** Free placement inside a region; one call per completed drag. `grow`
+ *  carries fixed-node bumps for a region edge the move pushed past. `stamp`
+ *  freezes a measured size onto axes that have none yet — moving a floating
+ *  canvas that still covers its whole region must not leave its far edges
+ *  pinned to the region's. */
+export function setComponentPosition(
+  draft: Draft,
+  _ctx: ActionContext,
+  id: string,
+  x: number,
+  y: number,
+  grow: { id: string; size: Size }[] = [],
+  stamp: { w: number; h: number } | null = null,
+): ActionResult | void {
+  const cmp = cmpById(draft, id);
+  if (!cmp) return;
+  const props = ensureProps(cmp);
+  props.x = Math.max(0, Math.round(x));
+  props.y = Math.max(0, Math.round(y));
+  if (stamp) {
+    if (props.w == null) props.w = Math.max(CMP_MIN_W, Math.round(stamp.w));
+    if (props.h == null) props.h = Math.max(CMP_MIN_H, Math.round(stamp.h));
+  }
+  for (const change of grow) setNodeSize(draft.document, change.id, change.size);
+  return { selectCmpId: id };
+}
+
+/** Float a component over its region (or drop it back into the flow) — the
+ *  generic form of the canvas's "float" layout, so components can stack on
+ *  top of each other in any region. Enabling freezes the measured box (the
+ *  `stamp`) so the component lifts exactly where it sat; disabling drops the
+ *  offsets (flow order takes over again) but keeps any sizes, mirroring the
+ *  free-layout switch. A canvas floats through its own layout instead. */
+export function setComponentFloat(
+  draft: Draft,
+  _ctx: ActionContext,
+  id: string,
+  floating: boolean,
+  stamp: FreeStamp | null = null,
+): ActionResult | void {
+  const cmp = cmpById(draft, id);
+  if (!cmp || cmp.type === "canvas") return;
+  if (floating) {
+    const props = ensureProps(cmp);
+    props.float = true;
+    if (stamp) {
+      props.x = Math.max(0, Math.round(stamp.x));
+      props.y = Math.max(0, Math.round(stamp.y));
+      if (cmpSize(cmp).w == null) props.w = Math.max(CMP_MIN_W, Math.round(stamp.w));
+      if (cmpSize(cmp).h == null) props.h = Math.max(CMP_MIN_H, Math.round(stamp.h));
+    }
+    // A float owns its own box; region-fill would fight the stamped height.
+    if (props.size === "fill") delete props.size;
+  } else if (cmp.props) {
+    delete cmp.props.float;
+    delete cmp.props.x;
+    delete cmp.props.y;
+    if (!Object.keys(cmp.props).length) delete cmp.props;
+  }
+  return { selectCmpId: id };
+}
+
 /** Apply divider-drag or inspector size changes; one commit per gesture. */
 export function resizeNodes(draft: Draft, _ctx: ActionContext, changes: { id: string; size: Size }[]): void {
   for (const change of changes) setNodeSize(draft.document, change.id, change.size);
@@ -264,6 +371,8 @@ export function appendComponent(
   regionId: string | null = null,
   atIndex: number | null = null,
   customId: string | null = null,
+  /** Drop point inside a free-layout region: the component lands there. */
+  at: { x: number; y: number } | null = null,
 ): ActionResult | void {
   const seed = asSeed(seedIn);
   const def = seed.type === "custom" && customId ? ctx.customComponents.find((d) => d.id === customId) : null;
@@ -275,6 +384,11 @@ export function appendComponent(
     component.customId = created.id;
     component.label = created.name;
     result.newDef = created;
+  }
+  if (at) {
+    const props = ensureProps(component);
+    props.x = Math.max(0, Math.round(at.x));
+    props.y = Math.max(0, Math.round(at.y));
   }
   insertAt(regionList(draft.document, regionId), atIndex, component);
   return result;
@@ -312,12 +426,23 @@ export function reorderById(draft: Draft, _ctx: ActionContext, srcId: string, ta
   insertAt(target.list, before ? target.index : target.index + 1, item);
 }
 
-export function moveToRegion(draft: Draft, _ctx: ActionContext, srcId: string, regionId: string): void {
+export function moveToRegion(
+  draft: Draft,
+  _ctx: ActionContext,
+  srcId: string,
+  regionId: string,
+  at: { x: number; y: number } | null = null,
+): void {
   const doc = draft.document;
   if (!(regionId in doc.regions)) return;
   const src = locateCmp(doc, srcId);
   if (!src || src.region === regionId) return;
   const [item] = src.list.splice(src.index, 1);
+  if (at) {
+    const props = ensureProps(item);
+    props.x = Math.max(0, Math.round(at.x));
+    props.y = Math.max(0, Math.round(at.y));
+  }
   const list = doc.regions[regionId];
   item.pos = posAfterLast(list);
   list.push(item);
@@ -369,6 +494,83 @@ export function setComponentLayout(draft: Draft, _ctx: ActionContext, id: string
   if (!cmp || !COMPONENTS[cmp.type]?.layouts.some((l) => l.id === layout)) return;
   cmp.layout = layout;
   return { selectCmpId: id };
+}
+
+const CMP_MIN_W = 40;
+const CMP_MIN_H = 24;
+
+/** Resize a component inside its region (edge/corner drag); one call per
+ *  completed gesture. Omitted axes keep their value; null clears one back to
+ *  natural sizing. `grow` carries the layout-node bumps for a fixed-px
+ *  region the new size no longer fits — the region expands with the
+ *  component in the same undo step instead of clipping it. */
+export function setComponentSize(
+  draft: Draft,
+  _ctx: ActionContext,
+  id: string,
+  size: { w?: number | null; h?: number | null },
+  grow: { id: string; size: Size }[] = [],
+): ActionResult | void {
+  const cmp = cmpById(draft, id);
+  if (!cmp) return;
+  const props = ensureProps(cmp);
+  if (size.w !== undefined) {
+    if (size.w == null) delete props.w;
+    else props.w = Math.max(CMP_MIN_W, Math.round(size.w));
+  }
+  if (size.h !== undefined) {
+    if (size.h == null) delete props.h;
+    else {
+      props.h = Math.max(CMP_MIN_H, Math.round(size.h));
+      // A fixed height replaces "fill region" — the two cannot both hold.
+      if (props.size === "fill") delete props.size;
+    }
+  }
+  if (!Object.keys(props).length) delete cmp.props;
+  for (const change of grow) setNodeSize(draft.document, change.id, change.size);
+  return { selectCmpId: id };
+}
+
+/** A size set without the canvas's measured grow list (the Inspector's pixel
+ *  fields): a fixed-px ancestor along `axis` would clip the component, so
+ *  bump the nearest one below the new size — the region expands with the
+ *  component here too. Flexible ancestors grow (or widen the device via
+ *  fixedWidthDemand) on their own. */
+function growFixedFor(doc: PageDocument, cmpId: string, axis: "row" | "col", px: number): void {
+  const loc = locateCmp(doc, cmpId);
+  const path = loc ? nodePath(doc.root, loc.region) : null;
+  if (!path) return;
+  for (let i = path.length - 1; i > 0; i--) {
+    const parent = path[i - 1];
+    if (parent.kind === "split" && parent.dir === axis && typeof path[i].size === "number") {
+      if ((path[i].size as number) < px) path[i].size = px;
+      return;
+    }
+  }
+}
+
+/** Inspector height mode: hug content, fill the region, or a fixed px. */
+export function setComponentHeight(draft: Draft, _ctx: ActionContext, id: string, mode: "hug" | "fill" | number): ActionResult | void {
+  const cmp = cmpById(draft, id);
+  if (!cmp) return;
+  const props = ensureProps(cmp);
+  delete props.h;
+  delete props.size;
+  if (mode === "fill") props.size = "fill";
+  else if (typeof mode === "number") {
+    const h = Math.max(CMP_MIN_H, Math.round(mode));
+    props.h = h;
+    growFixedFor(draft.document, id, "col", h);
+  }
+  if (!Object.keys(props).length) delete cmp.props;
+  return { selectCmpId: id };
+}
+
+/** Inspector width: a fixed px, or null to fit the region again. */
+export function setComponentWidth(draft: Draft, _ctx: ActionContext, id: string, w: number | null): ActionResult | void {
+  const result = setComponentSize(draft, _ctx, id, { w });
+  if (w != null) growFixedFor(draft.document, id, "row", Math.max(CMP_MIN_W, Math.round(w)));
+  return result;
 }
 
 // ── Elements ────────────────────────────────────────────────────────────────
@@ -461,13 +663,25 @@ export function reorderElement(
   return { selectElement: { cmpId, key: elKey(srcId), index: null } };
 }
 
-export function moveElement(draft: Draft, _ctx: ActionContext, cmpId: string, elementId: string, delta: -1 | 1): void {
+/** Step the element one place earlier/later, or jump it to either end of its
+ *  component's order. Canvas children paint in pos order, so on a canvas
+ *  "front" (last) overlays every sibling and "back" (first) sits under them. */
+export function moveElement(
+  draft: Draft,
+  _ctx: ActionContext,
+  cmpId: string,
+  elementId: string,
+  delta: -1 | 1 | "front" | "back",
+): void {
   const cmp = cmpById(draft, cmpId);
   if (!cmp?.elements) return;
   const sorted = byPos(cmp.elements);
   const index = sorted.findIndex((e) => e.id === elementId);
-  const j = index + delta;
-  if (index < 0 || j < 0 || j >= sorted.length) return;
+  if (index < 0) return;
+  const j = delta === "front" ? sorted.length - 1 : delta === "back" ? 0 : index + delta;
+  // Already at the destination: don't churn pos (a fresh pos would still
+  // diff into an op and pollute undo history).
+  if (j === index || j < 0 || j >= sorted.length) return;
   const el = cmp.elements.find((e) => e.id === elementId)!;
   const rest = sorted.filter((e) => e.id !== elementId);
   el.pos = posAtIndex(rest, j);
@@ -558,6 +772,54 @@ export function elementValue(cmp: ComponentNode, key: string, index: number | nu
   return v == null ? "" : String(v);
 }
 
+/** What a component is called on the canvas: the text of its header element
+ *  when it has one, else its own label. */
+export function componentTitle(cmp: ComponentNode): string {
+  const header = cmp.elements?.find((e) => e.type === "header");
+  return (header?.label || cmp.label || "").trim();
+}
+
+/** The name the first region of a page takes when the page was created by
+ *  linking an element to it, so a region reads as the route that reaches it
+ *  rather than another anonymous "Nav".
+ *
+ *  A nav bar is the page's own chrome, so its items name the content they
+ *  reveal: "Dashboard > Content". Every other component names the region
+ *  after itself and the element that carries the link: a list called Users
+ *  with an Edit action gives "Users > Edit".
+ *
+ *  Either half is dropped when it is blank, and a page linked from nothing
+ *  nameable falls back to the plain default. */
+export function linkedRegionLabel(cmp: ComponentNode | null, elementText: string): string {
+  const element = (elementText || "").trim();
+  const owner = cmp?.type === "navbar" ? DEFAULT_REGION_LABEL : cmp ? componentTitle(cmp) : "";
+  const parts = cmp?.type === "navbar" ? [element, owner] : [owner, element];
+  return parts.filter(Boolean).join(" > ") || DEFAULT_REGION_LABEL;
+}
+
+/** Carry an element's rename through to the region a linked page was named
+ *  after — a nav item starts life as "Item", so its page's region would keep
+ *  "Item > Content" for ever otherwise. Only a region still holding the old
+ *  auto-name moves; one the user renamed by hand keeps what they typed. */
+export function relabelLinkedRegion(
+  doc: PageDocument,
+  cmp: ComponentNode | null,
+  before: string,
+  after: string,
+): boolean {
+  const was = linkedRegionLabel(cmp, before);
+  const now = linkedRegionLabel(cmp, after);
+  if (!before.trim() || was === now) return false;
+  let moved = false;
+  walkNodes(doc.root, (n) => {
+    if (!moved && n.kind === "region" && n.label === was) {
+      n.label = now;
+      moved = true;
+    }
+  });
+  return moved;
+}
+
 export function elementLink(cmp: ComponentNode, key: string, index: number | null): LinkTarget | null {
   const links = cmp.props?.links as LinksProp | undefined;
   const entry = links?.[key];
@@ -616,7 +878,10 @@ export function setElementLink(draft: Draft, _ctx: ActionContext, id: string, ke
     }
   }
   if (!Object.keys(links).length) delete props.links;
-  return { selectCmpId: id };
+  // Stay on the element: the link control lives in ITS inspector, so pulling
+  // the panel up to the parent component would close the control just used.
+  // Where the link leads is the caller's business (the studio opens it).
+  return { selectElement: { cmpId: id, key, index } };
 }
 
 export function setPropValue(draft: Draft, _ctx: ActionContext, id: string, key: string, text: string): ActionResult | void {

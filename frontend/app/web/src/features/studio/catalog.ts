@@ -12,25 +12,46 @@ import { Size } from "./model/types";
 
 // ── Representative data ─────────────────────────────────────────────────────
 
-/** What kind of data an element stands for; drives how samples render. */
+/** What kind of data an element stands for; drives how samples render.
+ *  Mirrored by the backend's DataKind literal (schemas.py) — keep in step. */
 export const DATA_KINDS = [
   "text", "number", "date", "time", "email", "phone", "currency",
   "percentage", "status", "person", "tags", "image", "boolean", "url", "actions",
 ] as const;
+export type DataKind = (typeof DATA_KINDS)[number];
 
 /** One editable slot of an element's representative data. `logo` is a
  *  built-in icon picker + image upload (stored as an icon name, a data URL,
- *  or "none"); `image` is a plain image upload (stored as a data URL); the
- *  Inspector renders both specially. */
+ *  or "none"); `image` is a plain image upload (stored as a data URL);
+ *  `dataset` binds the element to a reusable value list (stored as the
+ *  dataset's id) — the Inspector renders all three specially. */
 export interface DataFieldMeta {
   key: string;
   label: string;
-  kind: "text" | "select" | "logo" | "image";
+  kind: "text" | "select" | "logo" | "image" | "dataset";
   options?: readonly string[];
+  /** dataset fields only: the manual text field this binding replaces
+   *  (hidden in the Inspector while a dataset is chosen). */
+  supersedes?: string;
 }
 
 /** The built-in logo marks a brand element can use (drawn in Schematic). */
 export const LOGO_ICONS = ["bolt", "spark", "leaf", "cube", "ring", "wave", "peak", "heart"] as const;
+
+/** The icon marks a nav item can carry (as `data.icon`) when its nav bar's
+ *  shape is Icons; `data.icon` may instead hold an uploaded image (a data
+ *  URL), and unset keeps the placeholder square. Drawn in
+ *  components/icons.tsx, whose record must cover exactly these names. */
+export const NAV_ICONS = [
+  "home", "dashboard", "folder", "document", "calendar", "inbox",
+  "user", "users", "chat", "mail", "phone", "bell",
+  "search", "chart", "database", "layers", "globe", "pin",
+  "star", "heart", "flag", "tag", "clock", "camera",
+  "image", "cart", "card", "briefcase", "building", "book",
+  "clipboard", "bookmark", "cloud", "download", "lock", "key",
+  "shield", "settings", "help",
+] as const;
+export type NavIcon = (typeof NAV_ICONS)[number];
 
 /** Web-safe font choices for the style controls (regions/components/elements
  *  store the id; renderers resolve it to a stack via fontStack). */
@@ -55,6 +76,14 @@ export function navAlign(el: { type: string; data?: Record<string, string> }): N
   return NAV_TRAILING_TYPES.has(el.type) ? "right" : "left";
 }
 
+/** Corner treatments a shapeable element offers (stored as `data.shape`;
+ *  unset keeps the widget's own default). Rendered as `el-shape-*` classes. */
+export const EL_SHAPE_OPTIONS = ["square", "rounded", "pill"] as const;
+
+/** Fill treatments a fillable element offers (stored as `data.fill`; unset
+ *  keeps the widget's own default). Rendered as `el-fill-*` classes. */
+export const EL_FILL_OPTIONS = ["filled", "outline", "ghost"] as const;
+
 export interface ElementTypeMeta {
   type: string;
   label: string;
@@ -70,6 +99,13 @@ export interface ElementTypeMeta {
    *  with their own body (inputs, columns…) keep the element and just show
    *  a blank label. Delete / "Remove element" removes either kind. */
   blankRemoves?: boolean;
+  /** Offers the corner-shape control (EL_SHAPE_OPTIONS via `data.shape`). */
+  shapeable?: boolean;
+  /** Offers the fill control (EL_FILL_OPTIONS via `data.fill`). */
+  fillable?: boolean;
+  /** Fill rendered when `data.fill` is unset — this widget's own default.
+   *  Absent means the base CSS look; an explicit `data.fill` always wins. */
+  defaultFill?: (typeof EL_FILL_OPTIONS)[number];
 }
 
 // ── Element vocabularies ────────────────────────────────────────────────────
@@ -84,16 +120,17 @@ const BRAND = el({
 });
 const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item", blankRemoves: true });
 const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
-const SEARCH = el({ type: "search", label: "Search box", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1 });
+const SEARCH = el({ type: "search", label: "Search box", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1, shapeable: true, fillable: true, defaultFill: "outline" });
 const BUTTON = el({
   type: "button", label: "Button", desc: "Action button", icon: "BT",
   dataFields: [{ key: "style", label: "Style", kind: "select", options: ["primary", "secondary", "danger"] }],
   defaultLabel: "Action", defaultData: { style: "primary" }, blankRemoves: true,
+  shapeable: true, fillable: true,
 });
 const AVATAR = el({
   type: "avatar", label: "Avatar / user", desc: "Signed-in user; the text is the initials", icon: "AV",
   dataFields: [{ key: "name", label: "Name", kind: "text" }, { key: "role", label: "Role", kind: "text" }],
-  defaultLabel: "AL", defaultData: { name: "Ada Lovelace", role: "Administrator" }, max: 1,
+  defaultLabel: "AL", defaultData: { name: "Ada Lovelace", role: "Administrator" }, max: 1, shapeable: true,
 });
 const WORKSPACE = el({ type: "workspace-switcher", label: "Workspace switcher", desc: "Workspace selector", icon: "WS", dataFields: [], defaultLabel: "Acme Workspace", max: 1 });
 const DIVIDER = el({ type: "divider", label: "Divider", desc: "Separator line or spacer", icon: "—", dataFields: [], defaultLabel: "" });
@@ -111,14 +148,27 @@ const COLUMN = el({
   type: "column", label: "Column", desc: "One column / field of each record", icon: "CO",
   dataFields: [
     { key: "kind", label: "Data kind", kind: "select", options: DATA_KINDS },
+    { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "samples" },
     { key: "samples", label: "Sample values", kind: "text" },
   ],
   defaultLabel: "Column", defaultData: { kind: "text" },
 });
 const COLUMN_HEADER = el({ type: "column-header", label: "Column header", desc: "The header row; remove it for a headerless table", icon: "CH", dataFields: [], defaultLabel: "", max: 1 });
-const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit", blankRemoves: true });
+const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit", blankRemoves: true, shapeable: true, fillable: true });
 const SELECT_COLUMN = el({ type: "select-column", label: "Select column", desc: "Bulk-select checkboxes", icon: "☑", dataFields: [], defaultLabel: "", max: 1 });
-const FILTER = el({ type: "filter", label: "Filter chip", desc: "The field this list filters by", icon: "FL", dataFields: [], defaultLabel: "Filter", blankRemoves: true });
+/** The field a list filters by. Bind it to a dataset (or type options) and the
+ *  chip becomes a real dropdown showing the chosen value; left unbound it stays
+ *  the plain label chip it has always been. */
+const FILTER = el({
+  type: "filter", label: "Filter chip", desc: "The field this list filters by", icon: "FL",
+  dataFields: [
+    { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "options" },
+    { key: "options", label: "Options", kind: "text" },
+    // Set by picking from the expanded menu on the canvas; blank = unselected.
+    { key: "selected", label: "Selected", kind: "text" },
+  ],
+  defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+});
 const PAGINATION = el({
   type: "pagination", label: "Pagination", desc: "Page controls", icon: "PG",
   dataFields: [{ key: "pageSize", label: "Page size", kind: "text" }],
@@ -131,16 +181,22 @@ const TEXT_INPUT = el({
     { key: "kind", label: "Data kind", kind: "select", options: ["text", "email", "number", "password", "phone", "url"] },
     { key: "placeholder", label: "Placeholder", kind: "text" },
   ],
-  defaultLabel: "Field", defaultData: { kind: "text" },
+  defaultLabel: "Field", defaultData: { kind: "text" }, shapeable: true, fillable: true, defaultFill: "outline",
 });
 const TEXT_AREA = el({
   type: "text-area", label: "Text area", desc: "Multi-line input", icon: "TA",
   dataFields: [{ key: "placeholder", label: "Placeholder", kind: "text" }], defaultLabel: "Notes",
+  shapeable: true, fillable: true, defaultFill: "outline",
 });
 const SELECT = el({
-  type: "select", label: "Select", desc: "Dropdown choice", icon: "SL",
-  dataFields: [{ key: "options", label: "Options", kind: "text" }],
-  defaultLabel: "Choice", defaultData: { options: "Option A, Option B" },
+  type: "select", label: "Dropdown", desc: "Choice from a list", icon: "DD",
+  dataFields: [
+    { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "options" },
+    { key: "options", label: "Options", kind: "text" },
+    // Set by picking from the expanded menu on the canvas; blank = unselected.
+    { key: "selected", label: "Selected", kind: "text" },
+  ],
+  defaultLabel: "Choice", defaultData: { options: "Option A, Option B" }, shapeable: true, fillable: true, defaultFill: "outline",
 });
 const RADIO_GROUP = el({
   type: "radio-group", label: "Radio group", desc: "One-of-many choice", icon: "RG",
@@ -149,10 +205,10 @@ const RADIO_GROUP = el({
 });
 const CHECKBOX = el({ type: "checkbox", label: "Checkbox", desc: "On/off tick", icon: "CB", dataFields: [], defaultLabel: "Option" });
 const TOGGLE = el({ type: "toggle", label: "Toggle", desc: "On/off switch", icon: "TG", dataFields: [], defaultLabel: "Enabled" });
-const DATE_PICKER = el({ type: "date-picker", label: "Date picker", desc: "Date input", icon: "DP", dataFields: [], defaultLabel: "Date" });
-const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment" });
+const DATE_PICKER = el({ type: "date-picker", label: "Date picker", desc: "Date input", icon: "DP", dataFields: [], defaultLabel: "Date", shapeable: true, fillable: true, defaultFill: "outline" });
+const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", shapeable: true, fillable: true, defaultFill: "outline" });
 const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
-const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", blankRemoves: true });
+const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", blankRemoves: true, shapeable: true, fillable: true });
 const HELP_TEXT = el({ type: "help-text", label: "Help text", desc: "Guidance under a field", icon: "HT", dataFields: [], defaultLabel: "Explain what to enter here.", blankRemoves: true });
 
 const SERIES = el({
@@ -174,20 +230,20 @@ const RANGE_SELECTOR = el({ type: "range-selector", label: "Range selector", des
 const STAT = el({
   type: "stat", label: "Stat tile", desc: "One metric at a glance", icon: "KP",
   dataFields: [{ key: "value", label: "Value", kind: "text" }, { key: "delta", label: "Change", kind: "text" }],
-  defaultLabel: "Metric", defaultData: { value: "12,408", delta: "+4.2%" },
+  defaultLabel: "Metric", defaultData: { value: "12,408", delta: "+4.2%" }, shapeable: true, fillable: true,
 });
 
 const HEADING = el({ type: "heading", label: "Heading", desc: "Large title text", icon: "H", dataFields: [], defaultLabel: "Heading", blankRemoves: true });
 const TEXT = el({ type: "text", label: "Text", desc: "Body copy", icon: "T", dataFields: [], defaultLabel: "Body text.", blankRemoves: true });
 const LABEL = el({ type: "label", label: "Label", desc: "Small caption text", icon: "L", dataFields: [], defaultLabel: "Label", blankRemoves: true });
-const BADGE = el({ type: "badge", label: "Badge", desc: "Status pill", icon: "B", dataFields: [], defaultLabel: "Badge", blankRemoves: true });
+const BADGE = el({ type: "badge", label: "Badge", desc: "Status pill", icon: "B", dataFields: [], defaultLabel: "Badge", blankRemoves: true, shapeable: true, fillable: true });
 const LINK = el({ type: "link", label: "Link", desc: "Text link; link it to a page", icon: "LK", dataFields: [], defaultLabel: "Link", blankRemoves: true });
 const IMAGE = el({
   type: "image", label: "Image", desc: "Picture: upload one, or a placeholder describing what appears", icon: "IM",
   dataFields: [{ key: "src", label: "Image", kind: "image" }],
-  defaultLabel: "Describe the image",
+  defaultLabel: "Describe the image", shapeable: true,
 });
-const BOX = el({ type: "box", label: "Box", desc: "Container rectangle standing in for anything", icon: "BX", dataFields: [], defaultLabel: "Area" });
+const BOX = el({ type: "box", label: "Box", desc: "Container rectangle standing in for anything", icon: "BX", dataFields: [], defaultLabel: "Area", shapeable: true, fillable: true });
 
 const EVENT = el({
   type: "event", label: "Event", desc: "A calendar entry", icon: "EV",
@@ -208,20 +264,6 @@ const CAL_LEGEND = el({
   type: "calendar-legend", label: "Legend", desc: "Names the event kinds", icon: "LG",
   dataFields: [{ key: "kinds", label: "Kinds", kind: "text" }],
   defaultLabel: "", defaultData: { kinds: "Meeting, Task, Reminder" }, max: 1,
-});
-
-const FIELD = el({
-  type: "field", label: "Field", desc: "One key → value line of the record", icon: "FD",
-  dataFields: [
-    { key: "value", label: "Value", kind: "text" },
-    { key: "kind", label: "Data kind", kind: "select", options: DATA_KINDS },
-  ],
-  defaultLabel: "Field", defaultData: { kind: "text", value: "—" },
-});
-const SECTION = el({
-  type: "section", label: "Section", desc: "Heading with body copy", icon: "SC",
-  dataFields: [{ key: "body", label: "Body", kind: "text" }],
-  defaultLabel: "Section", defaultData: { body: "Body text for this section." },
 });
 
 /** Element lists shared between hosts (the canvas hosts everything). */
@@ -292,7 +334,9 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
     defaultShape: "plain",
     layouts: [{ id: "horizontal", label: "Horizontal" }, { id: "vertical", label: "Vertical" }],
     defaultLayout: "horizontal",
-    elements: [BRAND, NAV_ITEM, GROUP_HEADING, SEARCH, BUTTON, AVATAR, WORKSPACE, DIVIDER],
+    // SELECT is the bar's dropdown: an environment/team/filter picker showing
+    // its first option as the chosen value (see Schematic's ui-nav-select).
+    elements: [BRAND, NAV_ITEM, GROUP_HEADING, SEARCH, SELECT, BUTTON, AVATAR, WORKSPACE, DIVIDER],
     defaultElements: [
       { type: "brand" },
       { type: "nav-item", label: "Overview" },
@@ -423,82 +467,6 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
       { type: "event", label: "Ship v2", data: { when: "Fri", kind: "all-day" } },
     ],
   },
-  // ── Kept components (small vocabularies) ──
-  hero: {
-    type: "hero", label: "Hero", desc: "Full-width banner or intro section", icon: "HRO",
-    shapes: [{ id: "centred", label: "Centred" }, { id: "split", label: "Split", desc: "Text beside an image" }],
-    defaultShape: "centred",
-    layouts: [],
-    elements: [HEADING, TEXT, BUTTON, IMAGE],
-    defaultElements: [
-      { type: "heading", label: "Title" },
-      { type: "text", label: "Subtitle" },
-      { type: "button", label: "Get started", data: { style: "primary" } },
-    ],
-  },
-  detail: {
-    type: "detail", label: "Detail panel", desc: "Single-record read view (key → value)", icon: "DTL",
-    shapes: [{ id: "panel", label: "Panel" }, { id: "card", label: "Card" }],
-    defaultShape: "panel",
-    layouts: [],
-    elements: [FIELD, BADGE, BUTTON],
-    defaultElements: [
-      { type: "field", label: "Status", data: { kind: "status", value: "Active" } },
-      { type: "field", label: "Email", data: { kind: "email", value: "ada@acme.io" } },
-      { type: "field", label: "Role", data: { kind: "text", value: "Administrator" } },
-      { type: "field", label: "Joined", data: { kind: "date", value: "4 Mar 2025" } },
-      { type: "button", label: "Edit", data: { style: "secondary" } },
-      { type: "button", label: "Delete", data: { style: "danger" } },
-    ],
-  },
-  empty: {
-    type: "empty", label: "Empty state", desc: "Zero-data / first-run placeholder", icon: "EMP",
-    shapes: [{ id: "default", label: "Default" }],
-    defaultShape: "default",
-    layouts: [],
-    elements: [HEADING, TEXT, BUTTON],
-    defaultElements: [
-      { type: "heading", label: "Nothing here yet" },
-      { type: "text", label: "Get started by creating your first record." },
-      { type: "button", label: "Create record", data: { style: "primary" } },
-    ],
-  },
-  main: {
-    type: "main", label: "Main content", desc: "Generic rich-text or summary area", icon: "MAI",
-    shapes: [{ id: "default", label: "Default" }],
-    defaultShape: "default",
-    layouts: [],
-    elements: [SECTION],
-    defaultElements: [
-      { type: "section", label: "Summary", data: { body: "A short summary of what this area covers, written the way it would read in the finished product." } },
-      { type: "section", label: "Highlights", data: { body: "Supporting detail sits here: the numbers, the context and the next step someone would take from this screen." } },
-      { type: "section", label: "Notes", data: { body: "Anything else worth recording — caveats, links to related records, or notes for the team." } },
-    ],
-  },
-  modal: {
-    type: "modal", label: "Modal / dialog", desc: "Overlay dialog box", icon: "MOD",
-    shapes: [{ id: "default", label: "Default" }],
-    defaultShape: "default",
-    layouts: [],
-    elements: [TEXT, BUTTON],
-    defaultElements: [
-      { type: "text", label: "Are you sure you want to continue? This action can't be undone." },
-      { type: "button", label: "Cancel", data: { style: "secondary" } },
-      { type: "button", label: "Confirm", data: { style: "primary" } },
-    ],
-  },
-  footer: {
-    type: "footer", label: "Footer", desc: "Page-level footer bar", icon: "FTR",
-    shapes: [{ id: "default", label: "Default" }],
-    defaultShape: "default",
-    layouts: [],
-    elements: [LINK],
-    defaultElements: [
-      { type: "link", label: "Privacy" },
-      { type: "link", label: "Terms" },
-      { type: "link", label: "Support" },
-    ],
-  },
 };
 
 /** Which component types host `elementType` (drop gating; several hosts is fine). */
@@ -514,6 +482,17 @@ export function elementMeta(componentType: string, elementType: string): Element
 
 export const componentMeta = (type: string): ComponentMeta | null => COMPONENTS[type] ?? null;
 
+/** Component types withdrawn from the vocabulary (2026-09-03). They have no
+ *  meta, no renderer and no migration: normalizePage drops any instance a
+ *  stored document still carries, and the `e1c4a7f2b930` migration cleared
+ *  them out of the database. Listed so the strip is one named thing rather
+ *  than a literal buried in positions.ts. */
+export const RETIRED_TYPES = new Set<string>([
+  "hero", "detail", "empty", "main", "modal", "footer",
+  // Legacy ids that folded into the above before they were withdrawn:
+  "rightpanel-detail",
+]);
+
 // ── Legacy vocabulary ───────────────────────────────────────────────────────
 // Pre-restructure types. Kept so stored documents normalise (see
 // model/migrate.ts) and unmapped strays still render a placeholder.
@@ -525,12 +504,6 @@ export const DEFAULT_LABELS: Record<string, string> = {
   graph: "Chart",
   canvas: "Canvas",
   calendar: "Calendar",
-  hero: "Hero",
-  detail: "Detail",
-  empty: "No data yet",
-  main: "Main",
-  modal: "Dialog",
-  footer: "Footer",
   "editable-component": "Editable component",
   // Legacy type ids, migrated on read:
   sidebar: "Side Nav",
@@ -547,7 +520,6 @@ export const DEFAULT_LABELS: Record<string, string> = {
   "sidenav-simple": "Side Nav",
   "sidenav-grouped": "Side Nav",
   "sidenav-workspace": "Side Nav",
-  "rightpanel-detail": "Detail Panel",
   "rightpanel-filters": "Filter Panel",
   "rightpanel-activity": "Activity Feed",
 };
@@ -610,11 +582,11 @@ const panel = (right: ComponentSeed): PatternTemplate => ({ size: 300, label: "P
 const content = (...seeds: ComponentSeed[]): PatternTemplate => ({ label: "Content", components: seeds });
 
 const navOnly = (nav: ComponentSeed): PatternTemplate => ({ dir: "col", children: [header(nav), content()] });
-const leftPanel = (side: ComponentSeed): PatternTemplate => ({ dir: "row", children: [sidebar(side), content({ type: "main" })] });
-const rightPanel = (right: ComponentSeed): PatternTemplate => ({ dir: "row", children: [content({ type: "main" }), panel(right)] });
+const leftPanel = (side: ComponentSeed): PatternTemplate => ({ dir: "row", children: [sidebar(side), content()] });
+const rightPanel = (right: ComponentSeed): PatternTemplate => ({ dir: "row", children: [content(), panel(right)] });
 const fullShell = (nav: ComponentSeed, side: ComponentSeed, right: ComponentSeed): PatternTemplate => ({
   dir: "col",
-  children: [header(nav), { dir: "row", children: [sidebar(side), content({ type: "main" }), panel(right)] }],
+  children: [header(nav), { dir: "row", children: [sidebar(side), content(), panel(right)] }],
 });
 
 const groupedSideNav = sideNav({
@@ -631,10 +603,9 @@ export const PATTERNS: Pattern[] = [
   { id: "left-panel-simple", icon: "L-S", name: "Left panel - Simple", group: "Left Panel", desc: "Content beside a simple side navigation", template: leftPanel(sideNav()) },
   { id: "left-panel-grouped", icon: "L-G", name: "Left panel - Grouped", group: "Left Panel", desc: "Content beside grouped side navigation", template: leftPanel(groupedSideNav) },
   { id: "left-panel-workspace", icon: "L-W", name: "Left panel - Workspace", group: "Left Panel", desc: "Content beside a workspace-switcher side navigation", template: leftPanel(workspaceSideNav) },
-  { id: "right-panel-detail", icon: "R-D", name: "Right panel - Detail", group: "Right Panel", desc: "Content with a right-side detail panel", template: rightPanel({ type: "detail" }) },
   { id: "right-panel-filters", icon: "R-F", name: "Right panel - Filters", group: "Right Panel", desc: "Content with a right-side filter panel", template: rightPanel(filterPanel) },
   { id: "right-panel-activity", icon: "R-A", name: "Right panel - Activity", group: "Right Panel", desc: "Content with a right-side activity feed", template: rightPanel(activityFeed) },
-  { id: "full-shell-basic", icon: "F-B", name: "Full shell - Basic nav", group: "Full Shell", desc: "Basic nav + simple left panel + detail right panel", template: fullShell(topNav(), sideNav(), { type: "detail" }) },
+  { id: "full-shell-basic", icon: "F-B", name: "Full shell - Basic nav", group: "Full Shell", desc: "Basic nav + simple left panel + activity right panel", template: fullShell(topNav(), sideNav(), activityFeed) },
   { id: "full-shell-search", icon: "F-S", name: "Full shell - Search nav", group: "Full Shell", desc: "Search nav + grouped left panel + filters right panel", template: fullShell(topNav([{ type: "search" }]), groupedSideNav, filterPanel) },
   { id: "full-shell-cta", icon: "F-C", name: "Full shell - CTA nav", group: "Full Shell", desc: "CTA nav + workspace left panel + activity right panel", template: fullShell(topNav([{ type: "button", label: "Get started" }]), workspaceSideNav, activityFeed) },
 ];

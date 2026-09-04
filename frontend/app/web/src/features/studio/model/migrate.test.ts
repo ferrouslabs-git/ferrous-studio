@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { PageLike } from "./applyOps";
 import { guessColumnKind, migrateComponent } from "./migrate";
+import { normalizePage } from "./positions";
 import { ComponentNode, LinkTarget } from "./types";
 
 const cmp = (type: string, props?: Record<string, unknown>): ComponentNode => ({
@@ -147,31 +149,26 @@ describe("migrateComponent: graph and form families", () => {
   });
 });
 
-describe("migrateComponent: kept components", () => {
-  it("detail keeps heading/status props and lifts items+values into fields", () => {
-    const c = cmp("rightpanel-detail", {
-      heading: "Ada Lovelace", status: "Active",
-      items: ["Status", "Email"], values: ["Active", "ada@acme.io"], buttons: ["Edit", "Delete"],
-    });
-    migrateComponent(c);
-    expect(c.type).toBe("detail");
-    expect(c.props?.heading).toBe("Ada Lovelace");
-    const fields = c.elements!.filter((e) => e.type === "field");
-    expect(fields[1].data).toMatchObject({ value: "ada@acme.io", kind: "email" });
-    expect(c.elements!.find((e) => e.label === "Delete")!.data!.style).toBe("danger");
+describe("retired component types", () => {
+  const pageWith = (components: ComponentNode[]): PageLike => ({
+    name: "Users", route: "/users", pos: "a0",
+    document: { root: { kind: "region", id: "r1", size: { fr: 1 } }, regions: { r1: components } },
   });
 
-  it("hero, empty, main, modal and footer lift their props into elements", () => {
-    const h = cmp("hero", { items: ["Title", "Subtitle", "Go"] });
-    migrateComponent(h);
-    expect(types(h)).toEqual(["heading", "text", "button"]);
-    const m = cmp("main", { items: ["Summary"], bodies: ["Body."] });
-    migrateComponent(m);
-    expect(m.elements![0]).toMatchObject({ type: "section", label: "Summary", data: { body: "Body." } });
-    const f = cmp("footer", { items: ["Privacy"], copyright: "© 2026 Acme" });
-    migrateComponent(f);
-    expect(types(f)).toEqual(["link"]);
-    expect(f.props?.copyright).toBe("© 2026 Acme");
+  it("normalizePage drops every withdrawn type, its legacy ids included", () => {
+    const p = normalizePage(pageWith([
+      { id: "c1", type: "hero", label: "Hero", pos: "a0" },
+      { id: "c2", type: "list", label: "Users", pos: "a1" },
+      { id: "c3", type: "detail", label: "Detail", pos: "a2" },
+      { id: "c4", type: "rightpanel-detail", label: "Detail Panel", pos: "a3" },
+      { id: "c5", type: "footer", label: "Footer", pos: "a4" },
+    ]));
+    expect(p.document.regions.r1.map((c) => c.id)).toEqual(["c2"]);
+  });
+
+  it("leaves a document with no retired components alone", () => {
+    const p = normalizePage(pageWith([{ id: "c1", type: "form", label: "Form", pos: "a0" }]));
+    expect(p.document.regions.r1).toHaveLength(1);
   });
 });
 
@@ -250,6 +247,49 @@ describe("migrateComponent: header prop → element", () => {
     migrateComponent(c);
     expect(c.elements).toEqual([]);
     expect(c.props?.title).toBe("Stray");
+  });
+});
+
+describe("migrateComponent: dangling element links", () => {
+  const navbar = (links: Record<string, unknown>): ComponentNode => ({
+    id: "c1", type: "navbar", label: "Nav", pos: "a0", shape: "plain", layout: "horizontal",
+    elements: [{ id: "e1", type: "nav-item", label: "Overview", pos: "a0" }],
+    props: { links },
+  });
+
+  it("drops el: links without an element, keeps live and scalar ones", () => {
+    const c = navbar({
+      "el:e1": { pageId: "p1" },
+      "el:e-gone": { pageId: "p2" },
+      cancelText: { pageId: "p3" },
+    });
+    migrateComponent(c);
+    expect(c.props?.links).toEqual({ "el:e1": { pageId: "p1" }, cancelText: { pageId: "p3" } });
+  });
+
+  it("removes the links prop entirely once nothing survives", () => {
+    const c = navbar({ "el:e-gone": { pageId: "p2" } });
+    migrateComponent(c);
+    expect(c.props?.links).toBeUndefined();
+  });
+
+  it("keeps a link carried onto a header the same pass minted", () => {
+    const c: ComponentNode = {
+      id: "c1", type: "list", label: "Roadmap", pos: "a0", shape: "table", elements: [],
+      props: { title: "Roadmap", links: { title: { pageId: "p4" } } },
+    };
+    migrateComponent(c);
+    const header = c.elements!.find((e) => e.type === "header")!;
+    expect((c.props?.links as Record<string, LinkTarget>)[`el:${header.id}`]).toEqual({ pageId: "p4" });
+  });
+
+  it("never touches custom blocks", () => {
+    const c: ComponentNode = {
+      id: "c1", type: "custom", label: "Block", pos: "a0", shape: "plain",
+      props: { links: { "el:e-elsewhere": { pageId: "p5" } } },
+    };
+    migrateComponent(c);
+    expect(c.props?.links).toEqual({ "el:e-elsewhere": { pageId: "p5" } });
   });
 });
 

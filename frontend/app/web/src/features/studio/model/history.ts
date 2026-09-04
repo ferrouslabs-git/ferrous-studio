@@ -7,10 +7,12 @@
 // one per keystroke; drags commit on drop.
 //
 // The timeline is wireframe-wide, not per page: every entry remembers which
-// page it was made on, and undoing (or redoing) a step from another page
-// first navigates there, then applies the reversal once that page has
-// loaded. Only a server-side conflict invalidates history, and only for the
-// page that conflicted — its snapshots no longer describe the server state.
+// page it was made on. Undoing (or redoing) a step applies in place when
+// that page is on screen — the open page, or an ancestor shell edited
+// around a child page — and otherwise navigates there first, applying the
+// reversal once the page has loaded. Only a server-side conflict
+// invalidates history, and only for the page that conflicted — its
+// snapshots no longer describe the server state.
 import { produce } from "immer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageLike } from "./applyOps";
@@ -107,8 +109,11 @@ export class HistoryTimeline {
 }
 
 export interface PageHistory {
-  /** Mutate a draft; if anything changed, record a step and send the ops. */
+  /** Mutate a draft of the OPEN page; if anything changed, record a step and send the ops. */
   commit<R>(mutator: (draft: PageLike) => R, opts?: CommitOptions): R | undefined;
+  /** Same, but against any live record — the open page or an ancestor shell
+   *  being edited in place. The step remembers which page it belongs to. */
+  commitOn<R>(record: PageRecord, mutator: (draft: PageLike) => R, opts?: CommitOptions): R | undefined;
   undo(): void;
   redo(): void;
   canUndo: boolean;
@@ -126,6 +131,9 @@ export interface HistoryHost {
   /** Bumped by the sync layer when a page was reloaded over a conflict. */
   reset: { token: number; pageId: string | null };
   pageExists(id: string): boolean;
+  /** The live record when the page is on screen — the open page or an
+   *  ancestor shell — so a step can apply in place without navigating. */
+  getRecord(id: string): PageRecord | null;
   /** Open a page (recorded as a navigation step, like a page-picker click). */
   navigateTo(id: string): void;
 }
@@ -151,16 +159,20 @@ export function usePageHistory(page: PageRecord | null, sink: Sink, host: Histor
     [sink],
   );
 
-  const commit = useCallback(
-    <R,>(mutator: (draft: PageLike) => R, opts: CommitOptions = {}): R | undefined => {
-      const current = pageRef.current;
-      if (!current) return undefined;
+  const commitOn = useCallback(
+    <R,>(record: PageRecord, mutator: (draft: PageLike) => R, opts: CommitOptions = {}): R | undefined => {
+      // The record only NAMES the page — the commit rebases onto its live
+      // copy. A caller resuming after an await (the link-back that follows
+      // a linked page's POST) holds a render-old record; producing `next`
+      // from that would adopt a state missing every commit made since and
+      // send the regression to the server as ops.
+      const base = hostRef.current.getRecord(record.id) ?? record;
       let result: R | undefined;
-      const next = produce(current, (draft) => {
+      const next = produce(base, (draft) => {
         result = mutator(draft as PageLike);
       });
-      if (next === current) return result;
-      if (!send(current, next)) return result;
+      if (next === base) return result;
+      if (!send(base, next)) return result;
 
       const now = Date.now();
       const coalesced =
@@ -168,7 +180,7 @@ export function usePageHistory(page: PageRecord | null, sink: Sink, host: Histor
         lastKey.current?.key === opts.coalesceKey &&
         now - lastKey.current.at < COALESCE_MS &&
         timeline.current.coalesce(next);
-      if (!coalesced) timeline.current.push({ pageId: current.id, before: current, after: next });
+      if (!coalesced) timeline.current.push({ pageId: base.id, before: base, after: next });
       lastKey.current = opts.coalesceKey ? { key: opts.coalesceKey, at: now } : null;
       bump((n) => n + 1);
       return result;
@@ -176,10 +188,19 @@ export function usePageHistory(page: PageRecord | null, sink: Sink, host: Histor
     [send],
   );
 
+  const commit = useCallback(
+    <R,>(mutator: (draft: PageLike) => R, opts: CommitOptions = {}): R | undefined => {
+      const current = pageRef.current;
+      if (!current) return undefined;
+      return commitOn(current, mutator, opts);
+    },
+    [commitOn],
+  );
+
   const restore = useCallback(
     (snapshot: PageRecord) => {
-      const current = pageRef.current;
-      if (!current || current.id !== snapshot.id) return;
+      const current = hostRef.current.getRecord(snapshot.id);
+      if (!current) return;
       // Versions belong to the live row, not the snapshot.
       const target: PageRecord = { ...snapshot, version: current.version, entity_versions: current.entity_versions };
       send(current, target);
@@ -200,8 +221,9 @@ export function usePageHistory(page: PageRecord | null, sink: Sink, host: Histor
       const step = timeline.current.step(dir, hostRef.current.pageExists);
       bump((n) => n + 1);
       if (!step) return;
-      const current = pageRef.current;
-      if (current && current.id === step.pageId) {
+      // Apply in place when the step's page is on screen — the open page or
+      // an ancestor shell edited around it.
+      if (hostRef.current.getRecord(step.pageId)) {
         restore(step.target);
       } else {
         // The step was made on another page: open it, apply on arrival.
@@ -244,8 +266,8 @@ export function usePageHistory(page: PageRecord | null, sink: Sink, host: Histor
   }, [host.reset.token]);
 
   return useMemo(
-    () => ({ commit, undo, redo, canUndo: timeline.current.canUndo(), canRedo: timeline.current.canRedo() }),
+    () => ({ commit, commitOn, undo, redo, canUndo: timeline.current.canUndo(), canRedo: timeline.current.canRedo() }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [commit, undo, redo, rev],
+    [commit, commitOn, undo, redo, rev],
   );
 }

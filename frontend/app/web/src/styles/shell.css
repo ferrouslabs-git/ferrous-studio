@@ -28,7 +28,7 @@
 .sidebar-burger:hover, .sidebar-signout:hover { background: var(--mute-soft); color: var(--text); }
 .sidebar-burger { display: none; }
 
-.sidebar-scroll { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 14px; }
+.sidebar-scroll { flex: 1; overflow-y: auto; scrollbar-gutter: stable; padding: 10px 8px; display: flex; flex-direction: column; gap: 14px; }
 
 .sidebar-scope { display: flex; align-items: flex-end; gap: 6px; padding: 2px 4px 4px; }
 .sidebar-scope .sidebar-field { flex: 1; min-width: 0; }
@@ -37,6 +37,7 @@
 .sidebar-field-name { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-mute); font-weight: 600; }
 .sidebar-field .select { width: 100%; }
 .sidebar-scope-value { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-scope-select { width: 100%; font-size: 12px; padding: 4px 6px; }
 
 .sidebar-group { display: flex; flex-direction: column; gap: 2px; }
 .sidebar-group-title { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-mute); font-weight: 600; padding: 0 8px 4px; }
@@ -102,7 +103,10 @@
 .shell.is-collapsed .sidebar-group-title,
 .shell.is-collapsed .sidebar-signout,
 .shell.is-collapsed .sidebar-theme-track { display: none; }
-.shell.is-collapsed .sidebar-top { padding: 0 0 0 15px; }
+/* The full-height mark is nearly as wide as the collapsed rail, so it centres
+   in the bar rather than sitting behind a left indent. */
+.shell.is-collapsed .sidebar-top { padding: 0; }
+.shell.is-collapsed .sidebar-brand { justify-content: center; }
 .shell.is-collapsed .sidebar-item { justify-content: center; padding: 0; }
 .shell.is-collapsed .sidebar-user { justify-content: center; padding: 4px 0; }
 
@@ -129,6 +133,15 @@
 }
 .select:focus, .input:focus { outline: none; border-color: var(--accent); }
 .input { min-width: 220px; }
+
+/* File inputs: the picker button and filename are inline content, which a fixed
+   height leaves top-aligned — size the box from its content instead. */
+.input[type="file"] { height: auto; padding: 4px 8px; }
+.input[type="file"]::file-selector-button {
+  height: 22px; padding: 0 8px; margin-right: 8px;
+  background: var(--panel-2); border: 1px solid var(--border-strong); border-radius: 6px;
+  color: var(--text); font: inherit; font-size: 11px; cursor: pointer;
+}
 
 /* Search + filter strip above a list. */
 .toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
@@ -174,6 +187,16 @@
 .card.project .card-foot .when { white-space: nowrap; font-size: 11px; }
 .card.project .card-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 
+/* Versions of one project, revealed from its card. Every version is a project
+   row of its own, so each entry is an ordinary link to that project. */
+.version-list { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 4px 0 10px; }
+.version-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px;
+  border-radius: 6px; color: inherit; text-decoration: none; font-size: 12px;
+}
+.version-row:hover { background: var(--accent-soft); }
+.version-row .when { margin-left: auto; white-space: nowrap; font-size: 11px; }
+
 .section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 .section-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .section-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
@@ -183,7 +206,7 @@
 .data-table th { text-align: left; color: var(--text-mute); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .data-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .data-table tr:last-child td { border-bottom: 0; }
-.data-table td.actions { text-align: right; white-space: nowrap; }
+.data-table td.actions, .data-table th.actions { text-align: right; white-space: nowrap; }
 
 .empty { padding: 32px; text-align: center; color: var(--text-dim); font-size: 13px; }
 .empty b { color: var(--text); }
@@ -222,7 +245,7 @@
 }
 .drawer-close:hover { background: var(--mute-soft); color: var(--text); }
 .drawer-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.drawer-body { flex: 1; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.drawer-body { flex: 1; overflow-y: auto; scrollbar-gutter: stable; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
 .drawer-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--panel-2); }
 .drawer-footer .btn { height: 32px; padding: 0 14px; font-size: 12px; }
 .drawer-field { display: flex; flex-direction: column; gap: 5px; }
@@ -241,14 +264,20 @@
 .prose p:last-child { margin-bottom: 0; }
 
 .chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-.check-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+.check-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; scrollbar-gutter: stable; }
 .check-item { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
 
 .list-editor { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .list-editor-row { display: flex; gap: 6px; width: 100%; }
 .list-editor-row .input { flex: 1; min-width: 0; }
 
-.btn.danger { background: var(--warn); border-color: var(--warn); color: #fff; }
+/* Destructive actions. Solid red for confirm buttons; the ghost variant is a
+   quiet red-ink button for row-level Delete actions (notes, tasks, regions).
+   Three classes so it outranks both .btn.danger here and brand.css's
+   later-loading .btn.ghost. */
+.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn.ghost.danger { background: transparent; border-color: var(--border-strong); color: var(--bad); }
+.btn.ghost.danger:hover:not(:disabled) { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
 .confirm-body { font-size: 13px; line-height: 1.5; }
 .confirm-body p { margin: 0; }
 .badge.warn { background: rgba(224,179,65,.18); color: var(--warn); }
@@ -259,6 +288,7 @@
 .snapshot-row:last-child { border-bottom: 0; }
 .snapshot-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .snapshot-name .muted { font-size: 11px; }
+.snapshot-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 .card-grid.personas { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .persona-list { margin-top: 10px; }
@@ -276,7 +306,7 @@
 .combo.is-open .combo-toggle, .combo-toggle:hover { color: var(--text); }
 .combo-menu {
   position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20;
-  margin: 0; padding: 4px; list-style: none; max-height: 220px; overflow-y: auto;
+  margin: 0; padding: 4px; list-style: none; max-height: 220px; overflow-y: auto; scrollbar-gutter: stable;
   background: var(--panel-2); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: var(--shadow);
 }
 .combo-option { padding: 6px 8px; border-radius: 4px; font-size: 12px; color: var(--text-dim); cursor: pointer; }
@@ -312,7 +342,7 @@
 .chip { background: var(--panel); border: 1px solid var(--border); color: var(--text-dim); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
 .chip:hover { border-color: var(--border-strong); color: var(--text); }
 .chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-.usecase-canvas { overflow: auto; padding: 8px; }
+.usecase-canvas { overflow: auto; scrollbar-gutter: stable; padding: 8px; }
 .usecase-ellipse, .usecase-actor { transition: opacity .12s; }
 .is-dim { opacity: .15; }
 .usecase-ellipse, .usecase-actor { cursor: pointer; }

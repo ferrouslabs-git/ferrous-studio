@@ -1,46 +1,269 @@
-/* Public landing page. Always dark: the root carries .theme-dark (see
-   tokens.css), so it must paint its own ground rather than rely on body,
-   which still follows the visitor's stored theme. */
-.landing { min-height: 100vh; background: var(--bg); color: var(--text); color-scheme: dark; }
-.landing h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
-.landing h3 { font-size: 14px; font-weight: 600; margin: 0 0 6px; }
-.landing p { line-height: 1.6; }
-.landing section { max-width: 1040px; margin: 0 auto; padding: 48px 20px; }
-.landing section + section { border-top: 1px solid var(--border); }
+/* Public landing page. Always dark: the root carries .theme-dark, which
+   brand.css treats like [data-theme="dark"], so the brand's dark palette
+   applies whatever theme the visitor has stored for the app. The page paints
+   its own ground rather than relying on body.
 
+   Type scale, eyebrows, grid, grain, molten divider and gradient text follow
+   brand-guidelines.html; the wireframe sketches (.wf-*) deliberately do not,
+   see LandingArt.tsx. */
+
+.landing {
+  min-height: 100vh; background: var(--bg-deep); color: var(--text); color-scheme: dark;
+  font-size: 16px; line-height: 1.55; position: relative;
+  /* clip, not hidden: overflow-x hidden would make this element the scroll
+     container the sticky nav sticks to, and it never scrolls. */
+  overflow-x: clip;
+}
+/* Film grain: the brand's fixed 4.5% overlay. */
+.landing::before {
+  content: ""; position: fixed; inset: 0; z-index: 50; pointer-events: none; opacity: .045;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.landing-wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.landing-wrap.wide { max-width: 1180px; }
+
+.landing h1 { font-size: clamp(2.5rem, 4.6vw, 4rem); line-height: 1.05; letter-spacing: -.03em; font-weight: 600; margin: 0 0 1.25rem; }
+.landing h2 { font-size: clamp(1.9rem, 3.5vw, 2.75rem); line-height: 1.1; letter-spacing: -.025em; font-weight: 600; margin: 0 0 2rem; }
+.landing h3 { font-size: 1.25rem; line-height: 1.2; letter-spacing: -.01em; font-weight: 600; margin: 0 0 .6rem; }
+.landing p { margin: 0; color: var(--text-dim); max-width: 68ch; }
+.landing section { padding: 4.5rem 0; border-bottom: 1px solid var(--border); }
+
+.landing-eyebrow {
+  font-family: var(--font-mono); font-size: .6875rem; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--orange-ink); margin: 0 0 .9rem;
+}
+.landing .landing-eyebrow { color: var(--orange-ink); }
+.landing-n {
+  display: block; font-family: var(--font-mono); font-size: .75rem; letter-spacing: .12em;
+  color: var(--orange-ink); margin-bottom: .75rem;
+}
+.gradient-text {
+  background: var(--gradient-iridescent); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+
+/* ── Nav ─────────────────────────────────────────────────────────────── */
 .landing-nav {
-  height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 20px;
-  border-bottom: 1px solid var(--border);
+  height: 60px; display: flex; align-items: center; gap: 28px; padding: 0 24px;
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;
+  background: rgba(5,5,8,.82); backdrop-filter: blur(10px);
 }
-.landing-nav .btn { text-decoration: none; display: inline-flex; align-items: center; }
-
-.landing-hero { text-align: center; padding-top: 72px !important; padding-bottom: 64px !important; }
-.landing-kicker { color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin: 0 0 14px; }
-.landing-hero h1 { font-size: 36px; line-height: 1.2; font-weight: 700; margin: 0 auto 18px; max-width: 760px; }
-.landing-lead { color: var(--text-dim); font-size: 15px; max-width: 640px; margin: 0 auto 26px; }
-.landing-cta { display: flex; gap: 10px; justify-content: center; }
-.landing-cta .btn { height: 36px; padding: 0 18px; font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; }
-
-.landing-problem { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
-.landing-problem p { color: var(--text-dim); font-size: 14px; margin: 0; }
-.landing-problem em { color: var(--text); font-style: normal; font-weight: 600; }
-
-.landing-steps ol { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
-.landing-steps li p { color: var(--text-dim); font-size: 13px; margin: 0; }
-.landing-step-n { display: block; font-family: var(--mono); color: var(--accent); font-size: 12px; margin-bottom: 8px; }
-
-.landing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.landing-grid .card p { font-size: 13px; line-height: 1.55; }
-
-.landing-roadmap ul { margin: 10px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 13px; line-height: 1.8; }
-
-.landing-footer {
-  max-width: 1040px; margin: 0 auto; padding: 20px; display: flex; justify-content: space-between;
-  color: var(--text-mute); font-size: 12px; border-top: 1px solid var(--border);
+.landing-brand { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: -.01em; color: var(--text); text-decoration: none; }
+.landing-links { display: flex; gap: 22px; }
+.landing-links a {
+  font-family: var(--font-mono); font-size: .6875rem; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-dim); text-decoration: none; transition: color var(--transition);
 }
-.landing-footer a { color: var(--text-dim); }
+.landing-links a:hover { color: var(--orange-ink); }
 
-@media (max-width: 800px) {
-  .landing-problem, .landing-steps ol, .landing-grid { grid-template-columns: 1fr; }
-  .landing-hero h1 { font-size: 28px; }
+/* ── Hero ────────────────────────────────────────────────────────────── */
+.landing-hero {
+  position: relative; text-align: center; padding: 6rem 0 4rem; overflow: hidden;
+  background-image:
+    radial-gradient(60% 50% at 50% 0%, rgba(255,91,26,.14), transparent 70%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: auto, 80px 80px, 80px 80px;
+}
+.landing-hero h1 { max-width: 960px; margin-left: auto; margin-right: auto; }
+/* Centred sections: every block-level paragraph must also centre its box,
+   or the generic `.landing p` max-width leaves it hugging the left edge with
+   centred text inside. These outrank `.landing p` by specificity. */
+.landing-hero .landing-eyebrow, .landing-close .landing-eyebrow { margin: 0 auto .9rem; max-width: none; }
+.landing-hero .landing-lead { font-size: 1.2rem; line-height: 1.6; max-width: 640px; margin: 0 auto 2rem; }
+.landing-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.landing-cta .btn { height: 44px; padding: 0 22px; font-size: 12px; }
+.landing-hero .landing-caption { font-family: var(--font-mono); font-size: .6875rem; letter-spacing: .06em; color: var(--text-mute); margin: 1rem auto 0; max-width: none; }
+.landing-hero .hero-art { margin-top: 3.5rem; }
+
+/* Molten divider between the hero and the argument. */
+.landing-molten {
+  height: 2px; border: 0; margin: 0;
+  background: linear-gradient(90deg, transparent 0%, #1929B0 15%, var(--violet) 35%, var(--orange) 50%, var(--violet) 65%, #1929B0 85%, transparent 100%);
+  box-shadow: 0 0 24px var(--orange-glow-soft), 0 0 48px rgba(124,92,255,.35);
+}
+
+/* ── Card grids ──────────────────────────────────────────────────────── */
+.landing-grid { display: grid; gap: 1.25rem; }
+.landing-grid.three { grid-template-columns: repeat(3, 1fr); }
+.landing-card { padding: 1.5rem; }
+.landing-card p { font-size: .95rem; line-height: 1.55; }
+.landing-card h3 { font-size: 1.1rem; }
+
+/* ── Steps: copy and picture alternate ───────────────────────────────── */
+.landing-steps ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4rem; }
+.landing-step { display: grid; grid-template-columns: 5fr 7fr; gap: 3rem; align-items: center; }
+.landing-step:nth-child(even) .landing-step-copy { order: 2; }
+.landing-step p { font-size: 1rem; }
+.landing-step-art { min-width: 0; }
+
+/* ── Export ──────────────────────────────────────────────────────────── */
+.landing-export-grid { display: grid; grid-template-columns: 5fr 7fr; gap: 3rem; align-items: start; }
+.landing-export-copy p + p { margin-top: 1rem; }
+.landing-export-copy h3 { margin-top: 2rem; }
+.envelope-json { font-size: 12.5px; max-height: none; }
+
+/* ── Roadmap ─────────────────────────────────────────────────────────── */
+.landing-roadmap { padding: 3rem 0; }
+.landing-roadmap-note { font-size: .95rem; }
+.landing-roadmap ul { margin: 1rem 0 0; padding: 0; list-style: none; }
+.landing-roadmap li { position: relative; padding-left: 1.25rem; color: var(--text-dim); font-size: .95rem; }
+.landing-roadmap li::before { content: "\2192"; position: absolute; left: 0; color: var(--orange-ink); font-weight: 700; }
+
+/* ── Closing call to action ──────────────────────────────────────────── */
+.landing-close {
+  text-align: center; padding: 6rem 0;
+  background-image:
+    radial-gradient(50% 60% at 50% 100%, rgba(37,64,232,.16), transparent 70%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: auto, 80px 80px, 80px 80px;
+}
+.landing-close h2 { margin-bottom: 2rem; }
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+.landing-footer { padding: 2rem 0 2.5rem; color: var(--text-mute); font-size: 13px; }
+.landing-footer-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.landing-footer-links { display: flex; gap: 20px; }
+.landing-footer-links a {
+  font-family: var(--font-mono); font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-dim); text-decoration: none;
+}
+.landing-footer-links a:hover { color: var(--orange-ink); }
+.landing-legal { font-family: var(--font-mono); font-size: .6875rem; letter-spacing: .04em; color: var(--text-mute); margin-top: 1.25rem; max-width: none; }
+
+/* ── Illustrations ───────────────────────────────────────────────────── */
+/* Studio chrome around a sketch: raised surface, mono labels. */
+.art {
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; text-align: left;
+}
+.art-chrome {
+  display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px;
+  border-bottom: 1px solid var(--border); background: var(--bg-element);
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; color: var(--text-mute);
+}
+.art-crumb.on { color: var(--text); }
+.art-crumb-sep { color: var(--text-mute); }
+.art-chip {
+  font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; padding: 3px 8px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius); color: var(--text-dim);
+}
+.art-body { display: grid; grid-template-columns: 7fr 5fr; }
+/* Grid items default to min-width:auto, so a nowrap table or a <pre> would
+   widen the whole page on a narrow screen instead of clipping. */
+.art-body > *, .link-art > *, .landing-export-grid > *, .landing-step > * { min-width: 0; }
+.hero-art .wf-paper { border-radius: 0; border: 0; border-right: 1px solid var(--border); margin: 0; }
+
+/* Coloured JSON: keys quiet, strings the brand's one accent, numbers cobalt-bright. */
+.art-json {
+  margin: 0; padding: 18px 20px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
+  color: var(--text-dim); background: var(--bg-deep); overflow: hidden; white-space: pre; text-align: left;
+}
+.hero-json {
+  max-height: 480px; position: relative;
+  -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent); mask-image: linear-gradient(to bottom, #000 82%, transparent);
+}
+.j-k { color: var(--text); }
+.j-s { color: var(--orange-bright); }
+.j-n { color: #4A63FF; }
+.j-p { color: var(--text-mute); }
+.envelope-json { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: auto; }
+
+/* Wireframe: white paper, cool graphite, system type, square corners. The
+   same palette the real canvas uses (studio.css .device), by design not the
+   brand's. */
+.wf-paper {
+  --wf-ink: #1B2027; --wf-dim: #59616B; --wf-mute: #767E88; --wf-line: #D8DDE3; --wf-line-2: #B4BCC5; --wf-inset: #F5F7F9;
+  background: #fff; color: var(--wf-ink); font: 11px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  border: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0;
+}
+.wf-nav { display: flex; align-items: center; gap: 14px; height: 36px; padding: 0 14px; border-bottom: 1px solid var(--wf-line); }
+.wf-brand { font-weight: 700; margin-right: 6px; }
+.wf-item { color: var(--wf-dim); }
+.wf-item.on { color: var(--wf-ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--wf-ink); padding-bottom: 2px; }
+.wf-spacer { flex: 1; }
+.wf-avatar { width: 20px; height: 20px; border-radius: 50%; background: var(--wf-inset); border: 1px solid var(--wf-line-2); display: grid; place-items: center; font-size: 8px; font-weight: 600; color: var(--wf-dim); }
+.wf-split { display: flex; flex: 1; min-height: 0; }
+.wf-side { width: 96px; flex: 0 0 auto; border-right: 1px solid var(--wf-line); padding: 10px 0; display: flex; flex-direction: column; }
+.wf-side span { padding: 6px 14px; color: var(--wf-dim); }
+.wf-side span.on { color: var(--wf-ink); font-weight: 600; background: var(--wf-inset); box-shadow: inset 2px 0 0 var(--wf-ink); }
+.wf-main { flex: 1; min-width: 0; padding: 14px; overflow: hidden; }
+.wf-list-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.wf-h { font-size: 13px; font-weight: 700; margin-right: auto; }
+.wf-search { width: 110px; height: 22px; line-height: 20px; padding: 0 8px; border: 1px solid var(--wf-line-2); color: var(--wf-mute); background: var(--wf-inset); }
+.wf-btn { height: 22px; line-height: 22px; padding: 0 10px; background: var(--wf-ink); color: #fff; font-weight: 600; }
+.wf-table { width: 100%; border-collapse: collapse; }
+.wf-table th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--wf-mute); padding: 5px 6px; border-bottom: 1px solid var(--wf-line-2); font-weight: 600; }
+.wf-table td { padding: 6px; border-bottom: 1px solid var(--wf-line); white-space: nowrap; }
+.wf-mono { font-family: ui-monospace, Consolas, monospace; font-size: 10px; color: var(--wf-dim); }
+.wf-pill { display: inline-block; padding: 1px 7px; border: 1px solid var(--wf-line-2); border-radius: 999px; font-size: 9.5px; color: var(--wf-dim); }
+.wf-pill.done { color: var(--wf-mute); background: var(--wf-inset); }
+.wf-pill.assigned { color: var(--wf-ink); border-color: var(--wf-ink); }
+/* Editor chrome inside the sketch: selection is the one place orange appears. */
+.wf-sel { outline: 2px solid var(--orange); outline-offset: -1px; color: var(--wf-ink) !important; }
+.sk-tag {
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  background: #2A313A; color: #fff; padding: 2px 7px; border-radius: 3px;
+}
+
+/* Step 01: the split tree, as bare regions. */
+.wf-paper.sk { min-height: 240px; padding: 0; }
+.sk-region { flex: 1; display: grid; place-items: center; background: repeating-linear-gradient(135deg, transparent 0 8px, rgba(27,32,39,.035) 8px 9px); }
+.sk-region.top { flex: 0 0 56px; }
+.sk-row { display: flex; flex: 1; }
+.sk-row .sk-region:first-child { flex: 0 0 34%; }
+.sk-divider { position: relative; background: var(--wf-line-2); }
+.sk-divider.h { height: 1px; }
+.sk-divider.v { width: 1px; }
+.sk-grip { position: absolute; background: var(--orange); border-radius: 2px; box-shadow: 0 0 10px var(--orange-glow); }
+.sk-divider.h .sk-grip { left: 50%; top: -3px; width: 36px; height: 7px; margin-left: -18px; }
+.sk-divider.v .sk-grip { top: 50%; left: -3px; height: 36px; width: 7px; margin-top: -18px; }
+
+/* Step 02: a selected element and the properties it exposes. */
+.step-art { position: relative; padding: 20px; }
+.step-art .wf-paper { border: 1px solid var(--border); }
+.art-callout {
+  position: absolute; right: 12px; bottom: 12px; display: grid; grid-template-columns: auto auto; gap: 4px 12px;
+  background: #2A313A; color: #fff; padding: 10px 12px; border-radius: var(--radius); font-family: var(--font-mono); font-size: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+.art-callout-k { color: #C2C9D1; letter-spacing: .08em; text-transform: uppercase; }
+.art-callout-v { color: #fff; }
+
+/* Step 03: two pages, a link between them, a region as the target. */
+.link-art { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+.link-art .wf-paper { min-height: 200px; }
+.link-art .wf-main.outlet { display: grid; place-items: center; margin: 10px; outline: 2px dashed var(--orange); outline-offset: -2px; padding: 0; }
+.link-arrow { color: var(--orange); }
+.link-art .wf-side { width: 64px; }
+.link-art .wf-side span { padding: 5px 10px; }
+.link-art .wf-nav { gap: 10px; padding: 0 10px; }
+.link-art .wf-avatar { display: none; }
+
+/* Step 04: the parts of a project, and the one thing they become. */
+.export-art { display: flex; align-items: center; justify-content: center; gap: 28px; min-height: 240px; }
+.export-parts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.export-parts li {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--orange-ink);
+  background: var(--orange-glow-soft); border: 1px solid var(--orange-border); border-radius: var(--radius); padding: 5px 12px;
+  position: relative;
+}
+.export-parts li::after { content: ""; position: absolute; left: 100%; top: 50%; width: 28px; height: 1px; background: var(--border-strong); }
+.export-brace { font-family: var(--font-mono); font-size: 72px; font-weight: 500; line-height: 1; color: var(--text); letter-spacing: -.06em; }
+
+/* ── Small screens ───────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .landing-links { display: none; }
+  .landing-grid.three { grid-template-columns: 1fr; }
+  .landing-step, .landing-export-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+  .landing-step:nth-child(even) .landing-step-copy { order: 0; }
+  .art-body { grid-template-columns: 1fr; }
+  .hero-art .wf-paper { border-right: 0; border-bottom: 1px solid var(--border); }
+  .hero-json { max-height: 260px; }
+  .link-art { grid-template-columns: 1fr; }
+  .link-arrow { transform: rotate(90deg); justify-self: center; }
+  .landing-hero { padding-top: 4rem; }
+  .landing section { padding: 3.5rem 0; }
 }

@@ -11,8 +11,9 @@ Document shape (per page)::
     {"root": <layout node>, "regions": {region_id: [cmp, ...]}}
 
 A layout node is either a region leaf ``{"kind": "region", "id", "label"?,
-"size"}`` or a split ``{"kind": "split", "id", "dir": "row"|"col", "size",
-"children": [node, ...]}``. The tree is authoritative for which regions
+"size", "dir"?, "bg"?}`` -- ``dir: "row"`` stacks the region's components
+horizontally -- or a split ``{"kind": "split", "id", "dir": "row"|"col",
+"size", "children": [node, ...]}``. The tree is authoritative for which regions
 exist; component lists live beside it keyed by region id. Replacing the tree
 (``set`` with path ``root`` and no target) never deletes component lists --
 lists for regions the tree lost are inert and pruned by the client on its
@@ -31,13 +32,23 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from collections.abc import Iterator
 from typing import Any
 
 from .positions import key_after
 
 PAGE_KEY = "page"  # entity_versions key for the page's own columns
 LAYOUT_KEY = "layout"  # entity_versions key for the layout tree
-PAGE_SETTABLE = {"name", "route", "pos"}
+PAGE_SETTABLE = {"name", "route", "pos", "presentation"}
+
+#: Data key an element binds a dataset id to. Mirrors the two catalogue
+#: fields that use it (catalog.ts, kind "dataset"); the value is either a
+#: ``datasets`` row id or a shared ``platform_datasets`` one.
+DATASET_DATA_KEY = "dataset"
+
+# How a page opens when linked to; None is an ordinary navigate-to page.
+# "drawer" slides from the right edge, "drawer-left" from the left.
+PRESENTATIONS = {"modal", "drawer", "drawer-left"}
 
 
 @dataclass
@@ -51,6 +62,7 @@ class PageState:
     entity_versions: dict[str, int]
     version: int
     placement: dict[str, Any] | None = None
+    presentation: str | None = None
 
 
 @dataclass
@@ -87,6 +99,10 @@ def _tree_region_ids(node: Any) -> list[str]:
         return out
     node_id = node.get("id")
     return [node_id] if isinstance(node_id, str) else []
+
+
+# Public alias: annotations.py resolves annotation targets with the same walk.
+tree_region_ids = _tree_region_ids
 
 
 def _find_component(doc: dict[str, Any], cmp_id: str) -> tuple[list[dict[str, Any]], int]:
@@ -159,6 +175,7 @@ def apply_batch(state: PageState, ops: list[dict[str, Any]], base_version: int) 
         entity_versions=dict(state.entity_versions),
         version=state.version + 1,
         placement=deepcopy(state.placement),
+        presentation=state.presentation,
     )
     touched: list[str] = []
     for op in ops:
@@ -192,6 +209,8 @@ def _apply_one(state: PageState, op: dict[str, Any]) -> list[str]:
             return [LAYOUT_KEY]
         if path not in PAGE_SETTABLE:
             raise OpError(f"page fields settable via ops: {sorted(PAGE_SETTABLE)}")
+        if path == "presentation" and value is not None and value not in PRESENTATIONS:
+            raise OpError(f"presentation must be one of {sorted(PRESENTATIONS)} or null")
         setattr(state, path, value)
         return [PAGE_KEY]
 
@@ -277,6 +296,8 @@ def export_page(page_id: str, state: PageState) -> dict[str, Any]:
     out = {"id": page_id, "name": state.name, "route": state.route, "layout": embed(root)}
     if state.placement:
         out["placement"] = state.placement
+    if state.presentation:
+        out["presentation"] = state.presentation
     return out
 
 
@@ -320,10 +341,126 @@ def import_page(data: dict[str, Any]) -> dict[str, Any]:
         root = {"kind": "region", "id": "r-root", "size": {"fr": 1}}
         regions = {"r-root": []}
     placement = data.get("placement")
+    presentation = data.get("presentation")
     route = data.get("route")
     return {
         "name": str(data.get("name") or "Page"),
         "route": route if isinstance(route, str) else None,
         "placement": deepcopy(placement) if isinstance(placement, dict) else None,
+        "presentation": presentation if presentation in PRESENTATIONS else None,
         "document": {"root": root, "regions": regions},
     }
+
+
+# ── Copying a whole wireframe's pages ───────────────────────────────────────
+
+BACK_PAGE_ID = "@back"  # link sentinel: go back, not to a page (see types.ts)
+
+
+def _walk_components(layout: Any) -> Iterator[dict[str, Any]]:
+    """Every component in an export-shaped layout tree, splits included."""
+    if not isinstance(layout, dict):
+        return
+    for child in layout.get("children") or []:
+        yield from _walk_components(child)
+    for cmp in layout.get("components") or []:
+        if isinstance(cmp, dict):
+            yield cmp
+
+
+def remap_page_ids(pages: list[dict[str, Any]], mapping: dict[str, str]) -> list[dict[str, Any]]:
+    """Deep-copy export-shaped ``pages`` with every page id rewritten through
+    ``mapping``: the page's own id, a child page's ``placement.page_id`` and
+    the link targets elements carry (``props.links``).
+
+    Page ids are identity in the database, so copying a wireframe has to mint
+    new ones -- and then every reference to an old id has to follow, or the
+    copy's links would point back at the original's pages. A target missing
+    from the mapping is dropped rather than kept: it would either dangle or,
+    worse, reach across into another wireframe. The ``@back`` sentinel is not
+    a page id and always survives.
+    """
+
+    def remap_link(link: Any) -> Any:
+        if not isinstance(link, dict):
+            return None
+        page_id = link.get("pageId")
+        if page_id == BACK_PAGE_ID:
+            return dict(link)
+        new_id = mapping.get(str(page_id))
+        return None if new_id is None else {**link, "pageId": new_id}
+
+    def remap_links(props: dict[str, Any]) -> None:
+        links = props.get("links")
+        if not isinstance(links, dict):
+            return
+        for key, entry in list(links.items()):
+            if isinstance(entry, list):
+                # Index is meaning here (link N belongs to element N), so a
+                # dropped target leaves a hole rather than shifting the rest.
+                remapped = [remap_link(item) for item in entry]
+                while remapped and remapped[-1] is None:
+                    remapped.pop()
+                if remapped:
+                    links[key] = remapped
+                else:
+                    del links[key]
+            else:
+                remapped_one = remap_link(entry)
+                if remapped_one is None:
+                    del links[key]
+                else:
+                    links[key] = remapped_one
+        if not links:
+            del props["links"]
+
+    out: list[dict[str, Any]] = []
+    for data in pages:
+        if not isinstance(data, dict):
+            continue
+        page = deepcopy(data)
+        new_id = mapping.get(str(page.get("id")))
+        if new_id is None:
+            continue  # a page nothing minted an id for is not part of the copy
+        page["id"] = new_id
+        placement = page.get("placement")
+        if isinstance(placement, dict):
+            parent = mapping.get(str(placement.get("page_id")))
+            # A placement whose parent did not travel would make the page
+            # render inside the original wireframe's shell: promote it instead.
+            if parent is None:
+                page.pop("placement", None)
+            else:
+                page["placement"] = {**placement, "page_id": parent}
+        for cmp in _walk_components(page.get("layout")):
+            if isinstance(cmp.get("props"), dict):
+                remap_links(cmp["props"])
+        out.append(page)
+    return out
+
+
+def remap_dataset_ids(pages: list[dict[str, Any]], mapping: dict[str, str]) -> None:
+    """Rewrite element dataset bindings through ``mapping``, in place.
+
+    Copying a project mints new ``datasets`` rows, so an element still bound to
+    the source project's id would read another project's values. Only ids the
+    mapping names are touched: a platform dataset is shared rather than copied,
+    so its id is absent and correctly left alone -- as is a binding to a dataset
+    that no longer exists, which already renders as unbound.
+
+    Unlike ``remap_page_ids`` this mutates the pages it is given; it runs on the
+    output of that function, which has already deep-copied.
+    """
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        for cmp in _walk_components(page.get("layout")):
+            for element in cmp.get("elements") or []:
+                if not isinstance(element, dict):
+                    continue
+                data = element.get("data")
+                if not isinstance(data, dict):
+                    continue
+                new_id = mapping.get(str(data.get(DATASET_DATA_KEY)))
+                if new_id is not None:
+                    data[DATASET_DATA_KEY] = new_id

@@ -40,11 +40,14 @@ function setPath(obj: Record<string, unknown>, path: string, value: unknown): vo
   cur[parts[parts.length - 1]] = value;
 }
 
-/** Page-level fields that `set` with an empty target may change. */
+/** Page-level fields that `set` with an empty target may change.
+ *  `presentation` is optional so plain fixtures stay terse; a missing key
+ *  and null both mean "an ordinary page". */
 export interface PageFields {
   name: string;
   route: string | null;
   pos: string;
+  presentation?: "modal" | "drawer" | "drawer-left" | null;
 }
 
 export interface PageLike extends PageFields {
@@ -75,7 +78,7 @@ function applyOne(page: PageLike, op: Op): void {
         doc.root = op.value as LayoutNode;
         return;
       }
-      if (op.path === "name" || op.path === "route" || op.path === "pos") {
+      if (op.path === "name" || op.path === "route" || op.path === "pos" || op.path === "presentation") {
         (page as unknown as Record<string, unknown>)[op.path] = op.value;
         return;
       }

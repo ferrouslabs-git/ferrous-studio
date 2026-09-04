@@ -44,7 +44,24 @@ def utc_now() -> datetime:
 
 
 class Project(Base):
-    """An analysis workspace inside an organisation. Small; changes rarely."""
+    """An analysis workspace inside an organisation. Small; changes rarely.
+
+    A row is also one *version*. Versioning a project deep-copies it and
+    everything it owns into a new row, and the two then diverge independently;
+    because every child table is keyed by ``project_id`` and policed by RLS on
+    ``account_id``, a version needs no new table and no query anywhere has to
+    learn about versions. ``lineage_id`` groups the versions of one project (it
+    is the root row's own id, so a project that has never been versioned has
+    ``lineage_id == id``) and ``parent_project_id`` records which version this
+    was copied from -- an adjacency list, since versions branch into a tree
+    rather than a line. ``lineage_id`` is redundant with that chain on purpose:
+    it makes "every version of this project" one indexed read instead of a
+    recursive walk.
+
+    Do not confuse any of this with ``version`` -- the optimistic-concurrency
+    counter for ``custom_components`` -- or with ``ProjectVersion``, which is a
+    snapshot of a single wireframe.
+    """
 
     __tablename__ = "projects"
 
@@ -57,11 +74,25 @@ class Project(Base):
     status = Column(String(20), nullable=False, default="active")
     custom_components = Column(JSONB, nullable=False, default=list)
     schema_version = Column(String(10), nullable=False, default="1.0")
-    version = Column(Integer, nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=0)  # custom_components concurrency, not the version number
+    # ── Versioning ──
+    lineage_id = Column(UUID(as_uuid=True), nullable=False)
+    parent_project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    version_no = Column(Integer, nullable=False, default=1)
+    version_label = Column(String(255), nullable=True)
+    # A frozen version: readable, but writes are refused until it is unlocked.
+    locked_at = Column(DateTime, nullable=True)
+    locked_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Idempotency key of the request that created this version: a retry finds
+    # the version it already made rather than forking a second one.
+    version_key = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
-    __table_args__ = (Index("ix_projects_account_status", "account_id", "status"),)
+    __table_args__ = (
+        Index("ix_projects_account_status", "account_id", "status"),
+        Index("ix_projects_account_lineage", "account_id", "lineage_id", "version_no"),
+    )
 
 
 # ── Personas ────────────────────────────────────────────────────────────────
@@ -91,6 +122,49 @@ class Persona(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     __table_args__ = (Index("ix_personas_account_project", "account_id", "project_id"),)
+
+
+# ── Datasets ────────────────────────────────────────────────────────────────
+
+
+class Dataset(Base):
+    """A reusable list of representative values a wireframe element (a list
+    column, a dropdown) can bind to instead of typing samples by hand.
+    ``values`` is a JSONB array of short strings; ``kind`` is the data kind
+    the values stand for (the frontend catalogue's DATA_KINDS). Belongs to a
+    project, so every wireframe in it shares the list."""
+
+    __tablename__ = "datasets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    name = Column(String(255), nullable=False)
+    kind = Column(String(24), nullable=False, default="text")
+    values = Column(JSONB, nullable=False, default=list)
+    pos = Column(String(64), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (Index("ix_datasets_account_project", "account_id", "project_id"),)
+
+
+class PlatformDataset(Base):
+    """A default dataset every project on the platform can use. Managed by
+    platform admins; read-only from inside a project. Same value shape as
+    ``Dataset`` but no owning organisation, so no RLS."""
+
+    __tablename__ = "platform_datasets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String(255), nullable=False)
+    kind = Column(String(24), nullable=False, default="text")
+    values = Column(JSONB, nullable=False, default=list)
+    pos = Column(String(64), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
 
 # ── Use case model ──────────────────────────────────────────────────────────
@@ -142,7 +216,10 @@ class UseCase(Base):
 
 class Wireframe(Base):
     """One studio document: a named set of pages for an interface type,
-    representing one or more personas."""
+    representing one or more personas. ``landing_page_id`` is the page the
+    studio and preview open on; null means follow the shell's first nav link.
+    A soft reference like ``ProjectPage.placement`` (no FK): a dangling id
+    falls back to the automatic behaviour."""
 
     __tablename__ = "wireframes"
 
@@ -150,8 +227,18 @@ class Wireframe(Base):
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     account_id = Column(UUID(as_uuid=True), nullable=False)
     name = Column(String(255), nullable=False)
-    interface_type = Column(String(16), nullable=False)  # desktop | tablet | mobile
+    # desktop | tablet (portrait) | tablet_landscape | mobile (always portrait).
+    # The accepted values are also enforced by ck_wireframes_interface_type,
+    # which lives in the migrations only -- widen both when adding one.
+    interface_type = Column(String(32), nullable=False)
+    status = Column(String(20), nullable=False, default="active")  # active | archived
     pos = Column(String(64), nullable=False)
+    landing_page_id = Column(UUID(as_uuid=True), nullable=True)
+    # Per-kind counters minting annotation numbers (N-3 / T-7); bumped under
+    # the wireframe row lock so numbers are unique and never reused, even
+    # after deleting the newest annotation.
+    note_seq = Column(Integer, nullable=False, default=0)
+    task_seq = Column(Integer, nullable=False, default=0)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
@@ -191,7 +278,9 @@ class ProjectPage(Base):
     components; ``entity_versions`` maps entity id -> page version at that
     entity's last change, for per-entity conflict detection. ``placement``
     (nullable JSONB ``{"page_id", "region_id"}``) makes this a child page that
-    renders inside a region of its parent."""
+    renders inside a region of its parent. ``presentation`` ("modal" |
+    "drawer", null = ordinary page) makes every link to the page open it as an
+    overlay instead of navigating."""
 
     __tablename__ = "project_pages"
 
@@ -203,12 +292,79 @@ class ProjectPage(Base):
     route = Column(String(255), nullable=True)
     pos = Column(String(64), nullable=False)  # fractional index; ordering among the wireframe's pages
     placement = Column(JSONB, nullable=True)
+    presentation = Column(String(20), nullable=True)
     document = Column(JSONB, nullable=False, default=dict)
     entity_versions = Column(JSONB, nullable=False, default=dict)
     version = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     __table_args__ = (Index("ix_project_pages_account_wireframe", "account_id", "wireframe_id"),)
+
+
+class WireframeAnnotation(Base):
+    """A developer note or task pinned to one node (region, component or
+    element) of a wireframe page. ``page_id`` is a soft reference (no FK):
+    snapshot restore deletes and re-inserts page rows with the same ids, and
+    a CASCADE would silently destroy every annotation on each restore. ``seq``
+    is the human-facing number (N-3 / T-7), minted per wireframe per kind from
+    the counters on the wireframe row. ``resolved_at``/``resolved_by`` are the
+    task lifecycle; null means open (and always null for notes)."""
+
+    __tablename__ = "wireframe_annotations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    wireframe_id = Column(UUID(as_uuid=True), ForeignKey("wireframes.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    page_id = Column(UUID(as_uuid=True), nullable=False)
+    kind = Column(String(10), nullable=False)  # note | task
+    seq = Column(Integer, nullable=False)
+    target_kind = Column(String(10), nullable=False)  # region | cmp | element
+    target_id = Column(String(64), nullable=False)  # bare document uid, never "el:"-prefixed
+    target_cmp_id = Column(String(64), nullable=True)  # owning component; element targets only
+    target_label = Column(String(255), nullable=False, default="")  # display snapshot from creation
+    text = Column(Text, nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("wireframe_id", "kind", "seq", name="uq_wireframe_annotations_seq"),
+        Index("ix_wireframe_annotations_account_wireframe", "account_id", "wireframe_id"),
+    )
+
+
+class WireframeAuditLog(Base):
+    """One audit entry: who did what to a wireframe, when. Append-only -- the
+    single permitted mutation is the coalescing bump on a ``page_edited`` row
+    (``updated_at`` plus ``detail.batches``), which is why ``updated_at`` has
+    no ``onupdate`` hook. ``user_name``/``user_email`` snapshot the actor at
+    write time so the trail survives user deletion; ``page_id`` is a soft
+    reference so it survives page deletion and snapshot restore."""
+
+    __tablename__ = "wireframe_audit_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    # Null for project-level events (a version created, locked or unlocked),
+    # which belong to the project rather than to any one wireframe.
+    wireframe_id = Column(UUID(as_uuid=True), ForeignKey("wireframes.id", ondelete="CASCADE"), nullable=True)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_name = Column(String(255), nullable=True)
+    user_email = Column(String(255), nullable=True)
+    event = Column(String(40), nullable=False)
+    page_id = Column(UUID(as_uuid=True), nullable=True)
+    detail = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime, default=utc_now, nullable=False)  # session start; the paging cursor
+    updated_at = Column(DateTime, default=utc_now, nullable=False)  # bumped only by coalescing
+
+    __table_args__ = (
+        Index("ix_wireframe_audit_log_account_wireframe", "account_id", "wireframe_id", "created_at"),
+    )
 
 
 class ProjectVersion(Base):

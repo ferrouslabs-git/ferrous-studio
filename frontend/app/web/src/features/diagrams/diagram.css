@@ -38,7 +38,7 @@
 .diagram-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 210px 1fr 280px; }
 
 /* Palette */
-.diagram-palette { overflow-y: auto; border-right: 1px solid var(--border); background: var(--panel); padding: 8px 8px 20px; }
+.diagram-palette { overflow-y: auto; scrollbar-gutter: stable; border-right: 1px solid var(--border); background: var(--panel); padding: 8px 8px 20px; }
 .palette-group { margin-bottom: 12px; }
 .palette-title { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--text-mute); padding: 6px 4px; }
 .palette-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -64,7 +64,7 @@
 .diagram-overlay { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; pointer-events: none; }
 
 /* Inspector */
-.diagram-inspector { overflow-y: auto; border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+.diagram-inspector { overflow-y: auto; scrollbar-gutter: stable; border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
 .diagram-inspector .panel-head { padding: 10px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--text-mute); border-bottom: 1px solid var(--border); }
 .inspector-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 .inspector-empty { padding: 14px 12px; font-size: 12px; line-height: 1.5; }

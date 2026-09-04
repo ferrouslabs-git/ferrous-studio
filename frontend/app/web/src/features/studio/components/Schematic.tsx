@@ -8,13 +8,15 @@
 // into the renderer: double-click to edit; committing an empty label removes
 // pure-text elements (blankRemoves in the catalogue) while widget elements
 // keep a blank label. With no `edit` handlers everything is read-only.
-import { CSSProperties, Fragment, PointerEvent as ReactPointerEvent, ReactNode, useState } from "react";
-import { fontStack, NavAlign, navAlign } from "../catalog";
+import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
+import type { Dataset } from "../../project/datasets/datasetsApi";
+import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { byPos } from "../model/positions";
 import { getDefaultProps } from "../model/regions";
 import { ComponentNode, ElementNode, LinkTarget } from "../model/types";
 import { CustomSchematic } from "./CustomSchematic";
+import { navIconGlyph } from "./icons";
 import { EditableToken } from "./InlineEdit";
 import { ElementSel, sameElement } from "./selection";
 
@@ -27,8 +29,10 @@ export interface SchematicEdit {
   removeElement(id: string): void;
   addRow(): void;
   setListCell(row: number, columnId: string, text: string): void;
-  /** Canvas free placement; one call per completed drag. */
-  moveElementTo(id: string, x: number, y: number): void;
+  /** Canvas free placement; one call per completed drag. A multi-selection
+   *  drag moves several elements, so this takes them as one batch — one
+   *  history step, one undo. */
+  moveElementsTo(moves: readonly { id: string; x: number; y: number }[]): void;
   /** Canvas free sizing (corner drag); one call per completed drag. */
   resizeElementTo(id: string, w: number, h: number): void;
   /** Drag-and-drop reorder within this component. */
@@ -44,6 +48,20 @@ export interface SchematicChrome {
   /** The open page and its ancestor shells; a nav item linking to one of
    *  these renders as the current tab. */
   activePageIds?: readonly string[];
+  /** Element ids carrying notes / open tasks: the tokens and boxes of these
+   *  draw a small marker dot. Absent (the preview) draws none. */
+  noteEls?: ReadonlySet<string>;
+  taskEls?: ReadonlySet<string>;
+  /** The annotation target hovered in the panel: that element's dot and box
+   *  are emphasised so the row and its marker read as one thing. */
+  hotEl?: { id: string; kind: "note" | "task" | "both" } | null;
+  /** Hover reporting the other way: a marked element under the pointer. The
+   *  marker dot is far too small to be a hover target of its own, so the
+   *  WHOLE element is the hover surface. */
+  onMarkHover?: (mark: { id: string; kind: "note" | "task" | "both" } | null) => void;
+  /** Preview mode: linked elements follow on a single click, the way the
+   *  real system would, instead of the editor's double click. */
+  followOnClick?: boolean;
   onSelectElement?: (key: string, index: number | null) => void;
   onFollow(target: LinkTarget): void;
   onEditEnd?: () => void;
@@ -52,6 +70,10 @@ export interface SchematicChrome {
 interface Props {
   cmp: ComponentNode;
   defs: readonly CustomDef[];
+  /** Bindable datasets (platform defaults + the project's own): an element
+   *  whose `data.dataset` names one renders that list instead of its manual
+   *  samples/options. An unknown id falls back to the manual values. */
+  datasets?: readonly Dataset[];
   edit?: SchematicEdit;
   chrome?: SchematicChrome;
 }
@@ -93,7 +115,11 @@ const sampleFor = (kind: string | undefined, i: number): string => {
 };
 const CHART_VALUES = [42, 58, 35, 71, 49, 66, 83, 57, 72, 90, 63, 78];
 const INITIALS = ["AL", "GH", "LT", "MH", "KJ"];
-const PIE_COLOURS = ["#6aa0ff", "#58c08d", "#e0b341", "#e06060", "#a080ff", "#60c0e0", "#e0a060"];
+// Chart series read as structure, not palette: a graphite ramp, matching the
+// canvas's own monochrome document language (see the wireframe palette note in
+// studio.css). Ordered light-to-dark-blind: adjacent steps stay distinguishable
+// side by side in a pie, and the ramp still separates when printed greyscale.
+const PIE_COLOURS = ["#3D4650", "#7A8593", "#5B6673", "#99A3AE", "#2C333B", "#B4BCC5", "#C9CFD6"];
 
 const splitList = (v: string | undefined): string[] =>
   (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -107,12 +133,6 @@ const SearchIcon = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
     <circle cx="7" cy="7" r="4.5" />
     <path d="M10.5 10.5 14 14" />
-  </svg>
-);
-const InboxIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden>
-    <path d="M2 9h3.5l1 2h3l1-2H14v4H2V9Z" />
-    <path d="M4 9V3h8v6" />
   </svg>
 );
 const ImageIcon = () => (
@@ -145,7 +165,7 @@ const BRAND_MARKS: Record<string, ReactNode> = {
   heart: logoSvg(<path d="M8 13.5C4 10.5 2 8.5 2 6a3 3 0 0 1 6-.5A3 3 0 0 1 14 6c0 2.5-2 4.5-6 7.5Z" />),
 };
 
-export function Schematic({ cmp, defs, edit, chrome }: Props) {
+export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const d = getDefaultProps(cmp.type);
   const els = byPos(cmp.elements ?? []);
   const byType = (...types: string[]) => els.filter((e) => types.includes(e.type));
@@ -162,10 +182,40 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
   const [dropEl, setDropEl] = useState<string | null>(null);
   /** Live x/y override while a canvas child drag is in flight. */
   const [dragPos, setDragPos] = useState<Record<string, { x: number; y: number }>>({});
+  /** Canvas multi-selection (Ctrl/⌘+click): element ids that drag as one
+   *  group. Empty for a plain single selection; when populated it always
+   *  contains the element `chrome.selected` points at, so the sync effect
+   *  below clears it the moment selection moves elsewhere. */
+  const [multi, setMulti] = useState<readonly string[]>([]);
+  /** Swallows the click a completed canvas drag ends with, so releasing a
+   *  drag never reselects or toggles the group. */
+  const suppressClick = useRef(false);
   /** Live w/h override while a canvas child corner-resize is in flight. */
   const [dragSize, setDragSize] = useState<Record<string, { w: number; h: number }>>({});
   /** Live height override while the canvas resize handle is being dragged. */
   const [liveHeight, setLiveHeight] = useState<number | null>(null);
+  /** Dropdown whose option menu is expanded (chevron click), like a real
+   *  select. One per component; closes on outside pointerdown. */
+  const [openSelect, setOpenSelect] = useState<string | null>(null);
+  /** Ephemeral picks made by viewers (no edit handlers): the menu still works
+   *  and the face updates, it just isn't persisted. */
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!openSelect) return;
+    const close = (e: Event) => {
+      if (!(e.target as HTMLElement | null)?.closest?.("[data-select-ui]")) setOpenSelect(null);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [openSelect]);
+
+  // The group follows the single selection: once that leaves the group (a
+  // click elsewhere, another component, a deselect), the group is stale.
+  const selectedElKey = chrome?.selected?.key ?? null;
+  useEffect(() => {
+    if (multi.length && (!selectedElKey || !multi.some((id) => elKey(id) === selectedElKey))) setMulti([]);
+  }, [multi, selectedElKey]);
 
   const scalarOf = (key: string): string | undefined => {
     const v = cmp.props?.[key];
@@ -200,6 +250,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
             selected: sameElement(chrome.selected, el),
             linked: !!link,
             editing: !secondary && sameElement(chrome.editing, el),
+            followOnClick: chrome.followOnClick,
             onSelect: chrome.onSelectElement ? () => chrome.onSelectElement!(el.key, el.index) : undefined,
             onFollow: link ? () => chrome.onFollow(link) : undefined,
             onEditEnd: chrome.onEditEnd,
@@ -226,14 +277,55 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
     const fs = Number.isFinite(v) && v > 0 ? { fontSize: v } : undefined;
     return base || fs ? ({ ...base, ...fs } as CSSProperties) : undefined;
   };
+  /** Corner-shape / fill classes (data.shape, data.fill) for the token or
+   *  el-box; values are checked against the catalog's option lists so stray
+   *  document data cannot mint arbitrary class names. An unset fill falls
+   *  back to the type's `defaultFill` (input-like widgets read outline). */
+  const variantCls = (el: ElementNode): string => {
+    const shape = el.data?.shape;
+    const raw = el.data?.fill;
+    const fill =
+      raw && (EL_FILL_OPTIONS as readonly string[]).includes(raw)
+        ? raw
+        : elementMeta(cmp.type, el.type)?.defaultFill;
+    return (
+      (shape && (EL_SHAPE_OPTIONS as readonly string[]).includes(shape) ? ` el-shape-${shape}` : "") +
+      (fill ? ` el-fill-${fill}` : "")
+    );
+  };
+  /** Marker classes for an element carrying notes / open tasks; the dot
+   *  itself is drawn in CSS so tokens keep their layout. A panel row being
+   *  hovered adds the emphasis class for its target. */
+  const markCls = (el: ElementNode): string =>
+    (chrome?.noteEls?.has(el.id) ? " has-note" : "") +
+    (chrome?.taskEls?.has(el.id) ? " has-task" : "") +
+    (chrome?.hotEl && chrome.hotEl.id === el.id ? ` mark-hot-${chrome.hotEl.kind}` : "");
+  /** Hover handlers for a marked element: the whole token/box reports as its
+   *  marker (the dot itself is too small to hover). Spread alongside the
+   *  drag handlers. */
+  const markHoverProps = (el: ElementNode): Record<string, unknown> => {
+    if (!chrome?.onMarkHover) return {};
+    const hasNote = !!chrome.noteEls?.has(el.id);
+    const hasTask = !!chrome.taskEls?.has(el.id);
+    if (!hasNote && !hasTask) return {};
+    const kind = hasNote && hasTask ? "both" : hasTask ? "task" : "note";
+    return {
+      onMouseEnter: () => chrome.onMarkHover!({ id: el.id, kind }),
+      onMouseLeave: () => chrome.onMarkHover!(null),
+    };
+  };
   /** An element's label; an empty commit removes pure-text elements only
    *  (blankRemoves). Draggable to reorder within the component (elDrag). */
   const elTok = (el: ElementNode, className: string, children?: ReactNode) =>
-    tok(`${className}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), elDrag(el));
+    tok(`${className}${variantCls(el)}${markCls(el)}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), { ...elDrag(el), ...markHoverProps(el) });
   /** One slot of an element's representative data; blanking restores the
    *  sample. Carries the element's identity so a click selects it. */
   const dataTok = (el: ElementNode, key: string, sample: string, className = "") =>
     tok(className, el.data?.[key], sample, (t) => edit?.setElementData(el.id, key, t), undefined, { key: elKey(el.id), index: null }, true, fsStyle(el));
+  /** A field's label row. A blanked label removes the row outright — no "…"
+   *  recovery token, since the Inspector's Text field restores it. */
+  const fieldLabel = (el: ElementNode): ReactNode =>
+    el.label === "" ? null : <label className="ui-label">{elTok(el, "")}</label>;
 
   // ── Whole-widget selection ────────────────────────────────────────────────
   const isSelected = (el: ElementNode): boolean =>
@@ -297,17 +389,30 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
    *  selection ring sits on the box; the tokens' own rings are suppressed in
    *  CSS. Every visible part of a component goes through this (or a token),
    *  so nothing on screen is out of reach of the Inspector or Delete. */
-  const elBox = (el: ElementNode, className: string, children: ReactNode) => (
-    <div
-      key={el.id}
-      className={`el-box ${className}${isSelected(el) ? " el-sel" : ""}${dropCls(el)}`.trim()}
-      style={fsStyle(el)}
-      onClick={selectClick(el)}
-      {...elDrag(el)}
-    >
-      {children}
-    </div>
-  );
+  const elBox = (el: ElementNode, className: string, children: ReactNode) => {
+    // Preview: a linked widget (a whole button box, a search field…) is a
+    // navigation target in its own right, not just its text token.
+    const followLink = chrome?.followOnClick ? chrome.linkOf(elKey(el.id), null) : null;
+    return (
+      <div
+        key={el.id}
+        className={`el-box ${className}${variantCls(el)}${markCls(el)}${isSelected(el) ? " el-sel" : ""}${followLink ? " el-follow" : ""}${dropCls(el)}`.trim()}
+        style={fsStyle(el)}
+        onClick={
+          followLink
+            ? (e) => {
+                e.stopPropagation();
+                chrome!.onFollow(followLink);
+              }
+            : selectClick(el)
+        }
+        {...elDrag(el)}
+        {...markHoverProps(el)}
+      >
+        {children}
+      </div>
+    );
+  };
 
   /** A "+" affordance: invisible until the component (or an element in it) is selected; absent for viewers. */
   const add = (onClick: (e: SchematicEdit) => void, label: string, glyph = "+", className = "") =>
@@ -327,6 +432,12 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
     ) : null;
   const addEl = (type: string, label: string, glyph = "+", className = "") =>
     add((e) => e.addElement(type), label, glyph, className);
+  /** A component's add affordances as overlay chrome floating over its
+   *  bottom-right corner — or, for short bar components (bar = true), hanging
+   *  just below its left edge — never in the flow, so they cannot displace
+   *  the component's own elements. */
+  const addCluster = (adds: ReactNode, bar = false) =>
+    edit ? <div className={`ui-add-cluster${bar ? " bar" : ""}`}>{adds}</div> : null;
 
   const btnClass = (el: ElementNode, size = "") => {
     const style = el.data?.style;
@@ -343,6 +454,15 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
   };
   const brandTok = (el: ElementNode) => elTok(el, "ui-brand", <>{brandMark(el)}{el.label}</>);
 
+  /** A nav item's icon (Icons shape): a built-in mark, an uploaded image, or
+   *  — until one is picked in the Inspector — the placeholder square. */
+  const navIconMark = (el: ElementNode): ReactNode => {
+    const icon = el.data?.icon ?? "";
+    if (icon.startsWith("data:")) return <img className="ui-icon img" src={icon} alt="" />;
+    const mark = navIconGlyph(icon);
+    return mark ? <span className="ui-icon mark" aria-hidden>{mark}</span> : <span className="ui-icon" aria-hidden />;
+  };
+
   const searchBox = (el: ElementNode, className = "") =>
     elBox(
       el,
@@ -352,6 +472,94 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
         {elTok(el, "ui-placeholder")}
       </>,
     );
+
+  // ── Datasets and dropdown behaviour ──────────────────────────────────────
+
+  /** The dataset an element bound via `data.dataset`, if it still exists. */
+  const datasetOf = (el: ElementNode): Dataset | null => {
+    const id = el.data?.dataset;
+    return id ? datasets.find((ds) => ds.id === id) ?? null : null;
+  };
+  /** What a dropdown's menu lists: the bound dataset's values, else its
+   *  manual options. */
+  const dropdownOptions = (el: ElementNode): string[] => {
+    const ds = datasetOf(el);
+    return ds?.values.length ? ds.values : splitList(el.data?.options);
+  };
+  /** A dropdown's current value: what was picked from its expanded menu —
+   *  persisted as `data.selected` in the editor, ephemeral for viewers. It
+   *  reads as unselected ("Select…") until then. */
+  const selectedValue = (el: ElementNode): string | null => chosen[el.id] ?? el.data?.selected ?? null;
+  const pickOption = (el: ElementNode, value: string) => {
+    if (edit) edit.setElementData(el.id, "selected", value);
+    else setChosen((c) => ({ ...c, [el.id]: value }));
+    setOpenSelect(null);
+  };
+  /** The chevron as a real affordance: clicking it expands the menu, in the
+   *  editor and for viewers alike. */
+  const selectToggle = (el: ElementNode) => (
+    <button
+      type="button"
+      className="ui-select-toggle"
+      data-select-ui
+      aria-label="Toggle options"
+      aria-expanded={openSelect === el.id}
+      onClick={(e: ReactMouseEvent) => {
+        e.stopPropagation();
+        setOpenSelect((cur) => (cur === el.id ? null : el.id));
+      }}
+    >
+      <Chevron />
+    </button>
+  );
+  const selectMenu = (el: ElementNode): ReactNode => {
+    const options = dropdownOptions(el);
+    const current = selectedValue(el);
+    return (
+      <div className="ui-select-menu" role="listbox" data-select-ui>
+        {options.length === 0 ? (
+          <span className="ui-select-option none">No options</span>
+        ) : (
+          options.map((opt, i) => (
+            <button
+              type="button"
+              key={i}
+              role="option"
+              aria-selected={opt === current}
+              className={`ui-select-option${opt === current ? " on" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                pickOption(el, opt);
+              }}
+            >
+              {opt}
+            </button>
+          ))
+        )}
+      </div>
+    );
+  };
+
+  /** A list's filter chip. Given values — a bound dataset, or options typed by
+   *  hand — it behaves as a real dropdown, showing the chosen value beside its
+   *  field name; with none it stays the plain label chip it has always been, so
+   *  no existing wireframe changes appearance. `ui-filter` rather than
+   *  `ui-chip` because the chip's static ::after chevron would collide with the
+   *  interactive toggle (and with the annotation marker's own ::after). */
+  const filterChip = (el: ElementNode): ReactNode => {
+    const options = dropdownOptions(el);
+    if (options.length === 0) return elTok(el, "ui-chip");
+    return elBox(
+      el,
+      `ui-filter${openSelect === el.id ? " open" : ""}`,
+      <>
+        {elTok(el, "ui-filter-label")}
+        <span className="ui-value">{selectedValue(el) ?? options[0]}</span>
+        {selectToggle(el)}
+        {openSelect === el.id && selectMenu(el)}
+      </>,
+    );
+  };
 
   // ── Shared field/widget rendering (form, canvas, kept components) ─────────
 
@@ -382,8 +590,17 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
       case "text-area": return body("tall");
       case "date-picker": return body("date");
       case "file-upload": return body("file");
-      case "select":
-        return body("select", <><span className="ui-placeholder">{inputPlaceholder(el)}</span><Chevron /></>);
+      case "select": {
+        const value = selectedValue(el);
+        return body(
+          `select${openSelect === el.id ? " open" : ""}`,
+          <>
+            {value ? <span className="ui-value">{value}</span> : <span className="ui-placeholder">{inputPlaceholder(el)}</span>}
+            {selectToggle(el)}
+            {openSelect === el.id && selectMenu(el)}
+          </>,
+        );
+      }
       case "radio-group": {
         const options = splitList(el.data?.options);
         return (
@@ -415,7 +632,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
       case "section-heading": return <div className="ui-h3">{elTok(el, "")}</div>;
       case "step": return elTok(el, "ui-chip");
       case "search": return searchBox(el, context === "canvas" ? "" : "sm");
-      case "filter": return elTok(el, "ui-chip");
+      case "filter": return filterChip(el);
       case "row-action": return elTok(el, "ui-btn sm");
       case "image":
         // With an uploaded picture the placeholder chrome (dashed outline,
@@ -439,7 +656,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
           el,
           "ui-field",
           <>
-            {el.type === "radio-group" && <label className="ui-label">{elTok(el, "")}</label>}
+            {el.type === "radio-group" && fieldLabel(el)}
             {fieldWidget(el)}
           </>,
         );
@@ -452,7 +669,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
           el,
           "ui-field",
           <>
-            <label className="ui-label">{elTok(el, "")}</label>
+            {fieldLabel(el)}
             {fieldWidget(el)}
           </>,
         );
@@ -494,7 +711,23 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
     const avatarEl = first("avatar");
     const workspaceEl = first("workspace-switcher");
     const buttons = byType("button");
+    const selects = byType("select");
     const flow = els.filter((e) => e.type === "nav-item" || e.type === "group-heading" || e.type === "divider");
+
+    /** A dropdown in the bar. No label text: it reads "Select" until an
+     *  option is picked from its expanded menu (chevron click). */
+    const navSelect = (el: ElementNode, vert = false) => {
+      const value = selectedValue(el);
+      return elBox(
+        el,
+        `ui-nav-select${vert ? " vert" : ""}${openSelect === el.id ? " open" : ""}`,
+        <>
+          {value ? <span className="ui-nav-value">{value}</span> : <span className="ui-nav-placeholder">Select</span>}
+          {selectToggle(el)}
+          {openSelect === el.id && selectMenu(el)}
+        </>,
+      );
+    };
 
     // The item drawn as current: the one whose link target is the open page
     // (or one of its ancestor shells). With no such link, the first item
@@ -518,7 +751,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
           el,
           `ui-side-item${active ? " active" : ""}`,
           <>
-            {shape === "icons" && <span className="ui-icon" aria-hidden />}
+            {shape === "icons" && navIconMark(el)}
             <span className="ui-side-label">{el.label}</span>
           </>,
         );
@@ -548,10 +781,10 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
             )}
           {brandEl && <div className="ui-side-section">{brandTok(brandEl)}</div>}
           {searchEl && <div className="ui-side-section">{searchBox(searchEl)}</div>}
+          {selects.length > 0 && <div className="ui-side-section">{selects.map((s) => navSelect(s, true))}</div>}
           {sections.map((section, i) => (
             <div key={i} className="ui-side-section">
               {section}
-              {i === sections.length - 1 && addEl("nav-item", "Add navigation item")}
             </div>
           ))}
           {buttons.length > 0 && <div className="ui-side-section"><div className="ui-row">{buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b, "sm"))}</Fragment>)}</div></div>}
@@ -570,6 +803,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
               )}
             </div>
           )}
+          {addCluster(addEl("nav-item", "Add navigation item", "+ Item", "text"))}
         </aside>
       );
     }
@@ -591,28 +825,25 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
       return (
         <Fragment key={el.id}>
           {shape === "breadcrumb" && sepBefore && <span className="ui-crumb-sep" aria-hidden>/</span>}
-          {elTok(el, cls, shape === "icons" ? <><span className="ui-icon" aria-hidden />{el.label}</> : undefined)}
+          {elTok(el, cls, shape === "icons" ? <>{navIconMark(el)}{el.label}</> : undefined)}
         </Fragment>
       );
     };
 
     /** A run of consecutive nav items keeps its shape container (link row,
-     *  tab strip, crumb trail); the run holding the overall-last item also
-     *  carries the "+" affordance. */
-    const itemRun = (run: ElementNode[], withAdd: boolean, key: string) => {
+     *  tab strip, crumb trail). */
+    const itemRun = (run: ElementNode[], key: string) => {
       const items = run.map((el, i) => navItem(el, i > 0));
-      const addBtn = withAdd
-        ? addEl("nav-item", shape === "breadcrumb" ? "Add crumb" : shape === "tabs" ? "Add tab" : "Add link")
-        : null;
-      if (shape === "breadcrumb") return <nav key={key} className="ui-crumbs" aria-label="Breadcrumb">{items}{addBtn}</nav>;
-      if (shape === "tabs") return <div key={key} className="ui-tabs" role="tablist">{items}{addBtn}</div>;
-      return <nav key={key} className="ui-nav-links" aria-label="Primary">{items}{addBtn}</nav>;
+      if (shape === "breadcrumb") return <nav key={key} className="ui-crumbs" aria-label="Breadcrumb">{items}</nav>;
+      if (shape === "tabs") return <div key={key} className="ui-tabs" role="tablist">{items}</div>;
+      return <nav key={key} className="ui-nav-links" aria-label="Primary">{items}</nav>;
     };
 
     const piece = (el: ElementNode): ReactNode => {
       switch (el.type) {
         case "brand": return <Fragment key={el.id}>{brandTok(el)}</Fragment>;
         case "search": return <Fragment key={el.id}>{searchBox(el, "ui-nav-search")}</Fragment>;
+        case "select": return <Fragment key={el.id}>{navSelect(el)}</Fragment>;
         case "avatar": return <Fragment key={el.id}>{elTok(el, "ui-avatar")}</Fragment>;
         case "workspace-switcher":
           return elBox(
@@ -628,16 +859,15 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
       }
     };
 
-    const lastFlow = [...els].reverse().find((e) => flowTypes.has(e.type)) ?? null;
     const zones: Record<NavAlign, ElementNode[]> = { left: [], centre: [], right: [] };
     for (const el of els) zones[navAlign(el)].push(el);
 
-    const zoneBody = (list: ElementNode[], zone: NavAlign): ReactNode[] => {
+    const zoneBody = (list: ElementNode[]): ReactNode[] => {
       const out: ReactNode[] = [];
       let run: ElementNode[] = [];
       const flush = () => {
         if (!run.length) return;
-        out.push(itemRun(run, lastFlow != null && run.includes(lastFlow), `run-${run[0].id}`));
+        out.push(itemRun(run, `run-${run[0].id}`));
         run = [];
       };
       for (const el of list) {
@@ -648,16 +878,23 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
         }
       }
       flush();
-      // With no nav items anywhere the bar still offers "+" where they'd go.
-      if (!lastFlow && zone === "left") out.push(itemRun([], true, "run-empty"));
       return out;
     };
 
     return (
       <header className={`ui-nav${shape === "tabs" || shape === "breadcrumb" ? " bare" : ""}`}>
-        <div className="ui-nav-zone left">{zoneBody(zones.left, "left")}</div>
-        {zones.centre.length > 0 && <div className="ui-nav-zone centre">{zoneBody(zones.centre, "centre")}</div>}
-        <div className="ui-nav-zone right">{zoneBody(zones.right, "right")}</div>
+        <div className="ui-nav-zone left">{zoneBody(zones.left)}</div>
+        {zones.centre.length > 0 && <div className="ui-nav-zone centre">{zoneBody(zones.centre)}</div>}
+        <div className="ui-nav-zone right">{zoneBody(zones.right)}</div>
+        {addCluster(
+          addEl(
+            "nav-item",
+            shape === "breadcrumb" ? "Add crumb" : shape === "tabs" ? "Add tab" : "Add link",
+            shape === "breadcrumb" ? "+ Crumb" : shape === "tabs" ? "+ Tab" : "+ Link",
+            "text",
+          ),
+          true,
+        )}
       </header>
     );
   };
@@ -676,28 +913,37 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
 
     const cell = (col: ElementNode, ri: number, className?: string) => {
       const own = rows[ri]?.[col.id];
-      // The column's own sample values (representative data) win; the per-kind
-      // pool fills in behind them, offset per column so twins differ.
-      const samples = splitList(col.data?.samples);
+      // A bound dataset wins, then the column's own sample values, then the
+      // per-kind pool, offset per column so twins differ.
+      const ds = datasetOf(col);
+      const samples = ds?.values.length ? ds.values : splitList(col.data?.samples);
       const sample = own != null ? "" : samples.length ? samples[ri % samples.length] : sampleFor(col.data?.kind, ri + hashOf(col.id));
       const value = own ?? null;
       const shown = own ?? sample;
-      const cls = className ?? (col.data?.kind === "status" || isStatus(shown) ? `ui-badge${statusTone(shown)}` : "");
-      return tok(cls, value, sample, (t) => edit?.setListCell(ri, col.id, t));
+      const kind = ds?.kind ?? col.data?.kind;
+      const cls = className ?? (kind === "status" || isStatus(shown) ? `ui-badge${statusTone(shown)}` : "");
+      // Cells carry their column's identity as secondary tokens: a click on
+      // sample data selects the column (a headerless table still reaches the
+      // Inspector), a double click edits the cell value as before.
+      return tok(cls, value, sample, (t) => edit?.setListCell(ri, col.id, t), undefined, { key: elKey(col.id), index: null }, true, fsStyle(col));
     };
     const colOfKind = (...kinds: string[]) => columns.find((c) => kinds.includes(c.data?.kind ?? ""));
 
-    const head = edit || headerInline || filters.length > 0 || searchEl ? (
+    const head = headerInline || filters.length > 0 || searchEl ? (
       <div className="ui-card-head">
         {headerInline && elTok(headerInline, "ui-card-title")}
         <div className="ui-row">
-          {filters.map((f) => <Fragment key={f.id}>{elTok(f, "ui-chip")}</Fragment>)}
-          {shape === "table" && addEl("column", "Add column", "+ Column", "text")}
-          {add((e) => e.addRow(), shape === "feed" ? "Add event" : "Add row", "+ Row", "text")}
+          {filters.map((f) => <Fragment key={f.id}>{filterChip(f)}</Fragment>)}
           {searchEl && searchBox(searchEl, "sm")}
         </div>
       </div>
     ) : null;
+    const addBar = addCluster(
+      <>
+        {shape !== "feed" && addEl("column", "Add column", "+ Column", "text")}
+        {add((e) => e.addRow(), shape === "feed" ? "Add event" : "Add row", "+ Row", "text")}
+      </>,
+    );
     const foot = pagerEl ? <div className="ui-card-foot">{pagination(pagerEl)}</div> : null;
 
     if (shape === "table" || columns.length === 0) {
@@ -709,14 +955,24 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
               {headerEl && (
                 <thead>
                   {/* Clicking the row background selects the header element
-                      itself (so it can be removed); th tokens select columns. */}
-                  <tr className={isSelected(headerEl) ? "el-sel-row" : undefined} onClick={selectClick(headerEl)}>
+                      itself (so it can be removed); th tokens select columns.
+                      Bespoke render path, so the row and the select cell carry
+                      their own annotation marker classes (see markCls). */}
+                  <tr
+                    className={`${isSelected(headerEl) ? "el-sel-row" : ""}${markCls(headerEl)}`.trim() || undefined}
+                    onClick={selectClick(headerEl)}
+                    {...markHoverProps(headerEl)}
+                  >
                     {selectEl && (
-                      <th className={`ui-td-select${isSelected(selectEl) ? " el-sel-cell" : ""}`} onClick={selectClick(selectEl)}>
+                      <th
+                        className={`ui-td-select${isSelected(selectEl) ? " el-sel-cell" : ""}${markCls(selectEl)}`}
+                        onClick={selectClick(selectEl)}
+                        {...markHoverProps(selectEl)}
+                      >
                         <i className="ui-checkbox" aria-hidden />
                       </th>
                     )}
-                    {columns.map((col) => <th key={col.id}>{elTok(col, "")}</th>)}
+                    {columns.map((col) => <th key={col.id} className={isSelected(col) ? "el-sel-cell" : undefined}>{elTok(col, "")}</th>)}
                     {rowActions.length > 0 && <th />}
                   </tr>
                 </thead>
@@ -729,7 +985,11 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
                         <i className="ui-checkbox" aria-hidden />
                       </td>
                     )}
-                    {columns.map((col) => <td key={col.id}>{cell(col, ri)}</td>)}
+                    {columns.map((col) => (
+                      <td key={col.id} className={isSelected(col) ? "el-sel-cell" : undefined} onClick={selectClick(col)}>
+                        {cell(col, ri)}
+                      </td>
+                    ))}
                     {rowActions.length > 0 && (
                       <td className="ui-td-actions">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</td>
                     )}
@@ -739,6 +999,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
             </table>
           </div>
           {foot}
+          {addBar}
         </div>
       );
     }
@@ -758,10 +1019,14 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
                   <div className="ui-feed-text">{textCols[0] ? cell(textCols[0], ri, "") : null}</div>
                   <div className="ui-feed-time">{whenCol ? cell(whenCol, ri, "") : null}</div>
                 </div>
+                {rowActions.length > 0 && (
+                  <div className="ui-row end ui-feed-actions">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</div>
+                )}
               </li>
             ))}
           </ul>
           {foot}
+          {addBar}
         </div>
       );
     }
@@ -792,6 +1057,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
             ))}
           </div>
           {foot}
+          {addBar}
         </div>
       );
     }
@@ -812,6 +1078,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
           ))}
         </ul>
         {foot}
+        {addBar}
       </div>
     );
   };
@@ -832,7 +1099,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
             return <Fragment key={el.id}>{fw ? elBox(el, "", fw) : widget(el)}</Fragment>;
           })}
           {buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b, "sm"))}</Fragment>)}
-          {addEl("text-input", "Add field")}
+          {addCluster(addEl("text-input", "Add field", "+ Field", "text"), true)}
         </div>
       );
     }
@@ -850,7 +1117,6 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
                 {i < steps.length - 1 && <span className="ui-step-line" aria-hidden />}
               </li>
             ))}
-            {addEl("step", "Add step")}
           </ol>
         )}
         <div className={gridClass}>
@@ -861,17 +1127,24 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
               el,
               `ui-field${wideField(el) ? " wide" : ""}`,
               <>
-                {el.type !== "checkbox" && el.type !== "toggle" && <label className="ui-label">{elTok(el, "")}</label>}
+                {el.type !== "checkbox" && el.type !== "toggle" && fieldLabel(el)}
                 {fieldWidget(el) ?? widget(el)}
               </>,
             );
           })}
-          {addEl("text-input", "Add field")}
         </div>
-        <div className="ui-form-actions">
-          {buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b))}</Fragment>)}
-          {addEl("button", "Add button")}
-        </div>
+        {buttons.length > 0 && (
+          <div className="ui-form-actions">
+            {buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b))}</Fragment>)}
+          </div>
+        )}
+        {addCluster(
+          <>
+            {addEl("text-input", "Add field", "+ Field", "text")}
+            {shape === "wizard" && addEl("step", "Add step", "+ Step", "text")}
+            {addEl("button", "Add button", "+ Button", "text")}
+          </>,
+        )}
       </div>
     );
   };
@@ -901,7 +1174,7 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
       return (
         <div className="ui-listwrap">
           {head}
-          <div className="ui-kpis" style={{ gridTemplateColumns: `repeat(${Math.max(1, stats.length)}, minmax(0, 1fr))${edit ? " auto" : ""}` }}>
+          <div className="ui-kpis" style={{ gridTemplateColumns: `repeat(${Math.max(1, stats.length)}, minmax(0, 1fr))` }}>
             {stats.map((el) => {
               const delta = el.data?.delta ?? "";
               return elBox(
@@ -914,8 +1187,8 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
                 </>,
               );
             })}
-            {addEl("stat", "Add metric")}
           </div>
+          {addCluster(addEl("stat", "Add metric", "+ Metric", "text"))}
         </div>
       );
     }
@@ -1071,17 +1344,17 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
             )}
           {text("period", str("period", "March 2026"), "ui-cal-period")}
         </div>
-        <div className="ui-row">
-          {viewsEl &&
-            elBox(
+        {viewsEl && (
+          <div className="ui-row">
+            {elBox(
               viewsEl,
               "ui-tabs sm",
               splitList(viewsEl.data?.views).map((v, i) => (
                 <span key={i} className={`ui-tab${sameView(v, shape) ? " active" : ""}`}>{v}</span>
               )),
             )}
-          {addEl("event", "Add event")}
-        </div>
+          </div>
+        )}
       </div>
     );
     const legend = legendEl
@@ -1124,7 +1397,6 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
               </div>
             </div>
           ))}
-          {addEl("resource-row", "Add resource")}
         </div>
       );
     } else if (shape === "week") {
@@ -1169,33 +1441,103 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
         {head}
         {body}
         {legend}
+        {addCluster(
+          <>
+            {addEl("event", "Add event", "+ Event", "text")}
+            {shape === "schedule" && addEl("resource-row", "Add resource", "+ Resource", "text")}
+          </>,
+        )}
       </div>
     );
   };
 
   // ── Canvas ────────────────────────────────────────────────────────────────
 
+  /** Ctrl/⌘+click on a canvas child: grow or shrink the drag group. The
+   *  clicked element becomes the single selection either way; a group of one
+   *  collapses back to a plain selection. */
+  const toggleCanvasSel = (el: ElementNode) => {
+    if (!chrome?.onSelectElement) return;
+    if (multi.includes(el.id)) {
+      const rest = multi.filter((id) => id !== el.id);
+      setMulti(rest.length > 1 ? rest : []);
+      if (selectedElKey === elKey(el.id) && rest.length) chrome.onSelectElement(elKey(rest[rest.length - 1]), null);
+    } else {
+      // Seed the group with whichever canvas child is already selected, so
+      // the first Ctrl+click extends rather than replaces.
+      const seed = multi.length ? multi : els.filter((x) => elKey(x.id) === selectedElKey).map((x) => x.id);
+      if (seed.length) setMulti([...seed, el.id]);
+      chrome.onSelectElement(elKey(el.id), null);
+    }
+  };
+
+  /** Pointer drag anywhere on a canvas child moves it — and, when it belongs
+   *  to the Ctrl/⌘ group, every member, rigidly (the delta is clamped so no
+   *  member crosses the canvas edge). Movement only begins past a small
+   *  threshold, so clicks still select and double-clicks still edit text. */
   const startCanvasDrag = (el: ElementNode) => (e: ReactPointerEvent) => {
     if (!edit || e.button !== 0) return;
+    // Text editing, the toolbar, the resize grip and open menus own their
+    // own pointer gestures.
+    if ((e.target as HTMLElement).closest(".inline-edit-input, .ui-canvas-tools, .ui-canvas-el-resize, .ui-select-menu")) return;
+    // Cancelling pointerdown stops the draggable .cmp ancestor from starting
+    // a native HTML5 drag (which would pointercancel this gesture midway).
+    // click and dblclick still fire, so select and edit are unaffected.
     e.preventDefault();
-    e.stopPropagation();
     const startX = e.clientX;
     const startY = e.clientY;
-    const fromX = numberOf(el.data?.x ?? "16", 16);
-    const fromY = numberOf(el.data?.y ?? "16", 16);
-    let latest = { x: fromX, y: fromY };
+    const group = multi.includes(el.id) ? multi : [el.id];
+    const from = new Map<string, { x: number; y: number }>();
+    for (const id of group) {
+      const member = els.find((x) => x.id === id);
+      if (member) from.set(id, { x: numberOf(member.data?.x ?? "16", 16), y: numberOf(member.data?.y ?? "16", 16) });
+    }
+    if (!from.size) return;
+    const minX = Math.min(...[...from.values()].map((p) => p.x));
+    const minY = Math.min(...[...from.values()].map((p) => p.y));
+    let started = false;
+    let latest: Record<string, { x: number; y: number }> = {};
+    const prevUserSelect = document.body.style.userSelect;
     const move = (ev: PointerEvent) => {
-      latest = { x: Math.max(0, fromX + ev.clientX - startX), y: Math.max(0, fromY + ev.clientY - startY) };
-      setDragPos((p) => ({ ...p, [el.id]: latest }));
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!started) {
+        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+        started = true;
+        // From here the gesture is a drag, not a text selection.
+        document.body.style.userSelect = "none";
+        window.getSelection()?.removeAllRanges();
+        // Dragging an element outside the group selects it alone (the sync
+        // effect then clears the group).
+        if (!multi.includes(el.id)) chrome?.onSelectElement?.(elKey(el.id), null);
+      }
+      const cdx = Math.max(dx, -minX);
+      const cdy = Math.max(dy, -minY);
+      latest = {};
+      from.forEach((p, id) => {
+        latest[id] = { x: p.x + cdx, y: p.y + cdy };
+      });
+      setDragPos((prev) => ({ ...prev, ...latest }));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
-      setDragPos((p) => {
-        const next = { ...p };
-        delete next[el.id];
+      if (!started) return;
+      document.body.style.userSelect = prevUserSelect;
+      // The click this release fires must not reselect or toggle; the flag
+      // outlives it by one task at most.
+      suppressClick.current = true;
+      window.setTimeout(() => {
+        suppressClick.current = false;
+      });
+      setDragPos((prev) => {
+        const next = { ...prev };
+        from.forEach((_, id) => delete next[id]);
         return next;
       });
-      if (latest.x !== fromX || latest.y !== fromY) edit.moveElementTo(el.id, latest.x, latest.y);
+      const moves = [...from]
+        .filter(([id, p]) => latest[id] && (latest[id].x !== p.x || latest[id].y !== p.y))
+        .map(([id]) => ({ id, x: latest[id].x, y: latest[id].y }));
+      if (moves.length) edit.moveElementsTo(moves);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
@@ -1258,12 +1600,22 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
 
   const renderCanvas = (): ReactNode => {
     // "float" sizes like "fill" (the .cmp wrapper overlays the region; see
-    // .cmp.float in the stylesheet) — no fixed height, no resize bar.
-    const fill = layout === "fill" || layout === "float";
+    // .cmp.float in the stylesheet) — no fixed height, no resize bar. A
+    // generic box height (props.h, set by the component's resize grips)
+    // sizes the wrapper instead, so the drawing area turns elastic inside
+    // it the same way.
+    const fill = layout === "fill" || layout === "float" || numberOf(scalarOf("h") ?? "", 0) > 0;
     const height = liveHeight ?? numberOf(scalarOf("height") ?? "", 280);
+    // The drawing area's own background would otherwise sit over the cmp
+    // wrapper's user-set colour; backgroundColor (not the shorthand) keeps
+    // the grid shape's dot pattern.
+    const bg = scalarOf("bg");
     return (
       <div className={`ui-canvas-wrap${fill ? " fill" : ""}`}>
-        <div className={`ui-canvas ${shape}${fill ? " fill" : ""}`} style={fill ? undefined : { height }}>
+        <div
+          className={`ui-canvas ${shape}${fill ? " fill" : ""}`}
+          style={{ ...(fill ? undefined : { height }), ...(bg ? { backgroundColor: bg } : undefined) }}
+        >
           {els.map((el) => {
             const live = dragPos[el.id];
             const liveSize = dragSize[el.id];
@@ -1274,7 +1626,9 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
             const selected = chrome?.selected?.key === elKey(el.id);
             const cls = [
               "ui-canvas-el",
+              edit ? "movable" : "",
               selected ? "selected" : "",
+              multi.includes(el.id) && !selected ? "grouped" : "",
               live || liveSize ? "dragging" : "",
               w || h ? "sized" : "",
               // The toolbar sits above the element; near the canvas top that
@@ -1286,6 +1640,31 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
                 key={el.id}
                 className={cls}
                 style={{ left: x, top: y, width: w ?? undefined, height: h ?? undefined }}
+                onPointerDown={edit ? startCanvasDrag(el) : undefined}
+                // Capture phase: it must run before the text tokens' own
+                // click handlers (which stop propagation), so Ctrl+click on
+                // a label still reaches the group logic.
+                onClickCapture={
+                  chrome?.onSelectElement
+                    ? (e) => {
+                        if (suppressClick.current) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          return;
+                        }
+                        if ((e.target as HTMLElement).closest(".ui-canvas-tools, .ui-canvas-el-resize")) return;
+                        if (e.ctrlKey || e.metaKey) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleCanvasSel(el);
+                        } else if (multi.length) {
+                          // A plain click collapses the group to the clicked
+                          // element; the bubble handlers do the selecting.
+                          setMulti([]);
+                        }
+                      }
+                    : undefined
+                }
                 onClick={
                   chrome?.onSelectElement
                     ? (e) => {
@@ -1297,7 +1676,6 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
               >
                 {edit && (
                   <span className="ui-canvas-tools">
-                    <button type="button" className="ui-canvas-handle" title="Drag to move" aria-label={`Move ${el.label || el.type}`} onPointerDown={startCanvasDrag(el)}>⠿</button>
                     <button
                       type="button"
                       className="ui-canvas-x"
@@ -1336,133 +1714,6 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
     );
   };
 
-  // ── Kept components ───────────────────────────────────────────────────────
-
-  const renderHero = (): ReactNode => {
-    const headings = byType("heading");
-    const texts = byType("text");
-    const buttons = byType("button");
-    const imageEl = first("image");
-    const copy = (
-      <>
-        {headings[0] && <h1 className="ui-h1">{elTok(headings[0], "")}</h1>}
-        {texts.map((t) => <p key={t.id} className="ui-lede">{elTok(t, "")}</p>)}
-        <div className="ui-row">
-          {buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b))}</Fragment>)}
-          {addEl("button", "Add button")}
-        </div>
-      </>
-    );
-    if (shape === "split") {
-      return (
-        <section className="ui-hero split">
-          <div className="ui-hero-copy">{copy}</div>
-          {imageEl ? (
-            imageEl.data?.src ? (
-              elBox(imageEl, "ui-image tall", <img src={imageEl.data.src} alt={imageEl.label} draggable={false} />)
-            ) : (
-              elBox(
-                imageEl,
-                "ui-image-ph tall",
-                <>
-                  <ImageIcon />
-                  {elTok(imageEl, "ui-image-cap")}
-                </>,
-              )
-            )
-          ) : (
-            <div className="ui-image-ph tall">
-              <ImageIcon />
-              {addEl("image", "Add image")}
-            </div>
-          )}
-        </section>
-      );
-    }
-    return <section className="ui-hero">{copy}</section>;
-  };
-
-  const renderDetail = (): ReactNode => {
-    const fields = byType("field");
-    const badges = byType("badge");
-    const buttons = byType("button");
-    const body = (
-      <div className="ui-rpanel">
-        <div className="ui-panel-head">
-          <div className="ui-h3">{text("heading", str("heading", "Ada Lovelace"))}</div>
-          {text("status", str("status", "Active"), `ui-badge${statusTone(scalarOf("status") ?? "Active")}`)}
-          {badges.map((b) => <Fragment key={b.id}>{elTok(b, `ui-badge${statusTone(b.label)}`)}</Fragment>)}
-        </div>
-        <dl className="ui-dl">
-          {fields.map((f) => {
-            const v = f.data?.value ?? "";
-            return (
-              <Fragment key={f.id}>
-                <dt>{elTok(f, "")}</dt>
-                <dd>{dataTok(f, "value", "—", f.data?.kind === "status" || isStatus(v) ? `ui-badge${statusTone(v)}` : "")}</dd>
-              </Fragment>
-            );
-          })}
-          {addEl("field", "Add field")}
-        </dl>
-        {buttons.length > 0 && <div className="ui-row">{buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b, "sm"))}</Fragment>)}</div>}
-      </div>
-    );
-    return shape === "card" ? <div className="ui-card">{body}</div> : body;
-  };
-
-  const renderEmpty = (): ReactNode => {
-    const headings = byType("heading");
-    const texts = byType("text");
-    const buttons = byType("button");
-    return (
-      <div className="ui-card ui-empty">
-        <div className="ui-empty-icon" aria-hidden><InboxIcon /></div>
-        {headings[0] && <div className="ui-h3">{elTok(headings[0], "")}</div>}
-        {texts.map((t) => <p key={t.id} className="ui-p">{elTok(t, "")}</p>)}
-        <div className="ui-row">
-          {buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b))}</Fragment>)}
-          {addEl("button", "Add button")}
-        </div>
-      </div>
-    );
-  };
-
-  const renderMain = (): ReactNode => (
-    <article className="ui-article">
-      {byType("section").map((s2) => (
-        <section key={s2.id}>
-          <h2 className="ui-h2">{elTok(s2, "")}</h2>
-          <p className="ui-p">{dataTok(s2, "body", "Body text for this section.")}</p>
-        </section>
-      ))}
-      {addEl("section", "Add section")}
-    </article>
-  );
-
-  const renderModal = (): ReactNode => (
-    <div className="ui-modal-scrim">
-      <div className="ui-modal" role="dialog" aria-label={title}>
-        <div className="ui-h3">{text("title", title)}</div>
-        {byType("text").map((t) => <p key={t.id} className="ui-p">{elTok(t, "")}</p>)}
-        <div className="ui-modal-foot">
-          {byType("button").map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b))}</Fragment>)}
-          {addEl("button", "Add button")}
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderFooter = (): ReactNode => (
-    <footer className="ui-footer">
-      <span className="ui-footer-copy">{text("copyright", str("copyright", "© 2026 Acme"))}</span>
-      <nav className="ui-footer-links">
-        {byType("link").map((l) => <Fragment key={l.id}>{elTok(l, "ui-footer-link")}</Fragment>)}
-        {addEl("link", "Add link")}
-      </nav>
-    </footer>
-  );
-
   const body = ((): ReactNode => {
     switch (cmp.type) {
       case "navbar": return renderNavbar();
@@ -1471,12 +1722,6 @@ export function Schematic({ cmp, defs, edit, chrome }: Props) {
       case "graph": return renderGraph();
       case "canvas": return renderCanvas();
       case "calendar": return renderCalendar();
-      case "hero": return renderHero();
-      case "detail": return renderDetail();
-      case "empty": return renderEmpty();
-      case "main": return renderMain();
-      case "modal": return renderModal();
-      case "footer": return renderFooter();
 
       case "custom":
       case "editable-component": {
@@ -1527,9 +1772,12 @@ const initialsOf = (name: string): string => {
 };
 
 /** Inline style from freeform style keys (element `data`, component/region
- *  `props`): background, web-safe font, capitalisation. The background also
- *  overrides the --panel token so carded UI inside follows the colour; the
- *  font overrides --font-display so headings and buttons follow too. */
+ *  `props`): background, text colour, web-safe font, capitalisation. The
+ *  background also overrides the --panel token so carded UI inside follows
+ *  the colour; the text colour likewise overrides the text tokens so dim and
+ *  muted spans (labels, placeholders, captions) follow rather than keeping
+ *  their own greys; the font overrides --font-display so headings and
+ *  buttons follow too. */
 export function styleData(d: Record<string, unknown> | undefined): CSSProperties | undefined {
   if (!d) return undefined;
   const s: Record<string, unknown> = {};
@@ -1537,6 +1785,12 @@ export function styleData(d: Record<string, unknown> | undefined): CSSProperties
     s.background = d.bg;
     s["--panel"] = d.bg;
     s["--panel-2"] = d.bg;
+  }
+  if (typeof d.fg === "string" && d.fg) {
+    s.color = d.fg;
+    s["--text"] = d.fg;
+    s["--text-dim"] = d.fg;
+    s["--text-mute"] = d.fg;
   }
   const stack = typeof d.font === "string" ? fontStack(d.font) : undefined;
   if (stack) {

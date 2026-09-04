@@ -41,10 +41,11 @@ export function readPayload(e: DragEvent): DragPayload | null {
   }
 }
 
-/** Where a drop over an element lands relative to it. */
-export function dropBefore(e: DragEvent, el: HTMLElement): boolean {
+/** Where a drop over an element lands relative to it. `horizontal` follows
+ *  the region's stacking direction: before/after means left/right there. */
+export function dropBefore(e: DragEvent, el: HTMLElement, horizontal = false): boolean {
   const rect = el.getBoundingClientRect();
-  return e.clientY - rect.top < rect.height / 2;
+  return horizontal ? e.clientX - rect.left < rect.width / 2 : e.clientY - rect.top < rect.height / 2;
 }
 
 export interface DropHint {

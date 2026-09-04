@@ -5,10 +5,10 @@ import { COMPONENTS, ElementSeed, elementMeta } from "../catalog";
 import { ElementNode } from "./types";
 import { reposition } from "./positions";
 
-/** Shell chrome: types that fill a region edge-to-edge (nav bars, footers)
- *  rather than stacking as padded content. Drives canvas spacing only —
- *  placement is entirely the user's. */
-export const STRUCTURAL_TYPES = new Set<string>(["navbar", "footer"]);
+/** Shell chrome: types that fill a region edge-to-edge (nav bars) rather
+ *  than stacking as padded content. Drives canvas spacing only — placement
+ *  is entirely the user's. */
+export const STRUCTURAL_TYPES = new Set<string>(["navbar"]);
 
 /** Short random ids. More entropy than the legacy counter-based uid, since
  *  ids now live in a shared database rather than one browser session. */
@@ -30,10 +30,6 @@ export function getDefaultProps(type: string): Record<string, unknown> {
       return { rows: [{}, {}, {}] };
     case "calendar":
       return { period: "March 2026" };
-    case "detail":
-      return { heading: "Ada Lovelace", status: "Active" };
-    case "footer":
-      return { copyright: "© 2026 Acme" };
     default:
       return {};
   }

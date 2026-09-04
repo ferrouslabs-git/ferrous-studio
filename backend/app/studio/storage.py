@@ -113,6 +113,27 @@ async def read_object(key: str, byte_range: tuple[int, int] | None = None) -> by
     return await asyncio.to_thread(run)
 
 
+async def copy_object(source_key: str, dest_key: str) -> None:
+    """Duplicate an object inside the bucket, server-side.
+
+    Versioning a project copies its documents so deleting a file in one version
+    cannot touch another. ``copy_object`` is a single atomic call up to 5 GB and
+    ``DOCUMENTS_MAX_BYTES`` caps a file far below that, so the multipart
+    ``UploadPartCopy`` dance is never needed here.
+    """
+
+    def run() -> None:
+        name = bucket()
+        try:
+            _client().copy_object(Bucket=name, Key=dest_key, CopySource={"Bucket": name, "Key": source_key})
+        except ClientError as err:
+            if _is_missing(err):
+                raise ObjectMissing(source_key) from err
+            raise
+
+    await asyncio.to_thread(run)
+
+
 async def delete_object(key: str) -> None:
     def run() -> None:
         try:

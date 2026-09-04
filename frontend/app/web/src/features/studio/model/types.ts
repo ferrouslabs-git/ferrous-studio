@@ -14,6 +14,11 @@ export interface RegionNode {
   id: string;
   label?: string;
   size: Size;
+  /** How the region lays out its components. Absent means "col" (a vertical
+   *  stack, the default); "row" lines them up side by side and the region
+   *  scrolls sideways once they no longer fit; "free" positions each
+   *  component at its own props.x/y, anywhere in the region. */
+  dir?: "row" | "col" | "free";
   /** Optional background colour (any CSS colour; set from the Inspector). */
   bg?: string;
 }
@@ -88,6 +93,18 @@ export interface PagePlacement {
   region_id: string;
 }
 
+/** How a page opens when a link targets it: as an overlay over the page it
+ *  was opened from, instead of navigating. Null is an ordinary page;
+ *  "drawer" slides from the right edge, "drawer-left" from the left. */
+export type PagePresentation = "modal" | "drawer" | "drawer-left";
+
+/** Short badge text per presentation (page pickers, link menus). */
+export const PRESENTATION_LABELS: Record<PagePresentation, string> = {
+  modal: "modal",
+  drawer: "drawer",
+  "drawer-left": "left drawer",
+};
+
 /** A project_pages row as returned by GET .../pages/{id}. */
 export interface PageRecord {
   id: string;
@@ -96,6 +113,7 @@ export interface PageRecord {
   route: string | null;
   pos: string;
   placement: PagePlacement | null;
+  presentation: PagePresentation | null;
   document: PageDocument;
   entity_versions: Record<string, number>;
   version: number;

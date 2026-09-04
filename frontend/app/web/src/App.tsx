@@ -4,6 +4,7 @@ import { AppShell } from "./app/AppShell";
 import { HomeRedirect } from "./app/HomeRedirect";
 import { ProtectedRoute } from "./app/ProtectedRoute";
 import { SessionProvider } from "./app/session";
+import { AdminDatasetsPage } from "./features/admin/AdminDatasetsPage";
 import { AdminOrgsPage } from "./features/admin/AdminOrgsPage";
 import { AdminProjectsPage } from "./features/admin/AdminProjectsPage";
 import { AdminUsersPage } from "./features/admin/AdminUsersPage";
@@ -19,8 +20,11 @@ import { PersonasPage } from "./features/project/personas/PersonasPage";
 import { LegacyProjectRedirect, ProjectLayout } from "./features/project/ProjectLayout";
 import { ProjectDetailsPage } from "./features/project/ProjectDetailsPage";
 import { UseCaseDiagramPage } from "./features/project/usecases/UseCaseDiagramPage";
+import { AuditLogPage } from "./features/project/wireframes/AuditLogPage";
 import { WireframesPage } from "./features/project/wireframes/WireframesPage";
 import { ProjectsPage } from "./features/projects/ProjectsPage";
+import { PreviewPage } from "./features/studio/PreviewPage";
+import { SnapshotPreviewPage } from "./features/studio/SnapshotPreviewPage";
 import { StudioPage } from "./features/studio/StudioPage";
 
 // The diagram editor carries maxGraph; keep it (and its import-time DOM
@@ -73,6 +77,9 @@ export function App() {
               />
               <Route path="wireframes" element={<WireframesPage />} />
               <Route path="wireframes/:wireframeId" element={<StudioPage />} />
+              <Route path="wireframes/:wireframeId/preview" element={<PreviewPage />} />
+              <Route path="wireframes/:wireframeId/snapshots/:versionId/preview" element={<SnapshotPreviewPage />} />
+              <Route path="wireframes/:wireframeId/audit" element={<AuditLogPage />} />
               <Route path="documents" element={<DocumentsPage />} />
             </Route>
 
@@ -87,6 +94,7 @@ export function App() {
             <Route path="/admin/orgs" element={<AdminOrgsPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/admin/projects" element={<AdminProjectsPage />} />
+            <Route path="/admin/datasets" element={<AdminDatasetsPage />} />
           </Route>
         </Route>
 

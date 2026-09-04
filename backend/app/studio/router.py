@@ -8,6 +8,9 @@ policies keyed on the same value -- two layers, always. See ``common.py``.
 """
 from fastapi import APIRouter
 
+from .annotations import router as annotations_router
+from .audit import router as audit_router
+from .datasets import router as datasets_router
 from .diagrams import router as diagrams_router
 from .documents import router as documents_router
 from .personas import router as personas_router
@@ -18,7 +21,10 @@ from .wireframes import router as wireframes_router
 router = APIRouter(prefix="/studio", tags=["studio"])
 router.include_router(projects_router)
 router.include_router(wireframes_router)
+router.include_router(annotations_router)
+router.include_router(audit_router)
 router.include_router(personas_router)
 router.include_router(diagrams_router)
 router.include_router(documents_router)
 router.include_router(use_cases_router)
+router.include_router(datasets_router)

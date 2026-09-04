@@ -48,6 +48,10 @@ export function diffPage(prev: PageLike, next: PageLike): Op[] {
   for (const key of ["name", "route", "pos"] as const) {
     if (prev[key] !== next[key]) ops.push({ op: "set", path: key, value: next[key] });
   }
+  // Missing and null both mean "ordinary page", so they must not diff.
+  if ((prev.presentation ?? null) !== (next.presentation ?? null)) {
+    ops.push({ op: "set", path: "presentation", value: next.presentation ?? null });
+  }
 
   if (prev.document.root !== next.document.root && !deepEqual(prev.document.root, next.document.root)) {
     ops.push({ op: "set", path: "root", value: next.document.root });

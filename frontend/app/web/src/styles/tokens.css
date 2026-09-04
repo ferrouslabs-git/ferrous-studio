@@ -1,6 +1,10 @@
-/* .theme-dark pins a subtree to the dark palette regardless of the
+/* .theme-dark / .theme-light pin a subtree to one palette regardless of the
    html-level data-theme attribute (custom properties set on the element
-   itself win over values inherited from html). The landing page uses it. */
+   itself win over values inherited from html). The landing page uses the
+   dark pin. (The studio's wireframe canvas is NOT a pin consumer: it owns a
+   complete palette of its own — see the .device block in studio.css), and a
+   deliberately NON-BRAND one: graphite monochrome, system type, flat radii,
+   no accent hue. Do not re-sync it with the values here or in brand.css.) */
 :root, [data-theme="dark"], .theme-dark {
   --bg: #0f1115;
   --panel: #161922;
@@ -17,6 +21,8 @@
   --good-soft: rgba(88,192,141,.14);
   --mute-soft: rgba(155,160,170,.12);
   --warn: #e0b341;
+  --bad: #e5484d;
+  --bad-soft: rgba(229,72,77,.14);
   --row: #20243353;
   --shadow: 0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.25);
   --inset: #0e1320;
@@ -37,7 +43,7 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-[data-theme="light"] {
+[data-theme="light"], .theme-light {
   --bg: #f5f6f8;
   --panel: #ffffff;
   --panel-2: #f1f3f7;
@@ -53,6 +59,8 @@
   --good-soft: rgba(22,163,74,.12);
   --mute-soft: rgba(100,116,139,.12);
   --warn: #b45309;
+  --bad: #dc2626;
+  --bad-soft: rgba(220,38,38,.10);
   --row: rgba(15,23,42,.035);
   --shadow: 0 1px 0 rgba(15,23,42,.02), 0 8px 24px rgba(15,23,42,.08);
   --inset: #f7f9fc;

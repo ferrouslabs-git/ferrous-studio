@@ -1,24 +1,39 @@
 // Client for a project's wireframes and everything that hangs off one:
 // pages, op batches, version snapshots (backend app/studio/wireframes.py).
 // `base()` is the single point of change if the backend paths move.
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "../../../core/api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, RequestOptions } from "../../../core/api";
 import { OpBatch, OpBatchResult, PageDocument, PageRecord } from "../../studio/model/types";
 import type { PageSummary } from "../../projects/projectsApi";
 
-export type InterfaceType = "desktop" | "tablet" | "mobile";
+// A tablet's orientation is part of its interface type rather than a field of
+// its own: a wireframe is still described by one value, and `tablet` keeps
+// meaning the portrait tablet it has always drawn. Phones are only ever
+// designed portrait, so mobile has no landscape counterpart.
+export type InterfaceType = "desktop" | "tablet" | "tablet_landscape" | "mobile";
 
 export const INTERFACE_TYPES: { value: InterfaceType; label: string }[] = [
   { value: "desktop", label: "Desktop" },
-  { value: "tablet", label: "Tablet" },
+  { value: "tablet", label: "Tablet (portrait)" },
+  { value: "tablet_landscape", label: "Tablet (landscape)" },
   { value: "mobile", label: "Mobile" },
 ];
+
+/** Classes for the device stage: the device itself plus, where it has one, its
+ *  orientation. Landscape is a modifier so it overrides only the screen
+ *  dimensions and inherits the rest of the tablet frame (see studio.css). */
+export function deviceClass(t: InterfaceType): string {
+  return t === "tablet_landscape" ? "tablet landscape" : t;
+}
 
 export interface Wireframe {
   id: string;
   project_id: string;
   name: string;
   interface_type: InterfaceType;
+  status: "active" | "archived";
   pos: string;
+  /** Page the studio and preview open on; null follows the shell's first nav link. */
+  landing_page_id: string | null;
   /** Personas this wireframe is designed for (Personas section). */
   persona_ids: string[];
   /** User types (use case diagram actors) this wireframe is designed for. */
@@ -46,6 +61,19 @@ export interface ProjectVersion {
   created_at: string;
 }
 
+/** One page of a snapshot, rebuilt server-side into the shape the canvas
+ *  renders. There is nothing to edit against, so no version columns. */
+export type SnapshotPage = Pick<PageRecord, "id" | "name" | "route" | "pos" | "placement" | "presentation" | "document">;
+
+/** A snapshot ready to render: the wireframe chrome as it stood when the
+ *  snapshot was taken, plus every page it captured. */
+export interface VersionPreview extends ProjectVersion {
+  wireframe_name: string;
+  interface_type: InterfaceType;
+  landing_page_id: string | null;
+  pages: SnapshotPage[];
+}
+
 const list = (projectId: string) => `/studio/projects/${projectId}/wireframes`;
 const base = (projectId: string, wireframeId: string) => `${list(projectId)}/${wireframeId}`;
 
@@ -57,7 +85,7 @@ export const getWireframe = (projectId: string, wireframeId: string) =>
 export const updateWireframe = (
   projectId: string,
   wireframeId: string,
-  patch: Partial<Pick<Wireframe, "name" | "interface_type" | "pos">>,
+  patch: Partial<Pick<Wireframe, "name" | "interface_type" | "status" | "pos" | "landing_page_id">>,
 ) => apiPatch<Wireframe>(base(projectId, wireframeId), patch);
 export const setWireframePersonas = (projectId: string, wireframeId: string, personaIds: string[]) =>
   apiPut<Wireframe>(`${base(projectId, wireframeId)}/personas`, { persona_ids: personaIds });
@@ -69,8 +97,8 @@ export const getWireframeExport = (projectId: string, wireframeId: string) =>
 
 // ── Pages ─────────────────────────────────────────────────────────────────
 
-export const getWireframePage = (projectId: string, wireframeId: string, pageId: string) =>
-  apiGet<PageRecord>(`${base(projectId, wireframeId)}/pages/${pageId}`);
+export const getWireframePage = (projectId: string, wireframeId: string, pageId: string, opts?: RequestOptions) =>
+  apiGet<PageRecord>(`${base(projectId, wireframeId)}/pages/${pageId}`, opts);
 export const createWireframePage = (
   projectId: string,
   wireframeId: string,
@@ -80,6 +108,7 @@ export const createWireframePage = (
     route?: string | null;
     pos: string;
     placement?: { page_id: string; region_id: string };
+    presentation?: "modal" | "drawer" | "drawer-left";
     document?: PageDocument;
   },
 ) => apiPost<PageRecord>(`${base(projectId, wireframeId)}/pages`, page);
@@ -105,3 +134,10 @@ export const createWireframeVersion = (projectId: string, wireframeId: string, l
  *  automatic backup of the current state first. */
 export const restoreWireframeVersion = (projectId: string, wireframeId: string, versionId: string) =>
   apiPost<void>(`${base(projectId, wireframeId)}/versions/${versionId}/restore`, {});
+/** A snapshot's pages, rendered without restoring anything. */
+export const getWireframeVersionPreview = (projectId: string, wireframeId: string, versionId: string) =>
+  apiGet<VersionPreview>(`${base(projectId, wireframeId)}/versions/${versionId}/preview`);
+/** Create a NEW wireframe from a snapshot, leaving this one untouched. Page
+ *  ids are reminted server-side, so the copy's links stay inside the copy. */
+export const copyWireframeVersion = (projectId: string, wireframeId: string, versionId: string, name: string) =>
+  apiPost<WireframeDetail>(`${base(projectId, wireframeId)}/versions/${versionId}/copy`, { name });

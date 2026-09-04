@@ -12,7 +12,7 @@
    used as a fill that carries white text); the raw --orange stays the brand
    mark itself, for gradients, glows and the signature primary button. */
 
-:root, [data-theme="dark"], [data-theme="light"] {
+:root, [data-theme="dark"], [data-theme="light"], .theme-dark, .theme-light {
   /* Brand hues, type and geometry — shared by both themes. */
   --orange: #FF5B1A;
   --orange-deep: #D44210;
@@ -27,6 +27,10 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   --radius: 4px;
   --radius-lg: 6px;
+  /* The app's top strip. The sidebar's brand bar and the studio's tool bar
+     sit side by side across the top of the window, so they share one height
+     and their dividers land on the same row. */
+  --app-bar-h: 44px;
   --transition: 260ms cubic-bezier(0.22, 1, 0.36, 1);
 
   --accent: var(--orange);
@@ -34,7 +38,7 @@
 }
 
 /* ── Dark: near-black surfaces, the brand's default ─────────────────────── */
-:root, [data-theme="dark"] {
+:root, [data-theme="dark"], .theme-dark {
   --bg-deep: #050508;
   --bg-raised: #0B0B11;
   --bg-element: #131319;
@@ -80,7 +84,17 @@
 }
 
 /* ── Light: warm paper surfaces, the same molten orange ─────────────────── */
-[data-theme="light"] {
+/* .theme-light pins a subtree to this palette whatever the app theme (see
+   tokens.css). The studio's wireframe canvas deliberately does NOT use it —
+   the canvas owns a fixed palette in studio.css (.device), so app theme
+   edits here never restyle the user's wireframes.
+   That palette is not a copy of this one and must not become one again. A
+   wireframe is a low-fidelity draft: rendering it in the brand makes it
+   assert visual decisions nobody has taken (an orange primary button reads
+   as "the button will be orange"), and leaves the user unable to see where
+   the tool stops and their document starts. The canvas is graphite
+   monochrome on a drafting mat; the brand below stays in the chrome. */
+[data-theme="light"], .theme-light {
   --bg-deep: #F4F3F1;
   --bg-raised: #FFFFFF;
   --bg-element: #FFFFFF;
@@ -153,6 +167,8 @@ body {
 }
 .brand-symbol.small { width: 22px; height: 24px; }
 [data-theme="light"] .brand-symbol { background-image: url("/brand/blue-symbol-on-light.svg"); }
+/* A dark-pinned subtree (the landing page) keeps the white mark whatever the app theme. */
+.theme-dark .brand-symbol { background-image: url("/brand/white-symbol-on-dark.svg"); }
 
 /* ── Type ───────────────────────────────────────────────────────────────── */
 h1, h2, h3 { font-family: var(--font-display); font-weight: 600; }
@@ -271,9 +287,18 @@ input:focus, select:focus, textarea:focus {
 
 /* ── Sidebar ────────────────────────────────────────────────────────────── */
 .sidebar { background: var(--bg-raised); border-right-color: var(--border); }
-.sidebar-top { height: 56px; }
-.sidebar-logo { background: transparent; width: 28px; height: 28px; border-radius: 0; }
-.sidebar-brand { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; font-size: 15px; }
+.sidebar-top { height: var(--app-bar-h); }
+/* The mark runs the full height of the bar rather than sitting inside it as a
+   small chip. Stretching the link gives the logo a definite height to take a
+   percentage of, so it tracks the bar's content box (56px less its border)
+   instead of a duplicated magic number. The symbol is a background image with
+   no intrinsic ratio, so its own viewBox ratio sets the width. */
+/* Vertical padding only: the symbol's width follows from its aspect ratio, so
+   insetting the top and bottom scales the whole mark, while the gap to the
+   wordmark stays the brand row's to set. */
+.sidebar-logo { background: transparent; width: auto; height: 100%; padding: 6px 0; border-radius: 0; }
+.sidebar-logo .brand-symbol { width: auto; height: 100%; aspect-ratio: 203 / 222; }
+.sidebar-brand { align-self: stretch; font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; font-size: 15px; }
 .sidebar-brand:hover { color: var(--orange-ink); }
 .sidebar-eyebrow {
   font-family: var(--font-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--orange-ink);

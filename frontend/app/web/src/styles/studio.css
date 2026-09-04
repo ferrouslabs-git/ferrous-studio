@@ -2,13 +2,14 @@
    Ported from legacy/css/styles.css; consumed by features/studio. */
 /* ── Top bar ── */
 .topbar {
-  height: 44px;
-  display: flex; align-items: center; gap: 12px;
+  height: var(--app-bar-h);
+  display: flex; align-items: center; gap: 10px;
   padding: 0 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 600; letter-spacing: .2px; }
+/* The brand yields (ellipsised) before the library or the page controls do. */
+.brand { font-weight: 600; letter-spacing: .2px; flex-shrink: 1; min-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .brand .v { color: var(--text-mute); font-weight: 400; margin-left: 6px; font-size: 11px; }
 .crumbs { color: var(--text-dim); font-size: 12px; }
 .crumbs b { color: var(--text); font-weight: 500; }
@@ -18,14 +19,18 @@
 /* Back/forward through visited pages, browser-style, paired beside the picker. */
 .page-nav { display: flex; gap: 2px; }
 .page-nav .btn { width: 26px; padding: 0; justify-content: center; font-size: 15px; line-height: 1; }
-.page-select { position: relative; }
+/* Shrinkable (the trigger's name ellipsises) so a tight top bar can keep the
+   library scroll window and the right-side controls on screen. */
+.page-select { position: relative; flex-shrink: 1; min-width: 130px; }
 .page-select-trigger {
-  max-width: 340px;
+  max-width: min(340px, 100%);
   /* Page names are user content: shown as typed, not mono uppercase like action buttons. */
   font-family: var(--font-display); text-transform: none; letter-spacing: 0; font-size: 12.5px;
 }
-.page-select-trigger .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-select-trigger .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 3ch; }
 .page-select-trigger .route, .page-select-item .route { color: var(--text-mute); font-family: var(--mono); font-size: 11px; }
+/* In a tight top bar the route yields before the page name does. */
+.page-select-trigger .route { flex-shrink: 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .page-select-trigger .caret { color: var(--text-mute); font-size: 9px; }
 .page-select-menu {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 80;
@@ -34,12 +39,16 @@
   box-shadow: var(--shadow); overflow: hidden;
 }
 .page-select-search { margin: 8px; min-width: 0; }
-.page-select-list { max-height: 320px; overflow: auto; padding: 4px; border-top: 1px solid var(--border); }
+.page-select-list { max-height: 320px; overflow: auto; scrollbar-gutter: stable; padding: 4px; border-top: 1px solid var(--border); }
 .page-select-item {
   display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px;
   font-size: 12.5px; color: var(--text-dim); cursor: pointer;
 }
 .page-select-item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-select-item .kind {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-mute);
+  border: 1px solid var(--border-strong); border-radius: 999px; padding: 1px 7px;
+}
 .page-select-item.highlight { background: var(--mute-soft); color: var(--text); }
 .page-select-item.active .name { color: var(--text); font-weight: 600; }
 .page-select-empty { padding: 10px 12px; font-size: 12px; color: var(--text-mute); }
@@ -51,15 +60,14 @@
 .page-select-add:hover { background: var(--mute-soft); color: var(--text); }
 
 /* ── App grid ── */
+/* Canvas + inspector; the library lives in the horizontal bars, not a panel. */
 .app {
   display: grid;
-  grid-template-columns: 280px 1fr 360px;
-  height: calc(100vh - 44px);
+  grid-template-columns: 1fr 360px;
+  height: 100%;
   transition: grid-template-columns .25s ease;
 }
-.app.left-collapsed  { grid-template-columns: 30px 1fr 360px; }
-.app.right-collapsed { grid-template-columns: 280px 1fr 30px; }
-.app.left-collapsed.right-collapsed { grid-template-columns: 30px 1fr 30px; }
+.app.right-collapsed { grid-template-columns: 1fr 30px; }
 
 .panel {
   background: var(--panel); border-right: 1px solid var(--border);
@@ -78,7 +86,9 @@
 .studio .panel-head { position: relative; justify-content: center; }
 .studio .panel-head .panel-collapse { position: absolute; top: 7px; right: 8px; margin: 0; }
 .studio .panel-head-right .panel-collapse { right: auto; left: 8px; }
-.panel-body { flex: 1; overflow: auto; }
+/* scrollbar-gutter: without it every field in the inspector jumps 10px left the
+   moment the panel overflows. See the scrollbar note in base.css. */
+.panel-body { flex: 1; overflow: auto; scrollbar-gutter: stable; }
 
 /* ── Panel collapse / rails ── */
 .panel-collapse {
@@ -105,32 +115,218 @@
 /* ── Center canvas ── */
 .center { background: var(--bg); display: flex; flex-direction: column; }
 
-/* The screen fills the whole canvas area: no browser chrome, no frame. It is
-   painted like a real page — the layout tree sits edge to edge and dividers
-   draw the seams. */
-.canvas-wrap { flex: 1; overflow: auto; display: flex; flex-direction: column; }
-.device { flex: 1; min-height: 100%; background: var(--bg); display: flex; flex-direction: column; }
+/* The screen is painted like a real page — the layout tree sits edge to edge
+   and dividers draw the seams — but it sits ON something rather than filling
+   the pane, so the eye can find where the tool stops and the document starts.
+   That surround is the drafting mat below. */
+.canvas-wrap { flex: 1; overflow: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; }
+
+/* ── Drafting mat ──
+   The recessed ground the sheet lies on. Fixed values, like the .device palette
+   and for the same reason: the mat is part of the document view, not the app
+   chrome, so it must look identical whichever theme the app is in. It is also
+   the load-bearing part of the boundary. In the app's dark theme the white
+   sheet already stands out against a near-black shell; in the LIGHT theme the
+   chrome is #F4F3F1 and the sheet is #FFFFFF, and before this the two were
+   separated by a single hairline. A cool grey mat between them gives a
+   two-step separation that works in both.
+   The grid is 24px and neutral, deliberately unlike the app's own 80px ORANGE
+   grid on .shell-main (brand.css) — two different surfaces, two different
+   textures. Desktop keeps a modest inset: the mat has to be visible, but the
+   working width is the user's, not decoration's (see the growth chain in the
+   .device flex-basis note above). */
+.canvas-wrap {
+  --mat: #E7EAEE;
+  --mat-line: rgba(27,32,39,.05);
+  padding: 16px;
+  background-color: var(--mat);
+  background-image:
+    linear-gradient(var(--mat-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mat-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+/* The sheet: a bordered, lifted page. One rule for every interface type — the
+   framed stage below only adds the device's size and corner radius. */
+.canvas-wrap > .device {
+  border: 1px solid #C3CAD2;
+  box-shadow: 0 1px 2px rgba(27,32,39,.06), 0 10px 28px rgba(27,32,39,.10);
+}
+/* flex-basis auto + no shrink down the chain: a page taller than the
+   viewport (a bottom region pulled downward) grows the device and every
+   wrapper with it — the white page ground extends past the fold and the
+   canvas scrolls, instead of content overflowing viewport-sized boxes. */
+.device { flex: 1 0 auto; min-height: 100%; background: var(--bg); display: flex; flex-direction: column; transition: opacity 0.1s ease; }
+
+/* A page switch in flight: the outgoing page stays on screen and dims after
+   a beat — the delay means a fast switch never blinks at all, and the
+   un-delayed base transition snaps back the moment the new page lands. */
+.device.page-switching { opacity: 0.55; cursor: progress; transition: opacity 0.15s ease 0.2s; }
+
+/* ── Wireframe palette ──
+   The wireframe is the user's document, not app chrome, and it is a LOW-FIDELITY
+   document: a monochrome graphite draft on paper. It deliberately shares nothing
+   with the Ferrous brand — no molten orange, no Space Grotesk, no iridescent
+   gradient, no 4px/6px radii. That is the whole point of this block, and it is
+   why the values below must never be re-synced with brand.css: an orange primary
+   button in a wireframe reads to a stakeholder as "the button will be orange",
+   asserting a visual decision nobody has taken yet. Colour inside the canvas is
+   reserved for things the user actually chose (a set background, a status hue)
+   and for the editor's own chrome.
+
+   The palette is complete and self-contained, declared here on the canvas root
+   and nowhere else. Two leaks that closes:
+   - Tokens: every custom property the canvas consumes is (re)defined on
+     .device itself. Element-level custom properties beat anything the app
+     theme declares on html/:root, whatever the specificity or import order,
+     and editing the app's theme never restyles wireframes.
+   - Inheritance: color/font are re-anchored below. Inheritance carries the
+     app's COMPUTED body colour (near-white in dark mode) straight past any
+     token pin — canvas text without an explicit colour rule (card titles,
+     table cells) went white-on-white until it was reset here.
+   An explicit background set on a region, component or element still wins
+   (inline style), as does the "Filled" fill (--mute-soft).
+
+   Three families of accent token, kept strictly apart — they address different
+   audiences and must never be collapsed back into one:
+   - --wf-*     the wireframed product's own accent (its primary button, its
+                active tab). Graphite: present, but making no colour claim.
+   - --edit-*   the editor's chrome drawn inside the canvas (selection rings,
+                drop indicators, grips). A signal blue that appears nowhere in
+                the brand and nowhere in wireframe content, so "selected" can
+                never be mistaken for "the design is blue here".
+   - --chrome-* the floating tool pills. Dark, so they read as tool, not
+                content. Substituted here (not further down) so a user-set
+                region background or text colour cannot drag them along. */
+.device {
+  /* Faces: white, so the document reads as paper whatever the app theme.
+     Insets take a faint cool step so a field reads as a field. */
+  --bg: #ffffff; --panel: #ffffff; --panel-2: #ffffff;
+  --inset: #F5F7F9; --inset-2: #F5F7F9;
+  /* Ink and lines: cool graphite, not the brand's warmer #16161C/#4C4C58. */
+  --text: #1B2027; --text-dim: #59616B; --text-mute: #767E88;
+  --border: #D8DDE3; --border-strong: #B4BCC5;
+  --mute-soft: rgba(27,32,39,.055);
+  /* Floating tool pills drawn inside the canvas (region/component toolbars,
+     the add cluster, resize grips). */
+  --chrome-panel: #2A313A;
+  --chrome-ink: #ffffff;
+  --chrome-ink-dim: #C2C9D1;
+  --chrome-line: rgba(255,255,255,.16);
+  --chrome-hover: rgba(255,255,255,.10);
+  /* Destructive action on a dark pill: --bad is tuned for paper and drops to
+     ~4:1 here, so the pills carry their own lifted red. */
+  --chrome-danger: #FF7B72;
+  --chrome-danger-soft: rgba(255,123,114,.16);
+  /* The wireframed product's accent: graphite, no hue. */
+  --wf-solid: #3D4650;   /* primary button, active dot, toggle-on */
+  --wf-ink: #2C333B;     /* link, active nav ink, brand mark */
+  --wf-line: rgba(61,70,80,.30);
+  --wf-soft: rgba(61,70,80,.08);
+  --wf-fill: #5B6673;    /* avatars, chart bars, neutral placeholders */
+  --on-accent: #ffffff;
+  /* The editor's accent. Declared nowhere else in the canvas. */
+  --edit-accent: #1F6FEB;
+  --edit-accent-soft: rgba(31,111,235,.10);
+  --edit-accent-line: rgba(31,111,235,.45);
+  /* Neutralise the brand family rather than merely stopping using it. Custom
+     properties INHERIT, so simply deleting these from the canvas is not
+     isolation: --accent and friends keep resolving here straight from :root,
+     and the next rule written inside .device that reaches for one silently
+     paints molten orange again. Pointed at the graphite above, the canvas
+     cannot render the brand even by accident — including from a stylesheet
+     that does not know the canvas exists. Nothing should USE these names in
+     here; this is the backstop for when something does.
+     --gradient-iridescent gets a flat grey, not a gradient: the brand mark's
+     shape is as recognisable as its hue. */
+  --accent: var(--wf-solid); --accent-soft: var(--wf-soft);
+  --orange: var(--wf-solid); --orange-solid: var(--wf-solid);
+  --orange-ink: var(--wf-ink); --orange-deep: var(--wf-solid);
+  --orange-bright: var(--wf-fill); --orange-border: var(--wf-line);
+  --orange-glow: var(--wf-soft); --orange-glow-soft: var(--wf-soft);
+  --orange-soft: var(--wf-soft);
+  --cobalt: var(--wf-fill); --violet: var(--wf-fill);
+  --gradient-iridescent: linear-gradient(var(--wf-fill), var(--wf-fill));
+  --grid-line: transparent;
+  /* Status hues. These stay: a "Failed" badge or a falling KPI is content the
+     user chose, not a brand claim. Already desaturated enough not to compete. */
+  --good: #0F855F; --good-soft: rgba(15,133,95,.10);
+  --warn: #A66207; --warn-soft: rgba(166,98,7,.09);
+  --bad: #B42318; --bad-soft: rgba(180,35,24,.08);
+  /* Depth and texture. */
+  --shadow: 0 1px 2px rgba(27,32,39,.06), 0 8px 24px rgba(27,32,39,.08);
+  --scrim: rgba(27,32,39,.45);
+  --sunken: rgba(27,32,39,.06);
+  --hatch: rgba(27,32,39,.02);
+  --scroll-thumb: #C9CFD6; --scroll-thumb-hover: #B4BCC5;
+  /* Type and geometry. The platform's own UI font, which is what an
+     un-designed interface actually looks like — and, set beside the brand's
+     very characterful Space Grotesk, reads immediately as "unstyled". No new
+     webfont: this costs nothing to load. Radii are flatter than the brand's
+     4px/6px, so an unshaped element looks drawn rather than styled. */
+  --font-display: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --mono: var(--font-mono);
+  --radius: 2px; --radius-lg: 3px;
+
+  /* Re-anchor the inherited text properties so nothing bleeds in from the
+     app shell; the tokens above make these resolve inside the wireframe. */
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* ── Scrollbars inside the wireframe ──
+   The canvas stands in for the interface being designed, and every fixed
+   region, sideways strip and scrolling card is its own scrollport: a page of
+   splits ends up framed in bars the real UI would never paint, and the count
+   grows with every split. They are hidden here, not removed — each element
+   stays a scroll container, so wheel, trackpad, touch, keyboard and scripted
+   scrolling behave exactly as before.
+   The gutter goes with them. `scrollbar-gutter: stable` exists only to stop
+   content reflowing as a classic bar appears and disappears (see the
+   scrollbar note in base.css); with no bar left to appear it would hold 10px
+   of dead inline edge in every fixed region, so it is given back to content.
+   Scoped to .device — the app's own chrome keeps its bars, where being able
+   to see that a panel scrolls is a real affordance. */
+.device, .device * { scrollbar-width: none; scrollbar-gutter: auto; }
+.device::-webkit-scrollbar, .device *::-webkit-scrollbar { display: none; }
 
 /* ── Device stage ──
    The wireframe's interface type drives the shape of the editing area. Mobile
    and tablet wireframes edit inside a device-shaped frame centred in a gutter,
-   fixed at the device's logical CSS resolution (390×844 phone, 768×1024
-   tablet) so the working area matches the aspect ratio the design will ship
-   at. `min-height` rather than `height`: content taller than the screen grows
-   the frame — a scrolling page, never clipped work. Auto margins centre the
-   frame yet keep the top reachable when it overflows the scroll area. */
-.canvas-wrap.framed { padding: 28px; background: var(--panel-2); }
+   at the device's logical CSS resolution (390×844 phone, 768×1024 tablet,
+   1024×768 the same tablet turned landscape) so the working area matches what
+   the design will ship at. Phones are only designed portrait, so `.landscape`
+   exists for the tablet alone.
+   The size and the scale that fits it on screen are set inline from
+   stage.tsx — the resolutions live there, in one place, because the fit has
+   to be computed from them. What stays here is everything that is not a
+   number: the frame, its corners and the box the scaled device is laid out
+   in.
+   The screen is a fixed box: a page taller than the device scrolls INSIDE it,
+   like the hardware, rather than stretching the frame off the bottom of the
+   mat. (Bars are hidden — see the scrollport note above.) */
+/* Mobile and tablet get a wider gutter; the mat itself is inherited, so all
+   three interface types sit on the same surface. */
+.canvas-wrap.framed { padding: 28px; }
+/* Auto margins centre the device, and the stage — the device's scaled
+   footprint — is what they centre: a transform leaves layout at full size, so
+   centring the device itself would push a fitted device off the mat. */
+.canvas-wrap.framed .stage { flex: 0 0 auto; margin: auto; }
 .canvas-wrap.framed .device {
-  flex: 0 0 auto; margin: auto; min-height: 0;
-  border: 1px solid var(--border-strong); box-shadow: var(--shadow);
-  overflow: hidden;
+  flex: 0 0 auto; min-height: 0;
+  overflow: auto;
+  transform-origin: top left;
 }
-.canvas-wrap.framed .device.mobile { width: min(100%, 390px); min-height: 844px; border-radius: 24px; }
-.canvas-wrap.framed .device.tablet { width: min(100%, 768px); min-height: 1024px; border-radius: 18px; }
+.canvas-wrap.framed .device.mobile { border-radius: 24px; }
+/* Turning the tablet swaps its screen dimensions and nothing else — the frame,
+   radius and gutter are the same hardware. */
+.canvas-wrap.framed .device.tablet { border-radius: 18px; }
 
-.frame-body { flex: 1; display: flex; flex-direction: column; min-height: 100%; }
+.frame-body { flex: 1 0 auto; display: flex; flex-direction: column; min-height: 100%; }
 .frame-body.flat { padding: 20px; gap: 16px; }
-.frame-body.tree > .split, .frame-body.tree > .rg, .frame-body.tree > .host-level { flex: 1; }
+.frame-body.tree > .split, .frame-body.tree > .rg, .frame-body.tree > .host-level { flex: 1 0 auto; }
 
 /* ── Canvas components ──
    A component is drawn as the UI element it stands for; the wrapper adds no
@@ -151,15 +347,15 @@
   border: 1px solid transparent; border-radius: inherit;
   transition: border-color .12s;
 }
-.cmp:hover::after { border-color: var(--orange-border); }
-.cmp.selected::after { border: 2px solid var(--accent); }
+.cmp:hover::after { border-color: var(--edit-accent-line); }
+.cmp.selected::after { border: 2px solid var(--edit-accent); }
 .cmp.dragging { opacity: .5; }
 
 .cmp-actions {
   position: absolute; top: 6px; right: 6px; z-index: 5;
   display: flex; gap: 2px; padding: 2px;
   border-radius: var(--radius-lg);
-  background: var(--panel-2); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
+  background: var(--chrome-panel); border: 1px solid var(--chrome-line); box-shadow: var(--shadow);
   opacity: 0; pointer-events: none; transition: opacity .12s;
 }
 /* The component toolbar shows only when the COMPONENT itself is selected —
@@ -167,10 +363,49 @@
 .cmp.selected > .cmp-actions { opacity: 1; pointer-events: auto; }
 .cmp-actions button {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
-  border: 0; border-radius: var(--radius); background: transparent; color: var(--text-dim); cursor: pointer;
+  border: 0; border-radius: var(--radius); background: transparent; color: var(--chrome-ink-dim); cursor: pointer;
 }
-.cmp-actions button:hover { background: var(--mute-soft); color: var(--text); }
-.cmp-actions button.danger:hover { color: #E5484D; background: rgba(229,72,77,.12); }
+.cmp-actions button:hover { background: var(--chrome-hover); color: var(--chrome-ink); }
+.cmp-actions button.danger:hover { color: var(--chrome-danger); background: var(--chrome-danger-soft); }
+
+/* Resize grips on a selected component: thin strips inside the right and
+   bottom edges plus a corner handle. Dragging sets a fixed width/height on
+   the component; when it outgrows a fixed-px region the region expands with
+   it. The strips sit inside the edges so a fixed-height clip (.sized-h)
+   cannot swallow them, and stop short of the corner and the toolbar.
+   z-index 7: above the split divider's grab area (z 6), which reaches 4px
+   into the region and would otherwise swallow an edge grip's pointerdown —
+   grips exist only on the selected component, so the divider stays
+   grabbable everywhere else. */
+.cmp-resize { position: absolute; z-index: 7; opacity: 0; pointer-events: none; transition: opacity .12s; }
+.cmp.selected > .cmp-resize { pointer-events: auto; }
+.cmp-resize.e { top: 10px; bottom: 14px; right: 0; width: 6px; cursor: ew-resize; }
+.cmp-resize.s { left: 10px; right: 14px; bottom: 0; height: 6px; cursor: ns-resize; }
+.cmp-resize.e::after { content: ""; position: absolute; top: 0; bottom: 0; right: 1.5px; width: 3px; border-radius: 999px; background: var(--edit-accent); }
+.cmp-resize.s::after { content: ""; position: absolute; left: 0; right: 0; bottom: 1.5px; height: 3px; border-radius: 999px; background: var(--edit-accent); }
+.cmp-resize.e:hover, .cmp-resize.s:hover, .cmp-resize.e:active, .cmp-resize.s:active { opacity: 1; }
+.cmp-resize.se {
+  right: 1px; bottom: 1px; width: 11px; height: 11px; cursor: nwse-resize;
+  border: 1.5px solid var(--edit-accent); border-radius: 3px; background: var(--chrome-panel);
+}
+.cmp.selected > .cmp-resize.se { opacity: 1; }
+
+/* A fixed-height component clips its overflow — except an open dropdown
+   menu, which must escape the box (the same lift .rg.fixed makes). */
+.cmp.sized-h { overflow: hidden; }
+.cmp.sized-h:has(.ui-select-menu) { overflow: visible; }
+
+/* ── Free-layout regions ──
+   Region layout "Position freely": the body is a plain positioning context
+   and each component sits absolutely at its props.x/y (inline style), so
+   nothing stacks. The body's min-height is set inline from the lowest
+   component — absolute children add no intrinsic height of their own. */
+.rg-body.free { position: relative; display: block; }
+.rg-body.free .drop-indicator { display: none; }
+.cmp.free-pos { cursor: grab; }
+.cmp.free-pos:active { cursor: grabbing; }
+/* Padding rhythm is a stacked-flow concern; a free box owns its own edges. */
+.rg-body.free > div > .cmp.pad, .rg-body.free > .cmp.pad { padding: 8px 12px; }
 
 /* Inline-editable text looks like the text it is; the affordance is a faint
    ring on hover. Declared before the element classes so those win on ties. */
@@ -182,67 +417,111 @@
 /* :not(.el-sel): hover outranks the selection ring on specificity, and the
    pointer is always over an element just after clicking it — without the
    guard the solid ring never shows. */
-button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); }
+button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line); }
 /* A blanked value keeps a select-only "…" so it can be recovered. */
 .ui-edit.blank { opacity: 0; min-width: 14px; text-align: center; color: var(--text-mute); }
 .cmp.selected .ui-edit.blank, .cmp.has-sel .ui-edit.blank { opacity: .7; }
 
 .inline-edit-input {
   height: 24px; min-width: 72px;
-  border: 1.5px solid var(--accent); border-radius: 4px;
+  border: 1.5px solid var(--edit-accent); border-radius: 4px;
   background: var(--inset-2); color: var(--text);
   font-family: inherit; font-size: 12.5px; padding: 0 6px;
-  box-shadow: 0 0 0 2px var(--accent-soft), inset 0 1px 3px var(--sunken);
+  box-shadow: 0 0 0 2px var(--edit-accent-soft), inset 0 1px 3px var(--sunken);
 }
-.inline-edit-input:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.inline-edit-input:focus { outline: none; box-shadow: 0 0 0 2px var(--edit-accent-soft); }
 
-/* "+" affordances: reserved in layout but invisible until the component (or
-   an element inside it) is selected. Viewers never get them. */
+/* "+" affordances: dashed chips inside the floating add cluster below.
+   Viewers never get them. */
+/* Drawn on the dark cluster, so these take the chrome ink rather than the
+   paper ink they would otherwise inherit from the document around them. */
 .ui-add {
   height: 22px; min-width: 22px; padding: 0 6px; flex-shrink: 0;
-  border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
-  background: transparent; color: var(--text-mute);
+  border: 1px dashed var(--chrome-line); border-radius: var(--radius-lg);
+  background: transparent; color: var(--chrome-ink-dim);
   font: 500 12px/1 var(--font-display); cursor: pointer;
-  opacity: 0; transition: opacity .12s, color .12s, border-color .12s;
+  transition: color .12s, border-color .12s, background .12s;
 }
-.cmp.selected .ui-add, .cmp.has-sel .ui-add { opacity: 1; }
-.ui-add:hover { border-color: var(--accent); color: var(--orange-ink); background: var(--accent-soft); }
+.ui-add:hover { border-color: var(--edit-accent); color: var(--chrome-ink); background: var(--chrome-hover); }
 .ui-add.text { font-size: 11px; padding: 0 8px; }
+
+/* Floating add cluster: a component's add affordances as overlay chrome over
+   its bottom-right corner — or, for short bar components (.bar), hanging just
+   below the bar's left edge — so they never take space in the component's own
+   layout. Shown while the component (or an element inside it) is selected;
+   z 5 keeps it above content but below the resize grips (z 7). */
+.ui-add-cluster {
+  position: absolute; right: 8px; bottom: 8px; z-index: 5;
+  display: flex; gap: 4px; padding: 3px;
+  border-radius: var(--radius-lg);
+  background: var(--chrome-panel); border: 1px solid var(--chrome-line); box-shadow: var(--shadow);
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.ui-add-cluster.bar { top: calc(100% + 6px); bottom: auto; right: auto; left: 8px; }
+.cmp.selected .ui-add-cluster, .cmp.has-sel .ui-add-cluster { opacity: 1; pointer-events: auto; }
 
 /* ── UI primitives ── */
 .ui-btn {
-  height: 30px; padding: 0 12px; border-radius: var(--radius-lg);
+  height: 30px; padding: 0 12px; border-radius: var(--el-shape-radius, var(--radius-lg));
   border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--text);
   font: 500 12.5px/1 var(--font-display); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   white-space: nowrap; text-align: center;
 }
-.ui-btn.primary { background: var(--orange-solid, var(--accent)); border-color: transparent; color: var(--on-accent); }
+.ui-btn.primary { background: var(--wf-solid); border-color: transparent; color: var(--on-accent); }
 .ui-btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
-.ui-btn.danger { color: #E5484D; }
+.ui-btn.danger { color: var(--bad); }
 .ui-btn.sm { height: 26px; padding: 0 10px; font-size: 12px; }
 .ui-input {
-  height: 32px; border-radius: var(--radius-lg); border: 1px solid var(--border-strong);
+  height: 32px; border-radius: var(--el-shape-radius, var(--radius-lg)); border: 1px solid var(--border-strong);
   background: var(--inset-2); padding: 0 10px; min-width: 0;
   display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-mute);
 }
 .ui-input.sm { height: 28px; width: 180px; font-size: 12px; }
 .ui-input.tall { height: 72px; align-items: flex-start; padding-top: 8px; }
 .ui-input.file { border-style: dashed; justify-content: center; height: 56px; }
-.ui-input.select::after {
-  content: ""; margin-left: auto; width: 6px; height: 6px; flex-shrink: 0;
-  border-right: 1.5px solid var(--text-mute); border-bottom: 1.5px solid var(--text-mute);
-  transform: rotate(45deg) translate(-2px, -2px);
+/* Dropdowns expand for real (chevron click) — the menu anchors here. */
+.ui-input.select { position: relative; }
+.ui-select-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-left: auto; margin-right: -4px; flex-shrink: 0;
+  border: 0; border-radius: 5px; background: transparent; color: inherit; padding: 0; cursor: pointer;
 }
+.ui-select-toggle:hover { background: var(--mute-soft); }
+/* Chevron flips up while the menu is open, like a real select. */
+.open > .ui-select-toggle .ui-chevron { transform: rotate(-135deg); margin-top: 3px; }
+.ui-select-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; min-width: 100%; z-index: 60;
+  display: flex; flex-direction: column; gap: 1px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow); max-height: 190px; overflow-y: auto; scrollbar-gutter: stable;
+}
+.ui-select-option {
+  border: 0; background: transparent; text-align: left; cursor: pointer; flex-shrink: 0;
+  padding: 6px 10px; border-radius: 5px; font: inherit; font-size: 12.5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ui-select-option:hover { background: var(--mute-soft); }
+.ui-select-option.on { background: var(--wf-soft); }
+.ui-select-option.none { color: var(--text-mute); cursor: default; }
+.ui-select-option.none:hover { background: transparent; }
 .ui-input svg { flex-shrink: 0; }
 .ui-input-wide { width: min(100%, 420px); }
 .ui-placeholder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* A filled-in value (a dropdown showing its bound dataset's first entry). */
+.ui-value { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ui-label { display: block; font-size: 11.5px; font-weight: 500; color: var(--text-dim); margin-bottom: 6px; }
 .ui-label.tight { margin-bottom: 0; }
-.ui-chip {
-  height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border-strong);
+.ui-chip, .ui-filter {
+  height: 28px; padding: 0 10px; border-radius: var(--el-shape-radius, 999px); border: 1px solid var(--border-strong);
   background: var(--panel-2); color: var(--text-dim); font: 500 12px/1 var(--font-display);
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
 }
+/* A filter bound to values: the field name reads as the label, the chosen
+   value as the content, and the chevron is the real (clickable) toggle rather
+   than the plain chip's decorative ::after. */
+.ui-filter { max-width: 100%; padding-right: 4px; }
+.ui-filter-label { color: var(--text-mute); flex-shrink: 0; }
+.ui-filter .ui-value { font-weight: 500; }
 .ui-chip::after {
   content: ""; width: 5px; height: 5px;
   border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
@@ -250,19 +529,22 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 }
 .ui-chip.sm { height: 24px; font-size: 11px; }
 .ui-badge {
-  display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px;
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--el-shape-radius, 999px);
   font-size: 11px; font-weight: 500; background: var(--mute-soft); color: var(--text-dim); white-space: nowrap;
 }
 .ui-badge.good { background: var(--good-soft); color: var(--good); }
 .ui-badge.warn { background: var(--warn-soft); color: var(--warn); }
 .ui-avatar {
-  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  width: 28px; height: 28px; border-radius: var(--el-shape-radius, 50%); flex-shrink: 0;
   display: inline-grid; place-items: center; text-align: center;
-  font: 600 10.5px/1 var(--font-mono); color: #fff; background: var(--gradient-iridescent);
+  font: 600 10.5px/1 var(--font-mono); color: #fff; background: var(--wf-fill);
 }
 .ui-avatar.sm { width: 24px; height: 24px; font-size: 9.5px; }
-.ui-avatar.sq { border-radius: var(--radius); background: var(--orange-solid, var(--accent)); }
+.ui-avatar.sq { border-radius: var(--radius); background: var(--wf-fill); }
 .ui-icon { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid currentColor; opacity: .5; flex-shrink: 0; }
+/* With a chosen mark (or uploaded image) the placeholder square gives way. */
+.ui-icon.mark { border: none; opacity: .8; display: inline-flex; align-items: center; justify-content: center; }
+.ui-icon.img { border: none; opacity: 1; object-fit: contain; }
 .ui-chevron {
   width: 6px; height: 6px; flex-shrink: 0; margin-top: -3px;
   border-right: 1.5px solid var(--text-mute); border-bottom: 1.5px solid var(--text-mute); transform: rotate(45deg);
@@ -278,18 +560,18 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 /* A header element placed "above": its own line over the component. */
 .ui-headed { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ui-headed > .ui-card-title { font-size: 14px; }
-.ui-h1 { font-family: var(--font-display); font-size: 30px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; margin: 0; }
 .ui-h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
 .ui-h3 { font-size: 14px; font-weight: 600; margin: 0; }
 .ui-p { font-size: 13px; line-height: 1.55; color: var(--text-dim); margin: 0; }
 .ui-p.strong { color: var(--text); font-weight: 500; }
-.ui-lede { font-size: 15px; line-height: 1.5; color: var(--text-dim); margin: 0; max-width: 56ch; }
 .ui-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ui-row.end { justify-content: flex-end; }
 .ui-row.between { justify-content: space-between; width: 100%; }
-.ui-link { font-size: 12px; color: var(--orange-ink); }
+/* With the accent gone the hue can no longer say "link"; the underline does,
+   which is what an unstyled link looks like anyway. */
+.ui-link { font-size: 12px; color: var(--wf-ink); text-decoration: underline; text-underline-offset: 2px; }
 .ui-image {
-  width: min(680px, 100%); height: 200px; border-radius: var(--radius-lg);
+  width: min(680px, 100%); height: 200px; border-radius: var(--el-shape-radius, var(--radius-lg));
   background: var(--panel-2); border: 1px solid var(--border);
 }
 .ui-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; gap: 4px; }
@@ -309,8 +591,10 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 }
 /* The brand's mark: the default gradient square, a chosen built-in icon, or
    an uploaded image (the user can also choose none — nothing renders). */
-.ui-brand-default { width: 20px; height: 20px; border-radius: 5px; background: var(--gradient-iridescent); flex-shrink: 0; }
-.ui-brand-mark { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; color: var(--orange-ink); flex-shrink: 0; }
+/* The placeholder logo of the product being wireframed. It must not be OUR
+   logo, or a stand-in for a decision nobody has made: a plain grey square. */
+.ui-brand-default { width: 20px; height: 20px; border-radius: var(--radius-lg); background: var(--wf-fill); flex-shrink: 0; }
+.ui-brand-mark { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; color: var(--wf-ink); flex-shrink: 0; }
 .ui-brand-img { width: 20px; height: 20px; border-radius: 5px; object-fit: cover; flex-shrink: 0; }
 /* The bar is three zones in fixed order; elements land in one via data.align
    (navAlign defaults). Equal flex on the outer zones keeps the middle one
@@ -328,6 +612,17 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 }
 .ui-nav-link.active { color: var(--text); background: var(--mute-soft); }
 .ui-nav-search { flex: 0 1 260px; height: 32px; }
+/* Dropdown in the bar: "Select" until a bound dataset gives it a value. */
+.ui-nav-select {
+  position: relative;
+  height: 32px; padding: 0 10px; border-radius: var(--el-shape-radius, var(--radius-lg)); flex-shrink: 0;
+  border: 1px solid var(--border-strong); background: var(--inset-2);
+  display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 0;
+}
+.ui-nav-placeholder { color: var(--text-mute); white-space: nowrap; }
+.ui-nav-value { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Side-rail variant: full width, chevron pushed to the far edge. */
+.ui-nav-select.vert { width: 100%; }
 
 /* ── Side nav ── */
 .ui-sidenav {
@@ -344,10 +639,9 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   height: 32px; width: 100%; padding: 0 10px; border-radius: var(--radius-lg);
   display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim); text-align: left;
 }
-.ui-side-item.active { background: var(--accent-soft); color: var(--text); }
-.ui-side-item.active .ui-icon { color: var(--orange-ink); opacity: 1; }
+.ui-side-item.active { background: var(--wf-soft); color: var(--text); }
+.ui-side-item.active .ui-icon { color: var(--wf-ink); opacity: 1; }
 .ui-side-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ui-sidenav .ui-add { align-self: flex-start; margin: 4px 10px 0; }
 .ui-side-user {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px;
   border-radius: var(--radius-lg); border: 1px solid var(--border);
@@ -362,36 +656,23 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .ui-workspace-name { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 /* Compact variant for the horizontal bar. */
 .ui-workspace.bar { padding: 4px 8px; gap: 8px; flex-shrink: 0; }
-/* ── Right panel ── */
-.ui-rpanel {
-  flex: 1; min-height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 16px;
-  background: var(--panel);
-}
-.ui-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ui-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 14px; margin: 0; font-size: 12.5px; align-items: center; }
-.ui-dl dt { color: var(--text-mute); margin: 0; }
-.ui-dl dd { margin: 0; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ui-dl .ui-add { grid-column: 1 / -1; justify-self: start; }
+/* ── Feed ── */
 .ui-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
 .ui-feed li { display: flex; gap: 10px; align-items: flex-start; }
 .ui-feed-body { min-width: 0; }
 .ui-feed-text { font-size: 12.5px; }
 .ui-feed-time { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
+/* Row actions trail the entry; margin-left keeps them right-aligned without
+   the feed body having to claim the leftover space. */
+.ui-feed-actions { margin-left: auto; flex-shrink: 0; }
 
-/* ── Footer, tabs, breadcrumb ── */
-.ui-footer {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px;
-  background: var(--panel); font-size: 12px; color: var(--text-mute);
-}
-.ui-footer-links { display: flex; align-items: center; gap: 16px; }
-.ui-footer-link { color: var(--text-dim); font-size: 12px; }
+/* ── Tabs, breadcrumb ── */
 .ui-tabs { display: flex; align-items: flex-end; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--border); }
 .ui-tab {
   height: 38px; padding: 0 12px; font-size: 13px; color: var(--text-dim); white-space: nowrap;
   display: inline-flex; align-items: center; border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
-.ui-tab.active { color: var(--text); border-bottom-color: var(--accent); }
-.ui-tabs .ui-add { align-self: center; }
+.ui-tab.active { color: var(--text); border-bottom-color: var(--wf-solid); }
 .ui-crumbs { display: flex; align-items: center; gap: 8px; padding: 10px 20px; font-size: 12.5px; color: var(--text-mute); }
 .ui-crumb { color: var(--text-dim); }
 .ui-crumb.current { color: var(--text); font-weight: 500; }
@@ -403,24 +684,21 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   height: 32px; width: 100%; padding: 0 10px; margin-bottom: 0; justify-content: flex-start;
   border-bottom: 0; border-left: 2px solid transparent; border-radius: 0 var(--radius) var(--radius) 0;
 }
-.ui-tab.vert.active { border-bottom: 0; border-left-color: var(--accent); background: var(--accent-soft); }
+.ui-tab.vert.active { border-bottom: 0; border-left-color: var(--wf-solid); background: var(--wf-soft); }
 .ui-crumb.vert { display: block; width: 100%; text-align: left; padding: 4px 10px; font-size: 12.5px; }
 
 /* ── Content blocks ── */
-.ui-hero {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 36px 32px;
-  border-radius: var(--radius-lg); border: 1px solid var(--border);
-  background: radial-gradient(ellipse at 100% 0%, var(--orange-glow-soft), transparent 55%), var(--panel);
-}
 /* Tiles wrap like a real metrics row instead of squeezing into one line. */
 .ui-kpis { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
-.ui-kpi { flex: 1 1 140px; min-width: 140px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.ui-kpi { flex: 1 1 140px; min-width: 140px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; border-radius: var(--el-shape-radius, var(--radius-lg)); }
 .ui-kpi-label { font-size: 11.5px; color: var(--text-mute); font-weight: 500; }
 .ui-kpi-value { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-kpi-delta { font-size: 11.5px; color: var(--good); }
-.ui-kpi-delta.down { color: #E5484D; }
-.ui-kpis .ui-add { align-self: center; }
+.ui-kpi-delta.down { color: var(--bad); }
 .ui-table-card { overflow: hidden; }
+/* …except while a filter's dropdown is open, which would otherwise be clipped
+   by the card (same escape as the region/canvas rules further down). */
+.ui-table-card:has(.ui-select-menu) { overflow: visible; }
 .ui-table-scroll { overflow-x: auto; }
 .ui-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .ui-table th, .ui-table td { text-align: left; padding: 0 14px; height: 38px; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -439,25 +717,16 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .ui-chart-col { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
 .ui-chart-value { font: 500 10.5px var(--font-mono); color: var(--text-mute); margin-bottom: 4px; }
 .ui-chart-bar {
-  width: 100%; max-width: 48px; border-radius: 4px 4px 0 0;
-  background: linear-gradient(180deg, var(--orange-bright), var(--orange-deep));
+  width: 100%; max-width: 48px; border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--wf-fill);
 }
 .ui-chart-x { display: flex; gap: 8%; padding: 8px 4% 0; }
 .ui-chart-x > * { flex: 1; text-align: center; font-size: 11px; color: var(--text-mute); min-width: 0; }
-.ui-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 24px; text-align: center; }
-.ui-empty .ui-row { justify-content: center; margin-top: 6px; }
-.ui-empty-icon {
-  width: 44px; height: 44px; border-radius: 12px; border: 1px dashed var(--border-strong);
-  display: grid; place-items: center; color: var(--text-mute); margin-bottom: 4px;
-}
-.ui-article { display: flex; flex-direction: column; gap: 18px; max-width: 72ch; }
-.ui-article section { display: flex; flex-direction: column; gap: 6px; }
 .ui-form { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
 /* The header bar sits flush with the card edges despite the form's padding. */
 .ui-form > .ui-card-head { margin: -20px -20px 0; }
 .ui-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .ui-field.wide { grid-column: 1 / -1; }
-.ui-form-grid .ui-add { align-self: end; justify-self: start; height: 32px; }
 .ui-form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
 .ui-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ui-filters .search { flex: 1 1 220px; }
@@ -469,15 +738,9 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
   font: 500 11px var(--font-mono); border: 1.5px solid var(--border-strong); color: var(--text-mute);
 }
-.ui-step.active .ui-step-dot { background: var(--orange-solid, var(--accent)); border-color: transparent; color: var(--on-accent); }
+.ui-step.active .ui-step-dot { background: var(--wf-solid); border-color: transparent; color: var(--on-accent); }
 .ui-step.done .ui-step-dot { border-color: var(--good); color: var(--good); }
 .ui-step-line { width: 40px; height: 1px; background: var(--border-strong); margin: 0 12px; }
-.ui-modal-scrim { display: grid; place-items: center; padding: 28px; border-radius: var(--radius-lg); background: var(--scrim); }
-.ui-modal {
-  width: min(420px, 100%); padding: 18px 20px; display: flex; flex-direction: column; gap: 12px;
-  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow);
-}
-.ui-modal-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 6px; }
 .ui-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 
 /* Builder leaf previews still use these two. */
@@ -485,13 +748,13 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   height: 24px; border-radius: 999px; padding: 0 10px;
   display: inline-flex; align-items: center; font-size: 11.5px; background: var(--mute-soft); color: var(--text-dim);
 }
-.sk-pill.accent { background: var(--orange-solid, var(--accent)); color: var(--on-accent); }
+.sk-pill.accent { background: var(--wf-solid); color: var(--on-accent); }
 
 .json {
   margin: 0; padding: 12px;
   background: var(--code-bg); color: var(--code-text);
   font-family: var(--mono); font-size: 11px; line-height: 1.55;
-  overflow: auto; max-height: 360px;
+  overflow: auto; scrollbar-gutter: stable; max-height: 360px;
 }
 .json .k { color: var(--json-key); }
 .json .s { color: var(--json-string); }
@@ -504,15 +767,13 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   padding: 18px; text-align: center; color: var(--text-mute); font-size: 12px;
   background: repeating-linear-gradient(45deg, transparent 0 8px, var(--hatch) 8px 16px);
 }
-.empty-hint.over { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.empty-hint.over { border-color: var(--edit-accent); color: var(--edit-accent); background: var(--edit-accent-soft); }
 
-.lib-item[draggable="true"] { user-select: none; }
-.lib-item.dragging { opacity: .5; }
 .drop-indicator {
-  height: 0; border-top: 2px solid var(--accent); margin: -1px 0;
-  box-shadow: 0 0 0 2px var(--accent-soft); border-radius: 2px;
+  height: 0; border-top: 2px solid var(--edit-accent); margin: -1px 0;
+  box-shadow: 0 0 0 2px var(--edit-accent-soft); border-radius: 2px;
 }
-.frame-body.over-empty { outline: 2px dashed var(--accent); outline-offset: -8px; border-radius: 8px; }
+.frame-body.over-empty { outline: 2px dashed var(--edit-accent); outline-offset: -8px; border-radius: 8px; }
 
 /* ── Page picker delete buttons ── */
 .page-select-item .close {
@@ -521,6 +782,21 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   border-radius: 3px;
 }
 .page-select-item .close:hover { background: var(--mute-soft); color: var(--text); }
+
+/* ── Page picker landing marker ──
+   ⌂ marks the page the wireframe opens on. Pinned = an explicit choice
+   (accent); auto = derived from the shell's nav (muted). Other rows only
+   reveal their marker on hover, so the list stays quiet. */
+.page-select-item .home {
+  color: var(--text-mute); font-size: 12px;
+  width: 16px; height: 16px; display: inline-grid; place-items: center;
+  border-radius: 3px; opacity: 0; flex-shrink: 0;
+}
+.page-select-item:hover .home, .page-select-item.highlight .home,
+.page-select-item .home.pinned, .page-select-item .home.auto { opacity: 1; }
+.page-select-item .home.pinned { color: var(--accent); }
+.page-select-item .home[role="button"]:hover { background: var(--mute-soft); color: var(--text); }
+.page-select-item .home.pinned[role="button"]:hover { color: var(--accent); }
 
 /* ── The layout tree ──
    A page is a tree of splits and regions. Splits are flex rows/columns whose
@@ -540,11 +816,29 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .split-div::after { content: ""; position: absolute; }
 .split-row > .split-div::after { top: 0; bottom: 0; left: -4px; right: -4px; }
 .split-col > .split-div::after { left: 0; right: 0; top: -4px; bottom: -4px; }
-.split-div:hover { background: var(--accent); }
+.split-div:hover { background: var(--edit-accent); }
 .split-div:not([role]) { pointer-events: none; }
 
 .rg { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* Fixed-px areas contain so overgrown content cannot spill into neighbours —
+   except while a dropdown menu is open inside one: the menu (mounted only
+   while expanded) must overlay whatever lies beyond the fixed edge. */
+.rg.fixed, .split.fixed { overflow: hidden; }
+.rg.fixed:has(.ui-select-menu), .split.fixed:has(.ui-select-menu) { overflow: visible; }
+/* A fixed region's content scrolls rather than clips. The body is the
+   scrollport — not the region — so the ring and toolbar stay pinned. */
+.rg.fixed > .rg-body { overflow: auto; scrollbar-gutter: stable; }
+.rg.fixed:has(.ui-select-menu) > .rg-body { overflow: visible; }
 .rg-body { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 40px; }
+/* ── Horizontal regions (Inspector → Region → Stack) ──
+   Components line up side by side as equal columns with a width floor;
+   past the floor the body scrolls sideways instead of squeezing them. */
+.rg-body.row { flex-direction: row; align-items: stretch; overflow-x: auto; }
+.rg-body.row:has(.ui-select-menu) { overflow: visible; }
+.rg-body.row > div > .cmp:not(.float), .rg-body.row > .cmp:not(.float) { flex: 1 1 260px; min-width: 260px; }
+.rg-body.row > div > .cmp.pad, .rg-body.row > .cmp.pad { padding: 16px 10px; }
+/* The between-components insertion line runs vertically in a row. */
+.rg-body.row .drop-indicator { height: auto; width: 0; border-top: 0; border-left: 2px solid var(--edit-accent); margin: 0 -1px; }
 /* Region rings ride an ::after overlay for the same reason .cmp's do: an
    inset outline paints below positioned children, so a full-bleed component
    (a nav bar, a canvas) would bury every edge it covers. Absolute, so the
@@ -553,9 +847,9 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 4;
 }
 .rg.selected { z-index: 2; }
-.rg.selected::after { border: 2px solid var(--accent); }
-.rg.over { background: var(--accent-soft); z-index: 2; }
-.rg.over::after { border: 2px dashed var(--accent); }
+.rg.selected::after { border: 2px solid var(--edit-accent); }
+.rg.over { background: var(--edit-accent-soft); z-index: 2; }
+.rg.over::after { border: 2px dashed var(--edit-accent); }
 .rg-empty {
   flex: 1; display: grid; place-items: center; min-height: 96px; margin: 12px;
   border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
@@ -570,51 +864,123 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   position: absolute; top: 6px; left: 6px; z-index: 5;
   display: flex; gap: 2px; padding: 2px;
   border-radius: var(--radius-lg);
-  background: var(--panel-2); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
+  background: var(--chrome-panel); border: 1px solid var(--chrome-line); box-shadow: var(--shadow);
   opacity: 0; pointer-events: none; transition: opacity .12s;
 }
 .rg.selected > .rg-toolbar { opacity: 1; pointer-events: auto; }
 .rg-toolbar button {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
-  border: 0; border-radius: var(--radius); background: transparent; color: var(--text-dim); cursor: pointer;
+  border: 0; border-radius: var(--radius); background: transparent; color: var(--chrome-ink-dim); cursor: pointer;
 }
-.rg-toolbar button:hover { background: var(--mute-soft); color: var(--text); }
-.rg-toolbar button.danger:hover { color: #E5484D; background: rgba(229,72,77,.12); }
+.rg-toolbar button:hover { background: var(--chrome-hover); color: var(--chrome-ink); }
+.rg-toolbar button.danger:hover { color: var(--chrome-danger); background: var(--chrome-danger-soft); }
+
+/* Resize grip on a selected region's trailing edge (right in a row split,
+   bottom in a column split), the same gesture a selected component offers.
+   The strip sits inside the edge so the .fixed clip cannot swallow it, and
+   stops short of the corners the toolbar and the badges occupy. z-index 7:
+   above the split divider's 4px grab reach — the grip exists only on the
+   selected region, so the divider stays grabbable everywhere else (see
+   .cmp-resize). */
+.rg-resize { position: absolute; z-index: 7; opacity: 0; transition: opacity .12s; }
+.rg-resize.e { top: 10px; bottom: 10px; right: 0; width: 6px; cursor: ew-resize; }
+.rg-resize.s { left: 10px; right: 10px; bottom: 0; height: 6px; cursor: ns-resize; }
+.rg-resize.e::after { content: ""; position: absolute; top: 0; bottom: 0; right: 1.5px; width: 3px; border-radius: 999px; background: var(--edit-accent); }
+.rg-resize.s::after { content: ""; position: absolute; left: 0; right: 0; bottom: 1.5px; height: 3px; border-radius: 999px; background: var(--edit-accent); }
+.rg-resize:hover, .rg-resize:active { opacity: 1; }
 
 /* Components other than edge-to-edge shells breathe inside their region. */
 .cmp.pad { padding: 8px 20px; }
 .rg-body > .cmp.pad:first-child { padding-top: 16px; }
 .rg-body > .cmp.pad:last-child { padding-bottom: 16px; }
 
+/* ── "Fill region" (Inspector → Size, or a canvas's fill/float layout) ──
+   The component grows into its region's leftover height and stretches its
+   schematic to match. The edit canvas wraps each .cmp in a display:contents
+   div; the preview does not — both selectors below are needed. */
+.rg-body > div > .cmp.fill, .rg-body > .cmp.fill { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* In a row split the shared flex basis above makes every member grow the
+   same, so Fill region must claim the leftover width instead: siblings of a
+   filling component settle at their 260px basis and stop growing. Keyed on
+   .grow, not .fill — .fill alone also rides along with a fixed height. */
+.rg-body.row:has(> div > .cmp.grow, > .cmp.grow) > div > .cmp:not(.float):not(.grow),
+.rg-body.row:has(> div > .cmp.grow, > .cmp.grow) > .cmp:not(.float):not(.grow) { flex: 0 1 260px; }
+.cmp.fill > :not(.cmp-actions) { flex: 1 1 auto; min-height: 0; }
+/* With the header placed above, the body under it is what grows. */
+.cmp.fill > .ui-headed > :last-child { flex: 1 1 auto; min-height: 0; }
+/* Filled cards become columns so scroll areas grow between a pinned head and
+   foot: a filled table scrolls its rows and keeps its pager on the bottom
+   edge, the way the real screen would. */
+.cmp.fill > .ui-card, .cmp.fill > .ui-headed > .ui-card { display: flex; flex-direction: column; }
+.cmp.fill > .ui-card > .ui-table-scroll, .cmp.fill > .ui-headed > .ui-card > .ui-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.cmp.fill > .ui-card > .ui-card-foot, .cmp.fill > .ui-headed > .ui-card > .ui-card-foot { margin-top: auto; }
+
 /* ── Child pages (the outlet model) ──
    Ancestor shells render read-only around the page being edited; the outlet
    region is faintly marked. */
 .host-level { flex: 1; display: flex; min-width: 0; min-height: 0; }
 .host-level > .split, .host-level > .rg { flex: 1; }
-.rg-outlet::after { border: 1px dashed var(--orange-border); }
+.rg-outlet::after { border: 1px dashed var(--edit-accent-line); }
 
-/* ── Elements: selection ── */
-.ui-edit.el-sel { box-shadow: 0 0 0 2px var(--accent); border-radius: 3px; }
+/* ── Overlay pages (presentation: modal / drawer) ──
+   The page's placement parent renders in full as the backdrop; the page
+   itself floats above it in dialog or side-panel chrome. The scrim covers
+   the backdrop, so in the editor only the overlay's content is editable. */
+.frame-body.tree { position: relative; }
+/* Above every piece of in-canvas chrome the backdrop could show (toolbars
+   at 5-6, expanded menus at 60). Clips the drawer's slide-in. */
+.overlay-layer { position: absolute; inset: 0; z-index: 70; display: flex; overflow: hidden; background: var(--scrim); }
+.overlay-panel {
+  position: relative; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
+}
+/* Content scrolls in its own body so the close control stays pinned. */
+.overlay-body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
+.overlay-body > .split, .overlay-body > .rg { flex: 1; }
+/* The close control floats on the scrim just beside the panel (never over
+   its content); each kind sets which side. It rides the panel's animation. */
+.overlay-close {
+  position: absolute; z-index: 8;
+  display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--panel); color: var(--text-mute); box-shadow: var(--shadow); cursor: pointer;
+}
+.overlay-close:hover { background: var(--mute-soft); color: var(--text); }
+/* Modifiers are namespaced (`overlay-modal`, not `modal`): the app's own
+   Drawer/modal chrome owns the bare class names. */
+/* 40px padding keeps the beside-the-corner close control (26px + 10px gap)
+   inside the layer even when the dialog takes its full width. */
+/* Top-anchored, not centred: the dialog stays put as its content grows
+   instead of shifting up and down around the middle. */
+.overlay-layer.overlay-modal { align-items: flex-start; justify-content: center; padding: 40px; }
+.overlay-layer.overlay-modal .overlay-panel { width: min(560px, 100%); min-height: 180px; max-height: 100%; border-radius: 10px; }
+.overlay-layer.overlay-modal .overlay-close { top: 0; left: calc(100% + 10px); }
+.overlay-layer.overlay-drawer { justify-content: flex-end; }
+.overlay-layer.overlay-drawer .overlay-panel { width: min(420px, 85%); height: 100%; border-top: 0; border-bottom: 0; border-right: 0; }
+.overlay-layer.overlay-drawer .overlay-close { top: 10px; right: calc(100% + 10px); }
+.overlay-layer.overlay-drawer-left { justify-content: flex-start; }
+.overlay-layer.overlay-drawer-left .overlay-panel { width: min(420px, 85%); height: 100%; border-top: 0; border-bottom: 0; border-left: 0; }
+.overlay-layer.overlay-drawer-left .overlay-close { top: 10px; left: calc(100% + 10px); }
 
-/* ── Component family rows (expandable) ── */
-.family-item {
-  cursor: pointer;
-  user-select: none;
-  align-items: center;
+/* Entry motion: the scrim fades while the dialog settles in / the drawer
+   slides from its edge. Entry only — closing navigates away, so there is no
+   mounted element left to animate out. */
+.overlay-layer { animation: overlay-fade 160ms ease-out both; }
+.overlay-layer.overlay-modal .overlay-panel { animation: overlay-pop 220ms cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.overlay-layer.overlay-drawer .overlay-panel { animation: overlay-slide 260ms cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.overlay-layer.overlay-drawer-left .overlay-panel { animation: overlay-slide-left 260ms cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+@keyframes overlay-fade { from { opacity: 0; } }
+@keyframes overlay-pop { from { opacity: 0; transform: translateY(10px) scale(0.97); } }
+@keyframes overlay-slide { from { transform: translateX(100%); } }
+@keyframes overlay-slide-left { from { transform: translateX(-100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .overlay-layer, .overlay-panel { animation: none; }
 }
-.family-item:hover { border-color: var(--accent); }
-.family-chevron {
-  font-size: 13px; color: var(--text-mute);
-  flex-shrink: 0; margin-left: 4px; transition: color .15s;
-}
-.family-item:hover .family-chevron { color: var(--accent); }
-.variant-item {
-  margin-left: 20px;
-  margin-right: 8px;
-  background: var(--inset);
-  border-color: var(--border);
-}
-.variant-item:hover { border-color: var(--accent); }
+
+/* ── Elements: selection ──
+   A selected token is an object, not a text field: arrow cursor, not the
+   I-beam (double-click still opens the editor). */
+.ui-edit.el-sel { box-shadow: 0 0 0 2px var(--edit-accent); border-radius: 3px; cursor: default; }
 
 /* ── Layout mode segmented toggle ── */
 .seg {
@@ -666,7 +1032,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 
 /* ── Palette (left) ── */
 .bldr-palette {
-  border-right: 1px solid var(--border); overflow-y: auto;
+  border-right: 1px solid var(--border); overflow-y: auto; scrollbar-gutter: stable;
   padding: 14px; background: var(--panel);
 }
 .bldr-section-title {
@@ -703,7 +1069,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .bldr-selection-info { font-size: 11px; color: var(--text-dim); }
 .bldr-canvas {
   position: relative;
-  flex: 1; overflow: auto; padding: 18px;
+  flex: 1; overflow: auto; scrollbar-gutter: stable; padding: 18px;
   background:
     radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 14px 14px,
     var(--bg);
@@ -866,7 +1232,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 
 /* ── Properties panel (right) ── */
 .bldr-props {
-  border-left: 1px solid var(--border); overflow-y: auto;
+  border-left: 1px solid var(--border); overflow-y: auto; scrollbar-gutter: stable;
   padding: 14px; background: var(--panel);
 }
 .bldr-multi-info { font-size: 12px; color: var(--text-dim); margin-bottom: 12px; padding: 8px; background: var(--inset-2); border-radius: 5px; border: 1px solid var(--border); }
@@ -884,12 +1250,34 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 
 /* ── React studio host ── */
 /* The app shell's sidebar sits beside the studio (no top nav), so the studio
-   owns the full viewport height minus its own 44px topbar. */
-.studio .app { height: calc(100vh - 44px); }
-@media (max-width: 820px) { .studio .app { height: calc(100vh - 48px - 44px); } }
-.studio .workspace { position: relative; }
+   owns the full viewport height. A flex column absorbs whatever chrome is
+   showing — topbar, component bar, status banners — and hands the workspace
+   the rest. */
+.studio { height: 100vh; display: flex; flex-direction: column; }
+@media (max-width: 820px) { .studio { height: calc(100vh - 48px); } }
+.studio .topbar, .studio .status-banner { flex-shrink: 0; }
+.studio .workspace { position: relative; flex: 1; min-height: 0; }
 .studio .topbar .btn { display: inline-flex; align-items: center; text-decoration: none; }
 .studio .status-banner { margin: 0; }
+
+/* ── Preview mode ──
+   A wireframe rendered as the system it describes: no editing chrome, and a
+   linked element navigates on a single click, so it reads as the control it
+   stands for. Unlinked parts stay inert. */
+.studio-preview .preview-body { height: calc(100vh - 44px); display: flex; flex-direction: column; }
+@media (max-width: 820px) { .studio-preview .preview-body { height: calc(100vh - 48px - 44px); } }
+.studio-preview .topbar .select { height: 30px; font-size: 12.5px; max-width: 300px; }
+/* Region seams are structure, not controls: no resize cursor, no hover accent. */
+.studio-preview .split-div { pointer-events: none; }
+/* Linked elements are the interactive surface; a light press affordance on
+   hover stands in for the states the real controls would have. */
+.studio-preview .linked, .studio-preview .el-follow { cursor: pointer; }
+.studio-preview .linked:hover, .studio-preview .el-follow:hover { opacity: .75; }
+/* ...and the editor's own hover ring goes with them. It marks "this box is a
+   component you can select", which is meaningless here: a viewer is looking at
+   the interface, not its parts, and the line above already gives the only
+   hover state preview should have. */
+.studio-preview .cmp:hover::after { border-color: transparent; }
 
 /* Component builder inside the shared drawer: the 3-column editor needs the full body. */
 .builder-drawer .drawer-body { padding: 0; gap: 0; overflow: hidden; }
@@ -897,14 +1285,68 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 
 /* ═══ Components + Elements library ═══════════════════════════════════════ */
 
-/* Library: shape variant chips under a component row. */
-.lib-shapes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.lib-shape {
-  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong);
-  background: var(--panel-2); color: var(--text-dim); font-size: 10.5px; cursor: pointer;
-  transition: border-color .12s, background .12s, color .12s;
+/* The library is two slim rows instead of a side panel: every catalogue
+   component sits in the top bar's spare middle space, and a permanent row
+   under the canvas carries the selected component's element vocabulary —
+   permanent so selecting never reflows the canvas. Entries are icon +
+   short-name chips; the full label and description live in each chip's
+   tooltip. Neither bar renders for viewers (the top bar keeps a plain
+   spacer instead). */
+.lib-bar {
+  display: flex; align-items: center; flex-shrink: 0;
+  padding: 0 8px; min-width: 0;
+  background: var(--panel);
 }
-.lib-shape:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+/* The chips scroll in their own strip beside the pinned label. The track is
+   always reserved (scroll, not auto): scrollbar-gutter cannot hold space for a
+   horizontal bar (see the scrollbar note in base.css), so without this the
+   chips ride up the moment the strip overflows. The track paints transparent,
+   so the reserved 6px is invisible until there is something to scroll. */
+.lib-bar-scroll {
+  flex: 1; min-width: 0; align-self: stretch;
+  display: flex; align-items: center; gap: 1px;
+  overflow-x: scroll;
+}
+/* Chromium ignores ::-webkit-scrollbar styling on an element that also sets
+   scrollbar-width/color — the strip was getting the ~11px default thin bar,
+   not the 6px one below. The standard properties are therefore scoped to
+   Firefox, the one engine without the pseudo-element. */
+@supports not selector(::-webkit-scrollbar) {
+  .lib-bar-scroll { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+}
+.lib-bar-scroll::-webkit-scrollbar { height: 6px; }
+.lib-bar-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.lib-bar-scroll::-webkit-scrollbar-track { background: transparent; }
+/* Flexible middle of the top bar. It never collapses below a usable scroll
+   window (the other topbar controls keep their intrinsic width), and it is a
+   container so the chips can shed their names as it tightens. */
+.cmp-bar { flex: 1; min-width: 240px; align-self: stretch; container-type: inline-size; }
+/* Too tight for names: icon-only chips, the tooltip still carries the name. */
+@container (max-width: 620px) {
+  .cmp-bar .lib-chip-name { display: none; }
+  .cmp-bar .lib-chip { padding: 0 8px; }
+}
+.el-bar { height: 36px; border-top: 1px solid var(--border); }
+/* Names the vocabulary a bar offers — a readout, not a control. */
+.lib-bar-tag {
+  font: 600 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: .1em;
+  color: var(--text-mute); flex-shrink: 0; white-space: nowrap;
+  /* The bottom padding mirrors the strip's reserved 6px track, keeping the
+     tag's text on the chips' centre line. */
+  padding: 0 6px 6px 2px;
+}
+.lib-chip {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  height: 26px; padding: 0 7px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text-dim);
+  font: 500 11.5px/1 var(--font-display); white-space: nowrap;
+  cursor: grab; user-select: none;
+}
+.lib-chip:hover { background: var(--mute-soft); color: var(--text); }
+.lib-chip.dragging { opacity: .5; }
+.lib-chip svg { flex-shrink: 0; color: var(--orange-ink); }
+/* Fallback for a type without a drawn glyph (a custom component's code). */
+.lib-chip-code { font: 600 8.5px var(--font-mono); letter-spacing: .04em; color: var(--orange-ink); }
 
 /* A component highlighted as the target of an element drag. The ring rides
    the same ::after overlay as hover/selection, for the same reason. */
@@ -923,13 +1365,13 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--border-strong);
   background: var(--inset-2); flex-shrink: 0;
 }
-.ui-choice.on .ui-radio { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--panel); background: var(--accent); }
+.ui-choice.on .ui-radio { border-color: var(--wf-solid); box-shadow: inset 0 0 0 3px var(--panel); background: var(--wf-solid); }
 .ui-checkbox {
   width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--border-strong);
   background: var(--inset-2); flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
   color: var(--on-accent);
 }
-.ui-choice.on .ui-checkbox { background: var(--accent); border-color: var(--accent); }
+.ui-choice.on .ui-checkbox { background: var(--wf-solid); border-color: var(--wf-solid); }
 .ui-toggle {
   width: 28px; height: 16px; border-radius: 999px; border: 1.5px solid var(--border-strong);
   background: var(--inset-2); position: relative; flex-shrink: 0;
@@ -938,25 +1380,25 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   content: ""; position: absolute; top: 1px; left: 1px; width: 11px; height: 11px;
   border-radius: 50%; background: var(--text-mute); transition: left .12s, background .12s;
 }
-.ui-toggle.on { background: var(--accent); border-color: var(--accent); }
+.ui-toggle.on { background: var(--wf-solid); border-color: var(--wf-solid); }
 .ui-toggle.on::after { left: 13px; background: var(--on-accent); }
 .ui-help { font-size: 11.5px; color: var(--text-mute); }
 
 /* Image and box placeholders. */
 .ui-image-ph {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  min-height: 96px; padding: 14px; border-radius: var(--radius-lg);
+  min-height: 96px; padding: 14px; border-radius: var(--el-shape-radius, var(--radius-lg));
   border: 1.5px dashed var(--border-strong); background: var(--inset-2); color: var(--text-mute);
 }
 .ui-image-ph.tall { min-height: 180px; flex: 1; align-self: stretch; }
 .ui-image-cap { font-size: 11.5px; color: var(--text-mute); text-align: center; }
 /* A real uploaded image: no placeholder chrome, resizes with its box. */
-.ui-image { display: flex; border-radius: var(--radius-lg); overflow: hidden; min-width: 0; }
+.ui-image { display: flex; border-radius: var(--el-shape-radius, var(--radius-lg)); overflow: hidden; min-width: 0; }
 .ui-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ui-image.tall { min-height: 180px; flex: 1; align-self: stretch; }
 .ui-canvas-el .ui-image img { max-width: 100%; }
 .ui-box {
-  min-height: 64px; min-width: 120px; padding: 10px; border-radius: var(--radius-lg);
+  min-height: 64px; min-width: 120px; padding: 10px; border-radius: var(--el-shape-radius, var(--radius-lg));
   border: 1.5px dashed var(--border-strong); background: var(--inset-2);
   display: flex; align-items: center; justify-content: center;
 }
@@ -970,10 +1412,10 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
   border: 1px solid var(--border-strong); background: var(--panel-2);
   display: inline-flex; align-items: center; justify-content: center; font-size: 11.5px;
 }
-.ui-pager-btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.ui-pager-btn.on { border-color: var(--wf-solid); color: var(--wf-ink); background: var(--wf-soft); }
 .ui-pager-size { margin-left: 8px; }
 .ui-pager-label { color: var(--text-mute); font-size: 11px; }
-.ui-card-foot { padding: 10px 0 0; display: flex; justify-content: flex-end; }
+.ui-card-foot { padding: 10px 0; display: flex; justify-content: center; }
 .ui-listwrap { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 
 /* Table extras. */
@@ -1050,14 +1492,14 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .ui-cal-ev {
   display: inline-flex; align-items: center; gap: 5px; max-width: 100%; overflow: hidden;
   padding: 1px 6px; border-radius: 4px; font-size: 10.5px;
-  background: var(--accent-soft); color: var(--accent); border-left: 2px solid var(--accent);
+  background: var(--wf-soft); color: var(--wf-ink); border-left: 2px solid var(--wf-solid);
 }
 .ui-cal-ev.task { background: var(--good-soft); color: var(--good); border-left-color: var(--good); }
 .ui-cal-ev.reminder { background: var(--warn-soft); color: var(--warn); border-left-color: var(--warn); }
 .ui-cal-ev.all-day { border-left-style: dashed; width: 100%; }
 .ui-cal-ev.bar { padding: 2px 10px; border-radius: 999px; }
 .ui-cal-when { font-size: 10px; opacity: .75; }
-.ui-cal-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.ui-cal-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--wf-solid); flex-shrink: 0; }
 .ui-cal-dot.task { background: var(--good); }
 .ui-cal-dot.reminder { background: var(--warn); }
 .ui-cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
@@ -1087,43 +1529,55 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
    height: a fixed canvas is exactly the height it was dragged to (flex-basis
    pinned so a squeezed region cannot shrink it either); fill mode keeps its
    own floor below. */
+/* The drawing area paints nothing of its own: an uncoloured canvas is
+   transparent, so whatever sits behind it (region colour, stacked
+   components) shows through. A user-set colour rides as an inline
+   background-color; card and grid shapes add their own dressing. */
 .ui-canvas {
-  position: relative; flex: 0 0 auto; overflow: hidden; background: var(--inset-2);
+  position: relative; flex: 0 0 auto; overflow: hidden; background: transparent;
 }
+/* An open dropdown menu (mounted only while expanded) must overlay whatever
+   sits below the canvas, not be clipped at its fixed height; the clip — which
+   keeps dragged elements inside the drawing area — returns when it closes. */
+.ui-canvas:has(.ui-select-menu) { overflow: visible; }
 .ui-canvas.card { border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--panel); }
 .ui-canvas.grid {
-  background:
-    radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 14px 14px,
-    var(--inset-2);
+  background: radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 14px 14px;
 }
 .ui-canvas-el { position: absolute; max-width: calc(100% - 16px); }
-.ui-canvas-el.selected { outline: 1.5px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* Editable elements drag directly: press anywhere on one and move. The
+   inner text token would otherwise re-assert its own cursor over the text. */
+.ui-canvas-el.movable { cursor: grab; }
+.ui-canvas-el.movable .ui-edit { cursor: grab; }
+.ui-canvas-el.selected { outline: 1.5px solid var(--edit-accent); outline-offset: 2px; border-radius: 4px; }
+/* Ctrl/⌘+click group members ring dashed; the solid ring stays the primary
+   selection (the one the Inspector edits). */
+.ui-canvas-el.grouped { outline: 1.5px dashed var(--edit-accent); outline-offset: 2px; border-radius: 4px; }
 /* One ring only: the wrapper's. The token's own el-sel ring would draw a
    second, smaller box inside a resized element. */
 .ui-canvas-el.selected .ui-edit.el-sel { box-shadow: none; }
 .ui-canvas-el.dragging { opacity: .75; cursor: grabbing; }
-/* The move/remove toolbar sits fully above the element (never overlapping
-   it); near the canvas top — where overflow would clip it — it flips below. */
+.ui-canvas-el.dragging .ui-edit { cursor: grabbing; }
+/* The remove toolbar sits fully above the element (never overlapping it);
+   near the canvas top — where overflow would clip it — it flips below. */
 .ui-canvas-tools {
   position: absolute; bottom: calc(100% + 7px); right: 0; z-index: 5; display: none; gap: 2px;
 }
 .ui-canvas-el.tools-below .ui-canvas-tools { bottom: auto; top: calc(100% + 7px); }
 .ui-canvas-el.selected .ui-canvas-tools { display: inline-flex; }
-.ui-canvas-handle, .ui-canvas-x {
-  width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border-strong);
-  background: var(--panel); color: var(--text-dim); font-size: 10px; line-height: 1;
+.ui-canvas-x {
+  width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--chrome-line);
+  background: var(--chrome-panel); color: var(--chrome-ink-dim); font-size: 10px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center; padding: 0;
 }
-.ui-canvas-handle { cursor: grab; }
-.ui-canvas-handle:active { cursor: grabbing; }
-.ui-canvas-x:hover { border-color: var(--bad, #e06060); color: var(--bad, #e06060); }
+.ui-canvas-x:hover { border-color: var(--chrome-danger); color: var(--chrome-danger); }
 
 /* Corner grip just outside the bottom-right corner (clear of the selection
    ring): drag to set the element's width and height. */
 .ui-canvas-el-resize {
   position: absolute; right: -12px; bottom: -12px; width: 11px; height: 11px; z-index: 5;
   display: none; padding: 0; cursor: nwse-resize;
-  border: 1.5px solid var(--accent); border-radius: 3px; background: var(--panel);
+  border: 1.5px solid var(--edit-accent); border-radius: 3px; background: var(--chrome-panel);
 }
 .ui-canvas-el.selected .ui-canvas-el-resize { display: block; }
 /* An explicitly sized element stretches its widget — text tokens included —
@@ -1145,8 +1599,8 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .ui-canvas-wrap { display: flex; flex-direction: column; min-width: 0; }
 .ui-canvas-wrap.fill { height: 100%; }
 .ui-canvas-wrap.fill .ui-canvas { flex: 1; height: auto; min-height: 120px; }
-/* "Fill region": the cmp itself must grow inside the region's column. */
-.rg-body > div > .cmp:has(> .ui-canvas-wrap.fill) { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* "Fill region": the cmp wrapper carries .fill (see fillsHeight) and the
+   generic rules by .cmp.pad make it grow; this keeps the wrap elastic. */
 .cmp > .ui-canvas-wrap.fill { flex: 1; height: auto; }
 .ui-canvas-resize {
   height: 12px; margin-top: 2px; flex: 0 0 auto;
@@ -1155,7 +1609,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 }
 .cmp.selected .ui-canvas-resize { opacity: 1; pointer-events: auto; }
 .ui-canvas-resize span { width: 44px; height: 4px; border-radius: 999px; background: var(--border-strong); }
-.ui-canvas-resize:hover span, .ui-canvas-resize:active span { background: var(--accent); }
+.ui-canvas-resize:hover span, .ui-canvas-resize:active span { background: var(--edit-accent); }
 
 /* Inspector style rows: colour swatch + clear, and the brand logo picker. */
 .insp-colour { display: flex; align-items: center; gap: 6px; }
@@ -1168,6 +1622,32 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .insp-logo select { flex: 1; min-width: 0; }
 .insp-upload { cursor: pointer; flex-shrink: 0; }
 
+/* Nav-item icon picker: a link-trigger opening an OVERLAY menu (unlike the
+   link picker's in-flow menu — the glyph grid is tall, and shoving the fields
+   below it around read badly) with a searchable glyph grid; Placeholder and
+   Upload sit in the menu foot. */
+.icon-picker { position: relative; }
+.icon-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  box-shadow: var(--shadow);
+}
+.icon-menu .link-search { margin: 8px 10px 6px; width: calc(100% - 20px); }
+.link-trigger .icon-glyph { display: inline-flex; color: var(--text-dim); flex-shrink: 0; }
+.link-trigger .icon-thumb { width: 16px; height: 16px; object-fit: contain; border-radius: 3px; flex-shrink: 0; }
+.icon-grid {
+  display: flex; flex-wrap: wrap; gap: 4px; align-content: start;
+  padding: 8px 10px; border-top: 1px solid var(--border); max-height: 204px; overflow: auto; scrollbar-gutter: stable;
+}
+.insp-icon-btn {
+  width: 26px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--panel-2); color: var(--text-mute); cursor: pointer;
+}
+.insp-icon-btn:hover { color: var(--orange-ink); }
+.insp-icon-btn.on { border-color: var(--orange-ink); color: var(--orange-ink); }
+.icon-menu-foot { border-top: 1px solid var(--border); padding: 4px 0; }
+.icon-menu-foot .link-opt .ui-icon { width: 12px; height: 12px; }
+
 /* Whole-widget selection: clicking anywhere in a field (label or input)
    selects its element. The ring sits on the box, so the label token's own
    ring — which would double up — is suppressed inside a selected box. */
@@ -1177,7 +1657,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .ui-filters .el-box { min-width: 0; }
 
 /* Reorder drag: the element under the pointer during a same-component drag. */
-.el-drop { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+.el-drop { outline: 2px dashed var(--edit-accent); outline-offset: 2px; border-radius: var(--radius); }
 
 /* A floating canvas overlays its region: it takes no space in the stack and
    its surface is click-through, so the components underneath stay usable —
@@ -1186,8 +1666,19 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
    hint. Pairs with the "transparent" shape for annotation overlays. */
 .cmp.float { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .cmp.float .ui-canvas-el, .cmp.float > .cmp-actions, .cmp.float .ui-canvas-hint { pointer-events: auto; }
+/* While selected (or with a child selected) the float takes the pointer on
+   its whole body: drag to place it over part of the region, grips to size
+   it. Deselect and it goes transparent to clicks again. */
+.cmp.float.selected, .cmp.float.has-sel { pointer-events: auto; }
+.cmp.float.selected { cursor: grab; }
+.cmp.float.selected:active { cursor: grabbing; }
+/* A floating component other than a canvas (Inspector → Placement) is solid
+   content: it keeps the pointer the whole time, so clicks select and edit it
+   and its body drags to place it, the same gesture as a free region's. */
+.cmp.float.solid { pointer-events: auto; cursor: grab; }
+.cmp.float.solid:active { cursor: grabbing; }
 .ui-canvas.transparent { border-color: transparent; background: transparent; }
-.el-box.el-sel { box-shadow: 0 0 0 2px var(--accent); }
+.el-box.el-sel { box-shadow: 0 0 0 2px var(--edit-accent); }
 .el-box.el-sel .ui-edit.el-sel { box-shadow: none; }
 .ui-canvas-el .el-box.el-sel { box-shadow: none; } /* the canvas child wrapper draws this ring */
 
@@ -1197,5 +1688,149 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--orange-border); 
 .el-box.divider-box { display: flex; align-items: center; justify-content: center; align-self: stretch; padding: 2px 3px; }
 .el-box.divider-box > .ui-divider { width: 100%; margin: 0; }
 .el-box.ui-legend-box { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; }
-.ui-table thead tr.el-sel-row th { background: var(--accent-soft); }
-.ui-td-select.el-sel-cell { background: var(--accent-soft); }
+.ui-table thead tr.el-sel-row th { background: var(--edit-accent-soft); }
+.ui-td-select.el-sel-cell { background: var(--edit-accent-soft); }
+/* A selected column lights its whole run of cells; the state lives on the
+   cell background, so the per-token rings inside — which would double up
+   once per row — are suppressed. */
+.ui-table th.el-sel-cell, .ui-table td.el-sel-cell { background: var(--edit-accent-soft); }
+.ui-table .el-sel-cell .ui-edit.el-sel { box-shadow: none; }
+
+/* ── Element shape & fill (data.shape / data.fill) ──
+   The classes land on the element's token or its el-box. Shape sets an
+   inherited radius token each primitive reads with its own default, so it
+   reaches the widget whether the class sits on it or on its wrapper.
+   Fill rules likewise match the primitive itself or a descendant of the
+   classed wrapper. This block stays LAST: several rules tie on specificity
+   with the variant rules above (.ui-btn.primary, .ui-badge.good…) and win
+   on source order. */
+.el-shape-square { --el-shape-radius: 0px; }
+.el-shape-rounded { --el-shape-radius: 10px; }
+.el-shape-pill { --el-shape-radius: 999px; }
+
+/* Filled: a solid face, no outline. */
+.ui-btn:is(.el-fill-filled, .el-fill-filled *) { background: var(--mute-soft); border-color: transparent; }
+.ui-btn.primary:is(.el-fill-filled, .el-fill-filled *) { background: var(--wf-solid); color: var(--on-accent); }
+.ui-btn.danger:is(.el-fill-filled, .el-fill-filled *) { background: var(--bad); color: #fff; }
+:is(.ui-chip, .ui-filter):is(.el-fill-filled, .el-fill-filled *) { background: var(--mute-soft); border-color: transparent; }
+.ui-badge:is(.el-fill-filled, .el-fill-filled *) { background: var(--text-dim); color: var(--panel); }
+.ui-badge.good:is(.el-fill-filled, .el-fill-filled *) { background: var(--good); color: #fff; }
+.ui-badge.warn:is(.el-fill-filled, .el-fill-filled *) { background: var(--warn); color: #fff; }
+:is(.ui-input, .ui-nav-select):is(.el-fill-filled, .el-fill-filled *) { background: var(--mute-soft); border-color: transparent; }
+:is(.ui-box, .ui-image-ph):is(.el-fill-filled, .el-fill-filled *) { background: var(--mute-soft); border-color: transparent; }
+.ui-kpi:is(.el-fill-filled, .el-fill-filled *) { background: var(--mute-soft); border-color: transparent; }
+
+/* Outline: a stroked face, no fill. */
+.ui-btn:is(.el-fill-outline, .el-fill-outline *) { background: transparent; border-color: currentColor; }
+.ui-btn.primary:is(.el-fill-outline, .el-fill-outline *) { color: var(--wf-ink); }
+:is(.ui-chip, .ui-filter):is(.el-fill-outline, .el-fill-outline *) { background: transparent; }
+/* Badges have no border; an inset stroke keeps their 20px height intact. */
+.ui-badge:is(.el-fill-outline, .el-fill-outline *) { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+:is(.ui-input, .ui-nav-select):is(.el-fill-outline, .el-fill-outline *) { background: transparent; }
+:is(.ui-box, .ui-image-ph):is(.el-fill-outline, .el-fill-outline *) { background: transparent; }
+.ui-kpi:is(.el-fill-outline, .el-fill-outline *) { background: transparent; }
+
+/* Ghost: text only — no face, no stroke. */
+.ui-btn:is(.el-fill-ghost, .el-fill-ghost *) { background: transparent; border-color: transparent; color: var(--text-dim); }
+.ui-btn.primary:is(.el-fill-ghost, .el-fill-ghost *) { color: var(--wf-ink); }
+.ui-btn.danger:is(.el-fill-ghost, .el-fill-ghost *) { color: var(--bad); }
+:is(.ui-chip, .ui-filter):is(.el-fill-ghost, .el-fill-ghost *) { background: transparent; border-color: transparent; }
+.ui-badge:is(.el-fill-ghost, .el-fill-ghost *) { background: transparent; }
+:is(.ui-input, .ui-nav-select):is(.el-fill-ghost, .el-fill-ghost *) { background: transparent; border-color: transparent; }
+:is(.ui-box, .ui-image-ph):is(.el-fill-ghost, .el-fill-ghost *) { background: transparent; border-color: transparent; }
+.ui-kpi:is(.el-fill-ghost, .el-fill-ghost *) { background: transparent; border-color: transparent; }
+
+/* ── Annotation markers (notes + tasks) ──────────────────────────────────────
+   Unlike the selection-gated toolbars these stay visible while unselected —
+   that is their whole point. Same z tier as the toolbars; the region cluster
+   takes the corner the toolbar does not. */
+.mark-badges { position: absolute; top: 6px; display: flex; gap: 3px; z-index: 5; }
+.mark-badges.cmp-marks { left: 6px; }
+.mark-badges.rg-marks { right: 6px; }
+.note-badge, .task-badge {
+  width: 15px; height: 15px; border-radius: 50%; border: 0; padding: 0;
+  font-size: 9px; font-weight: 700; line-height: 1; font-family: inherit;
+  display: inline-grid; place-items: center; cursor: pointer;
+  opacity: .85;
+  transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+}
+.note-badge { background: var(--edit-accent); color: #fff; }
+.task-badge { background: var(--warn); color: #201607; }
+.note-badge:hover, .task-badge:hover { opacity: 1; }
+
+/* Two-way hover link with the panel: a hovered row lights its marker and
+   outlines its node; a hovered badge lights its rows (.note-row.hot). */
+.note-badge.hot, .task-badge.hot { opacity: 1; transform: scale(1.35); z-index: 6; }
+.note-badge.hot { box-shadow: 0 0 0 3px var(--edit-accent-soft), 0 0 10px var(--edit-accent); }
+.task-badge.hot { box-shadow: 0 0 0 3px var(--warn-soft), 0 0 10px var(--warn); }
+.cmp.mark-hot-note, .rg.mark-hot-note { outline: 2px solid var(--edit-accent); outline-offset: -1px; }
+.cmp.mark-hot-task, .rg.mark-hot-task { outline: 2px solid var(--warn); outline-offset: -1px; }
+/* The link menu's Region list hovers a region: show what would be replaced. */
+.rg.link-hot { outline: 2px solid var(--edit-accent); outline-offset: -1px; }
+:is(.el-box, .ui-edit):is(.mark-hot-note, .mark-hot-both) { outline: 2px solid var(--edit-accent); outline-offset: 1px; }
+:is(.el-box, .ui-edit).mark-hot-task { outline: 2px solid var(--warn); outline-offset: 1px; }
+:is(.el-box, .ui-edit):is(.mark-hot-note, .mark-hot-task, .mark-hot-both)::after {
+  width: 12px; height: 12px; top: -4px; right: -4px;
+}
+
+/* Table header row / select column: bespoke render paths (a <tr>, a <th>)
+   outside elTok/elBox, so they draw their own dot — inside the cell, where
+   the table's scroll container cannot clip it. The row's dot sits on its
+   last cell (the row's top-right corner). */
+.ui-table th.has-note, .ui-table th.has-task,
+.ui-table tr.has-note > th:last-child, .ui-table tr.has-task > th:last-child { position: relative; }
+.ui-table th.has-note::after, .ui-table th.has-task::after,
+.ui-table tr.has-note > th:last-child::after, .ui-table tr.has-task > th:last-child::after {
+  content: ""; position: absolute; top: 2px; right: 2px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--edit-accent); pointer-events: none; z-index: 3;
+  transition: width .12s ease, height .12s ease;
+}
+.ui-table th.has-task::after, .ui-table tr.has-task > th:last-child::after { background: var(--warn); }
+.ui-table th.has-note.has-task::after,
+.ui-table tr.has-note.has-task > th:last-child::after { background: var(--warn); box-shadow: 0 0 0 2px var(--edit-accent); }
+/* Hot state from a hovered panel row: tint the row/cell, grow the dot. */
+.ui-table tr:is(.mark-hot-note, .mark-hot-both) > :is(th, td),
+.ui-table th:is(.mark-hot-note, .mark-hot-both) { background: var(--edit-accent-soft); }
+.ui-table tr.mark-hot-task > :is(th, td),
+.ui-table th.mark-hot-task { background: var(--warn-soft); }
+.ui-table tr:is(.mark-hot-note, .mark-hot-task, .mark-hot-both) > th:last-child::after,
+.ui-table th:is(.mark-hot-note, .mark-hot-task, .mark-hot-both)::after { width: 12px; height: 12px; }
+
+/* Element markers: a corner dot drawn in CSS so tokens keep their layout.
+   The dot is a passive indicator — the WHOLE marked element is the hover
+   surface (see SchematicChrome.onMarkHover), because a dot this size could
+   never be a pointer target of its own. */
+.el-box { position: relative; }
+.ui-edit.has-note, .ui-edit.has-task { position: relative; }
+.el-box.has-note::after, .el-box.has-task::after,
+.ui-edit.has-note::after, .ui-edit.has-task::after {
+  content: ""; position: absolute; top: -3px; right: -3px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--edit-accent); pointer-events: none; z-index: 3;
+  transition: width .12s ease, height .12s ease;
+}
+.el-box.has-task::after, .ui-edit.has-task::after { background: var(--warn); }
+/* Both kinds on one element: the task dot wins, ringed in the note colour. */
+.el-box.has-note.has-task::after, .ui-edit.has-note.has-task::after {
+  background: var(--warn); box-shadow: 0 0 0 2px var(--edit-accent);
+}
+
+/* ── Right panel tabs (Inspector | Notes | Tasks) ─────────────────────────── */
+.panel-tabs { display: flex; gap: 2px; align-items: stretch; height: 100%; }
+.studio .panel-head-right .panel-tabs .page-subtab {
+  padding: 0 10px; font-size: 12px; margin-bottom: -1px; border-bottom-width: 2px;
+  text-transform: none; letter-spacing: normal;
+}
+
+/* A recipe chip builds a whole working pattern (see RECIPES in LibraryBar), so
+   it reads as a command rather than another draggable ingredient: bordered,
+   pinned to the end of the element bar, and never draggable. */
+.lib-recipes { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 0 2px 6px 8px; }
+.lib-chip.recipe {
+  cursor: pointer; border: 1px solid var(--border-strong); height: 24px;
+  font: 600 10px/1 var(--font-mono); letter-spacing: .06em; color: var(--orange-ink);
+}
+.lib-chip.recipe:hover:not(:disabled) { background: var(--orange-soft, var(--mute-soft)); }
+.lib-chip.recipe:disabled { opacity: .45; cursor: not-allowed; color: var(--text-mute); }
+.lib-chip.recipe:disabled:hover { background: transparent; }

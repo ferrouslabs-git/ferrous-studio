@@ -8,38 +8,13 @@
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .btn.ghost { background: transparent; }
 
-/* ── Library ── */
-.tabs { display: flex; border-bottom: 1px solid var(--border); }
-.tab {
-  flex: 1; height: 34px; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent;
-}
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
-
-.group-title {
-  padding: 12px 12px 6px; font-size: 10px; text-transform: uppercase;
-  letter-spacing: .8px; color: var(--text-mute);
-}
-.lib-item {
-  margin: 4px 8px; padding: 8px 10px; border-radius: 6px;
-  background: var(--panel-2); border: 1px solid var(--border);
-  cursor: grab; display: flex; gap: 10px; align-items: flex-start;
-}
-.lib-item:hover { border-color: var(--border-strong); }
-.lib-icon {
-  width: 28px; height: 28px; border-radius: 5px; flex: 0 0 auto;
-  background: var(--inset); border: 1px solid var(--border-strong);
-  display: grid; place-items: center; color: var(--accent);
-  font-family: var(--mono); font-size: 11px;
-}
-.lib-name { font-size: 12px; font-weight: 500; }
-.lib-desc { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
-.lib-meta { font-size: 10px; color: var(--text-mute); margin-top: 4px; font-family: var(--mono); }
-
 /* ── Inspector ── */
 .insp-section { padding: 12px; border-bottom: 1px solid var(--border); }
 .insp-section:last-child { border-bottom: 0; }
 .insp-section h4 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--text-mute); font-weight: 600; }
+/* Row of small action buttons (split controls, link actions); gap keeps
+   spacing on both axes when the row wraps. */
+.insp-btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .field { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
 .field label { font-size: 12px; color: var(--text-dim); }
 .field input, .field select {
@@ -49,6 +24,15 @@
 }
 .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
 .field input[disabled] { color: var(--text-mute); cursor: not-allowed; }
+/* Multi-line editors (dataset values): same skin as the inputs, own height. */
+.field textarea {
+  background: var(--inset-2); border: 1px solid var(--border-strong);
+  border-radius: 5px; color: var(--text); padding: 6px 8px; font-size: 12px;
+  font-family: inherit; width: 100%; box-shadow: inset 0 1px 3px var(--sunken);
+  resize: vertical; align-self: start;
+}
+.field textarea:focus { outline: none; border-color: var(--accent); }
+.field textarea[disabled] { color: var(--text-mute); cursor: not-allowed; }
 
 /* ── Inspector link picker ──
    Expands in flow (the panel body scrolls; an absolute dropdown would be
@@ -84,10 +68,25 @@
 .link-opt.back { border-bottom: 1px solid var(--border); color: var(--text-mute); }
 .link-opt .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-opt .link-note { margin-left: auto; font-size: 10px; color: var(--text-mute); }
-.link-opt .twig { color: var(--text-mute); }
+.link-opt .caret { margin-left: auto; color: var(--text-mute); }
 .link-search { margin: 6px 8px; }
-.link-pages { max-height: 240px; overflow: auto; border-top: 1px solid var(--border); padding: 4px 0; }
+.link-pages { max-height: 240px; overflow: auto; scrollbar-gutter: stable; border-top: 1px solid var(--border); padding: 4px 0; }
 .link-empty { padding: 8px 10px; font-size: 12px; color: var(--text-mute); }
+
+
+/* ── Row action menu (list tables) ── */
+.row-menu { position: relative; display: inline-block; }
+.row-menu-pop {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 150px;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px;
+  box-shadow: var(--shadow); padding: 4px 0; text-align: left;
+}
+.row-menu-item {
+  display: block; width: 100%; text-align: left; padding: 6px 12px; font-size: 12px;
+  background: none; border: 0; color: var(--text); cursor: pointer; font-family: inherit;
+}
+.row-menu-item:hover { background: var(--panel-2); }
+.row-menu-item.danger { color: var(--warn); }
 
 
 /* ── Toast ── */
@@ -99,6 +98,37 @@
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+
+/* ── Notes/Tasks panel (the right panel's annotation tabs) ── */
+.notes-panel { display: flex; flex-direction: column; }
+.note-composer { padding: 12px; border-bottom: 1px solid var(--border); display: grid; gap: 6px; }
+.note-composer textarea, .note-edit textarea { resize: vertical; font: inherit; font-size: 12px; }
+.note-composer-target { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .8px; }
+.notes-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.notes-toolbar .input.search { flex: 1 1 100%; min-width: 0; }
+.notes-toolbar .select { flex: 1; min-width: 88px; }
+.notes-toolbar .btn.active { border-color: var(--accent); color: var(--accent); }
+.note-count { margin-left: auto; font-size: 11px; color: var(--text-dim); display: inline-flex; gap: 6px; align-items: center; }
+.note-empty { padding: 16px 12px; font-size: 12px; color: var(--text-dim); }
+.note-row { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: grid; gap: 4px; }
+.note-row:hover { background: var(--mute-soft); }
+/* Lit from the canvas side: this row's marker badge is being hovered. */
+.note-row.hot { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.note-row.resolved { opacity: .65; }
+.note-row-head { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.note-chip { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); flex: 0 0 auto; }
+.note-row.resolved .note-chip { background: var(--mute-soft); color: var(--text-dim); }
+.note-target { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-page { margin-left: auto; font-size: 11px; color: var(--text-mute); flex: 0 0 auto; }
+.note-text { font-size: 12px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-meta { font-size: 11px; color: var(--text-dim); }
+.note-warn { font-size: 11px; color: var(--warn); }
+.notes-panel > .note-warn { padding: 10px 12px; }
+.note-actions { display: flex; gap: 6px; }
+.note-edit { display: grid; gap: 6px; }
+
+/* ── Audit log ── */
+.load-more-row { display: flex; justify-content: center; padding: 12px; }
 
 /* ── Toolbar buttons (small variant) ── */
 .btn.small { height: 24px; padding: 0 8px; font-size: 11px; }

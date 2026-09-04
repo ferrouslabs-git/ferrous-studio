@@ -12,6 +12,9 @@ export interface TokenElement {
   linked: boolean;
   /** External request (Enter/F2 in the studio) to open the inline editor. */
   editing: boolean;
+  /** Preview mode: a linked read-only token follows on a single click, the
+   *  way the real system would. */
+  followOnClick?: boolean;
   onSelect?: () => void;
   onFollow?: () => void;
   onEditEnd?: () => void;
@@ -40,7 +43,7 @@ export function EditableToken({ value, onCommit, className, style, title, childr
   }, [value, editing]);
 
   const begin = () => {
-    setWidth(Math.max(72, Math.ceil(ref.current?.getBoundingClientRect().width ?? 72)));
+    setWidth(Math.max(72, ref.current?.offsetWidth ?? 72));
     setText(value);
     setEditing(true);
   };
@@ -57,7 +60,23 @@ export function EditableToken({ value, onCommit, className, style, title, childr
   const classes = cls.join(" ").trim();
 
   if (!onCommit) {
-    // Read-only (viewers): linked elements still follow on double click.
+    // Read-only. In preview a linked element navigates on a single click,
+    // like the control it stands for; viewers follow on double click.
+    if (element?.linked && element.onFollow && element.followOnClick) {
+      return (
+        <span
+          className={classes}
+          style={style}
+          role="link"
+          onClick={(e) => {
+            e.stopPropagation();
+            element.onFollow!();
+          }}
+        >
+          {children ?? value}
+        </span>
+      );
+    }
     return (
       <span
         className={classes}

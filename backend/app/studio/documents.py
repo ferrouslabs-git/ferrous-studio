@@ -22,7 +22,7 @@ from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
 from . import storage
-from .common import get_project
+from .common import get_project, get_writable_project
 from .models import Project, ProjectDocument, utc_now
 from .schemas import DocumentCreate, DocumentDownload, DocumentRead, DocumentUploadTicket
 
@@ -143,7 +143,7 @@ async def create_document(
     settings = get_settings()
     if not settings.documents_bucket:
         raise _not_configured()
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
 
     filename = sanitise_filename(payload.filename)
     content_type = resolve_type(filename, payload.content_type)
@@ -188,7 +188,7 @@ async def confirm_document(
     settings = get_settings()
     if not settings.documents_bucket:
         raise _not_configured()
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     doc = await _document(db, project, document_id)
     if doc.status == "uploaded":
         return doc
@@ -250,7 +250,7 @@ async def delete_document(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     doc = await _document(db, project, document_id)
     if get_settings().documents_bucket:
         await storage.delete_object(doc.s3_key)

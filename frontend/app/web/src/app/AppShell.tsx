@@ -12,6 +12,8 @@ import { useSession } from "./session";
 import { EditOrgButton } from "../features/orgs/EditOrgButton";
 import { ShellProject, ShellProjectContext } from "./shellProject";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { useLoad } from "../core/useLoad";
+import { listProjectVersions } from "../features/projects/projectsApi";
 
 export function AppShell() {
   const { user, orgs, activeOrg, selectOrg, refresh } = useSession();
@@ -140,6 +142,7 @@ export function AppShell() {
               <NavItem to="/admin/orgs" icon="grid" label="Organisations" />
               <NavItem to="/admin/users" icon="users" label="Users" />
               <NavItem to="/admin/projects" icon="folder" label="Projects" />
+              <NavItem to="/admin/datasets" icon="list" label="Datasets" />
             </NavGroup>
           )}
         </div>
@@ -179,7 +182,7 @@ export function AppShell() {
   );
 }
 
-/** The project's own menu: its six sections and the way back out. */
+/** The project's own menu: its six sections, the version switcher and the way out. */
 function ProjectNav({ orgId, projectId, name }: { orgId: string; projectId: string; name: string }) {
   const base = `/orgs/${orgId}/projects/${projectId}`;
   return (
@@ -191,6 +194,7 @@ function ProjectNav({ orgId, projectId, name }: { orgId: string; projectId: stri
             {name}
           </span>
         </div>
+        <VersionSwitcher orgId={orgId} projectId={projectId} />
       </div>
       <NavGroup>
         <NavItem to={`${base}/details`} icon="info" label="Project details" />
@@ -204,6 +208,40 @@ function ProjectNav({ orgId, projectId, name }: { orgId: string; projectId: stri
         <NavItem to={`/orgs/${orgId}/projects`} icon="arrowLeft" label="Back to organisation" end />
       </NavGroup>
     </>
+  );
+}
+
+/**
+ * Move between versions of this project.
+ *
+ * A version is a project row of its own, so switching is an ordinary
+ * navigation -- there is no state to reconcile. Renders nothing until a project
+ * actually has more than one version, so the common case is unchanged.
+ */
+function VersionSwitcher({ orgId, projectId }: { orgId: string; projectId: string }) {
+  const versions = useLoad(() => listProjectVersions(projectId), [projectId]);
+  const navigate = useNavigate();
+  const all = versions.data ?? [];
+  if (all.length < 2) return null;
+
+  return (
+    <div className="sidebar-field">
+      <span className="sidebar-label sidebar-field-name">Version</span>
+      <select
+        className="select sidebar-scope-select"
+        value={projectId}
+        onChange={(e) => navigate(`/orgs/${orgId}/projects/${e.target.value}/details`)}
+        aria-label="Switch version"
+      >
+        {[...all].reverse().map((version) => (
+          <option key={version.id} value={version.id}>
+            v{version.version_no}
+            {version.version_label ? ` · ${version.version_label}` : ""}
+            {version.locked_at !== null ? " (locked)" : ""}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 

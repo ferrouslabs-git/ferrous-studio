@@ -1,8 +1,8 @@
 // Super admin: every project on the platform, whichever organisation owns it.
 // Oversight rather than management -- editing a project still happens inside
 // its own organisation, which is what opening one here switches you to.
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useSession } from "../../app/session";
 import { errorMessage } from "../../core/api";
 import { useLoad } from "../../core/useLoad";
@@ -10,25 +10,37 @@ import { AdminProject, listAllProjects, projectPath } from "../projects/projects
 
 export function AdminProjectsPage() {
   const projects = useLoad(listAllProjects, []);
+  const [showAllVersions, setShowAllVersions] = useState(false);
   const { selectOrg } = useSession();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
-  // A project opens in its own tab under its organisation's URL; the
-  // ProjectLayout there resolves the scope from the URL, so nothing has to
-  // be switched here first. Selecting the organisation just keeps this tab's
-  // sidebar in step.
+  // Opening a project switches this session to its organisation first, so the
+  // sidebar and scope stay in step with the project's URL.
   const open = async (project: AdminProject) => {
     setError(null);
     try {
       await selectOrg(project.account_id);
-      window.open(projectPath(project.account_id, project.id), "_blank", "noopener");
+      navigate(projectPath(project.account_id, project.id));
     } catch (err) {
       setError(errorMessage(err));
     }
   };
 
-  const all = projects.data ?? [];
+  const everything = projects.data ?? [];
+  // Every version is a project row, so without this the table grows a row each
+  // time anyone versions anything. Newest version per project by default.
+  const newest = useMemo(() => {
+    const heads = new Map<string, (typeof everything)[number]>();
+    for (const project of everything) {
+      const current = heads.get(project.lineage_id);
+      if (!current || project.version_no > current.version_no) heads.set(project.lineage_id, project);
+    }
+    return [...heads.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }, [everything]);
+  const all = showAllVersions ? everything : newest;
   const active = all.filter((p) => p.status === "active").length;
+  const hidden = everything.length - newest.length;
 
   return (
     <div className="page stack">
@@ -37,6 +49,14 @@ export function AdminProjectsPage() {
         <span className="sub">
           {all.length} across the platform{all.length > 0 && ` · ${active} active`}
         </span>
+        {hidden > 0 && (
+          <>
+            <span className="shell-spacer" />
+            <button className="btn small ghost" onClick={() => setShowAllVersions((v) => !v)}>
+              {showAllVersions ? "Newest versions only" : `Show all versions (${hidden} older)`}
+            </button>
+          </>
+        )}
       </div>
 
       {error && <div className="status-banner warn">{error}</div>}
@@ -57,6 +77,7 @@ export function AdminProjectsPage() {
                 <th>Name</th>
                 <th>Organisation</th>
                 <th>Description</th>
+                <th>Version</th>
                 <th>Status</th>
                 <th>Updated</th>
               </tr>
@@ -73,6 +94,10 @@ export function AdminProjectsPage() {
                     <Link to={`/orgs/${p.account_id}/projects`}>{p.account_name}</Link>
                   </td>
                   <td className="muted">{p.description || "—"}</td>
+                  <td className="muted">
+                    v{p.version_no}
+                    {p.locked_at !== null && <span className="badge">locked</span>}
+                  </td>
                   <td>
                     <span className={`badge ${p.status === "active" ? "good" : ""}`}>{p.status}</span>
                   </td>

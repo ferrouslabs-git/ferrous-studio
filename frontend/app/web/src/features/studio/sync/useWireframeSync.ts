@@ -15,7 +15,14 @@ import { Op, OpBatch, PageRecord } from "../model/types";
 import { Outbox, OutboxSnapshot } from "./outbox";
 import { IndexedDbOutboxStore } from "./store";
 
-const IDLE: OutboxSnapshot = { pending: 0, phase: "idle", attempt: 0, lastError: null, offline: false };
+const IDLE: OutboxSnapshot = {
+  pending: 0,
+  phase: "idle",
+  attempt: 0,
+  lastError: null,
+  offline: false,
+  locked: false,
+};
 
 let sharedStore: IndexedDbOutboxStore | null = null;
 function store(): IndexedDbOutboxStore {
@@ -27,9 +34,13 @@ export function useWireframeSync(
   projectId: string,
   wireframeId: string,
   page: PageRecord | null,
-  setPage: (p: PageRecord | null | ((prev: PageRecord | null) => PageRecord | null)) => void,
+  /** Route a page update to whoever holds that page's live state — the open
+   *  page or an ancestor shell record. Unknown ids are ignored. */
+  applyPage: (pageId: string, update: (prev: PageRecord) => PageRecord) => void,
 ) {
   const [snapshot, setSnapshot] = useState<OutboxSnapshot>(IDLE);
+  /** Send held-back edits after the version has been unlocked. */
+  const resume = useCallback(() => outboxRef.current?.resume(), []);
   const [conflict, setConflict] = useState<string | null>(null);
   /** Bumped whenever a page is reloaded from the server over a conflict;
    *  undo history for that page must be dropped. */
@@ -45,7 +56,7 @@ export function useWireframeSync(
     const key = `${projectId}:${wireframeId}`;
     const outbox = new Outbox(key, (batch) => sendWireframeOpBatch(projectId, wireframeId, batch), store(), {
       onApplied: (batch, result) => {
-        setPage((prev) => (prev && prev.id === batch.pageId ? { ...prev, version: result.version } : prev));
+        applyPage(batch.pageId, (prev) => ({ ...prev, version: result.version }));
       },
       onConflict: (batch, body, dropped) => {
         setConflict(
@@ -67,7 +78,7 @@ export function useWireframeSync(
                 // Targets no longer exist; drop silently -- the server would 422 it anyway.
               }
             }
-            if (pageRef.current?.id === fresh.id) setPage(rebased);
+            applyPage(fresh.id, () => rebased);
             // Even when the conflicted page is not on screen (its batches
             // were still draining after a switch), its history is stale.
             setReset((r) => ({ token: r.token + 1, pageId: fresh.id }));
@@ -76,6 +87,9 @@ export function useWireframeSync(
           .catch((err) => setConflict(errorMessage(err)));
       },
       onRejected: (_batch, error) => setConflict(`The server rejected an edit: ${error.message}`),
+      // The queue is paused, not emptied: these edits flush once the version
+      // is unlocked, so say so rather than implying the work is gone.
+      onLocked: () => setConflict("This version is locked. Unlock it to save your changes."),
     });
     outboxRef.current = outbox;
     const unsubscribe = outbox.subscribe(setSnapshot);
@@ -87,7 +101,7 @@ export function useWireframeSync(
       outbox.dispose();
       outboxRef.current = null;
     };
-  }, [projectId, wireframeId, setPage]);
+  }, [projectId, wireframeId, applyPage]);
 
   useEffect(() => {
     if (page) outboxRef.current?.notePageVersion(page.id, page.version);
@@ -99,7 +113,7 @@ export function useWireframeSync(
       const current = pageRef.current;
       if (!outbox || !current || ops.length === 0) return;
       setConflict(null);
-      setPage(applyOps(current, ops));
+      applyPage(current.id, () => applyOps(current, ops));
       outbox.enqueue({
         clientBatchId: outbox.newBatchId(),
         pageId: current.id,
@@ -107,16 +121,17 @@ export function useWireframeSync(
         ops,
       });
     },
-    [setPage],
+    [applyPage],
   );
 
-  /** Adopt an already-computed next state and send the ops that produced it. */
+  /** Adopt an already-computed next state — for the open page or an
+   *  ancestor shell — and send the ops that produced it. */
   const commitWith = useCallback(
     (next: PageRecord, ops: Op[]) => {
       const outbox = outboxRef.current;
       if (!outbox || ops.length === 0) return;
       setConflict(null);
-      setPage(next);
+      applyPage(next.id, () => next);
       outbox.enqueue({
         clientBatchId: outbox.newBatchId(),
         pageId: next.id,
@@ -124,13 +139,13 @@ export function useWireframeSync(
         ops,
       });
     },
-    [setPage],
+    [applyPage],
   );
 
   const retryNow = useCallback(() => outboxRef.current?.retryNow(), []);
 
   return useMemo(
-    () => ({ snapshot, conflict, reset, commit, commitWith, retryNow }),
-    [snapshot, conflict, reset, commit, commitWith, retryNow],
+    () => ({ snapshot, conflict, reset, commit, commitWith, retryNow, resume }),
+    [snapshot, conflict, reset, commit, commitWith, retryNow, resume],
   );
 }

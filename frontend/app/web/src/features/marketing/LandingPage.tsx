@@ -1,76 +1,126 @@
 // Public landing page: what Ferrous Studio does and why it is worth using.
-// Marketing content only; every call to action goes to sign-in. Prerendered
-// to static HTML at build time (see scripts/prerender.mjs) so crawlers see
-// the copy without running JavaScript.
+// Marketing content only. Prerendered to static HTML at build time (see
+// scripts/prerender.mjs) so crawlers see the copy without running JavaScript;
+// keep it free of state, effects and anything that renders differently on the
+// client, or hydration will mismatch.
+//
+// Layout and copy follow brand-guidelines.html (repo root): mono eyebrow
+// labels, one gradient phrase per page, numbered sections, candid about
+// limits. The structure borrows what the category's product pages have in
+// common (a real product visual in the hero, feature rows that alternate
+// copy and picture, a "who it is for" section and a closing call to action)
+// without their fabricated social proof.
 //
 // Describe built capability only. The roadmap strip is the one place that
-// mentions what is coming, and says so.
+// mentions what is coming, and says so. The product is invite-only, so both
+// calls to action are "Sign in" and "Request access"; there is no sign-up.
 import { Link } from "react-router-dom";
+import { ConfigureArt, ENVELOPE_JSON, ExportArt, HeroArt, Json, LinkArt, SplitArt } from "./LandingArt";
+
+const REQUEST_ACCESS = "mailto:hello@ferrouslabs.co.uk?subject=Ferrous%20Studio%20access";
+
+const PROBLEMS = [
+  {
+    n: "01",
+    title: "The structure lives in someone's head",
+    body: "Which regions a page has, what the table shows, which fields the form collects: none of it is in the frame. Engineers reverse-engineer it from screenshots.",
+  },
+  {
+    n: "02",
+    title: "Every iteration is spot the difference",
+    body: "Two versions of a picture cannot be diffed. The change log is whatever someone remembered to write down.",
+  },
+  {
+    n: "03",
+    title: "Handing a picture to a model is worse",
+    body: "Given a screenshot, an LLM guesses at intent and fills the gaps with defaults. Given the structure, it has nothing to guess.",
+  },
+];
 
 const STEPS = [
   {
     n: "01",
-    title: "Lay out the screens",
-    body: "Each page starts as one region. Split it horizontally or vertically as far as you need, drag the dividers to size things, and drop components in. No pixels to push; just what goes where.",
+    title: "Split the page into regions",
+    body: "Each page starts as one region. Split it horizontally or vertically as far as you need, drag the dividers to size them, or let the content decide. Nothing sits at a coordinate unless you ask it to.",
+    art: <SplitArt />,
   },
   {
     n: "02",
-    title: "Configure, don't decorate",
-    body: "Every component exposes a small, complete property set: the columns of a table, the fields of a form, the items in a nav. Edit them inline on the canvas.",
+    title: "Drop in components and say what they hold",
+    body: "Six components cover most product screens: nav bar, list, form, graph, calendar and a free canvas. Each is built from typed elements, so a column knows its data kind and a nav item knows where it goes. Every label on the canvas edits in place.",
+    art: <ConfigureArt />,
   },
   {
     n: "03",
-    title: "Build your own vocabulary",
-    body: "Compose custom components from primitives and save them to the library, so design and engineering share one name for the same thing.",
+    title: "Link pages the way a router would",
+    body: "Nav items and buttons link to a page, or to one region of it, so only that part swaps while the shell stays put. Child pages nest like routes and a page can open as a modal or a drawer. Preview mode clicks through the lot.",
+    art: <LinkArt />,
   },
   {
     n: "04",
-    title: "Export structured intent",
-    body: "Copy the whole project as plain JSON. It is the full truth of the spec, ready for an engineer or an LLM to build from.",
+    title: "Export the whole brief as JSON",
+    body: "Personas, use cases, diagrams, datasets and every wireframe leave as one envelope. There is no proprietary format and nothing the export knows that you cannot already see on screen.",
+    art: <ExportArt />,
   },
 ];
 
 const FEATURES = [
   {
-    title: "Regions, not pixels",
-    body: "Pages are trees of regions: split any region in two, resize with the divider or let content set the size. The layout compiler on the other side decides how that becomes a DOM.",
-  },
-  {
     title: "Real components, your words",
-    body: "Components render as the UI they stand for — nav bars, tables, forms, dialogs — and every piece of text on the screen is yours to edit in place. Enough to reason about a screen, never enough to argue about a shade of blue.",
+    body: "Components render as the UI they stand for, and every string on the screen is yours to edit. Enough to reason about a screen, never enough to argue about a shade of blue.",
   },
   {
-    title: "Component builder",
-    body: "Group primitives into rows, columns and grids, multi-select with a marquee, undo and redo, then save the result as a reusable component.",
+    title: "Personas and use cases",
+    body: "Record who each screen is for. Actors from the use case diagram link to wireframes and travel in the export as user types.",
   },
   {
-    title: "Pages that link together",
-    body: "Nav items and buttons link to other pages — or to a single region, so only that part of the screen swaps while the shell stays put. Child pages nest like routes, ready for a router.",
+    title: "Datasets",
+    body: "Define a list of values once, then bind it to any column, dropdown or filter. Change it in one place and every screen follows.",
   },
   {
-    title: "Live JSON inspector",
-    body: "The inspector shows the exact data your canvas produces. There is no hidden format and nothing the export knows that you cannot see.",
+    title: "Snapshots",
+    body: "Save a version whenever a decision is made. Preview any earlier one, restore it, or fork it into a new wireframe.",
   },
   {
-    title: "No lock-in",
-    body: "The output is plain JSON with no proprietary schema. Any tool or language can read it. The spec belongs to the team, not to the tool.",
+    title: "Notes, tasks and an audit log",
+    body: "Annotate any region, component or element for the engineer who builds it. Every change is recorded with who made it and when.",
+  },
+  {
+    title: "Diagrams and documents",
+    body: "Draw UML in the built-in editor and keep reference files with the project, so the export carries the reasoning as well as the screens.",
   },
 ];
 
-const ROADMAP = [
-  "Engineer notes: typed annotations on any component or page, carried in the payload.",
-  "Schema linking: one named schema generates a form, a table and a card template.",
-  "User types: project-level roles assigned to screens to communicate access intent.",
+const AUDIENCE = [
+  {
+    title: "Product owners",
+    body: "Lay out the screens in a working session and leave with a spec, not a to-do to write one. The export goes straight into the ticket.",
+  },
+  {
+    title: "Designers",
+    body: "Settle structure before style. Decide what each page holds and how it links, then take the visual decisions into your own tools.",
+  },
+  {
+    title: "Engineers and models",
+    body: "Read one JSON tree: splits become rows and columns, regions become containers, child pages become nested routes. Build from it, or have an LLM do the first pass.",
+  },
 ];
+
+const ROADMAP = ["Schema linking: one named schema generates a form, a table and a card template."];
 
 export function LandingPage() {
   return (
     <div className="landing theme-dark">
       <header className="landing-nav">
-        <span className="shell-brand landing-brand">
+        <Link to="/" className="landing-brand">
           <span className="brand-symbol small" aria-hidden="true" />
           Ferrous Studio
-        </span>
+        </Link>
+        <nav className="landing-links" aria-label="Sections">
+          <a href="#how">How it works</a>
+          <a href="#features">What you get</a>
+          <a href="#export">The export</a>
+        </nav>
         <span className="shell-spacer" />
         <Link to="/signin" className="btn">
           Sign in
@@ -78,81 +128,179 @@ export function LandingPage() {
       </header>
 
       <section className="landing-hero">
-        <p className="landing-kicker">Low-fidelity wireframing, built for speed</p>
-        <h1>Most design tools produce pictures. This one produces structured intent.</h1>
-        <p className="landing-lead">
-          Ferrous Studio lets product owners and designers define screen structure, component
-          configuration and engineer-facing detail in minutes, then export the result as a structured
-          payload an engineer, or an LLM, can build from directly.
-        </p>
-        <div className="landing-cta">
-          <Link to="/signin" className="btn primary">
-            Sign in to get started
-          </Link>
-          <a href="#how" className="btn ghost">
-            See how it works
-          </a>
+        <div className="landing-wrap">
+          <p className="landing-eyebrow">Low-fidelity wireframing from Ferrous Labs</p>
+          <h1>
+            Most tools produce pictures.
+            <br />
+            This one produces
+            <br />
+            <span className="gradient-text">structured intent</span>.
+          </h1>
+          <p className="landing-lead">
+            Ferrous Studio is where product owners and designers lay out screens, configure the components on
+            them and record who each screen is for. The result exports as one JSON payload an engineer, or an LLM,
+            builds from directly.
+          </p>
+          <div className="landing-cta">
+            <Link to="/signin" className="btn primary">
+              Sign in
+            </Link>
+            <a href={REQUEST_ACCESS} className="btn ghost">
+              Request access
+            </a>
+          </div>
+          <p className="landing-caption">Invite-only. Organisations are set up by Ferrous Labs.</p>
+        </div>
+        <div className="landing-wrap wide">
+          <HeroArt />
         </div>
       </section>
 
+      <hr className="landing-molten" />
+
       <section className="landing-problem">
-        <div className="landing-col">
-          <h2>The problem with pictures</h2>
-          <p>
-            A Figma frame says what a page looks like. It does not say what the page <em>is</em>: which
-            regions exist, what a table needs to show, which fields a form collects. Engineers reverse-engineer
-            that from screenshots, and every iteration becomes a game of spot the difference.
-          </p>
-        </div>
-        <div className="landing-col">
-          <h2>A spec is a data contract</h2>
-          <p>
-            When you drag a data table into the main region of a dashboard, you are not choosing a colour.
-            You are stating that this page needs a data table here. Ferrous Studio makes that statement
-            machine-readable from the moment it is made, so the JSON diff between two versions is a precise
-            change log.
-          </p>
+        <div className="landing-wrap">
+          <p className="landing-eyebrow">The problem</p>
+          <h2>
+            A picture says what a page looks like.
+            <br />
+            Not what it is.
+          </h2>
+          <div className="landing-grid three">
+            {PROBLEMS.map((p) => (
+              <article key={p.n} className="card landing-card">
+                <span className="landing-n">{p.n}</span>
+                <h3>{p.title}</h3>
+                <p>{p.body}</p>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="landing-steps" id="how">
-        <h2>How it works</h2>
-        <ol>
-          {STEPS.map((s) => (
-            <li key={s.n}>
-              <span className="landing-step-n">{s.n}</span>
-              <h3>{s.title}</h3>
-              <p>{s.body}</p>
-            </li>
-          ))}
-        </ol>
+        <div className="landing-wrap">
+          <p className="landing-eyebrow">How it works</p>
+          <h2>Four moves. No pixels.</h2>
+          <ol>
+            {STEPS.map((s) => (
+              <li key={s.n} className="landing-step">
+                <div className="landing-step-copy">
+                  <span className="landing-n">{s.n}</span>
+                  <h3>{s.title}</h3>
+                  <p>{s.body}</p>
+                </div>
+                <div className="landing-step-art">{s.art}</div>
+              </li>
+            ))}
+          </ol>
+        </div>
       </section>
 
-      <section className="landing-features">
-        <h2>What you get</h2>
-        <div className="landing-grid">
-          {FEATURES.map((f) => (
-            <article key={f.title} className="card">
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
-            </article>
-          ))}
+      <section className="landing-features" id="features">
+        <div className="landing-wrap">
+          <p className="landing-eyebrow">What you get</p>
+          <h2>The essentials of a spec, done properly.</h2>
+          <div className="landing-grid three">
+            {FEATURES.map((f) => (
+              <article key={f.title} className="card landing-card">
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-export" id="export">
+        <div className="landing-wrap">
+          <div className="landing-export-grid">
+            <div className="landing-export-copy">
+              <p className="landing-eyebrow">The export</p>
+              <h2>Everything a builder needs, in one envelope.</h2>
+              <p>
+                Copy it into a ticket, commit it beside the code, or paste it into a model's context. The diff
+                between two exports is the change log.
+              </p>
+              <p>
+                It is plain JSON with no proprietary schema. Any language reads it, and the spec belongs to the
+                team, not to the tool.
+              </p>
+              <h3>Where it stops</h3>
+              <p>
+                Ferrous Studio does not do visual design. Colour, type and spacing are decisions for Figma or
+                for the code, taken once the structure is agreed.
+              </p>
+            </div>
+            <Json src={ENVELOPE_JSON} className="envelope-json" />
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-audience">
+        <div className="landing-wrap">
+          <p className="landing-eyebrow">Who it is for</p>
+          <h2>Three seats at the same spec.</h2>
+          <div className="landing-grid three">
+            {AUDIENCE.map((a) => (
+              <article key={a.title} className="card landing-card">
+                <h3>{a.title}</h3>
+                <p>{a.body}</p>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="landing-roadmap">
-        <h2>On the roadmap</h2>
-        <p className="muted">Specified, not yet shipped. Listed so you know where this is heading.</p>
-        <ul>
-          {ROADMAP.map((r) => (
-            <li key={r}>{r}</li>
-          ))}
-        </ul>
+        <div className="landing-wrap">
+          <p className="landing-eyebrow">On the roadmap</p>
+          <p className="landing-roadmap-note">Specified, not yet shipped. Listed so you know where this is heading.</p>
+          <ul>
+            {ROADMAP.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      <section className="landing-close">
+        <div className="landing-wrap">
+          <h2>
+            Stop describing screens.
+            <br />
+            Start specifying them.
+          </h2>
+          <div className="landing-cta">
+            <Link to="/signin" className="btn primary">
+              Sign in
+            </Link>
+            <a href={REQUEST_ACCESS} className="btn ghost">
+              Request access
+            </a>
+          </div>
+        </div>
       </section>
 
       <footer className="landing-footer">
-        <span>Ferrous Studio · Ferrous Labs</span>
-        <Link to="/signin">Sign in</Link>
+        <div className="landing-wrap">
+          <div className="landing-footer-row">
+            <span className="landing-brand">
+              <span className="brand-symbol small" aria-hidden="true" />
+              Ferrous Studio
+            </span>
+            <nav className="landing-footer-links" aria-label="Footer">
+              <a href="https://ferrouslabs.co.uk">ferrouslabs.co.uk</a>
+              <a href="mailto:hello@ferrouslabs.co.uk">hello@ferrouslabs.co.uk</a>
+              <Link to="/signin">Sign in</Link>
+            </nav>
+          </div>
+          <p className="landing-legal">
+            Entendex Ltd trading as Ferrous Labs · 1 Empire Mews, Streatham, London SW16 2BF · London-based.
+            Building globally.
+          </p>
+        </div>
       </footer>
     </div>
   );

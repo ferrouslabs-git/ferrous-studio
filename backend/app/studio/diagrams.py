@@ -13,7 +13,7 @@ from app.auth.database import get_db
 from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
 
-from .common import get_project
+from .common import get_project, get_writable_project
 from .models import Project, ProjectDiagram, utc_now
 from .schemas import DiagramCreate, DiagramRead, DiagramSave, DiagramSummary, DiagramUpdate
 
@@ -56,7 +56,7 @@ async def create_diagram(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectDiagram:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     diagram = ProjectDiagram(
         project_id=project.id,
         account_id=project.account_id,
@@ -94,7 +94,7 @@ async def update_diagram(
     db: AsyncSession = Depends(get_db),
 ) -> ProjectDiagram:
     """Rename / re-kind without touching the document (no version bump)."""
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     diagram = await _diagram(db, project, diagram_id)
     for field_name, value in payload.model_dump(exclude_unset=True).items():
         if value is not None:
@@ -112,7 +112,7 @@ async def save_diagram(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     diagram = await _diagram(db, project, diagram_id)
 
     values = {
@@ -156,7 +156,7 @@ async def delete_diagram(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     diagram = await _diagram(db, project, diagram_id)
     await db.delete(diagram)
     project.updated_at = utc_now()

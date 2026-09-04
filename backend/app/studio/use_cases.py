@@ -11,7 +11,7 @@ from app.auth.database import get_db
 from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
 
-from .common import get_project, next_pos
+from .common import get_project, get_writable_project, next_pos
 from .models import Project, UseCase, UseCaseActor, utc_now
 from .schemas import (
     UseCaseActorCreate,
@@ -96,7 +96,7 @@ async def create_actor(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> UseCaseActor:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     data = payload.model_dump()
     pos = data.pop("pos") or await next_pos(db, UseCaseActor, UseCaseActor.project_id == project.id)
     actor = UseCaseActor(project_id=project.id, account_id=project.account_id, created_by=ctx.user_id, pos=pos, **data)
@@ -115,7 +115,7 @@ async def update_actor(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> UseCaseActor:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     actor = await _actor(db, project, actor_id)
     for field_name, value in payload.model_dump(exclude_unset=True).items():
         if field_name == "pos" and value is None:
@@ -134,7 +134,7 @@ async def delete_actor(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     actor = await _actor(db, project, actor_id)
     # Scrub the actor from every use case that named it: JSONB arrays have no
     # foreign keys, so this is what keeps the diagram consistent.
@@ -177,7 +177,7 @@ async def create_use_case(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> UseCase:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     data = payload.model_dump()
     pos = data.pop("pos") or await next_pos(db, UseCase, UseCase.project_id == project.id)
     data["actor_ids"] = await _known_actor_ids(db, project, payload.actor_ids)
@@ -197,7 +197,7 @@ async def update_use_case(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> UseCase:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     use_case = await _use_case(db, project, use_case_id)
     for field_name, value in payload.model_dump(exclude_unset=True).items():
         if field_name == "pos" and value is None:
@@ -218,7 +218,7 @@ async def delete_use_case(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    project = await get_project(db, project_id, ctx)
+    project = await get_writable_project(db, project_id, ctx)
     use_case = await _use_case(db, project, use_case_id)
     await db.delete(use_case)
     project.updated_at = utc_now()

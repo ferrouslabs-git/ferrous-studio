@@ -66,12 +66,12 @@ describe("diffPage", () => {
       c3.pos = "a0";
       d.document.regions.rs.push(c3);
       d.document.regions.rh.splice(0, 1);
-      d.document.regions.rm.push({ id: "c9", type: "footer", label: "Footer", pos: "a5" });
+      d.document.regions.rm.push({ id: "c9", type: "form", label: "Form", pos: "a5" });
     });
     const ops = roundTrip(prev, next);
     expect(ops).toContainEqual({ op: "remove", target: { cmp: "c1" } });
     expect(ops).toContainEqual({ op: "move", target: { cmp: "c3" }, to: { region: "rs", pos: "a0" } });
-    expect(ops).toContainEqual({ op: "insert", into: { region: "rm" }, value: { id: "c9", type: "footer", label: "Footer", pos: "a5" } });
+    expect(ops).toContainEqual({ op: "insert", into: { region: "rm" }, value: { id: "c9", type: "form", label: "Form", pos: "a5" } });
   });
 
   it("reorders within a region as a pos-only move", () => {
@@ -87,7 +87,7 @@ describe("diffPage", () => {
     const next = produce(prev, (d) => {
       const s2 = (d.document.root as SplitNode).children[1] as SplitNode;
       s2.children.push({ kind: "region", id: "rp", size: 300 });
-      d.document.regions.rp = [{ id: "c8", type: "rightpanel-detail", label: "Detail", pos: "a0" }];
+      d.document.regions.rp = [{ id: "c8", type: "calendar", label: "Calendar", pos: "a0" }];
     });
     const ops = roundTrip(prev, next);
     const rootIdx = ops.findIndex((o) => o.op === "set" && o.path === "root");

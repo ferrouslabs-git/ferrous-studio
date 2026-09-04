@@ -2,6 +2,7 @@
 // pages (rendered inside a parent's region) show their ancestry: "Home ▸ Users".
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { PageSummary } from "../../projects/projectsApi";
+import { PRESENTATION_LABELS } from "../model/types";
 
 export function pageDisplayName(page: PageSummary, all: readonly PageSummary[]): string {
   const byId = new Map(all.map((p) => [p.id, p]));
@@ -17,10 +18,16 @@ export function pageDisplayName(page: PageSummary, all: readonly PageSummary[]):
 }
 
 export function PageSelect({
-  pages, activeId, canWrite, onSelect, onAdd, onDelete,
+  pages, activeId, canWrite, landingId, landingPinned, onSelect, onAdd, onDelete, onSetLanding,
 }: {
   pages: PageSummary[]; activeId: string | null; canWrite: boolean;
+  /** The page the wireframe opens on — the pinned choice, or the nav-derived one. */
+  landingId: string | null;
+  /** Whether ``landingId`` is an explicit choice rather than nav-derived. */
+  landingPinned: boolean;
   onSelect(id: string): void; onAdd(): void; onDelete(id: string): void;
+  /** Pin a page as the landing; null reverts to the nav-derived one. */
+  onSetLanding(id: string | null): void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -95,7 +102,31 @@ export function PageSelect({
                 onClick={() => choose(p.id)}
               >
                 <span className="name">{pageDisplayName(p, pages)}</span>
+                {p.presentation && <span className="kind">{PRESENTATION_LABELS[p.presentation]}</span>}
                 {p.route && <span className="route">{p.route}</span>}
+                {canWrite ? (
+                  <span
+                    className={`home${p.id === landingId ? (landingPinned ? " pinned" : " auto") : ""}`}
+                    role="button"
+                    title={
+                      p.id === landingId
+                        ? landingPinned
+                          ? "Opens first — click to follow the nav again"
+                          : "Opens first (from the nav) — click to pin"
+                        : "Open the wireframe on this page first"
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSetLanding(p.id === landingId && landingPinned ? null : p.id);
+                    }}
+                  >
+                    ⌂
+                  </span>
+                ) : (
+                  p.id === landingId && (
+                    <span className={`home${landingPinned ? " pinned" : " auto"}`} title="Opens first">⌂</span>
+                  )
+                )}
                 {canWrite && pages.length > 1 && (
                   <span
                     className="close"

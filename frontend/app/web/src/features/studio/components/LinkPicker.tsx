@@ -1,62 +1,52 @@
-// The element link control: what following this element does. Quick options
-// link through a region of this page (a new page placed there — the outlet
-// model) or mint a stand-alone page; existing pages are chosen from a
-// searchable tree of the wireframe's page hierarchy rather than a flat list.
-// The menu expands in flow: the inspector body scrolls, so an absolutely
-// positioned dropdown would be clipped by its overflow.
-import { KeyboardEvent, useMemo, useState } from "react";
+// The element link control: what following this element does. The menu
+// discloses progressively — Region (a new page placed in one of the visible
+// composition's regions — the open page's AND its ancestor shells', the
+// outlet model), New page (stand-alone, or an overlay), Page (an existing
+// root page) and Back. Hovering a region row reports it upward so the canvas
+// can outline the region it would replace. The menu expands in flow: the
+// inspector body scrolls, so an absolutely positioned dropdown would be
+// clipped by its overflow.
+import { KeyboardEvent, useEffect, useMemo, useState } from "react";
 import type { PageSummary } from "../../projects/projectsApi";
-import { regionDisplayName, regionIds } from "../model/tree";
-import { BACK_PAGE_ID, LayoutNode, LinkTarget } from "../model/types";
+import { ComposedRegions } from "../model/linkRegions";
+import { BACK_PAGE_ID, LinkTarget, PagePresentation, PRESENTATION_LABELS } from "../model/types";
 import { pageDisplayName } from "./PageSelect";
 
-interface TreeRow {
-  page: PageSummary;
-  depth: number;
+/** Pages that root a placement tree: no parent, or a parent that no longer
+ *  exists (an orphan lists as a root rather than vanish). Placed pages are
+ *  region content — they are reached by linking through a region, never
+ *  directly. */
+export function rootPages(pages: readonly PageSummary[]): PageSummary[] {
+  const ids = new Set(pages.map((p) => p.id));
+  return pages.filter((p) => {
+    const parent = p.placement?.page_id;
+    return !parent || parent === p.id || !ids.has(parent);
+  });
 }
 
-/** Pages as a tree by placement parentage, depth-first, in pos order. Pages
- *  whose parent is missing (or cyclic) list at the root rather than vanish. */
-export function pageTreeRows(pages: readonly PageSummary[]): TreeRow[] {
-  const ids = new Set(pages.map((p) => p.id));
-  const kids = new Map<string, PageSummary[]>();
-  const roots: PageSummary[] = [];
-  for (const p of pages) {
-    const parent = p.placement?.page_id;
-    if (parent && parent !== p.id && ids.has(parent)) {
-      const list = kids.get(parent);
-      if (list) list.push(p);
-      else kids.set(parent, [p]);
-    } else roots.push(p);
-  }
-  const rows: TreeRow[] = [];
-  const seen = new Set<string>();
-  const visit = (p: PageSummary, depth: number) => {
-    if (seen.has(p.id)) return;
-    seen.add(p.id);
-    rows.push({ page: p, depth });
-    for (const child of kids.get(p.id) ?? []) visit(child, depth + 1);
-  };
-  for (const p of roots) visit(p, 0);
-  for (const p of pages) visit(p, 0);
-  return rows;
-}
+type View = "menu" | "regions" | "new" | "pages";
 
 export function LinkPicker({
-  pages, root, ownRegionId, link, disabled, onSet, onCreatePage,
+  pages, regions, ownRegionId, link, disabled, onSet, onCreatePage, onHoverRegion,
 }: {
   pages: PageSummary[];
-  root: LayoutNode;
-  /** The region holding the linked element's component ("this region"). */
+  /** The visible composition's regions, in visual order, plus the aliases
+   *  that map a bare placed page's root to the row that hosts it. */
+  regions: ComposedRegions;
+  /** The region holding the linked element's component ("this region") —
+   *  raw from its owning document; aliases resolve it to a listed row. */
   ownRegionId: string | null;
   link: LinkTarget | null;
   disabled: boolean;
   onSet(target: LinkTarget | null): void;
-  /** Create a page placed in `regionId` (null = a stand-alone page) and link it. */
-  onCreatePage(regionId: string | null): void;
+  /** Create a page placed in `regionId` (null = a stand-alone page) and link
+   *  it; with a `presentation` the page opens over this one as an overlay. */
+  onCreatePage(regionId: string | null, presentation?: PagePresentation): void;
+  /** A region row is being hovered: the canvas outlines that region. */
+  onHoverRegion?(regionId: string | null): void;
 }) {
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"menu" | "pages">("menu");
+  const [view, setView] = useState<View>("menu");
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
 
@@ -64,37 +54,44 @@ export function LinkPicker({
   const targetPage = link && !isBack ? pages.find((p) => p.id === link.pageId) ?? null : null;
   const summary = !link ? "None" : isBack ? "‹ Back (previous page)" : targetPage ? pageDisplayName(targetPage, pages) : "Missing page";
 
-  const rows = useMemo(() => pageTreeRows(pages), [pages]);
+  const roots = useMemo(() => rootPages(pages), [pages]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    // A search result loses its slot in the tree, so it shows its full path.
-    return rows
-      .filter(({ page }) => pageDisplayName(page, pages).toLowerCase().includes(q) || (page.route ?? "").toLowerCase().includes(q))
-      .map(({ page }) => ({ page, depth: 0 }));
-  }, [rows, query, pages]);
+    if (!q) return roots;
+    return roots.filter((p) => p.name.toLowerCase().includes(q) || (p.route ?? "").toLowerCase().includes(q));
+  }, [roots, query]);
+
+  const hover = (regionId: string | null) => onHoverRegion?.(regionId);
+  // The picker can unmount mid-hover (selection change, page switch): never
+  // leave a stale outline on the canvas.
+  useEffect(() => () => onHoverRegion?.(null), [onHoverRegion]);
 
   const close = () => {
     setOpen(false);
     setView("menu");
     setQuery("");
+    hover(null);
+  };
+  const backToMenu = () => {
+    setView("menu");
+    setQuery("");
+    hover(null);
   };
   const pick = (target: LinkTarget | null) => {
     onSet(target);
     close();
   };
-  const create = (regionId: string | null) => {
-    onCreatePage(regionId);
+  const create = (regionId: string | null, presentation?: PagePresentation) => {
+    onCreatePage(regionId, presentation);
     close();
   };
 
-  const regions = regionIds(root);
-  const ordered = ownRegionId && regions.includes(ownRegionId) ? [ownRegionId, ...regions.filter((r) => r !== ownRegionId)] : regions;
+  const own = ownRegionId ? regions.alias[ownRegionId] ?? ownRegionId : null;
 
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") { setHighlight((h) => Math.min(h + 1, filtered.length - 1)); e.preventDefault(); }
     else if (e.key === "ArrowUp") { setHighlight((h) => Math.max(h - 1, 0)); e.preventDefault(); }
-    else if (e.key === "Enter") { if (filtered[highlight]) pick({ pageId: filtered[highlight].page.id }); e.preventDefault(); }
+    else if (e.key === "Enter") { if (filtered[highlight]) pick({ pageId: filtered[highlight].id }); e.preventDefault(); }
     else if (e.key === "Escape") close();
   };
 
@@ -108,23 +105,48 @@ export function LinkPicker({
       {open && view === "menu" && (
         <div className="link-menu">
           <div className={`link-opt${!link ? " active" : ""}`} onClick={() => pick(null)}>None</div>
+          <div className="link-opt" onClick={() => setView("regions")}>
+            <span className="name">Region</span>
+            <span className="caret">›</span>
+          </div>
+          <div className="link-opt" onClick={() => setView("new")}>
+            <span className="name">New page</span>
+            <span className="caret">›</span>
+          </div>
+          <div className="link-opt" onClick={() => setView("pages")}>
+            <span className="name">Page</span>
+            <span className="caret">›</span>
+          </div>
           <div className={`link-opt${isBack ? " active" : ""}`} onClick={() => pick({ pageId: BACK_PAGE_ID })}>‹ Back (previous page)</div>
+        </div>
+      )}
+
+      {open && view === "regions" && (
+        <div className="link-menu" onMouseLeave={() => hover(null)}>
+          <div className="link-opt back" onClick={backToMenu}>‹ All link options</div>
           <div className="link-group">New page in region</div>
-          {ordered.map((rid) => (
-            <div key={rid} className="link-opt" onClick={() => create(rid)}>
-              {regionDisplayName(root, rid)}
-              {rid === ownRegionId && <span className="link-note">this region</span>}
+          {regions.options.map((o) => (
+            <div key={o.id} className="link-opt" onMouseEnter={() => hover(o.id)} onClick={() => create(o.id)}>
+              <span className="name">{o.label}</span>
+              {o.id === own ? <span className="link-note">this region</span> : o.note && <span className="link-note">{o.note}</span>}
             </div>
           ))}
-          <div className="link-group">Page</div>
-          <div className="link-opt" onClick={() => setView("pages")}>Go to a page…</div>
-          <div className="link-opt" onClick={() => create(null)}>New stand-alone page…</div>
+        </div>
+      )}
+
+      {open && view === "new" && (
+        <div className="link-menu">
+          <div className="link-opt back" onClick={backToMenu}>‹ All link options</div>
+          <div className="link-opt" onClick={() => create(null)}>New page…</div>
+          <div className="link-opt" onClick={() => create(null, "modal")}>Modal…</div>
+          <div className="link-opt" onClick={() => create(null, "drawer")}>Right drawer…</div>
+          <div className="link-opt" onClick={() => create(null, "drawer-left")}>Left drawer…</div>
         </div>
       )}
 
       {open && view === "pages" && (
         <div className="link-menu">
-          <div className="link-opt back" onClick={() => { setView("menu"); setQuery(""); }}>‹ All link options</div>
+          <div className="link-opt back" onClick={backToMenu}>‹ All link options</div>
           <input
             autoFocus
             className="link-search"
@@ -134,16 +156,15 @@ export function LinkPicker({
             onKeyDown={onSearchKey}
           />
           <div className="link-pages">
-            {filtered.map(({ page: p, depth }, i) => (
+            {filtered.map((p, i) => (
               <div
                 key={p.id}
                 className={`link-opt${p.id === link?.pageId ? " active" : ""}${i === highlight ? " highlight" : ""}`}
-                style={{ paddingLeft: 10 + depth * 14 }}
                 onMouseEnter={() => setHighlight(i)}
                 onClick={() => pick({ pageId: p.id })}
               >
-                {depth > 0 && <span className="twig">└</span>}
-                <span className="name">{query.trim() ? pageDisplayName(p, pages) : p.name}</span>
+                <span className="name">{p.name}</span>
+                {p.presentation && <span className="link-note">{PRESENTATION_LABELS[p.presentation]}</span>}
               </div>
             ))}
             {filtered.length === 0 && <div className="link-empty">No pages match “{query}”</div>}

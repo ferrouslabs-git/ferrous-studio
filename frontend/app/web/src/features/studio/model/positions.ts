@@ -3,6 +3,7 @@
 // so two people inserting into the same region concurrently both succeed.
 import { generateKeyBetween } from "fractional-indexing";
 import { produce } from "immer";
+import { RETIRED_TYPES } from "../catalog";
 import type { PageLike } from "./applyOps";
 import { migrateComponent } from "./migrate";
 import { blankDocument, isLayoutNode, regionIds } from "./tree";
@@ -55,8 +56,9 @@ export function isLegacyDocument(doc: unknown): boolean {
 }
 
 /** Repair invariants on a fetched page: a valid tree, one component list per
- *  tree region (sorted by pos), and no lists for regions the tree lost. A
- *  legacy or malformed document resets to a blank single region. */
+ *  tree region (sorted by pos), no lists for regions the tree lost, and no
+ *  components of a retired type. A legacy or malformed document resets to a
+ *  blank single region. */
 export function normalizePage<T extends PageLike>(page: T): T {
   return produce(page, (draft) => {
     const doc = draft.document as unknown as Record<string, unknown>;
@@ -73,6 +75,10 @@ export function normalizePage<T extends PageLike>(page: T): T {
     for (const id of Object.keys(regions)) if (!ids.has(id)) delete regions[id];
     for (const id of ids) {
       if (!Array.isArray(regions[id])) regions[id] = [];
+      // Withdrawn types are dropped rather than rendered as strays. The
+      // database was cleared by migration; this catches documents that
+      // predate it — a queued offline edit, an imported export file.
+      regions[id] = regions[id].filter((cmp) => !RETIRED_TYPES.has(cmp.type));
       fixList(regions[id]);
       for (const cmp of regions[id]) {
         migrateComponent(cmp);
