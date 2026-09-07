@@ -34,6 +34,13 @@ class InvitationSignupError(Exception):
         self.status_code = status_code
 
 
+# A platform invitation: no organisation, and accepting it grants the super
+# admin flag rather than a membership. The role name matches
+# auth_config.yaml's platform layer so the invite page can label it.
+PLATFORM_SCOPE = "platform"
+PLATFORM_ROLE = "super_admin"
+
+
 # Legacy role → v3 role name mapping (used to derive target_role_name from
 # the legacy 'role' API field when callers haven't migrated yet).
 _LEGACY_TO_V3 = {
@@ -56,7 +63,7 @@ def hash_token(token: str) -> str:
 
 async def create_invitation(
     db: AsyncSession,
-    tenant_id: UUID,
+    tenant_id: UUID | None,
     email: str,
     role: str,
     created_by: UUID,
@@ -66,14 +73,20 @@ async def create_invitation(
     target_role_name: str | None = None,
     name: str | None = None,
 ) -> tuple["Invitation", str]:
-    """Create a new invitation token for a user email within a tenant/scope."""
+    """Create a new invitation token for a user email within a tenant/scope.
+
+    ``tenant_id`` is None for a platform invitation (``target_scope_type ==
+    PLATFORM_SCOPE``), which then carries no scope id either. Any earlier
+    pending invitation to the same place is revoked so one link stands.
+    """
     normalized_email = email.lower().strip()
     normalized_name = (name or "").strip() or None
     now = utc_now()
 
+    same_place = Invitation.tenant_id.is_(None) if tenant_id is None else Invitation.tenant_id == tenant_id
     result = await db.execute(
         select(Invitation).where(
-            Invitation.tenant_id == tenant_id,
+            same_place,
             Invitation.email == normalized_email,
             Invitation.accepted_at.is_(None),
             Invitation.revoked_at.is_(None),
@@ -120,7 +133,7 @@ async def get_invitation_by_token(db: AsyncSession, token: str) -> Invitation | 
     return result.scalar_one_or_none()
 
 
-async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User) -> Membership:
+async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User) -> Membership | None:
     """
     Accept an invitation for the authenticated user.
 
@@ -129,6 +142,9 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
     - Invitation must not already be accepted
     - Invitation email must match current user's email
     - Membership is created or re-activated for the invitation scope
+
+    A platform invitation creates no membership: it sets the super admin
+    flag on the user and returns None.
     """
     if invitation.is_expired:
         raise ValueError("Invitation has expired")
@@ -141,6 +157,12 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
 
     if invitation.email.lower().strip() != (user.email or "").lower().strip():
         raise PermissionError("Invitation email does not match authenticated user")
+
+    if invitation.is_platform:
+        user.is_platform_admin = True
+        _finish_acceptance(invitation, user)
+        await db.commit()
+        return None
 
     # Look for existing membership in the target scope
     result = await db.execute(
@@ -178,16 +200,20 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
         )
         db.add(membership)
 
+    _finish_acceptance(invitation, user)
+    await db.commit()
+    await db.refresh(membership)
+    return membership
+
+
+def _finish_acceptance(invitation: Invitation, user: User) -> None:
+    """The part of accepting that both kinds of invitation share."""
     invitation.accepted_at = utc_now()
 
     # The inviter may have typed a name; use it for an account that has none.
     # A name the user set themselves (or one from the identity provider) wins.
     if invitation.name and not (user.name or "").strip():
         user.name = invitation.name
-
-    await db.commit()
-    await db.refresh(membership)
-    return membership
 
 
 async def get_tenant_invitation_by_token(db: AsyncSession, tenant_id: UUID, token: str) -> Invitation | None:
@@ -213,6 +239,18 @@ async def get_invitation_by_id(db: AsyncSession, tenant_id: UUID, invitation_id:
             Invitation.id == invitation_id,
             Invitation.tenant_id == tenant_id,
         )
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_any_invitation_by_id(db: AsyncSession, invitation_id: UUID) -> Invitation | None:
+    """Return an invitation by ID with no tenant filter -- for platform admins,
+    who act on every organisation's invitations and on platform ones, which
+    have no tenant to filter by."""
+    result = await db.execute(
+        select(Invitation)
+        .options(selectinload(Invitation.tenant))
+        .where(Invitation.id == invitation_id)
     )
     return result.scalar_one_or_none()
 
@@ -357,7 +395,7 @@ async def invitation_account_state(email: str) -> str:
 
 async def complete_invitation_signup(
     db: AsyncSession, invitation: Invitation, password: str
-) -> tuple[Membership, User, dict]:
+) -> tuple[Membership | None, User, dict]:
     """Turn a pending invitation into a signed-in account in one step.
 
     1. Refuse if the invitation is not pending.
@@ -369,7 +407,8 @@ async def complete_invitation_signup(
     4. Sign in server-side (ADMIN_USER_PASSWORD_AUTH) to obtain Cognito tokens.
     5. Provision the local user row from the ID token and accept the invitation.
 
-    Returns (membership, user, tokens).
+    Returns (membership, user, tokens); the membership is None for a
+    platform invitation, which makes the user a super admin instead.
     """
     if invitation.status != "pending":
         raise InvitationSignupError(f"Invitation is {invitation.status}")

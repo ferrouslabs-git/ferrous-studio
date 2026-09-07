@@ -7,6 +7,7 @@ import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
+import { Badges, ListTable, NameCell } from "../../../components/ListTable";
 import { errorMessage } from "../../../core/api";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
@@ -335,60 +336,53 @@ function ActorsTable({
   onEdit: (a: UseCaseActor) => void;
   onDelete: (a: UseCaseActor) => void;
 }) {
-  if (actors.length === 0) {
-    return (
-      <div className="empty">
-        <b>No user types yet.</b> {canWrite ? "Add the roles that interact with the system." : "Nothing here yet."}
-      </div>
-    );
-  }
   return (
-    <div className="section">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Description</th>
-            <th>Can perform</th>
-            {canWrite && <th />}
-          </tr>
-        </thead>
-        <tbody>
-          {actors.map((a) => {
+    <ListTable
+      columns={[
+        {
+          header: "User type",
+          className: "primary",
+          render: (a) => (
+            <NameCell sub={a.description || undefined} onOpen={canWrite ? () => onEdit(a) : undefined}>
+              {a.name}
+            </NameCell>
+          ),
+        },
+        {
+          header: "Can perform",
+          render: (a) => {
             const performs = useCases.filter((u) => u.actor_ids.includes(a.id));
-            return (
-              <tr key={a.id}>
-                <td className="usecase-cell-name">{a.name}</td>
-                <td className="usecase-cell-desc">{a.description || <span className="muted">—</span>}</td>
-                <td>
-                  {performs.length === 0 ? (
-                    <span className="muted">No use cases yet</span>
-                  ) : (
-                    <span className="usecase-badges">
-                      {performs.map((u) => (
-                        <span key={u.id} className="badge">
-                          {u.name}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                </td>
-                {canWrite && (
-                  <td className="usecase-cell-actions">
-                    <button className="btn small ghost" onClick={() => onEdit(a)}>
-                      Edit
-                    </button>
-                    <button className="btn small ghost" onClick={() => onDelete(a)}>
-                      Delete
-                    </button>
-                  </td>
-                )}
-              </tr>
+            return performs.length === 0 ? (
+              <span className="muted">No use cases yet</span>
+            ) : (
+              <Badges>
+                {performs.map((u) => (
+                  <span key={u.id} className="badge muted">
+                    {u.name}
+                  </span>
+                ))}
+              </Badges>
             );
-          })}
-        </tbody>
-      </table>
-    </div>
+          },
+        },
+      ]}
+      rows={actors}
+      rowKey={(a) => a.id}
+      rowLabel={(a) => a.name}
+      actions={(a) =>
+        canWrite
+          ? [
+              { label: "Edit", onSelect: () => onEdit(a) },
+              { label: "Delete", danger: true, onSelect: () => onDelete(a) },
+            ]
+          : null
+      }
+      empty={
+        <>
+          <b>No user types yet.</b> {canWrite ? "Add the roles that interact with the system." : "Nothing here yet."}
+        </>
+      }
+    />
   );
 }
 
@@ -407,57 +401,51 @@ function UseCasesTable({
   onEdit: (u: UseCase) => void;
   onDelete: (u: UseCase) => void;
 }) {
-  if (useCases.length === 0) {
-    return (
-      <div className="empty">
-        <b>No use cases yet.</b>{" "}
-        {!canWrite ? "Nothing here yet." : hasActors ? "Add the actions the system offers." : "Add a user type first."}
-      </div>
-    );
-  }
   return (
-    <div className="section">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Description</th>
-            <th>Performed by</th>
-            {canWrite && <th />}
-          </tr>
-        </thead>
-        <tbody>
-          {useCases.map((u) => (
-            <tr key={u.id}>
-              <td className="usecase-cell-name">{u.name}</td>
-              <td className="usecase-cell-desc">{u.description || <span className="muted">—</span>}</td>
-              <td>
-                {u.actor_ids.length === 0 ? (
-                  <span className="badge warn">No user type</span>
-                ) : (
-                  <span className="usecase-badges">
-                    {u.actor_ids.map((id) => (
-                      <span key={id} className="badge accent">
-                        {actorName.get(id) ?? "Unknown"}
-                      </span>
-                    ))}
+    <ListTable
+      columns={[
+        {
+          header: "Use case",
+          className: "primary",
+          render: (u) => (
+            <NameCell sub={u.description || undefined} onOpen={canWrite ? () => onEdit(u) : undefined}>
+              {u.name}
+            </NameCell>
+          ),
+        },
+        {
+          header: "Performed by",
+          render: (u) =>
+            u.actor_ids.length === 0 ? (
+              <span className="badge warn">No user type</span>
+            ) : (
+              <Badges>
+                {u.actor_ids.map((id) => (
+                  <span key={id} className="badge accent">
+                    {actorName.get(id) ?? "Unknown"}
                   </span>
-                )}
-              </td>
-              {canWrite && (
-                <td className="usecase-cell-actions">
-                  <button className="btn small ghost" onClick={() => onEdit(u)}>
-                    Edit
-                  </button>
-                  <button className="btn small ghost" onClick={() => onDelete(u)}>
-                    Delete
-                  </button>
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+                ))}
+              </Badges>
+            ),
+        },
+      ]}
+      rows={useCases}
+      rowKey={(u) => u.id}
+      rowLabel={(u) => u.name}
+      actions={(u) =>
+        canWrite
+          ? [
+              { label: "Edit", onSelect: () => onEdit(u) },
+              { label: "Delete", danger: true, onSelect: () => onDelete(u) },
+            ]
+          : null
+      }
+      empty={
+        <>
+          <b>No use cases yet.</b>{" "}
+          {!canWrite ? "Nothing here yet." : hasActors ? "Add the actions the system offers." : "Add a user type first."}
+        </>
+      }
+    />
   );
 }

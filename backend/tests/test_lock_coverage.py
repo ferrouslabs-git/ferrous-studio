@@ -15,6 +15,8 @@ import pytest
 from starlette.routing import Mount
 
 from app.main import app
+from app.studio.projects import LOCKED_EDITABLE_FIELDS, update_project
+from app.studio.schemas import ProjectUpdate
 
 PROJECT_ROUTES = "/api/studio/projects/{project_id}"
 READ_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -37,6 +39,11 @@ EXEMPT = {
     # Has its own narrower check: a locked version stays renameable and
     # archivable, but its description and rationale are part of what it froze.
     "update_project",
+    # Which repository a project is built into is filing, not content: pointing
+    # a frozen version at the right repository does not change what it froze,
+    # and needing to unlock a version to correct a link would be a poor trade.
+    "link_project_repository",
+    "unlink_project_repository",
 }
 
 
@@ -79,3 +86,38 @@ def test_exempt_names_all_still_exist():
     """A renamed or deleted route must not leave a stale exemption behind."""
     live = {route.endpoint.__name__ for route in write_routes()}
     assert EXEMPT <= live, f"EXEMPT names no longer routed: {sorted(EXEMPT - live)}"
+
+
+# ── update_project's own narrower check ─────────────────────────────────────
+# It is EXEMPT above because it does not use get_writable_project; it compares
+# the submitted fields against LOCKED_EDITABLE_FIELDS instead. That comparison
+# is only as good as the two sets agreeing with ProjectUpdate, so pin both.
+
+
+def test_locked_editable_fields_are_all_real_fields():
+    """A typo here would silently widen or narrow what a frozen version allows."""
+    assert LOCKED_EDITABLE_FIELDS <= set(ProjectUpdate.model_fields), (
+        f"LOCKED_EDITABLE_FIELDS names fields ProjectUpdate does not have: "
+        f"{sorted(LOCKED_EDITABLE_FIELDS - set(ProjectUpdate.model_fields))}"
+    )
+
+
+def test_a_locked_version_stays_filable():
+    """Name, label and status are filing, so they survive the freeze.
+
+    The label especially: a frozen version is exactly the one someone later
+    wants to call "As signed off", and needing to unlock it to do so would
+    defeat the point of freezing it.
+    """
+    assert {"name", "status", "version_label"} <= LOCKED_EDITABLE_FIELDS
+
+
+def test_a_locked_version_refuses_the_content_it_froze():
+    """The description and rationale are part of what the version recorded."""
+    assert not {"description", "rationale"} & LOCKED_EDITABLE_FIELDS
+
+
+def test_update_project_compares_against_locked_editable_fields():
+    """The route must actually consult the set, not re-list the fields inline."""
+    source = inspect.getsource(update_project)
+    assert "LOCKED_EDITABLE_FIELDS" in source

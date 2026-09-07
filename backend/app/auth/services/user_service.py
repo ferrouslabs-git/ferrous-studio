@@ -585,6 +585,54 @@ async def unsuspend_user(user_id: UUID, db: AsyncSession) -> User:
     return user
 
 
+class UserNotArchivedError(ValueError):
+    """Hard delete asked for on a user who is still live -- archive first."""
+
+
+async def archive_user(user_id: UUID, db: AsyncSession) -> User:
+    """Archive a user: they have left the platform.
+
+    Sign-in is refused from here on and the row leaves the default Users
+    list, but the record (and everything attributed to it) survives so that
+    ``restore_user`` can bring them back exactly as they were. Memberships
+    are left alone for the same reason: archiving is reversible, and a
+    restored user should find their organisations where they left them.
+
+    Like suspend, this invalidates outstanding Cognito refresh tokens so an
+    open session cannot quietly outlive the archive. Archiving an already
+    archived user is a no-op rather than an error.
+    """
+    user = await get_user_by_id(user_id, db)
+    if not user:
+        raise ValueError(f"User {user_id} not found")
+
+    if user.archived_at is None:
+        user.archived_at = utc_now()
+        await db.commit()
+        await db.refresh(user)
+
+    await cognito_global_sign_out(user.email, user.cognito_sub)
+    return user
+
+
+async def restore_user(user_id: UUID, db: AsyncSession) -> User:
+    """Undo ``archive_user``.
+
+    Only ``archived_at`` is cleared. A user who was suspended before being
+    archived comes back suspended: the archive never implied the suspension
+    had been lifted, and silently reinstating access would be the surprising
+    outcome.
+    """
+    user = await get_user_by_id(user_id, db)
+    if not user:
+        raise ValueError(f"User {user_id} not found")
+
+    user.archived_at = None
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 async def promote_to_platform_admin(user_id: UUID, db: AsyncSession) -> User:
     """Grant platform admin access to a user."""
     user = await get_user_by_id(user_id, db)
@@ -628,13 +676,18 @@ async def delete_user(user_id: UUID, db: AsyncSession) -> dict:
     5. Delete the User record
 
     Raises ValueError if the user is a platform admin (must be demoted first)
-    or the last owner of any tenant.
+    or the last admin of any organisation, and ``UserNotArchivedError`` if the
+    user has not been archived first: deleting is the second step of a
+    two-step removal, never a shortcut past the reversible one.
     """
     from .cognito_admin_service import admin_delete_user as cognito_delete
 
     user = await get_user_by_id(user_id, db)
     if not user:
         raise ValueError(f"User {user_id} not found")
+
+    if user.archived_at is None:
+        raise UserNotArchivedError("Only archived users can be deleted. Archive them first.")
 
     if user.is_platform_admin:
         raise ValueError("Cannot delete a platform admin. Demote them first.")

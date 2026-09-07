@@ -1,9 +1,12 @@
 // A project's personas: enough about each user archetype to design for them.
-import { FormEvent, useState } from "react";
+// The list shows who they are at a glance; the detail lives in the drawer.
+import { FormEvent, useMemo, useState } from "react";
 import { ComboBox } from "../../../components/ComboBox";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { cleanList, ListEditor } from "../../../components/ListEditor";
+import { ListTable, NameCell } from "../../../components/ListTable";
+import { ListToolbar, matches } from "../../../components/ListToolbar";
 import { errorMessage } from "../../../core/api";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
@@ -37,6 +40,9 @@ export function PersonasPage() {
   const [form, setForm] = useState<PersonaInput>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [query, setQuery] = useState("");
+  const [interfaceFilter, setInterfaceFilter] = useState("");
 
   const patch = (p: Partial<PersonaInput>) => setForm((f) => ({ ...f, ...p }));
 
@@ -86,13 +92,28 @@ export function PersonasPage() {
     }
   };
 
-  const list = personas.data ?? [];
+  const all = personas.data ?? [];
+  // The interfaces in use, so the filter offers what is there rather than
+  // every suggestion the form knows about.
+  const interfaces = useMemo(
+    () => Array.from(new Set(all.map((p) => p.primary_interface).filter((i): i is string => !!i))).sort(),
+    [all],
+  );
+  const visible = useMemo(
+    () =>
+      all.filter(
+        (p) =>
+          (!interfaceFilter || p.primary_interface === interfaceFilter) &&
+          matches(query, p.name, p.role, p.primary_interface, ...p.traits, ...p.jobs_to_be_done, ...p.pain_points),
+      ),
+    [all, query, interfaceFilter],
+  );
+  const filtered = query.trim() !== "" || interfaceFilter !== "";
 
   return (
     <div className="page stack">
       <div className="page-head">
         <h1>Personas</h1>
-        <span className="sub">{list.length} in this project</span>
         <span className="shell-spacer" />
         {canWrite && (
           <button className="btn primary" onClick={() => openDrawer(null)}>
@@ -101,21 +122,60 @@ export function PersonasPage() {
         )}
       </div>
 
-      {personas.loading ? (
-        <div className="empty">Loading…</div>
-      ) : personas.error ? (
-        <div className="empty error">{personas.error}</div>
-      ) : list.length === 0 ? (
-        <div className="empty">
-          <b>No personas yet.</b> {canWrite ? "Describe who you are designing for." : "Nothing here yet."}
-        </div>
-      ) : (
-        <div className="card-grid personas">
-          {list.map((p) => (
-            <PersonaCard key={p.id} persona={p} canWrite={canWrite} onEdit={() => openDrawer(p)} onDelete={() => setDeleting(p)} />
-          ))}
-        </div>
-      )}
+      <ListToolbar
+        search={{ value: query, onChange: setQuery, placeholder: "Search by name, role, trait or job", label: "Search personas" }}
+        filters={[
+          {
+            label: "Filter by interface",
+            value: interfaceFilter,
+            onChange: setInterfaceFilter,
+            options: [{ value: "", label: "All interfaces" }, ...interfaces.map((i) => ({ value: i, label: i }))],
+          },
+        ]}
+        count={{ visible: visible.length, total: all.length, noun: ["persona", "personas"] }}
+      />
+
+      <ListTable
+        columns={[
+          {
+            header: "Persona",
+            className: "primary",
+            render: (p) => (
+              <NameCell sub={p.role ?? undefined} onOpen={canWrite ? () => openDrawer(p) : undefined}>
+                {p.name}
+              </NameCell>
+            ),
+          },
+          {
+            header: "Interface",
+            render: (p) => (p.primary_interface ? <span className="badge accent">{p.primary_interface}</span> : <span className="muted">—</span>),
+          },
+          { header: "Jobs to be done", className: "wide", render: (p) => <Preview items={p.jobs_to_be_done} /> },
+          { header: "Pain points", className: "wide", render: (p) => <Preview items={p.pain_points} /> },
+        ]}
+        rows={visible}
+        rowKey={(p) => p.id}
+        rowLabel={(p) => p.name}
+        actions={(p) =>
+          canWrite
+            ? [
+                { label: "Edit", onSelect: () => openDrawer(p) },
+                { label: "Delete", danger: true, onSelect: () => setDeleting(p) },
+              ]
+            : null
+        }
+        loading={personas.loading}
+        error={personas.error}
+        empty={
+          filtered ? (
+            "No personas match these filters."
+          ) : (
+            <>
+              <b>No personas yet.</b> {canWrite ? "Describe who you are designing for." : "Nothing here yet."}
+            </>
+          )
+        }
+      />
 
       <Drawer
         open={drawerOpen}
@@ -180,43 +240,17 @@ export function PersonasPage() {
   );
 }
 
-function PersonaCard({ persona, canWrite, onEdit, onDelete }: { persona: Persona; canWrite: boolean; onEdit: () => void; onDelete: () => void }) {
+/** The first couple of items of a persona's list, and how many more there are. */
+function Preview({ items }: { items: string[] }) {
+  if (items.length === 0) return <span className="muted">—</span>;
+  const shown = items.slice(0, 2);
+  const more = items.length - shown.length;
   return (
-    <div className="card persona-card">
-      <h3>{persona.name}</h3>
-      <p>{persona.role || <span className="muted">No role set</span>}</p>
-      <div className="meta">
-        {persona.primary_interface && <span className="badge accent">{persona.primary_interface}</span>}
-      </div>
-      <PersonaList title="Jobs to be done" items={persona.jobs_to_be_done} />
-      <PersonaList title="Pain points" items={persona.pain_points} />
-      <PersonaList title="Traits" items={persona.traits} />
-      <PersonaList title="Feelings" items={persona.feelings} />
-      {canWrite && (
-        <div className="meta">
-          <span className="shell-spacer" />
-          <button className="btn small ghost" onClick={onEdit}>
-            Edit
-          </button>
-          <button className="btn small ghost" onClick={onDelete}>
-            Delete
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PersonaList({ title, items }: { title: string; items: string[] }) {
-  if (items.length === 0) return null;
-  return (
-    <div className="persona-list">
-      <div className="persona-list-title">{title}</div>
-      <ul>
-        {items.map((it, i) => (
-          <li key={i}>{it}</li>
-        ))}
-      </ul>
-    </div>
+    <span className="preview">
+      {shown.map((item, i) => (
+        <span key={i}>{item}</span>
+      ))}
+      {more > 0 && <span className="preview-more">+{more} more</span>}
+    </span>
   );
 }

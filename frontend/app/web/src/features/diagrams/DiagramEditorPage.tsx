@@ -15,6 +15,7 @@ import { useProject } from "../project/ProjectLayout";
 import { diagramKindLabel, DiagramRecord, getDiagram, saveDiagram } from "../project/diagrams/diagramsApi";
 import { Inspector } from "./components/Inspector";
 import { Palette } from "./components/Palette";
+import { CLIPBOARD_KEY, hasClipboard } from "./graph/clipboard";
 import type { GraphHandle } from "./graph/createGraph";
 import { deriveModel, exportXml, importXml, plainCellsOf } from "./graph/serialize";
 import { EDGE_TYPES, UmlEdgeType } from "./graph/umlTypes";
@@ -33,6 +34,7 @@ export function DiagramEditorPage() {
   const [save, setSave] = useState<SaveState>({ kind: "clean" });
   const [edgeType, setEdgeTypeState] = useState<UmlEdgeType>("association");
   const [gridOn, setGridOn] = useState(true);
+  const [canPaste, setCanPaste] = useState(hasClipboard);
   const versionRef = useRef(0);
   const loadedRef = useRef<string | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -130,6 +132,17 @@ export function DiagramEditorPage() {
     if (handleRef.current) handleRef.current.edgeType.current = edgeType;
   }, [edgeType, handleRef, state.ready]);
 
+  // The clipboard lives in localStorage, so a copy in another tab -- or in
+  // another diagram open beside this one -- arms Paste here too.
+  useEffect(() => {
+    if (handleRef.current) handleRef.current.onClipboardChange.current = () => setCanPaste(hasClipboard());
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === null || e.key === CLIPBOARD_KEY) setCanPaste(hasClipboard());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [handleRef, state.ready]);
+
   useEffect(() => {
     handleRef.current?.graph.setGridEnabled(gridOn);
   }, [gridOn, handleRef, state.ready]);
@@ -225,7 +238,7 @@ export function DiagramEditorPage() {
           <div ref={containerRef} className="diagram-canvas" style={gridStyle(state.scale, handle)} />
           {record.loading && <div className="diagram-overlay muted">Loading…</div>}
         </div>
-        <Inspector selection={state.selection} handleRef={handleRef} disabled={readOnly} />
+        <Inspector selection={state.selection} handleRef={handleRef} disabled={readOnly} canPaste={canPaste} />
       </div>
     </div>
   );

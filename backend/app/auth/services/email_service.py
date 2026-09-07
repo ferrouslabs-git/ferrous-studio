@@ -56,11 +56,40 @@ _SYMBOL_PNG = Path(__file__).parent / "assets" / "fe-symbol-white@2x.png"
 _SYMBOL_CID = "fe-symbol"
 
 
+def _invitation_copy(tenant_name: str | None, product_name: str) -> tuple[str, str, str]:
+    """(title, heading, blurb) for the two kinds of invitation. Plain text;
+    the HTML builder escapes and marks up what it needs to. ``tenant_name``
+    None means a platform invitation: no organisation, super admin access."""
+    if tenant_name:
+        return (
+            f"Invitation to {tenant_name}",
+            f"Join {tenant_name} on {product_name}.",
+            f"ou have been invited to join {tenant_name}. Follow the link to set your "
+            "password and see the projects shared with you.",
+        )
+    return (
+        f"Invitation to administer {product_name}",
+        f"Administer {product_name} as a super admin.",
+        f"ou have been invited to administer {product_name} as a super admin. Follow "
+        "the link to set your password.",
+    )
+
+
 def _get_invitation_email_html(
-    invite_url: str, tenant_name: str, product_name: str, legal: str, recipient_name: str | None = None
+    invite_url: str, tenant_name: str | None, product_name: str, legal: str, recipient_name: str | None = None
 ) -> str:
+    """Branded HTML body for an invitation."""
     greeting = f"Hi {html.escape(recipient_name)}, y" if recipient_name else "Y"
-    """Branded HTML body for an organisation invitation."""
+    title, heading, blurb = _invitation_copy(tenant_name, product_name)
+    title = html.escape(title)
+    preheader = html.escape(heading)
+    blurb = html.escape(blurb)
+    if tenant_name:
+        safe_tenant = html.escape(tenant_name)
+        heading_html = f"Join {safe_tenant}<br>on {html.escape(product_name)}."
+        blurb = blurb.replace(safe_tenant, f'<strong style="color:{_TEXT}; font-weight:600;">{safe_tenant}</strong>', 1)
+    else:
+        heading_html = f"Administer {html.escape(product_name)}<br>as a super admin."
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -68,11 +97,11 @@ def _get_invitation_email_html(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <meta name="supported-color-schemes" content="dark">
-  <title>Invitation to {tenant_name}</title>
+  <title>{title}</title>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 </head>
 <body style="margin:0; padding:0; background:{_BG_DEEP}; color:{_TEXT}; font-family:{_FONT_DISPLAY}; -webkit-font-smoothing:antialiased;">
-  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">You have been invited to join {tenant_name} on {product_name}.</div>
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">{preheader}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_BG_DEEP};">
     <tr>
       <td align="center" style="padding:40px 16px;">
@@ -94,8 +123,8 @@ def _get_invitation_email_html(
           <tr>
             <td style="background:{_BG_RAISED}; border:1px solid {_BORDER}; border-radius:6px; padding:36px 36px 32px;">
               <p style="margin:0 0 14px; font-family:{_FONT_MONO}; font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:{_ORANGE};">Invitation</p>
-              <h1 style="margin:0 0 18px; font-family:{_FONT_DISPLAY}; font-weight:600; font-size:28px; line-height:1.1; letter-spacing:-0.03em; color:{_TEXT};">Join {tenant_name}<br>on {product_name}.</h1>
-              <p style="margin:0 0 28px; font-size:15px; line-height:1.6; color:{_TEXT_SECONDARY};">{greeting}ou have been invited to join <strong style="color:{_TEXT}; font-weight:600;">{tenant_name}</strong>. Follow the link to set your password and see the projects shared with you.</p>
+              <h1 style="margin:0 0 18px; font-family:{_FONT_DISPLAY}; font-weight:600; font-size:28px; line-height:1.1; letter-spacing:-0.03em; color:{_TEXT};">{heading_html}</h1>
+              <p style="margin:0 0 28px; font-size:15px; line-height:1.6; color:{_TEXT_SECONDARY};">{greeting}{blurb}</p>
 
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
@@ -136,16 +165,16 @@ def _get_invitation_email_html(
 
 
 def _get_invitation_email_text(
-    invite_url: str, tenant_name: str, product_name: str, legal: str, recipient_name: str | None = None
+    invite_url: str, tenant_name: str | None, product_name: str, legal: str, recipient_name: str | None = None
 ) -> str:
-    """Plain-text body for an organisation invitation."""
+    """Plain-text body for an invitation."""
     greeting = f"Hi {recipient_name}, y" if recipient_name else "Y"
+    _title, heading, blurb = _invitation_copy(tenant_name, product_name)
     return f"""{product_name.upper()} — INVITATION
 
-Join {tenant_name} on {product_name}.
+{heading}
 
-{greeting}ou have been invited to join {tenant_name}. Follow the link to set your
-password and see the projects shared with you:
+{greeting}{blurb}
 
 {invite_url}
 
@@ -157,9 +186,10 @@ only works for the address it was sent to.
 
 
 async def send_invitation_email(
-    to_email: str, invite_url: str, tenant_name: str, recipient_name: str | None = None
+    to_email: str, invite_url: str, tenant_name: str | None, recipient_name: str | None = None
 ) -> EmailSendResult:
-    """Send invitation email via AWS SES.
+    """Send invitation email via AWS SES. ``tenant_name`` is None for a
+    platform (super admin) invitation, which has no organisation to name.
 
     Offloads the blocking boto3 SES call to a thread so the async
     event loop stays free.
@@ -208,8 +238,14 @@ def _build_message(sender: str, to_email: str, subject: str, text_body: str, htm
     return related
 
 
+def invitation_email_subject(tenant_name: str | None, product_name: str) -> str:
+    if tenant_name:
+        return f"You are invited to join {tenant_name} on {product_name}"
+    return f"You are invited to administer {product_name}"
+
+
 def _send_email_sync(
-    to_email: str, invite_url: str, tenant_name: str, settings, recipient_name: str | None = None
+    to_email: str, invite_url: str, tenant_name: str | None, settings, recipient_name: str | None = None
 ) -> EmailSendResult:
     """Synchronous SES send — called via asyncio.to_thread."""
     ses_client = boto3.client(
@@ -218,7 +254,7 @@ def _send_email_sync(
     )
 
     product_name = settings.product_display_name
-    subject = f"You are invited to join {tenant_name} on {product_name}"
+    subject = invitation_email_subject(tenant_name, product_name)
     html_body = _get_invitation_email_html(invite_url, tenant_name, product_name, settings.email_legal, recipient_name)
     text_body = _get_invitation_email_text(invite_url, tenant_name, product_name, settings.email_legal, recipient_name)
 

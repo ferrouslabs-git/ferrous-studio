@@ -32,7 +32,12 @@ from ..services.invitation_service import (
     resend_invitation,
     revoke_invitation,
 )
-from .route_helpers import create_invitation_response, ensure_scope_access
+from .route_helpers import (
+    create_invitation_response,
+    ensure_scope_access,
+    resend_invitation_response,
+    revoke_invitation_response,
+)
 
 router = APIRouter()
 
@@ -71,7 +76,7 @@ async def preview_invitation(token: str, db: AsyncSession = Depends(get_db)):
     return InvitationPreviewResponse(
         token=token,
         tenant_id=invitation.tenant_id,
-        tenant_name=invitation.tenant.name,
+        tenant_name=invitation.tenant.name if invitation.tenant else None,
         email=invitation.email,
         name=invitation.name,
         role=invitation.target_role_name,
@@ -108,19 +113,20 @@ async def complete_invitation_token(
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
+    # A platform invitation makes no membership; the role is the invitation's.
     await log_audit_event(
         "invitation_accepted",
         actor_user_id=str(user.id),
         db=db,
-        tenant_id=str(invitation.tenant_id),
+        tenant_id=str(invitation.tenant_id) if invitation.tenant_id else None,
         invitation_id=str(invitation.id),
-        role=membership.role_name,
+        role=invitation.target_role_name,
         via="set_password",
     )
 
     return InvitationCompleteResponse(
         tenant_id=invitation.tenant_id,
-        role=membership.role_name,
+        role=invitation.target_role_name,
         email=user.email,
         access_token=tokens["access_token"],
         id_token=tokens["id_token"],
@@ -190,7 +196,8 @@ async def resend_tenant_invitation(
     email_result = await send_invitation_email(
         to_email=invitation.email,
         invite_url=invite_url,
-        tenant_name=invitation.tenant.name,
+        tenant_name=invitation.tenant.name if invitation.tenant else None,
+        recipient_name=invitation.name,
     )
 
     await log_audit_event(
@@ -233,45 +240,7 @@ async def resend_invitation_by_id(
     invitation = await get_invitation_by_id(db, tenant_id, invitation_id)
     if not invitation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
-
-    try:
-        invitation, raw_token = await resend_invitation(db, invitation)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    settings = get_settings()
-    invite_url = f"{settings.frontend_url}/invite/{raw_token}"
-    email_result = await send_invitation_email(
-        to_email=invitation.email,
-        invite_url=invite_url,
-        tenant_name=invitation.tenant.name,
-    )
-
-    await log_audit_event(
-        "invitation_resent",
-        actor_user_id=str(current_user.id),
-        db=db,
-        tenant_id=str(tenant_id),
-        invitation_id=str(invitation.id),
-        invited_email=invitation.email,
-        email_sent=email_result.sent,
-    )
-
-    message = "Invitation resent successfully"
-    if not email_result.sent:
-        message = f"Invitation renewed; email not sent ({email_result.detail})"
-
-    return InvitationResendResponse(
-        invitation_id=invitation.id,
-        tenant_id=invitation.tenant_id,
-        email=invitation.email,
-        token=raw_token,
-        expires_at=invitation.expires_at,
-        message=message,
-        status=invitation.status,
-        email_sent=email_result.sent,
-        email_detail=email_result.detail,
-    )
+    return await resend_invitation_response(db, invitation, current_user)
 
 
 @router.post("/invites/accept", response_model=InvitationAcceptResponse)
@@ -286,28 +255,30 @@ async def accept_invitation_token(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
 
     try:
-        membership = await accept_invitation(db, invitation, current_user)
+        await accept_invitation(db, invitation, current_user)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
+    # The invitation's own scope and role describe what was granted whether
+    # it made a membership or (platform) set the super admin flag.
     await log_audit_event(
         "invitation_accepted",
         actor_user_id=str(current_user.id),
         db=db,
-        tenant_id=str(invitation.tenant_id),
+        tenant_id=str(invitation.tenant_id) if invitation.tenant_id else None,
         invitation_id=str(invitation.id),
-        role=membership.role_name,
+        role=invitation.target_role_name,
     )
 
     return InvitationAcceptResponse(
         tenant_id=invitation.tenant_id,
-        role=membership.role_name,
+        role=invitation.target_role_name,
         message="Invitation accepted successfully",
-        scope_type=membership.scope_type,
-        scope_id=membership.scope_id,
-        role_name=membership.role_name,
+        scope_type=invitation.target_scope_type,
+        scope_id=invitation.target_scope_id,
+        role_name=invitation.target_role_name,
     )
 
 @router.delete("/tenants/{tenant_id}/invitations/{invitation_id}", response_model=InvitationRevokeResponse)
@@ -328,24 +299,4 @@ async def revoke_invitation_by_id(
     invitation = await get_invitation_by_id(db, tenant_id, invitation_id)
     if not invitation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
-
-    try:
-        invitation = await revoke_invitation(db, invitation)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    await log_audit_event(
-        "invitation_revoked",
-        actor_user_id=str(current_user.id),
-        db=db,
-        tenant_id=str(tenant_id),
-        invitation_id=str(invitation.id),
-        invited_email=invitation.email,
-    )
-
-    return InvitationRevokeResponse(
-        invitation_id=invitation.id,
-        tenant_id=invitation.tenant_id,
-        status="revoked",
-        message="Invitation revoked successfully",
-    )
+    return await revoke_invitation_response(db, invitation, current_user)

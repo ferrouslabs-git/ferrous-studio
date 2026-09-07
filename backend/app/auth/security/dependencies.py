@@ -53,7 +53,13 @@ async def get_current_user(
             detail="User not found. Please sync your account first by calling POST /auth/sync"
         )
     
-    # Check if user account is suspended
+    # A suspended or archived account holds a valid Cognito token but no access.
+    if user.archived_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account archived. Please contact your administrator.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

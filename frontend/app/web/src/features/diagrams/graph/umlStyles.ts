@@ -140,11 +140,46 @@ export function vertexStyleFor(type: UmlNodeType): CellStyle {
     case "activation":
       return { ...base(), shape: "rectangle", fillColor: PAPER_MUTED, noLabel: true };
     case "note":
-      return { ...base(), shape: "uml-note", fillColor: NOTE, fontColor: NOTE_INK, strokeColor: NOTE_INK, align: "left", verticalAlign: "top", spacing: 8 };
+      // The body is an HTML label so long text wraps inside the sticky rather
+      // than running off its edge; overflow "fill" hands the whole cell to it.
+      return { ...base(), shape: "uml-note", fillColor: NOTE, fontColor: NOTE_INK, strokeColor: NOTE_INK, overflow: "fill", verticalAlign: "top", align: "left", spacing: 0 };
     case "text":
       return { ...base(), shape: "rectangle", fillColor: "none", strokeColor: "none", fontColor: EDGE_TEXT, align: "left" };
     case "rect":
       return { ...base(), shape: "rectangle" };
+    case "roundRect":
+      return { ...base(), shape: "rectangle", rounded: true, arcSize: 12 };
+    case "ellipse":
+    case "circle":
+      // A circle is the ellipse with its aspect pinned, so dragging either
+      // resize handle keeps it round.
+      return { ...base(), shape: "ellipse", perimeter: "ellipsePerimeter", ...(type === "circle" ? { aspect: "fixed" as const } : {}) };
+    case "triangle":
+      // Text sits on the base: the apex is too narrow to read a label in.
+      return { ...base(), shape: "triangle", perimeter: "trianglePerimeter", direction: "north", verticalAlign: "bottom" };
+    case "diamond":
+      return { ...base(), shape: "rhombus", perimeter: "rhombusPerimeter" };
+    case "hexagon":
+      return { ...base(), shape: "hexagon", perimeter: "hexagonPerimeter" };
+    case "cylinder":
+      return { ...base(), shape: "cylinder" };
+    case "cloud":
+      return { ...base(), shape: "cloud" };
+    case "pentagon":
+      return { ...base(), shape: "basic-pentagon" };
+    case "star":
+      return { ...base(), shape: "basic-star" };
+    case "cross":
+      return { ...base(), shape: "basic-cross" };
+    case "parallelogram":
+      return { ...base(), shape: "basic-parallelogram" };
+    case "trapezium":
+      return { ...base(), shape: "basic-trapezium" };
+    case "arrow":
+      return { ...base(), shape: "basic-arrow" };
+    case "callout":
+      // The tail hangs off the bottom quarter, so the text starts at the top.
+      return { ...base(), shape: "basic-callout", verticalAlign: "top", spacingTop: 6 };
   }
 }
 

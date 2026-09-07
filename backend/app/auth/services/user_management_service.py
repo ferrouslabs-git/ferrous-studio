@@ -87,6 +87,7 @@ async def list_platform_users(db: AsyncSession, *, role: str | None = None) -> l
             "is_platform_admin": user.is_platform_admin,
             "is_active": user.is_active,
             "suspended_at": user.suspended_at,
+            "archived_at": user.archived_at,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
             "memberships": [

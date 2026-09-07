@@ -18,12 +18,19 @@ def utc_now() -> datetime:
 class Invitation(Base):
     """
     Invitation model - secure token-based invites
-    Allows tenant members to invite new users
+    Allows tenant members to invite new users.
+
+    Two kinds share the table. An organisation invitation (the usual one)
+    names a tenant and, on acceptance, creates a membership there. A
+    platform invitation (``target_scope_type == "platform"``) has no tenant
+    and no scope id; accepting it makes the person a super admin, which is
+    a flag on the user rather than a membership.
     """
     __tablename__ = "invitations"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Null for a platform (super admin) invitation.
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True)
     email = Column(String(255), nullable=False, index=True)
     # Optional display name typed by the inviter; shown in the Users list
     # while the invite is open and used as the new account's name.
@@ -39,7 +46,7 @@ class Invitation(Base):
 
     # Scope columns
     target_scope_type = Column(String(20), nullable=False)
-    target_scope_id = Column(UUID(as_uuid=True), nullable=False)
+    target_scope_id = Column(UUID(as_uuid=True), nullable=True)
     target_role_name = Column(String(100), nullable=False)
 
     # Relationships
@@ -49,6 +56,11 @@ class Invitation(Base):
     def __repr__(self):
         return f"<Invitation(email='{self.email}', tenant_id={self.tenant_id}, role='{self.target_role_name}')>"
     
+    @property
+    def is_platform(self) -> bool:
+        """A super admin invitation: no organisation, grants the platform flag."""
+        return self.target_scope_type == "platform"
+
     @property
     def is_expired(self):
         """Check if invitation has expired"""

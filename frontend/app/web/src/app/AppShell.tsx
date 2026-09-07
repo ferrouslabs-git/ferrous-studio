@@ -47,13 +47,13 @@ export function AppShell() {
 
   const isAdmin = !!user?.is_platform_admin;
   const initials = (user?.name || user?.email || "?").slice(0, 1).toUpperCase();
-  // Platform admins belong to no organisation: their menu is the platform one.
-  // An organisation's own menu (and its switcher) appears for them only while
-  // they are inside one, having opened it from Organisations or Projects.
+  // Platform admins belong to no organisation: their menu is the platform one
+  // and only that, even while they are looking at an organisation's own pages.
+  // Everything an organisation's menu offers (its projects, its users, editing
+  // it) they reach through Administration instead.
   const inProjectScope = !!projectMatch;
-  const inOrgScope = location.pathname.startsWith("/orgs/");
-  const showOrgNav = !!activeOrg && !inProjectScope && (!isAdmin || inOrgScope);
-  const canEditOrg = isAdmin || activeOrg?.role === "account_admin";
+  const showOrgNav = !!activeOrg && !inProjectScope && !isAdmin;
+  const canEditOrg = activeOrg?.role === "account_admin";
 
   return (
     <div
@@ -98,6 +98,7 @@ export function AppShell() {
               orgId={projectMatch.params.orgId ?? ""}
               projectId={projectMatch.params.projectId ?? ""}
               name={shellProject?.name ?? "Project"}
+              isAdmin={isAdmin}
             />
           )}
 
@@ -182,12 +183,26 @@ export function AppShell() {
   );
 }
 
-/** The project's own menu: its six sections, the version switcher and the way out. */
-function ProjectNav({ orgId, projectId, name }: { orgId: string; projectId: string; name: string }) {
+/**
+ * The project's own menu: its seven sections, the version switcher and the
+ * way out. For a platform admin the way out is the platform-wide Projects
+ * list they came in from, since they have no organisation menu to go back to.
+ */
+function ProjectNav({
+  orgId,
+  projectId,
+  name,
+  isAdmin,
+}: {
+  orgId: string;
+  projectId: string;
+  name: string;
+  isAdmin: boolean;
+}) {
   const base = `/orgs/${orgId}/projects/${projectId}`;
   return (
     <>
-      <div className="sidebar-scope">
+      <div className="sidebar-scope stacked">
         <div className="sidebar-field">
           <span className="sidebar-label sidebar-field-name">Project</span>
           <span className="sidebar-scope-value sidebar-label" title={name}>
@@ -203,10 +218,19 @@ function ProjectNav({ orgId, projectId, name }: { orgId: string; projectId: stri
         <NavItem to={`${base}/diagrams`} icon="diagram" label="Diagrams" />
         <NavItem to={`${base}/wireframes`} icon="layout" label="Wireframes" />
         <NavItem to={`${base}/documents`} icon="file" label="Documents" />
+        <NavItem to={`${base}/plan`} icon="plan" label="Plan" />
+        <NavItem to={`${base}/roadmap`} icon="roadmap" label="Roadmap" />
+        <NavItem to={`${base}/epics`} icon="epic" label="Epics" />
       </NavGroup>
-      <NavGroup title="Organisation">
-        <NavItem to={`/orgs/${orgId}/projects`} icon="arrowLeft" label="Back to organisation" end />
-      </NavGroup>
+      {isAdmin ? (
+        <NavGroup title="Administration">
+          <NavItem to="/admin/projects" icon="arrowLeft" label="Back to projects" end />
+        </NavGroup>
+      ) : (
+        <NavGroup title="Organisation">
+          <NavItem to={`/orgs/${orgId}/projects`} icon="arrowLeft" label="Back to organisation" end />
+        </NavGroup>
+      )}
     </>
   );
 }
@@ -293,6 +317,9 @@ type IconName =
   | "diagram"
   | "layout"
   | "file"
+  | "plan"
+  | "roadmap"
+  | "epic"
   | "arrowLeft";
 
 const PATHS: Record<IconName, ReactNode> = {
@@ -351,6 +378,27 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
       <path d="M14 3v5h5" />
+    </>
+  ),
+  plan: (
+    <>
+      <rect x="3" y="4" width="18" height="17" rx="2" />
+      <path d="M8 2.5v3M16 2.5v3M3 9.5h18" />
+      <path d="M7.5 14l1.5 1.5 3-3" />
+      <path d="M14.5 18h3" />
+    </>
+  ),
+  roadmap: (
+    <>
+      <path d="M4 19c4-2 4-8 8-10s4-6 8-6" />
+      <circle cx="4" cy="19" r="1.5" />
+      <circle cx="12" cy="9" r="1.5" />
+      <circle cx="20" cy="3" r="1.5" />
+    </>
+  ),
+  epic: (
+    <>
+      <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
     </>
   ),
   arrowLeft: <path d="M19 12H5M11 6l-6 6 6 6" />,

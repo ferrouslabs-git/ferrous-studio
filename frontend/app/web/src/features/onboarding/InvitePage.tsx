@@ -6,6 +6,9 @@
 // sets its password: the emailed link proves ownership just like a reset
 // link), signs the user in and joins the organisation in one backend call.
 // A visitor already signed in as the invited address just accepts.
+//
+// A super admin invitation has no organisation (tenant fields null):
+// accepting it grants platform admin access and lands on the admin pages.
 import { FormEvent, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useSession } from "../../app/session";
@@ -18,6 +21,12 @@ import { RoleName } from "../orgs/roleLabels";
 
 /** Mirrors the Cognito pool password policy (infra/terraform/cognito.tf) so
  * the user hears about a weak password before the round trip, not after. */
+/** Where to go once accepted: into the organisation, or, for a super admin
+ * invitation (no organisation), to the platform admin pages. */
+function landingFor(tenantId: string | null): string {
+  return tenantId ? `/orgs/${tenantId}/projects` : "/admin/orgs";
+}
+
 function passwordProblem(password: string): string | null {
   if (password.length < 8) return "Use at least 8 characters.";
   if (!/[a-z]/.test(password)) return "Include a lower-case letter.";
@@ -45,7 +54,7 @@ export function InvitePage() {
     try {
       const result = await acceptInvite(token);
       await session.refresh();
-      navigate(`/orgs/${result.tenant_id}/projects`);
+      navigate(landingFor(result.tenant_id));
     } catch (err) {
       setError(errorMessage(err));
       setAccepting(false);
@@ -65,7 +74,7 @@ export function InvitePage() {
         ) : preview.data.is_accepted ? (
           <>
             <h1>Already accepted</h1>
-            <p>This invitation to {preview.data.tenant_name} has already been used.</p>
+            <p>This invitation{preview.data.tenant_name ? ` to ${preview.data.tenant_name}` : ""} has already been used.</p>
           </>
         ) : preview.data.is_expired || preview.data.status !== "pending" ? (
           <>
@@ -74,11 +83,19 @@ export function InvitePage() {
           </>
         ) : (
           <>
-            <h1>Join {preview.data.tenant_name}</h1>
+            <h1>{preview.data.tenant_name ? `Join ${preview.data.tenant_name}` : "Become a super admin"}</h1>
             <p>
               You have been invited as{" "}
-              <b>{preview.data.role ? <RoleName name={preview.data.role} /> : "a member"}</b> using the
-              address <b>{preview.data.email}</b>.
+              <b>
+                {!preview.data.tenant_name ? (
+                  "Super admin"
+                ) : preview.data.role ? (
+                  <RoleName name={preview.data.role} />
+                ) : (
+                  "a member"
+                )}
+              </b>{" "}
+              using the address <b>{preview.data.email}</b>.
             </p>
             {session.status === "loading" ? (
               <p>Loading…</p>
@@ -137,7 +154,7 @@ function SetPasswordForm({ token, preview }: { token: string; preview: InvitePre
       const result = await completeInvite(token, password);
       await authService.completeSignIn(result);
       await session.refresh();
-      navigate(`/orgs/${result.tenant_id}/projects`, { replace: true });
+      navigate(landingFor(result.tenant_id), { replace: true });
     } catch (err) {
       setError(errorMessage(err));
       setSubmitting(false);
@@ -181,7 +198,7 @@ function SetPasswordForm({ token, preview }: { token: string; preview: InvitePre
       </p>
       {error && <p className="error">{error}</p>}
       <button className="btn primary" disabled={submitting || !password || !confirm}>
-        {submitting ? "Creating account…" : "Set password and join"}
+        {submitting ? "Creating account…" : preview.tenant_name ? "Set password and join" : "Set password and accept"}
       </button>
     </form>
   );

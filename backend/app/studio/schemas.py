@@ -27,6 +27,9 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     rationale: str | None = None
     status: Literal["active", "archived"] | None = None
+    #: What this version is called in the lineage ("Post-review"). Sending it as
+    #: null clears the label, leaving the version numbered but unnamed.
+    version_label: str | None = Field(None, max_length=255)
 
 
 class ProjectRead(BaseModel):
@@ -47,6 +50,13 @@ class ProjectRead(BaseModel):
     version_label: str | None
     locked_at: datetime | None
     locked_by: UUID | None
+    # The linked GitHub repository, as last recorded. ``repo_id`` is the
+    # identity that survives a rename; the name is a cached label, refreshed
+    # from GitHub when it drifts. No branch: that is GitHub's to manage.
+    repo_id: int | None
+    repo_full_name: str | None
+    repo_linked_at: datetime | None
+    repo_linked_by: UUID | None
     created_at: datetime
     updated_at: datetime
 
@@ -606,3 +616,101 @@ class DocumentUploadTicket(BaseModel):
 class DocumentDownload(BaseModel):
     url: str
     expires_in: int
+
+
+# ── GitHub ──────────────────────────────────────────────────────────────────
+
+
+class GitHubConnectionRead(BaseModel):
+    """The organisation's GitHub connection, as the Repository section sees it.
+
+    ``configured`` and ``connected`` are separate on purpose. The first says
+    whether this deployment has a GitHub App at all -- an environment without
+    one should say so plainly rather than offer a Connect button that cannot
+    work. The second says whether this organisation has installed it.
+    """
+
+    configured: bool
+    connected: bool
+    installation_id: int | None = None
+    account_login: str | None = None
+    account_type: str | None = None
+    #: "all" or "selected" -- whether the installation can see every repository
+    #: on the account or only the ones that were picked.
+    repository_selection: str | None = None
+    connected_at: datetime | None = None
+    #: GitHub's own page for changing which repositories we may see.
+    manage_url: str | None = None
+
+
+class GitHubConnectStart(BaseModel):
+    """Ask for somewhere to send the browser to install the App.
+
+    ``project_id`` only decides where GitHub returns the user afterwards, so
+    the flow ends on the page they started from.
+    """
+
+    project_id: UUID | None = None
+
+
+class GitHubConnectUrl(BaseModel):
+    url: str
+
+
+class GitHubRepositoryRead(BaseModel):
+    """One repository the installation can see."""
+
+    id: int
+    full_name: str
+    private: bool
+    default_branch: str
+    html_url: str
+    description: str | None = None
+    pushed_at: str | None = None
+
+
+class RepositoryLink(BaseModel):
+    """Point a project at a repository.
+
+    ``repo_id`` is the whole payload, and it is what is actually trusted: the
+    name is re-read from GitHub when the link is made, so a repository renamed
+    since the picker loaded is stored under its current name rather than a
+    stale one. No branch -- see ``Project.repo_id`` for why.
+    """
+
+    repo_id: int
+
+
+class RepositoryCommit(BaseModel):
+    sha: str
+    message: str
+    author: str | None = None
+    committed_at: str | None = None
+    html_url: str | None = None
+
+
+class ProjectRepositoryRead(BaseModel):
+    """The linked repository as the details page shows it, live.
+
+    ``state`` is the whole point of this shape: the stored link and GitHub's
+    answer can disagree, and the page has to say which. See ``link_state`` in
+    ``github.py`` for what each value means.
+
+    There is no "renamed" state. A rename is invisible here on purpose -- the
+    link is held by id, so it survives one, and the cached name is simply
+    refreshed to match rather than reported as a problem.
+    """
+
+    state: Literal["unlinked", "ok", "unreachable", "disconnected", "unavailable"]
+    #: What we have on file, always present once a link exists.
+    repo_id: int | None = None
+    repo_full_name: str | None = None
+    #: What GitHub says now; None when it could not be asked. ``default_branch``
+    #: is a live readout, never stored -- branch management lives on GitHub.
+    html_url: str | None = None
+    description: str | None = None
+    private: bool | None = None
+    default_branch: str | None = None
+    latest_commit: RepositoryCommit | None = None
+    #: Plain sentence for the page to show when ``state`` is not "ok".
+    message: str | None = None

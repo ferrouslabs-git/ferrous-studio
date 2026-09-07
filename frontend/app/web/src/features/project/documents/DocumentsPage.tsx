@@ -1,10 +1,12 @@
 // A project's uploaded files. Uploads go straight to S3 (see documentsApi);
 // the list shows what has been confirmed plus anything still in flight.
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
+import { ListTable, NameCell } from "../../../components/ListTable";
+import { ListToolbar, matches } from "../../../components/ListToolbar";
 import { errorMessage } from "../../../core/api";
-import { formatBytes } from "../../../core/format";
+import { formatBytes, formatDate } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
 import {
@@ -33,6 +35,8 @@ export function DocumentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ProjectDocument | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const [query, setQuery] = useState("");
 
   const openDrawer = () => {
     setFile(null);
@@ -74,14 +78,15 @@ export function DocumentsPage() {
     }
   };
 
-  const list = documents.data ?? [];
+  const all = documents.data ?? [];
+  const visible = useMemo(() => all.filter((d) => matches(query, d.filename)), [all, query]);
+  const filtered = query.trim() !== "";
   const busy = phase !== null;
 
   return (
     <div className="page stack">
       <div className="page-head">
         <h1>Documents</h1>
-        <span className="sub">{list.length} in this project</span>
         <span className="shell-spacer" />
         {canWrite && (
           <button className="btn primary" onClick={openDrawer}>
@@ -90,64 +95,52 @@ export function DocumentsPage() {
         )}
       </div>
 
+      <ListToolbar
+        search={{ value: query, onChange: setQuery, placeholder: "Search by file name", label: "Search documents" }}
+        count={{ visible: visible.length, total: all.length, noun: ["document", "documents"] }}
+      />
+
       {error && <div className="status-banner warn">{error}</div>}
 
-      <section className="section">
-        {documents.loading ? (
-          <div className="empty">Loading…</div>
-        ) : documents.error ? (
-          <div className="empty error">{documents.error}</div>
-        ) : list.length === 0 ? (
-          <div className="empty">
-            <b>No documents yet.</b> {canWrite ? "Upload transcripts, briefs or reference material." : "Nothing here yet."}
-          </div>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Size</th>
-                <th>Uploaded</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((d) => (
-                <tr key={d.id}>
-                  <td>
-                    {d.status === "uploaded" ? (
-                      <button className="btn small ghost" onClick={() => void download(d)}>
-                        {d.filename}
-                      </button>
-                    ) : (
-                      <span className="muted">{d.filename}</span>
-                    )}
-                  </td>
-                  <td>
-                    <span className="badge">{typeLabel(d)}</span>
-                    {d.status === "pending" && <span className="badge warn">uploading</span>}
-                  </td>
-                  <td className="muted">{formatBytes(d.size_bytes)}</td>
-                  <td className="muted">{new Date(d.confirmed_at ?? d.created_at).toLocaleString()}</td>
-                  <td className="actions">
-                    {d.status === "uploaded" && (
-                      <button className="btn small" onClick={() => void download(d)}>
-                        Download
-                      </button>
-                    )}{" "}
-                    {canWrite && (
-                      <button className="btn small ghost" onClick={() => setDeleting(d)}>
-                        Delete
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <ListTable
+        columns={[
+          {
+            header: "Document",
+            className: "primary",
+            // The name downloads the file once it is safely stored; until then
+            // it is only a name, with the upload's progress beneath it.
+            render: (d) => (
+              <NameCell
+                sub={d.status === "pending" ? "Uploading…" : undefined}
+                onOpen={d.status === "uploaded" ? () => void download(d) : undefined}
+              >
+                {d.filename}
+              </NameCell>
+            ),
+          },
+          { header: "Type", render: (d) => <span className="badge muted">{typeLabel(d)}</span> },
+          { header: "Size", className: "muted", render: (d) => formatBytes(d.size_bytes) },
+          { header: "Uploaded", className: "muted when", render: (d) => formatDate(d.confirmed_at ?? d.created_at) },
+        ]}
+        rows={visible}
+        rowKey={(d) => d.id}
+        rowLabel={(d) => d.filename}
+        actions={(d) => [
+          ...(d.status === "uploaded" ? [{ label: "Download", onSelect: () => void download(d) }] : []),
+          ...(canWrite ? [{ label: "Delete", danger: true, onSelect: () => setDeleting(d) }] : []),
+        ]}
+        loading={documents.loading}
+        error={documents.error}
+        empty={
+          filtered ? (
+            "No documents match this search."
+          ) : (
+            <>
+              <b>No documents yet.</b> {canWrite ? "Upload transcripts, briefs or reference material." : "Nothing here yet."}
+            </>
+          )
+        }
+      />
 
       <Drawer
         open={drawerOpen}

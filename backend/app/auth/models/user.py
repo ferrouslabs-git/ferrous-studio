@@ -31,6 +31,10 @@ class User(Base):
     is_platform_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True, nullable=False)
     suspended_at = Column(DateTime, nullable=True)
+    # Set when the person has left the platform. Orthogonal to the temporary
+    # suspend above: restoring clears only this, so a suspended-then-archived
+    # user comes back suspended. Hard delete is only allowed once this is set.
+    archived_at = Column(DateTime, nullable=True)
     
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)

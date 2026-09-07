@@ -99,7 +99,8 @@ export const removeTenantUser = (tenantId: string, userId: string) =>
 
 export interface TenantInvitation {
   invitation_id: string;
-  tenant_id: string;
+  /** Null for a super admin invitation, which leads into no organisation. */
+  tenant_id: string | null;
   email: string;
   /** Display name typed by the inviter, if any. */
   name: string | null;
@@ -161,8 +162,9 @@ export const confirmForgotPassword = (email: string, code: string, newPassword: 
 
 export interface InvitePreview {
   token: string;
-  tenant_id: string;
-  tenant_name: string;
+  /** Both null for a super admin invitation: there is no organisation to join. */
+  tenant_id: string | null;
+  tenant_name: string | null;
   email: string;
   name: string | null;
   role: string | null;
@@ -175,7 +177,7 @@ export interface InvitePreview {
 }
 
 export interface InviteCompleted {
-  tenant_id: string;
+  tenant_id: string | null;
   role: string;
   email: string;
   access_token: string;
@@ -187,7 +189,7 @@ export interface InviteCompleted {
 
 export const getInvitePreview = (token: string) => apiGet<InvitePreview>(`/um/invites/${token}`, NO_SCOPE);
 export const acceptInvite = (token: string) =>
-  apiPost<{ tenant_id: string; role: string; message: string }>("/um/invites/accept", { token }, NO_SCOPE);
+  apiPost<{ tenant_id: string | null; role: string; message: string }>("/um/invites/accept", { token }, NO_SCOPE);
 /** New-account path: set a password, get signed in and join the organisation in one call. */
 export const completeInvite = (token: string, password: string) =>
   apiPost<InviteCompleted>("/um/invites/complete", { token, password }, NO_SCOPE);
@@ -226,6 +228,8 @@ export interface PlatformUser {
   is_platform_admin: boolean;
   is_active: boolean;
   suspended_at: string | null;
+  /** Set once the person has left the platform; they cannot sign in until restored. */
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
   memberships: PlatformUserMembership[];
@@ -235,7 +239,10 @@ export const getPlatformUsers = () => apiGet<PlatformUser[]>("/um/platform/users
 /** Platform admins hold no memberships, so this edits the name directly rather than via an organisation. */
 export const updatePlatformUser = (id: string, patch: { name?: string }) =>
   apiPatch<PlatformUser>(`/um/platform/users/${id}`, patch, NO_SCOPE);
-/** Irreversible: removes the Cognito account, memberships and the user record. */
+/** Reversible: blocks sign-in and hides the user from the default list, keeping the record. */
+export const archiveUser = (id: string) => apiPatch<unknown>(`/um/platform/users/${id}/archive`, {}, NO_SCOPE);
+export const restoreUser = (id: string) => apiPatch<unknown>(`/um/platform/users/${id}/restore`, {}, NO_SCOPE);
+/** Irreversible: removes the Cognito account, memberships and the user record. Only archived users (409 otherwise). */
 export const deletePlatformUser = (id: string) => apiDelete(`/um/platform/users/${id}`, NO_SCOPE);
 
 /** An invitation as listed across every organisation. */
@@ -245,6 +252,14 @@ export interface PlatformInvitation extends TenantInvitation {
 
 export const getPlatformInvitations = () =>
   apiGet<PlatformInvitation[]>("/um/platform/invitations", NO_SCOPE);
+/** Invite someone straight in as a super admin: no organisation, no role to choose. */
+export const invitePlatformAdmin = (email: string, name?: string) =>
+  apiPost<InvitationCreated>("/um/platform/invite", { email, name: name || undefined }, NO_SCOPE);
+/** Platform-level resend/revoke: any invitation by ID, including super admin ones, which have no tenant. */
+export const resendPlatformInvitation = (invitationId: string) =>
+  apiPost<unknown>(`/um/platform/invitations/${invitationId}/resend`, {}, NO_SCOPE);
+export const revokePlatformInvitation = (invitationId: string) =>
+  apiDelete(`/um/platform/invitations/${invitationId}`, NO_SCOPE);
 export const promoteUser = (id: string) => apiPatch<unknown>(`/um/platform/users/${id}/promote`, {}, NO_SCOPE);
 export const demoteUser = (id: string) => apiPatch<unknown>(`/um/platform/users/${id}/demote`, {}, NO_SCOPE);
 export const suspendUser = (id: string) => apiPatch<unknown>(`/um/users/${id}/suspend`, {}, NO_SCOPE);

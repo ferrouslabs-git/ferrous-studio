@@ -48,10 +48,12 @@ from .wireframes import (
 
 router = APIRouter()
 
-#: What a PATCH may still change on a locked version. Renaming and archiving are
-#: filing, not content; the description and rationale are part of what the
-#: version froze, so they need an explicit unlock.
-LOCKED_EDITABLE_FIELDS = {"name", "status"}
+#: What a PATCH may still change on a locked version. Renaming, labelling and
+#: archiving are filing, not content; the description and rationale are part of
+#: what the version froze, so they need an explicit unlock. The label
+#: especially: a frozen version is exactly the one someone later wants to name
+#: "As signed off", and unlocking it to do so would defeat the freeze.
+LOCKED_EDITABLE_FIELDS = {"name", "status", "version_label"}
 
 
 async def _count(db: AsyncSession, model: Any, project: Project, *extra: Any) -> int:

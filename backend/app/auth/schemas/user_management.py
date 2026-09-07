@@ -35,6 +35,7 @@ class PlatformUserResponse(BaseModel):
     is_platform_admin: bool
     is_active: bool
     suspended_at: datetime | None
+    archived_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     memberships: list[PlatformUserMembershipResponse]
@@ -42,9 +43,10 @@ class PlatformUserResponse(BaseModel):
 
 class PlatformInvitationResponse(BaseModel):
     """An invitation as seen from the platform Users page: the organisation
-    name comes along because the list spans every organisation."""
+    name comes along because the list spans every organisation. Both tenant
+    fields are None for a platform (super admin) invitation."""
     invitation_id: UUID
-    tenant_id: UUID
+    tenant_id: UUID | None = None
     tenant_name: str | None = None
     email: str
     name: str | None = None

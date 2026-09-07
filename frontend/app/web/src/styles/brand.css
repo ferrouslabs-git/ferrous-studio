@@ -174,7 +174,6 @@ body {
 h1, h2, h3 { font-family: var(--font-display); font-weight: 600; }
 .page-head h1 { font-size: 28px; letter-spacing: -0.03em; line-height: 1.05; }
 .page-head { margin-bottom: 8px; }
-.page-head .sub { font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; color: var(--text-mute); }
 .drawer-head h2 { font-size: 20px; letter-spacing: -0.025em; }
 
 /* Molten divider under the page head: iridescent rule with a soft glow. */
@@ -203,7 +202,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; }
   background: var(--bg-element); border: 1px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: none; transition: box-shadow var(--transition), border-color var(--transition);
 }
-.section:hover, .card:hover { box-shadow: var(--shadow); border-color: var(--border-strong); }
+.section:not(.list-panel):hover, .card:hover { box-shadow: var(--shadow); border-color: var(--border-strong); }
 .data-table td { padding: 11px 14px; }
 .data-table a { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border-strong); }
 .data-table a:hover { color: var(--orange-ink); border-bottom-color: var(--orange-ink); }
@@ -246,6 +245,9 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; }
 }
 .badge.good { background: var(--good-soft); border-color: var(--good-border); color: var(--good); }
 .badge.accent { background: var(--orange-glow-soft); border-color: var(--orange-border); color: var(--orange-ink); }
+/* Quiet tones for states that are not news: archived, expired, a file type. */
+.badge.muted { background: var(--mute-soft); border-color: var(--border-strong); color: var(--text-dim); }
+.badge.warn { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn); }
 
 /* ── Inputs ─────────────────────────────────────────────────────────────── */
 .input, .select, input, select, textarea {

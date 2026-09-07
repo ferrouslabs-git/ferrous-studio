@@ -49,7 +49,9 @@
 }
 .palette-tile:hover { border-color: var(--accent); color: var(--text); }
 .palette-tile:disabled { opacity: .4; cursor: not-allowed; }
-.palette-glyph { font-size: 20px; line-height: 1; color: var(--text); }
+.palette-glyph { font-size: 20px; line-height: 1; height: 22px; display: block; color: var(--text); }
+svg.palette-glyph { color: var(--text-dim); }
+.palette-tile:hover svg.palette-glyph { color: var(--accent); }
 .palette-drag-preview { border: 1px dashed var(--accent); border-radius: 4px; background: rgba(255,91,26,.08); }
 
 /* Canvas */
@@ -69,11 +71,18 @@
 .inspector-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 .inspector-empty { padding: 14px 12px; font-size: 12px; line-height: 1.5; }
 .inspector-body .input, .inspector-body .select { width: 100%; min-width: 0; }
+/* Order and clipboard actions: equal columns so the labels stay readable in a
+   280px panel and the row does not reflow as buttons enable and disable. */
+.inspector-body .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.inspector-body .button-row .btn { width: 100%; justify-content: center; }
 
 /* maxGraph overrides. Its SVG is styled inline, so only the DOM bits need help. */
 .diagram-canvas .mxRubberband { border: 1px dashed var(--accent) !important; background: rgba(255,91,26,.12) !important; }
 .diagram-canvas .mxCellEditor { font-family: "Space Grotesk", Inter, system-ui, sans-serif; color: var(--uml-ink); line-height: 1.3; }
 .diagram-canvas foreignObject div { color: var(--uml-ink); font-family: "Space Grotesk", Inter, system-ui, sans-serif; }
+/* The note's body fills its cell; the right padding keeps text off the fold. */
+.uml-note-text { height: 100%; box-sizing: border-box; padding: 7px 26px 7px 9px; font-size: 12px; line-height: 1.4; text-align: left; overflow: hidden; overflow-wrap: anywhere; }
+.diagram-canvas foreignObject .uml-note-text { color: #1A1A23; }
 .uml-class { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; font-size: 12px; text-align: left; }
 .uml-class-head { padding: 6px 8px; border-bottom: 1px solid var(--uml-ink); text-align: center; }
 .uml-class-stereo { font-size: 10px; color: var(--uml-ink-dim); }

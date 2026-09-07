@@ -16,9 +16,12 @@ import { OrgPage } from "./features/orgs/OrgPage";
 import { RoleCatalogueProvider } from "./features/orgs/roleLabels";
 import { DiagramsPage } from "./features/project/diagrams/DiagramsPage";
 import { DocumentsPage } from "./features/project/documents/DocumentsPage";
+import { EpicsPage } from "./features/project/epics/EpicsPage";
 import { PersonasPage } from "./features/project/personas/PersonasPage";
+import { PlanPage } from "./features/project/plan/PlanPage";
 import { LegacyProjectRedirect, ProjectLayout } from "./features/project/ProjectLayout";
 import { ProjectDetailsPage } from "./features/project/ProjectDetailsPage";
+import { RoadmapPage } from "./features/project/roadmap/RoadmapPage";
 import { UseCaseDiagramPage } from "./features/project/usecases/UseCaseDiagramPage";
 import { AuditLogPage } from "./features/project/wireframes/AuditLogPage";
 import { WireframesPage } from "./features/project/wireframes/WireframesPage";
@@ -81,6 +84,9 @@ export function App() {
               <Route path="wireframes/:wireframeId/snapshots/:versionId/preview" element={<SnapshotPreviewPage />} />
               <Route path="wireframes/:wireframeId/audit" element={<AuditLogPage />} />
               <Route path="documents" element={<DocumentsPage />} />
+              <Route path="plan" element={<PlanPage />} />
+              <Route path="roadmap" element={<RoadmapPage />} />
+              <Route path="epics" element={<EpicsPage />} />
             </Route>
 
             {/* Older links without the organisation. */}

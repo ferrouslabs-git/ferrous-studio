@@ -22,7 +22,10 @@ class InvitationCreateRequest(BaseModel):
     )
     target_scope_type: str | None = Field(
         default=None,
-        description="Scope type. Only 'account' is supported. Defaults to context scope."
+        description=(
+            "Scope type: 'account' (default, from context) or 'platform' for a super "
+            "admin invitation, which only the platform invite endpoint accepts."
+        ),
     )
     target_scope_id: UUID | None = Field(
         default=None,
@@ -34,10 +37,18 @@ class InvitationCreateRequest(BaseModel):
     )
 
 
+class PlatformInviteRequest(BaseModel):
+    """Invite someone straight in as a super admin: no organisation, no role
+    to choose. Only platform admins may send one."""
+    email: EmailStr = Field(..., description="Email address to invite")
+    name: str | None = Field(default=None, max_length=255, description="Invitee's display name (optional)")
+
+
 class InvitationCreateResponse(BaseModel):
-    """Response schema for created invitation."""
+    """Response schema for created invitation. ``tenant_id`` is None for a
+    platform invitation."""
     invitation_id: UUID
-    tenant_id: UUID
+    tenant_id: UUID | None = None
     email: EmailStr
     name: str | None = None
     role: str
@@ -53,10 +64,11 @@ class InvitationCreateResponse(BaseModel):
 
 
 class InvitationPreviewResponse(BaseModel):
-    """Response schema for invitation lookup by token."""
+    """Response schema for invitation lookup by token. A platform (super
+    admin) invitation has no organisation, so both tenant fields are None."""
     token: str
-    tenant_id: UUID
-    tenant_name: str
+    tenant_id: UUID | None = None
+    tenant_name: str | None = None
     email: EmailStr
     name: str | None = None
     role: str
@@ -81,8 +93,9 @@ class InvitationCompleteRequest(BaseModel):
 
 
 class InvitationCompleteResponse(BaseModel):
-    """Tokens for the freshly created account plus the membership it joined."""
-    tenant_id: UUID
+    """Tokens for the freshly created account plus the membership it joined
+    (``tenant_id`` None when it became a super admin instead)."""
+    tenant_id: UUID | None = None
     role: str
     email: EmailStr
     access_token: str
@@ -94,7 +107,7 @@ class InvitationCompleteResponse(BaseModel):
 
 class InvitationRevokeResponse(BaseModel):
     invitation_id: UUID
-    tenant_id: UUID
+    tenant_id: UUID | None = None
     status: Literal["revoked"]
     message: str
 
@@ -102,7 +115,7 @@ class InvitationRevokeResponse(BaseModel):
 class InvitationResendResponse(BaseModel):
     """Response schema for resent invitation."""
     invitation_id: UUID
-    tenant_id: UUID
+    tenant_id: UUID | None = None
     email: EmailStr
     token: str
     expires_at: datetime
@@ -119,7 +132,7 @@ class InvitationAcceptRequest(BaseModel):
 
 class InvitationAcceptResponse(BaseModel):
     """Response schema for accepted invitation."""
-    tenant_id: UUID
+    tenant_id: UUID | None = None
     role: str
     message: str
     scope_type: str | None = None

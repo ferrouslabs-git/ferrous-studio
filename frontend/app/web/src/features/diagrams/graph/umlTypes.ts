@@ -20,7 +20,22 @@ export type UmlNodeType =
   | "activation"
   | "note"
   | "text"
-  | "rect";
+  | "rect"
+  | "roundRect"
+  | "ellipse"
+  | "circle"
+  | "triangle"
+  | "diamond"
+  | "pentagon"
+  | "hexagon"
+  | "star"
+  | "cross"
+  | "cylinder"
+  | "cloud"
+  | "parallelogram"
+  | "trapezium"
+  | "arrow"
+  | "callout";
 
 export type UmlEdgeType =
   | "association"
@@ -38,7 +53,7 @@ export type UmlEdgeType =
 /** Attribute on the cell's user object that names its UML type. */
 export const UML_ATTR = "umlType";
 
-export type Family = "Use case" | "Class / entity" | "Activity" | "Sequence" | "General";
+export type Family = "Use case" | "Class / entity" | "Activity" | "Sequence" | "Basic shapes" | "General";
 
 export interface PaletteEntry {
   type: UmlNodeType;
@@ -71,12 +86,27 @@ export const PALETTE: PaletteEntry[] = [
   { type: "swimlaneV", family: "Activity", label: "Swimlane (vertical)", w: 180, h: 480, defaultLabel: "Lane", container: true, glyph: "⊞" },
   { type: "lifeline", family: "Sequence", label: "Lifeline", w: 120, h: 320, defaultLabel: "Object", container: true, glyph: "╽" },
   { type: "activation", family: "Sequence", label: "Activation", w: 12, h: 80, defaultLabel: "", noLabel: true, glyph: "▮" },
-  { type: "note", family: "General", label: "Note", w: 160, h: 80, defaultLabel: "Note", glyph: "🗎" },
+  { type: "rect", family: "Basic shapes", label: "Rectangle", w: 140, h: 80, defaultLabel: "", glyph: "▭" },
+  { type: "roundRect", family: "Basic shapes", label: "Rounded", w: 140, h: 80, defaultLabel: "", glyph: "▢" },
+  { type: "ellipse", family: "Basic shapes", label: "Ellipse", w: 150, h: 90, defaultLabel: "", glyph: "◯" },
+  { type: "circle", family: "Basic shapes", label: "Circle", w: 100, h: 100, defaultLabel: "", glyph: "○" },
+  { type: "triangle", family: "Basic shapes", label: "Triangle", w: 110, h: 95, defaultLabel: "", glyph: "△" },
+  { type: "diamond", family: "Basic shapes", label: "Diamond", w: 120, h: 90, defaultLabel: "", glyph: "◇" },
+  { type: "pentagon", family: "Basic shapes", label: "Pentagon", w: 110, h: 105, defaultLabel: "", glyph: "⬠" },
+  { type: "hexagon", family: "Basic shapes", label: "Hexagon", w: 130, h: 90, defaultLabel: "", glyph: "⬡" },
+  { type: "star", family: "Basic shapes", label: "Star", w: 110, h: 105, defaultLabel: "", glyph: "☆" },
+  { type: "cross", family: "Basic shapes", label: "Cross", w: 110, h: 110, defaultLabel: "", glyph: "✚" },
+  { type: "cylinder", family: "Basic shapes", label: "Cylinder", w: 110, h: 120, defaultLabel: "", glyph: "⛁" },
+  { type: "cloud", family: "Basic shapes", label: "Cloud", w: 170, h: 105, defaultLabel: "", glyph: "☁" },
+  { type: "parallelogram", family: "Basic shapes", label: "Parallelogram", w: 160, h: 80, defaultLabel: "", glyph: "▱" },
+  { type: "trapezium", family: "Basic shapes", label: "Trapezium", w: 160, h: 80, defaultLabel: "", glyph: "⏢" },
+  { type: "arrow", family: "Basic shapes", label: "Arrow", w: 150, h: 80, defaultLabel: "", glyph: "➡" },
+  { type: "callout", family: "Basic shapes", label: "Callout", w: 160, h: 100, defaultLabel: "", glyph: "🗪" },
+  { type: "note", family: "General", label: "Note", w: 160, h: 100, defaultLabel: "", glyph: "🗎" },
   { type: "text", family: "General", label: "Text", w: 140, h: 30, defaultLabel: "Text", glyph: "T" },
-  { type: "rect", family: "General", label: "Rectangle", w: 140, h: 80, defaultLabel: "", glyph: "▭" },
 ];
 
-export const FAMILIES: Family[] = ["Use case", "Class / entity", "Activity", "Sequence", "General"];
+export const FAMILIES: Family[] = ["Use case", "Class / entity", "Activity", "Sequence", "Basic shapes", "General"];
 
 export const NODE_BY_TYPE: Record<UmlNodeType, PaletteEntry> = Object.fromEntries(
   PALETTE.map((p) => [p.type, p]),
@@ -112,3 +142,11 @@ export const isEdgeType = (t: string): t is UmlEdgeType => t in EDGE_BY_TYPE;
 
 /** Which types render a class-style compartment box. */
 export const hasCompartments = (t: string) => t === "class" || t === "entity";
+
+/**
+ * A note is one block of text and nothing else, so its body is the label --
+ * the same attribute in-place editing writes, which is why the canvas needs no
+ * special case. Notes written before that kept the body in a separate `text`
+ * attribute, so read through to it until the note is next edited.
+ */
+export const noteBody = (attrs: { label?: string; text?: string }) => attrs.label || attrs.text || "";

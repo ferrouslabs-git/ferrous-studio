@@ -4,8 +4,11 @@
 // under "Standard"; projects cannot edit them, only bind to them.
 //
 // Every write here is also enforced server-side (platform admin only).
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
+import { ListTable, NameCell } from "../../components/ListTable";
+import { ListToolbar, matches } from "../../components/ListToolbar";
 import { errorMessage } from "../../core/api";
 import { useLoad } from "../../core/useLoad";
 import {
@@ -17,78 +20,100 @@ import {
 } from "../project/datasets/datasetsApi";
 import { DATA_KINDS, DataKind } from "../studio/catalog";
 
+/** The first few values, as the line beneath a dataset's name. */
+function valuesPreview(values: string[]): string {
+  const shown = values.slice(0, 3).join(", ");
+  return values.length > 3 ? `${shown}, …` : shown;
+}
+
 export function AdminDatasetsPage() {
   const datasets = useLoad(listPlatformDatasets, []);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   /** null = closed; a Dataset = editing it; "new" = creating. */
   const [editing, setEditing] = useState<Dataset | "new" | null>(null);
+  const [confirming, setConfirming] = useState<Confirmation | null>(null);
 
-  const remove = async (dataset: Dataset) => {
-    if (!confirm(`Delete "${dataset.name}"? Elements bound to it fall back to their own sample values.`)) return;
-    setBusy(dataset.id);
-    setError(null);
-    try {
-      await deletePlatformDataset(dataset.id);
-      await datasets.reload();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  };
+  const [query, setQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
+
+  const all = datasets.data ?? [];
+  const visible = useMemo(
+    () => all.filter((d) => (!kindFilter || d.kind === kindFilter) && matches(query, d.name, d.values.join(" "))),
+    [all, query, kindFilter],
+  );
+  const filtered = query.trim() !== "" || kindFilter !== "";
 
   return (
     <div className="page stack">
       <div className="page-head">
         <h1>Datasets</h1>
-        <span className="sub">Default value lists available to every project</span>
         <span className="shell-spacer" />
-        <button className="btn primary" onClick={() => setEditing("new")}>New dataset</button>
+        <button className="btn primary" onClick={() => setEditing("new")}>
+          New dataset
+        </button>
       </div>
 
-      <section className="section">
-        {error && <div className="status-banner warn">{error}</div>}
+      <ListToolbar
+        search={{ value: query, onChange: setQuery, placeholder: "Search by name or value", label: "Search datasets" }}
+        filters={[
+          {
+            label: "Filter by data kind",
+            value: kindFilter,
+            onChange: setKindFilter,
+            options: [{ value: "", label: "All data kinds" }, ...DATA_KINDS.map((k) => ({ value: k, label: k }))],
+          },
+        ]}
+        count={{ visible: visible.length, total: all.length, noun: ["dataset", "datasets"] }}
+      />
 
-        {datasets.loading ? (
-          <div className="empty">Loading…</div>
-        ) : datasets.error ? (
-          <div className="empty error">{datasets.error}</div>
-        ) : (datasets.data ?? []).length === 0 ? (
-          <div className="empty">No default datasets yet. Create one above.</div>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Data kind</th>
-                <th>Values</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {(datasets.data ?? []).map((d) => (
-                <tr key={d.id}>
-                  <td>{d.name}</td>
-                  <td className="muted">{d.kind}</td>
-                  <td className="muted">
-                    {d.values.slice(0, 3).join(", ")}
-                    {d.values.length > 3 ? ` … (${d.values.length})` : ""}
-                  </td>
-                  <td className="actions">
-                    <button className="btn small ghost" disabled={busy === d.id} onClick={() => setEditing(d)}>
-                      Edit
-                    </button>{" "}
-                    <button className="btn small ghost" disabled={busy === d.id} onClick={() => void remove(d)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <ListTable
+        columns={[
+          {
+            header: "Dataset",
+            className: "primary",
+            render: (d) => (
+              <NameCell sub={valuesPreview(d.values)} onOpen={() => setEditing(d)}>
+                {d.name}
+              </NameCell>
+            ),
+          },
+          { header: "Data kind", render: (d) => <span className="badge muted">{d.kind}</span> },
+          { header: "Values", className: "num", render: (d) => d.values.length },
+        ]}
+        rows={visible}
+        rowKey={(d) => d.id}
+        rowLabel={(d) => d.name}
+        actions={(d) => [
+          { label: "Edit", onSelect: () => setEditing(d) },
+          {
+            label: "Delete",
+            danger: true,
+            onSelect: () =>
+              setConfirming({
+                title: "Delete dataset",
+                body: (
+                  <p>
+                    Delete <b>{d.name}</b>? Elements bound to it fall back to their own sample values.
+                  </p>
+                ),
+                run: async () => {
+                  await deletePlatformDataset(d.id);
+                  await datasets.reload();
+                },
+              }),
+          },
+        ]}
+        loading={datasets.loading}
+        error={datasets.error}
+        empty={
+          filtered ? (
+            "No datasets match these filters."
+          ) : (
+            <>
+              <b>No default datasets yet.</b> Create one to offer every project a standard value list.
+            </>
+          )
+        }
+      />
 
       <EditDatasetDrawer
         dataset={editing}
@@ -98,6 +123,8 @@ export function AdminDatasetsPage() {
           void datasets.reload();
         }}
       />
+
+      <ConfirmationDrawer pending={confirming} onClose={() => setConfirming(null)} />
     </div>
   );
 }

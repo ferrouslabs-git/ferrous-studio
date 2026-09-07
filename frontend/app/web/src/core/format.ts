@@ -32,3 +32,16 @@ export function formatBytes(bytes: number): string {
   const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
   return `${rounded} ${units[i]}`;
 }
+
+/** British date, independent of the browser locale: "27 Aug 2026". */
+export function formatDate(iso: string): string {
+  const date = parseUtcDate(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** "1 project", "3 projects", or with `of` "3 of 12 projects". */
+export function countOf(visible: number, total: number, noun: [string, string]): string {
+  const word = total === 1 ? noun[0] : noun[1];
+  return visible === total ? `${total} ${word}` : `${visible} of ${total} ${word}`;
+}

@@ -2,28 +2,36 @@
 // have been invited to an organisation but not yet joined. Mirrors the
 // organisation Users page (features/orgs/OrgPage.tsx) but spans every
 // organisation: filters by organisation rather than role, and the invite
-// form picks which organisation to invite into.
+// form picks which organisation to invite into -- or none, for a super
+// admin, who is a flag on the user rather than a member of anywhere.
 //
 // Every write here is also enforced server-side (platform admin only).
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSession } from "../../app/session";
+import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
+import { ListTable, NameCell } from "../../components/ListTable";
+import { ListToolbar } from "../../components/ListToolbar";
+import { RowMenuItem } from "../../components/RowMenu";
 import { errorMessage } from "../../core/api";
+import { formatDate } from "../../core/format";
 import {
+  archiveUser,
   deletePlatformUser,
   demoteUser,
-  getAuditEvents,
   getPlatformInvitations,
   getPlatformTenants,
   getPlatformUsers,
+  invitePlatformAdmin,
   inviteToTenant,
   PlatformInvitation,
   PlatformTenant,
   PlatformUser,
   promoteUser,
-  resendInvitation,
-  revokeInvitation,
+  resendPlatformInvitation,
+  restoreUser,
+  revokePlatformInvitation,
   suspendUser,
   unsuspendUser,
   updatePlatformUser,
@@ -33,8 +41,14 @@ import { RoleName, useRoles } from "../orgs/roleLabels";
 
 // ── Rows (users + open invitations) ────────────────────────────────────────
 
-/** A person's standing on the platform, whichever list they came from. */
-type UserStatus = "active" | "suspended" | "invited" | "expired";
+/** A person's standing on the platform, whichever list they came from.
+ *  "suspended" is a temporary block on someone who is staying; "archived"
+ *  means they have left. Both refuse sign-in, but only an archived user can
+ *  be deleted, and only archived rows leave the default view. */
+type UserStatus = "active" | "suspended" | "invited" | "expired" | "archived";
+
+/** The status filter: one status, everyone who has not left, or everyone. */
+type StatusFilter = "" | "all" | UserStatus;
 
 /** One organisation a row is connected to, with the role there. */
 interface OrgLink {
@@ -63,7 +77,9 @@ function toRows(users: PlatformUser[], invites: PlatformInvitation[]): UserRow[]
     key: `u:${u.user_id}`,
     email: u.email,
     name: u.name,
-    status: u.is_active ? "active" : "suspended",
+    // Archived wins over suspended: a suspended user who then leaves shows as
+    // archived, and Restore brings them back to suspended.
+    status: u.archived_at ? "archived" : u.is_active ? "active" : "suspended",
     orgs: u.memberships
       .filter((m) => m.tenant_id)
       .map((m) => ({ id: m.tenant_id!, name: m.tenant_name ?? m.tenant_id!, role: m.role, status: m.status })),
@@ -78,10 +94,16 @@ function toRows(users: PlatformUser[], invites: PlatformInvitation[]): UserRow[]
       email: i.email,
       name: i.name,
       status: i.status === "pending" ? "invited" : "expired",
-      orgs: [{ id: i.tenant_id, name: i.tenant_name ?? i.tenant_id, role: i.role, status: "pending" }],
+      // A super admin invitation leads into no organisation.
+      orgs: i.tenant_id ? [{ id: i.tenant_id, name: i.tenant_name ?? i.tenant_id, role: i.role, status: "pending" }] : [],
       invite: i,
     }));
   return [...userRows, ...inviteRows];
+}
+
+/** Super admin, whether already one or invited to become one. */
+function isSuperAdmin(r: UserRow): boolean {
+  return r.kind === "user" ? r.user.is_platform_admin : r.invite.target_scope_type === "platform";
 }
 
 const STATUS_LABEL: Record<UserStatus, string> = {
@@ -89,12 +111,14 @@ const STATUS_LABEL: Record<UserStatus, string> = {
   suspended: "Suspended",
   invited: "Invited",
   expired: "Invite expired",
+  archived: "Archived",
 };
 const STATUS_BADGE: Record<UserStatus, string> = {
   active: "badge good",
   suspended: "badge warn",
   invited: "badge accent",
-  expired: "badge",
+  expired: "badge muted",
+  archived: "badge muted",
 };
 
 // ── Page ───────────────────────────────────────────────────────────────────
@@ -103,18 +127,18 @@ export function AdminUsersPage() {
   const users = useLoad(getPlatformUsers, []);
   const invites = useLoad(getPlatformInvitations, []);
   const tenants = useLoad(getPlatformTenants, []);
-  const audit = useLoad(() => getAuditEvents(30), []);
   const { user: me } = useSession();
   const { byName } = useRoles();
 
-  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<PlatformUser | null>(null);
+  const [confirming, setConfirming] = useState<Confirmation | null>(null);
 
   const [query, setQuery] = useState("");
   const [orgFilter, setOrgFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | UserStatus>("");
+  // Archived users are out of the way by default, as on every other list.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
 
   const rows = useMemo(() => toRows(users.data ?? [], invites.data ?? []), [users.data, invites.data]);
 
@@ -123,12 +147,16 @@ export function AdminUsersPage() {
     return rows.filter((r) => {
       if (orgFilter === "none" && r.orgs.length > 0) return false;
       if (orgFilter && orgFilter !== "none" && !r.orgs.some((o) => o.id === orgFilter)) return false;
-      if (statusFilter && r.status !== statusFilter) return false;
+      if (statusFilter === "") {
+        if (r.status === "archived") return false;
+      } else if (statusFilter !== "all" && r.status !== statusFilter) {
+        return false;
+      }
       if (!q) return true;
       const haystack = [
         r.email,
         r.name ?? "",
-        r.kind === "user" && r.user.is_platform_admin ? "super admin" : "",
+        isSuperAdmin(r) ? "super admin" : "",
         ...r.orgs.flatMap((o) => [o.name, byName[o.role]?.display_name ?? o.role]),
       ]
         .join(" ")
@@ -137,10 +165,9 @@ export function AdminUsersPage() {
     });
   }, [rows, query, orgFilter, statusFilter, byName]);
 
-  const reload = () => Promise.all([users.reload(), invites.reload(), tenants.reload(), audit.reload()]);
+  const reload = () => Promise.all([users.reload(), invites.reload(), tenants.reload()]);
 
-  const act = async (key: string, fn: () => Promise<unknown>) => {
-    setBusy(key);
+  const act = async (fn: () => Promise<unknown>) => {
     setError(null);
     setNotice(null);
     try {
@@ -148,25 +175,108 @@ export function AdminUsersPage() {
       await reload();
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
-      setBusy(null);
     }
+  };
+  // For a confirmation drawer, which reports a failure itself.
+  const confirmed = async (fn: () => Promise<unknown>) => {
+    setNotice(null);
+    await fn();
+    await reload();
   };
 
   const loading = users.loading || invites.loading;
   const loadError = users.error ?? invites.error;
   const filtered = query.trim() !== "" || orgFilter !== "" || statusFilter !== "";
-  const clearFilters = () => {
-    setQuery("");
-    setOrgFilter("");
-    setStatusFilter("");
+
+  const statusDetail = (r: UserRow) =>
+    r.kind === "invite"
+      ? `Expires ${formatDate(r.invite.expires_at)}`
+      : r.user.archived_at
+        ? `Archived ${formatDate(r.user.archived_at)}`
+        : r.user.suspended_at
+          ? `Suspended ${formatDate(r.user.suspended_at)}`
+          : undefined;
+
+  const menuItems = (r: UserRow): RowMenuItem[] => {
+    if (r.kind === "invite") {
+      return [
+        {
+          label: "Resend invitation",
+          onSelect: () => void act(() => resendPlatformInvitation(r.invite.invitation_id)),
+        },
+        {
+          label: "Revoke invitation",
+          danger: true,
+          onSelect: () => void act(() => revokePlatformInvitation(r.invite.invitation_id)),
+        },
+      ];
+    }
+    // An archived user is out of the way: bring them back, or finish the job.
+    // Delete lives only here because the server refuses it (409) on anyone
+    // who has not been archived first.
+    if (r.status === "archived") {
+      return [
+        { label: "Restore", onSelect: () => void act(() => restoreUser(r.user.user_id)) },
+        {
+          label: "Delete",
+          danger: true,
+          onSelect: () =>
+            setConfirming({
+              title: "Delete user",
+              body: (
+                <p>
+                  Permanently delete <b>{r.email}</b>? This removes their sign-in, memberships and account. It cannot
+                  be undone.
+                </p>
+              ),
+              run: () => confirmed(() => deletePlatformUser(r.user.user_id)),
+            }),
+        },
+      ];
+    }
+    const items: RowMenuItem[] = [{ label: "Edit", onSelect: () => setEditing(r.user) }];
+    // Nobody suspends or archives themselves: the account doing it would be gone.
+    if (r.user.user_id === me?.id) return items;
+    if (r.status === "active") {
+      items.push({
+        label: "Suspend",
+        onSelect: () =>
+          setConfirming({
+            title: "Suspend user",
+            confirmLabel: "Suspend",
+            body: (
+              <p>
+                Suspend <b>{r.email}</b>? They are signed out and cannot sign in until unsuspended.
+              </p>
+            ),
+            run: () => confirmed(() => suspendUser(r.user.user_id)),
+          }),
+      });
+    } else {
+      items.push({ label: "Unsuspend", onSelect: () => void act(() => unsuspendUser(r.user.user_id)) });
+    }
+    items.push({
+      label: "Archive",
+      onSelect: () =>
+        setConfirming({
+          title: "Archive user",
+          confirmLabel: "Archive",
+          body: (
+            <p>
+              Archive <b>{r.email}</b>? They are signed out and cannot sign in until restored. Their account and
+              organisation memberships are kept.
+            </p>
+          ),
+          run: () => confirmed(() => archiveUser(r.user.user_id)),
+        }),
+    });
+    return items;
   };
 
   return (
     <div className="page stack">
       <div className="page-head">
         <h1>Users</h1>
-        <span className="sub">{users.data?.length ?? 0} on the platform</span>
         <span className="shell-spacer" />
         <InviteButton
           tenants={tenants.data ?? []}
@@ -178,230 +288,130 @@ export function AdminUsersPage() {
         />
       </div>
 
-      <section className="section">
-        <div className="section-head">
-          <h2>Users</h2>
-          <span className="muted">{filtered ? `${visible.length} of ${rows.length}` : rows.length}</span>
-        </div>
+      <ListToolbar
+        search={{
+          value: query,
+          onChange: setQuery,
+          placeholder: "Search by email, name, organisation or role",
+          label: "Search users",
+        }}
+        filters={[
+          {
+            label: "Filter by organisation",
+            value: orgFilter,
+            onChange: setOrgFilter,
+            options: [
+              { value: "", label: "All organisations" },
+              { value: "none", label: "No organisation" },
+              ...(tenants.data ?? []).map((t) => ({ value: t.tenant_id, label: t.name })),
+            ],
+          },
+          {
+            label: "Filter by status",
+            value: statusFilter,
+            onChange: (v) => setStatusFilter(v as StatusFilter),
+            options: [
+              { value: "", label: "Not archived" },
+              ...(Object.keys(STATUS_LABEL) as UserStatus[]).map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+              { value: "all", label: "All statuses" },
+            ],
+          },
+        ]}
+        count={{ visible: visible.length, total: rows.length, noun: ["user", "users"] }}
+      />
 
-        <div className="toolbar">
-          <input
-            className="input search"
-            type="search"
-            placeholder="Search by email, name, organisation or role"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search users"
-          />
-          <select
-            className="select"
-            value={orgFilter}
-            onChange={(e) => setOrgFilter(e.target.value)}
-            aria-label="Filter by organisation"
-          >
-            <option value="">All organisations</option>
-            <option value="none">No organisation</option>
-            {(tenants.data ?? []).map((t) => (
-              <option key={t.tenant_id} value={t.tenant_id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="select"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "" | UserStatus)}
-            aria-label="Filter by status"
-          >
-            <option value="">All statuses</option>
-            {(Object.keys(STATUS_LABEL) as UserStatus[]).map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
-          {filtered && (
-            <button type="button" className="btn small ghost" onClick={clearFilters}>
-              Clear
-            </button>
-          )}
-        </div>
+      {notice && <div className="status-banner">{notice}</div>}
+      {error && <div className="status-banner warn">{error}</div>}
 
-        {notice && <div className="status-banner">{notice}</div>}
-        {error && <div className="status-banner warn">{error}</div>}
+      <EditUserDrawer
+        user={editing}
+        isSelf={editing !== null && editing.user_id === me?.id}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          void reload();
+        }}
+      />
 
-        <EditUserDrawer
-          user={editing}
-          isSelf={editing !== null && editing.user_id === me?.id}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            void reload();
-          }}
-        />
+      <ListTable
+        columns={[
+          {
+            header: "User",
+            className: "primary",
+            render: (r) => (
+              <NameCell sub={r.name ?? undefined} onOpen={r.kind === "user" ? () => setEditing(r.user) : undefined}>
+                {r.email}
+              </NameCell>
+            ),
+          },
+          {
+            header: "Type",
+            className: "nowrap",
+            render: (r) => (isSuperAdmin(r) ? "Super admin" : <RoleList orgs={r.orgs} />),
+          },
+          {
+            header: "Organisations",
+            className: "nowrap",
+            render: (r) => <OrgList orgs={r.orgs} />,
+          },
+          {
+            header: "Status",
+            render: (r) => (
+              <span className={STATUS_BADGE[r.status]} title={statusDetail(r)}>
+                {STATUS_LABEL[r.status]}
+              </span>
+            ),
+          },
+        ]}
+        rows={visible}
+        rowKey={(r) => r.key}
+        rowLabel={(r) => r.email}
+        actions={menuItems}
+        loading={loading}
+        error={loadError}
+        empty={
+          filtered ? (
+            "No users match these filters."
+          ) : (
+            <>
+              <b>No users yet.</b> Invite someone to an organisation to get started.
+            </>
+          )
+        }
+      />
 
-        {loading ? (
-          <div className="empty">Loading…</div>
-        ) : loadError ? (
-          <div className="empty error">{loadError}</div>
-        ) : visible.length === 0 ? (
-          <div className="empty">{filtered ? "No users match these filters." : "No users yet."}</div>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Name</th>
-                <th>Organisations</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((r) => {
-                const isSelf = r.kind === "user" && r.user.user_id === me?.id;
-                return (
-                  <tr key={r.key}>
-                    <td>
-                      {r.email}{" "}
-                      {r.kind === "user" && r.user.is_platform_admin && <span className="badge accent">super admin</span>}
-                    </td>
-                    <td className="muted">{r.name ?? "—"}</td>
-                    <td className="muted">
-                      {r.orgs.length === 0 ? (
-                        "—"
-                      ) : (
-                        <OrgList orgs={r.orgs} />
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        className={STATUS_BADGE[r.status]}
-                        title={
-                          r.kind === "invite"
-                            ? `Expires ${new Date(r.invite.expires_at).toLocaleDateString()}`
-                            : r.user.suspended_at
-                              ? `Suspended ${new Date(r.user.suspended_at).toLocaleDateString()}`
-                              : undefined
-                        }
-                      >
-                        {STATUS_LABEL[r.status]}
-                      </span>
-                    </td>
-                    <td className="actions">
-                      {r.kind === "user" && (
-                        <>
-                          <button className="btn small ghost" disabled={busy === r.key} onClick={() => setEditing(r.user)}>
-                            Edit
-                          </button>
-                          {!isSelf && (
-                            <>
-                              {" "}
-                              {r.status === "active" ? (
-                                <button
-                                  className="btn small ghost"
-                                  disabled={busy === r.key}
-                                  onClick={() => {
-                                    if (confirm(`Suspend ${r.email}? They will be signed out and unable to sign in until unsuspended.`)) {
-                                      void act(r.key, () => suspendUser(r.user.user_id));
-                                    }
-                                  }}
-                                >
-                                  Suspend
-                                </button>
-                              ) : (
-                                <button
-                                  className="btn small ghost"
-                                  disabled={busy === r.key}
-                                  onClick={() => void act(r.key, () => unsuspendUser(r.user.user_id))}
-                                >
-                                  Unsuspend
-                                </button>
-                              )}{" "}
-                              <button
-                                className="btn small ghost"
-                                disabled={busy === r.key}
-                                onClick={() => {
-                                  if (
-                                    confirm(
-                                      `Permanently delete ${r.email}? This removes their sign-in, memberships and account. It cannot be undone.`,
-                                    )
-                                  ) {
-                                    void act(r.key, () => deletePlatformUser(r.user.user_id));
-                                  }
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </>
-                          )}
-                        </>
-                      )}
-                      {r.kind === "invite" && (
-                        <>
-                          <button
-                            className="btn small ghost"
-                            disabled={busy === r.key}
-                            onClick={() => void act(r.key, () => resendInvitation(r.invite.tenant_id, r.invite.invitation_id))}
-                          >
-                            Resend
-                          </button>{" "}
-                          <button
-                            className="btn small ghost"
-                            disabled={busy === r.key}
-                            onClick={() => void act(r.key, () => revokeInvitation(r.invite.tenant_id, r.invite.invitation_id))}
-                          >
-                            Revoke
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section className="section">
-        <div className="section-head">
-          <h2>Recent audit events</h2>
-        </div>
-        {audit.loading ? (
-          <div className="empty">Loading…</div>
-        ) : audit.error ? (
-          <div className="empty error">{audit.error}</div>
-        ) : (
-          <table className="data-table">
-            <tbody>
-              {audit.data?.map((e) => (
-                <tr key={e.id}>
-                  <td className="muted">{new Date(e.timestamp).toLocaleString()}</td>
-                  <td>{e.action}</td>
-                  <td className="muted">{e.target_type ? `${e.target_type} ${e.target_id ?? ""}` : ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <ConfirmationDrawer pending={confirming} onClose={() => setConfirming(null)} />
     </div>
   );
 }
 
-/** "Acme Ltd (Admin), Beta Co (Member)" with each name linking to the organisation. */
+// The Type and Organisations cells list one line per membership in the same
+// order, so a person in several organisations reads across: role beside the
+// organisation it is held in.
+
+/** Each organisation on its own line, linking to it. */
 function OrgList({ orgs }: { orgs: OrgLink[] }) {
+  if (orgs.length === 0) return <span className="muted">—</span>;
   return (
     <>
       {orgs.map((o, i) => (
-        <span key={`${o.id}:${i}`}>
-          {i > 0 && ", "}
-          <Link to={`/orgs/${o.id}`}>{o.name}</Link>{" "}
-          <span className="muted">
-            (<RoleName name={o.role} />
-            {o.status !== "active" && o.status !== "pending" ? `, ${o.status}` : ""})
-          </span>
+        <span key={`${o.id}:${i}`} className="line">
+          <Link to={`/orgs/${o.id}`}>{o.name}</Link>
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** The role held in each organisation, one per line; a lapsed membership says so. */
+function RoleList({ orgs }: { orgs: OrgLink[] }) {
+  if (orgs.length === 0) return <span className="muted">—</span>;
+  return (
+    <>
+      {orgs.map((o, i) => (
+        <span key={`${o.id}:${i}`} className="line">
+          <RoleName name={o.role} />
+          {o.status !== "active" && o.status !== "pending" && <span className="muted"> ({o.status})</span>}
         </span>
       ))}
     </>
@@ -504,24 +514,33 @@ function EditUserDrawer({
 
 // ── Invite ─────────────────────────────────────────────────────────────────
 
+/** Role select value for a super admin invitation. Not an organisation
+ *  role, so choosing it takes the Organisation field away. */
+const SUPER_ADMIN_ROLE = "super_admin";
+
 function InviteButton({ tenants, onInvited }: { tenants: PlatformTenant[]; onInvited: (notice: string) => void }) {
   const { byLayer } = useRoles();
+  const [role, setRole] = useState("account_member");
   const [orgId, setOrgId] = useState("");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState("account_member");
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
   // Suspended organisations cannot take new members.
   const active = tenants.filter((t) => t.status === "active");
+  const platform = role === SUPER_ADMIN_ROLE;
+  // An organisation role needs somewhere to land; a super admin does not.
+  const ready = email.trim() !== "" && (platform || orgId !== "");
 
   const openDrawer = () => {
+    // With nowhere to invite into, the only invitation that can be sent is
+    // a super admin one, so start there.
+    setRole(active.length === 0 ? SUPER_ADMIN_ROLE : "account_member");
     setOrgId(active[0]?.tenant_id ?? "");
     setEmail("");
     setName("");
-    setRole("account_member");
     setFormError(null);
     setOpen(true);
   };
@@ -531,10 +550,14 @@ function InviteButton({ tenants, onInvited }: { tenants: PlatformTenant[]; onInv
     setSending(true);
     setFormError(null);
     try {
-      const created = await inviteToTenant(orgId, email.trim(), role, name.trim());
-      const orgName = active.find((t) => t.tenant_id === orgId)?.name ?? "the organisation";
+      const created = platform
+        ? await invitePlatformAdmin(email.trim(), name.trim())
+        : await inviteToTenant(orgId, email.trim(), role, name.trim());
+      const where = platform
+        ? "as a super admin"
+        : `to ${active.find((t) => t.tenant_id === orgId)?.name ?? "the organisation"}`;
       setOpen(false);
-      onInvited(created.email_sent ? `Invitation to ${orgName} sent to ${created.email}.` : created.message);
+      onInvited(created.email_sent ? `Invitation ${where} sent to ${created.email}.` : created.message);
     } catch (err) {
       setFormError(errorMessage(err));
     } finally {
@@ -544,13 +567,17 @@ function InviteButton({ tenants, onInvited }: { tenants: PlatformTenant[]; onInv
 
   return (
     <>
-      <button className="btn primary" onClick={openDrawer} disabled={active.length === 0} title={active.length === 0 ? "Create an organisation first" : undefined}>
+      <button className="btn primary" onClick={openDrawer}>
         Invite user
       </button>
       <Drawer
         open={open}
         title="Invite user"
-        description="They will receive an email with a link to join the chosen organisation."
+        description={
+          platform
+            ? "They will receive an email with a link to set up their super admin account."
+            : "They will receive an email with a link to join the chosen organisation."
+        }
         onClose={() => setOpen(false)}
         onSubmit={submit}
         footer={
@@ -558,21 +585,41 @@ function InviteButton({ tenants, onInvited }: { tenants: PlatformTenant[]; onInv
             <button type="button" className="btn ghost" onClick={() => setOpen(false)}>
               Cancel
             </button>
-            <button className="btn primary" disabled={sending || !email.trim() || !orgId}>
+            <button className="btn primary" disabled={sending || !ready}>
               {sending ? "Sending…" : "Send invitation"}
             </button>
           </>
         }
       >
-        <Field label="Organisation" hint="Which organisation they will join.">
-          <select className="select" value={orgId} onChange={(e) => setOrgId(e.target.value)} required>
-            {active.map((t) => (
-              <option key={t.tenant_id} value={t.tenant_id}>
-                {t.name}
-              </option>
-            ))}
+        <Field
+          label="Role"
+          hint="Super admins manage the whole platform; admins manage users and invitations; members create and edit projects; viewers have read-only access."
+        >
+          <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
+            <optgroup label="Platform">
+              <option value={SUPER_ADMIN_ROLE}>Super admin</option>
+            </optgroup>
+            <optgroup label="Organisation">
+              {(byLayer.account ?? []).map((r) => (
+                <option key={r.name} value={r.name}>
+                  {r.display_name}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </Field>
+        {!platform && (
+          <Field label="Organisation" hint="Which organisation they will join.">
+            <select className="select" value={orgId} onChange={(e) => setOrgId(e.target.value)} required>
+              {active.length === 0 && <option value="">No active organisations</option>}
+              {active.map((t) => (
+                <option key={t.tenant_id} value={t.tenant_id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Email address">
           <input
             className="input"
@@ -591,18 +638,6 @@ function InviteButton({ tenants, onInvited }: { tenants: PlatformTenant[]; onInv
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-        </Field>
-        <Field
-          label="Role"
-          hint="Admins manage users and invitations; members create and edit projects; viewers have read-only access."
-        >
-          <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
-            {(byLayer.account ?? []).map((r) => (
-              <option key={r.name} value={r.name}>
-                {r.display_name}
-              </option>
-            ))}
-          </select>
         </Field>
         {formError && <div className="status-banner warn">{formError}</div>}
       </Drawer>

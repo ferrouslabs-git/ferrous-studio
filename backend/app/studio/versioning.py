@@ -149,6 +149,14 @@ async def copy_project(
         version_no=await next_version_no(db, source),
         version_label=label,
         version_key=key,
+        # The repository link travels with the copy: a new version of a project
+        # is still being built into the same repository, and re-picking it every
+        # time would be busywork. Only the ids matter -- the installation is the
+        # organisation's, and both versions read through the same one.
+        repo_id=source.repo_id,
+        repo_full_name=source.repo_full_name,
+        repo_linked_at=source.repo_linked_at,
+        repo_linked_by=source.repo_linked_by,
     )
     db.add(copy)
 

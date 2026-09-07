@@ -1,9 +1,12 @@
 // A project's diagrams. Creating one goes straight into the editor.
-import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { FormEvent, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
+import { ListTable, NameCell } from "../../../components/ListTable";
+import { ListToolbar, matches } from "../../../components/ListToolbar";
 import { errorMessage } from "../../../core/api";
+import { formatDate } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
 import {
@@ -28,6 +31,9 @@ export function DiagramsPage() {
   const [kind, setKind] = useState<DiagramKind>("freeform");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [query, setQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
 
   const base = `/orgs/${orgId}/projects/${project.id}/diagrams`;
 
@@ -59,13 +65,17 @@ export function DiagramsPage() {
     }
   };
 
-  const list = diagrams.data ?? [];
+  const all = diagrams.data ?? [];
+  const visible = useMemo(
+    () => all.filter((d) => (!kindFilter || d.kind === kindFilter) && matches(query, d.name)),
+    [all, query, kindFilter],
+  );
+  const filtered = query.trim() !== "" || kindFilter !== "";
 
   return (
     <div className="page stack">
       <div className="page-head">
         <h1>Diagrams</h1>
-        <span className="sub">{list.length} in this project</span>
         <span className="shell-spacer" />
         {canWrite && (
           <button className="btn primary" onClick={() => openDrawer(null)}>
@@ -74,56 +84,49 @@ export function DiagramsPage() {
         )}
       </div>
 
-      <section className="section">
-        {diagrams.loading ? (
-          <div className="empty">Loading…</div>
-        ) : diagrams.error ? (
-          <div className="empty error">{diagrams.error}</div>
-        ) : list.length === 0 ? (
-          <div className="empty">
-            <b>No diagrams yet.</b> {canWrite ? "Sketch use cases, flows or entities in UML." : "Nothing here yet."}
-          </div>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Kind</th>
-                <th>Updated</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((d) => (
-                <tr key={d.id}>
-                  <td>
-                    <Link to={`${base}/${d.id}`}>{d.name}</Link>
-                  </td>
-                  <td>
-                    <span className="badge accent">{diagramKindLabel(d.kind)}</span>
-                  </td>
-                  <td className="muted">{new Date(d.updated_at).toLocaleString()}</td>
-                  <td className="actions">
-                    <Link to={`${base}/${d.id}`} className="btn small">
-                      Open
-                    </Link>{" "}
-                    {canWrite && (
-                      <>
-                        <button className="btn small ghost" onClick={() => openDrawer(d)}>
-                          Rename
-                        </button>{" "}
-                        <button className="btn small ghost" onClick={() => setDeleting(d)}>
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <ListToolbar
+        search={{ value: query, onChange: setQuery, placeholder: "Search by name", label: "Search diagrams" }}
+        filters={[
+          {
+            label: "Filter by kind",
+            value: kindFilter,
+            onChange: setKindFilter,
+            options: [{ value: "", label: "All kinds" }, ...DIAGRAM_KINDS.map((k) => ({ value: k.value, label: k.label }))],
+          },
+        ]}
+        count={{ visible: visible.length, total: all.length, noun: ["diagram", "diagrams"] }}
+      />
+
+      <ListTable
+        columns={[
+          { header: "Diagram", className: "primary", render: (d) => <NameCell to={`${base}/${d.id}`}>{d.name}</NameCell> },
+          { header: "Kind", render: (d) => <span className="badge accent">{diagramKindLabel(d.kind)}</span> },
+          { header: "Updated", className: "muted when", render: (d) => formatDate(d.updated_at) },
+        ]}
+        rows={visible}
+        rowKey={(d) => d.id}
+        rowLabel={(d) => d.name}
+        actions={(d) => [
+          { label: "Open", onSelect: () => navigate(`${base}/${d.id}`) },
+          ...(canWrite
+            ? [
+                { label: "Rename", onSelect: () => openDrawer(d) },
+                { label: "Delete", danger: true, onSelect: () => setDeleting(d) },
+              ]
+            : []),
+        ]}
+        loading={diagrams.loading}
+        error={diagrams.error}
+        empty={
+          filtered ? (
+            "No diagrams match these filters."
+          ) : (
+            <>
+              <b>No diagrams yet.</b> {canWrite ? "Sketch use cases, flows or entities in UML." : "Nothing here yet."}
+            </>
+          )
+        }
+      />
 
       <Drawer
         open={drawerOpen}

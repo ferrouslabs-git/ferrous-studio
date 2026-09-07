@@ -1,11 +1,10 @@
 // The shape palette. Each tile is draggable onto the canvas (maxGraph's
 // makeDraggable) and clickable to insert at the viewport centre.
-import { Cell, gestureUtils } from "@maxgraph/core";
+import { gestureUtils } from "@maxgraph/core";
 import { useEffect, useRef } from "react";
 import { GraphHandle } from "../graph/createGraph";
 import { FAMILIES, PALETTE, PaletteEntry } from "../graph/umlTypes";
-import { readUml } from "../graph/userObject";
-import { NODE_BY_TYPE } from "../graph/umlTypes";
+import { ShapeGlyph } from "./shapeGlyphs";
 
 export function Palette({ handleRef, disabled }: { handleRef: React.MutableRefObject<GraphHandle | null>; disabled: boolean }) {
   return (
@@ -35,17 +34,6 @@ function Tile({ entry, handleRef, disabled }: { entry: PaletteEntry; handleRef: 
     preview.style.width = `${entry.w}px`;
     preview.style.height = `${entry.h}px`;
 
-    const dropTarget = (graph: Parameters<typeof gestureUtils.makeDraggable>[1] extends infer G ? (G extends Function ? never : G) : never, x: number, y: number): Cell => {
-      const hit = graph.getCellAt(x, y);
-      let cursor: Cell | null = hit;
-      while (cursor) {
-        const t = readUml(cursor).umlType;
-        if (t && NODE_BY_TYPE[t as keyof typeof NODE_BY_TYPE]?.container) return cursor;
-        cursor = cursor.getParent();
-      }
-      return graph.getDefaultParent();
-    };
-
     const source = gestureUtils.makeDraggable(
       el,
       () => handleRef.current!.graph,
@@ -58,7 +46,7 @@ function Tile({ entry, handleRef, disabled }: { entry: PaletteEntry; handleRef: 
       true,
       true,
       true,
-      (graph, x, y) => dropTarget(graph as never, x, y),
+      (_graph, x, y) => handleRef.current!.dropTargetAt(x, y),
     );
     source.setGuidesEnabled(true);
     return () => {
@@ -76,9 +64,7 @@ function Tile({ entry, handleRef, disabled }: { entry: PaletteEntry; handleRef: 
       disabled={disabled}
       onClick={() => handleRef.current?.insertNodeAtCentre(entry.type)}
     >
-      <span className="palette-glyph" aria-hidden="true">
-        {entry.glyph}
-      </span>
+      <ShapeGlyph type={entry.type} glyph={entry.glyph} />
       <span className="palette-label">{entry.label}</span>
     </button>
   );

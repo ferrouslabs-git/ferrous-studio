@@ -1,11 +1,14 @@
 // Super admin: every organisation on the platform. Creating one here is the
 // only way an organisation comes into existence (invite-only onboarding).
 // The super admin does not join it -- they open it and invite its first admin.
-import { FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
+import { FormEvent, useMemo, useState } from "react";
 import { useSession } from "../../app/session";
+import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
+import { ListTable, NameCell } from "../../components/ListTable";
+import { ListToolbar, matches } from "../../components/ListToolbar";
 import { errorMessage } from "../../core/api";
+import { formatDate } from "../../core/format";
 import {
   createTenant,
   deletePlatformTenant,
@@ -19,6 +22,9 @@ import { useLoad } from "../../core/useLoad";
 
 type DrawerMode = { kind: "closed" } | { kind: "create" } | { kind: "edit"; tenant: PlatformTenant };
 
+/** "suspended" -> "Suspended": the list shows the server's word, capitalised. */
+const statusLabel = (status: string) => status.charAt(0).toUpperCase() + status.slice(1);
+
 export function AdminOrgsPage() {
   const tenants = useLoad(getPlatformTenants, []);
   const { refresh } = useSession();
@@ -27,7 +33,18 @@ export function AdminOrgsPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<Confirmation | null>(null);
+
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+
+  const all = tenants.data ?? [];
+  const statuses = useMemo(() => Array.from(new Set(all.map((t) => t.status))).sort(), [all]);
+  const visible = useMemo(
+    () => all.filter((t) => (!statusFilter || t.status === statusFilter) && matches(query, t.name)),
+    [all, query, statusFilter],
+  );
+  const filtered = query.trim() !== "" || statusFilter !== "";
 
   const close = () => setMode({ kind: "closed" });
 
@@ -43,6 +60,9 @@ export function AdminOrgsPage() {
     setMode({ kind: "edit", tenant });
   };
 
+  // The session's own organisation list mirrors this one, so both re-read.
+  const reload = () => Promise.all([tenants.reload(), refresh()]);
+
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -54,7 +74,7 @@ export function AdminOrgsPage() {
         await createTenant(name.trim());
       }
       close();
-      await Promise.all([tenants.reload(), refresh()]);
+      await reload();
     } catch (err) {
       setFormError(errorMessage(err));
     } finally {
@@ -65,16 +85,13 @@ export function AdminOrgsPage() {
   const isEdit = mode.kind === "edit";
   const unchanged = isEdit && name.trim() === mode.tenant.name;
 
-  const act = async (id: string, fn: () => Promise<unknown>) => {
-    setBusy(id);
+  const act = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
       await fn();
-      await Promise.all([tenants.reload(), refresh()]);
+      await reload();
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -82,87 +99,81 @@ export function AdminOrgsPage() {
     <div className="page stack">
       <div className="page-head">
         <h1>Organisations</h1>
-        <span className="sub">{tenants.data?.length ?? 0} on the platform</span>
         <span className="shell-spacer" />
         <button className="btn primary" onClick={openCreate}>
           New organisation
         </button>
       </div>
 
+      <ListToolbar
+        search={{ value: query, onChange: setQuery, placeholder: "Search by name", label: "Search organisations" }}
+        filters={[
+          {
+            label: "Filter by status",
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [{ value: "", label: "All statuses" }, ...statuses.map((s) => ({ value: s, label: statusLabel(s) }))],
+          },
+        ]}
+        count={{ visible: visible.length, total: all.length, noun: ["organisation", "organisations"] }}
+      />
+
       {error && <div className="status-banner warn">{error}</div>}
 
-      <section className="section">
-        {tenants.loading ? (
-          <div className="empty">Loading…</div>
-        ) : tenants.error ? (
-          <div className="empty error">{tenants.error}</div>
-        ) : tenants.data?.length === 0 ? (
-          <div className="empty">
-            <b>No organisations yet.</b> Create the first one to start inviting people.
-          </div>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Status</th>
-                <th>Members</th>
-                <th>Admins</th>
-                <th>Created</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {tenants.data?.map((t) => (
-                <tr key={t.tenant_id}>
-                  <td>
-                    <Link to={`/orgs/${t.tenant_id}`}>{t.name}</Link>
-                  </td>
-                  <td>
-                    <span className={`badge ${t.status === "active" ? "good" : ""}`}>{t.status}</span>
-                  </td>
-                  <td>{t.member_count}</td>
-                  <td>{t.admin_count}</td>
-                  <td className="muted">{new Date(t.created_at).toLocaleDateString()}</td>
-                  <td className="actions">
-                    <button className="btn small ghost" disabled={busy === t.tenant_id} onClick={() => openEdit(t)}>
-                      Edit
-                    </button>{" "}
-                    {t.status === "active" ? (
-                      <button
-                        className="btn small ghost"
-                        disabled={busy === t.tenant_id}
-                        onClick={() => void act(t.tenant_id, () => suspendTenant(t.tenant_id))}
-                      >
-                        Suspend
-                      </button>
-                    ) : (
-                      <button
-                        className="btn small ghost"
-                        disabled={busy === t.tenant_id}
-                        onClick={() => void act(t.tenant_id, () => unsuspendTenant(t.tenant_id))}
-                      >
-                        Unsuspend
-                      </button>
-                    )}{" "}
-                    <button
-                      className="btn small ghost"
-                      disabled={busy === t.tenant_id}
-                      onClick={() => {
-                        if (confirm(`Permanently delete "${t.name}" and everything in it?`)) {
-                          void act(t.tenant_id, () => deletePlatformTenant(t.tenant_id));
-                        }
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <ListTable
+        columns={[
+          {
+            header: "Organisation",
+            className: "primary",
+            render: (t) => <NameCell to={`/orgs/${t.tenant_id}`}>{t.name}</NameCell>,
+          },
+          {
+            header: "Status",
+            render: (t) => <span className={t.status === "active" ? "badge good" : "badge warn"}>{statusLabel(t.status)}</span>,
+          },
+          { header: "Members", className: "num", render: (t) => t.member_count },
+          { header: "Admins", className: "num", render: (t) => t.admin_count },
+          { header: "Created", className: "muted when", render: (t) => formatDate(t.created_at) },
+        ]}
+        rows={visible}
+        rowKey={(t) => t.tenant_id}
+        rowLabel={(t) => t.name}
+        actions={(t) => [
+          { label: "Edit", onSelect: () => openEdit(t) },
+          t.status === "active"
+            ? { label: "Suspend", onSelect: () => void act(() => suspendTenant(t.tenant_id)) }
+            : { label: "Unsuspend", onSelect: () => void act(() => unsuspendTenant(t.tenant_id)) },
+          {
+            label: "Delete",
+            danger: true,
+            onSelect: () =>
+              setConfirming({
+                title: "Delete organisation",
+                body: (
+                  <p>
+                    Permanently delete <b>{t.name}</b> and everything in it? Its members lose access and its projects go
+                    with it. This cannot be undone.
+                  </p>
+                ),
+                run: async () => {
+                  await deletePlatformTenant(t.tenant_id);
+                  await reload();
+                },
+              }),
+          },
+        ]}
+        loading={tenants.loading}
+        error={tenants.error}
+        empty={
+          filtered ? (
+            "No organisations match these filters."
+          ) : (
+            <>
+              <b>No organisations yet.</b> Create the first one to start inviting people.
+            </>
+          )
+        }
+      />
 
       <Drawer
         open={mode.kind !== "closed"}
@@ -196,6 +207,8 @@ export function AdminOrgsPage() {
         </Field>
         {formError && <div className="status-banner warn">{formError}</div>}
       </Drawer>
+
+      <ConfirmationDrawer pending={confirming} onClose={() => setConfirming(null)} />
     </div>
   );
 }

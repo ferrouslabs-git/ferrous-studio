@@ -6,6 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 
 from ..models.user import User
+from ..schemas.invitation import (
+    InvitationCreateRequest,
+    InvitationCreateResponse,
+    InvitationResendResponse,
+    InvitationRevokeResponse,
+    PlatformInviteRequest,
+)
 from ..schemas.user_management import (
     PlatformInvitationResponse,
     PlatformUserResponse,
@@ -14,10 +21,13 @@ from ..schemas.user_management import (
 from ..security import get_current_user
 from ..services.audit_service import log_audit_event
 from ..services.user_service import (
+    UserNotArchivedError,
+    archive_user,
     delete_user,
     demote_from_platform_admin,
     get_user_by_id,
     promote_to_platform_admin,
+    restore_user,
     suspend_user,
     unsuspend_user,
     update_user_profile,
@@ -31,9 +41,20 @@ from ..services.cognito_admin_service import (
     list_users_by_email_async,
     admin_reset_user_password_async,
 )
-from ..services.invitation_service import list_platform_invitations
+from ..services.invitation_service import (
+    PLATFORM_SCOPE,
+    get_any_invitation_by_id,
+    list_platform_invitations,
+)
 from ..services.user_management_service import list_platform_users
-from .route_helpers import build_user_status_response, ensure_not_self_target, ensure_platform_admin
+from .route_helpers import (
+    build_user_status_response,
+    create_invitation_response,
+    ensure_not_self_target,
+    ensure_platform_admin,
+    resend_invitation_response,
+    revoke_invitation_response,
+)
 
 router = APIRouter()
 
@@ -182,6 +203,55 @@ async def get_platform_invitations(
     return await list_platform_invitations(db, status_filter=status_filter)
 
 
+@router.post("/platform/invite", response_model=InvitationCreateResponse)
+async def invite_platform_admin(
+    payload: PlatformInviteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Invite someone as a super admin (platform admin only).
+
+    No organisation is involved: accepting the emailed link sets the platform
+    admin flag on the new account instead of creating a membership. The
+    invitation itself is the same row and email flow as an organisation
+    invitation, so it appears on the Users page and can be resent or revoked
+    like any other.
+    """
+    ensure_platform_admin(current_user, "create super admin")
+    invite = InvitationCreateRequest(email=payload.email, name=payload.name, target_scope_type=PLATFORM_SCOPE)
+    return await create_invitation_response(db, None, invite, current_user)
+
+
+@router.post("/platform/invitations/{invitation_id}/resend", response_model=InvitationResendResponse)
+async def resend_platform_invitation(
+    invitation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resend any invitation by ID (platform admin only). Unlike the
+    organisation route this needs no tenant, so it also serves super admin
+    invitations, which have none."""
+    ensure_platform_admin(current_user, "resend invitations for")
+    invitation = await get_any_invitation_by_id(db, invitation_id)
+    if not invitation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+    return await resend_invitation_response(db, invitation, current_user)
+
+
+@router.delete("/platform/invitations/{invitation_id}", response_model=InvitationRevokeResponse)
+async def revoke_platform_invitation(
+    invitation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke any invitation by ID (platform admin only); see resend above."""
+    ensure_platform_admin(current_user, "revoke invitations for")
+    invitation = await get_any_invitation_by_id(db, invitation_id)
+    if not invitation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+    return await revoke_invitation_response(db, invitation, current_user)
+
+
 @router.patch("/platform/users/{user_id}", response_model=PlatformUserResponse)
 async def update_platform_user(
     user_id: UUID,
@@ -244,6 +314,7 @@ async def get_platform_user_detail(
         is_platform_admin=user.is_platform_admin,
         is_active=user.is_active,
         suspended_at=user.suspended_at,
+        archived_at=user.archived_at,
         created_at=user.created_at,
         updated_at=user.updated_at,
         memberships=memberships,
@@ -384,6 +455,74 @@ async def demote_platform_admin_account(
     )
 
 
+# ── Archive / restore ───────────────────────────────────────────
+#
+# The reversible half of removing a user. Suspend is a temporary block on
+# someone who is staying; archive is for someone who has left. An archived
+# user cannot sign in and leaves the default Users list, but keeps their
+# record, memberships and authorship so Restore is a true undo. Hard delete
+# (below) is only offered once a user is archived.
+
+
+@router.patch("/platform/users/{user_id}/archive")
+async def archive_platform_user(
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Archive a user account (platform admin only)."""
+    ensure_platform_admin(current_user, "archive")
+    ensure_not_self_target(user_id, current_user, "archive")
+
+    try:
+        archived = await archive_user(user_id, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    await log_audit_event(
+        "user_archived",
+        actor_user_id=str(current_user.id),
+        db=db,
+        target_user_id=str(user_id),
+        target_email=archived.email,
+    )
+
+    return build_user_status_response(
+        archived,
+        "User account archived successfully",
+        archived.suspended_at.isoformat() if archived.suspended_at else None,
+    )
+
+
+@router.patch("/platform/users/{user_id}/restore")
+async def restore_platform_user(
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Restore an archived user account (platform admin only)."""
+    ensure_platform_admin(current_user, "restore")
+
+    try:
+        restored = await restore_user(user_id, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    await log_audit_event(
+        "user_restored",
+        actor_user_id=str(current_user.id),
+        db=db,
+        target_user_id=str(user_id),
+        target_email=restored.email,
+    )
+
+    return build_user_status_response(
+        restored,
+        "User account restored successfully",
+        restored.suspended_at.isoformat() if restored.suspended_at else None,
+    )
+
+
 # ── User deletion ───────────────────────────────────────────────
 
 
@@ -395,18 +534,22 @@ async def delete_platform_user(
 ):
     """Permanently delete a user from Cognito and the database (platform admin only).
 
+    Only an archived user can be deleted (409 otherwise): archiving first is
+    the reversible step, and the list only offers Delete on archived rows.
     Removes the user from Cognito, revokes all sessions, deletes memberships,
-    anonymizes invitations, and deletes the local User record. Irreversible.
+    anonymises invitations, and deletes the local User record. Irreversible.
     """
     ensure_platform_admin(current_user, "delete")
-    ensure_not_self_target(user_id, current_user)
+    ensure_not_self_target(user_id, current_user, "delete")
 
     try:
         result = await delete_user(user_id, db)
+    except UserNotArchivedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         detail = str(exc)
         code = status.HTTP_404_NOT_FOUND
-        if "platform admin" in detail or "last owner" in detail or "Cognito" in detail:
+        if "platform admin" in detail or "last admin" in detail or "Cognito" in detail:
             code = status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=detail) from exc
 

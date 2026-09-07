@@ -8,8 +8,13 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useSession } from "../../app/session";
+import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
+import { ListTable, NameCell } from "../../components/ListTable";
+import { ListToolbar } from "../../components/ListToolbar";
+import { RowMenuItem } from "../../components/RowMenu";
 import { errorMessage } from "../../core/api";
+import { formatDate } from "../../core/format";
 import {
   deactivateTenantUser,
   getTenantUsers,
@@ -51,15 +56,7 @@ export function OrgPage() {
   const myRole = org?.role ?? null;
   const canManage = isPlatformAdmin || myRole === "account_admin";
 
-  return (
-    <div className="page stack">
-      <div className="page-head">
-        <h1>Users</h1>
-      </div>
-
-      <UsersSection orgId={orgId} currentUserId={user?.id ?? ""} canManage={canManage} />
-    </div>
-  );
+  return <UsersSection orgId={orgId} currentUserId={user?.id ?? ""} canManage={canManage} />;
 }
 
 // ── Users (members + open invitations) ─────────────────────────────────────
@@ -107,9 +104,9 @@ const STATUS_LABEL: Record<UserStatus, string> = {
 };
 const STATUS_BADGE: Record<UserStatus, string> = {
   active: "badge good",
-  archived: "badge",
+  archived: "badge muted",
   invited: "badge accent",
-  expired: "badge",
+  expired: "badge muted",
 };
 
 function UsersSection({
@@ -125,10 +122,10 @@ function UsersSection({
   const invites = useLoad(() => listTenantInvitations(orgId), [orgId]);
   const { byName } = useRoles();
 
-  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<TenantUser | null>(null);
+  const [confirming, setConfirming] = useState<Confirmation | null>(null);
 
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
@@ -150,33 +147,65 @@ function UsersSection({
 
   const reload = () => Promise.all([members.reload(), invites.reload()]);
 
-  const act = async (key: string, fn: () => Promise<unknown>) => {
-    setBusy(key);
+  const act = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
       await fn();
       await reload();
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
-      setBusy(null);
     }
+  };
+  // For a confirmation drawer, which reports a failure itself.
+  const confirmed = async (fn: () => Promise<unknown>) => {
+    await fn();
+    await reload();
   };
 
   const loading = members.loading || invites.loading;
   const loadError = members.error ?? invites.error;
   const filtered = query.trim() !== "" || roleFilter !== "" || statusFilter !== "";
-  const clearFilters = () => {
-    setQuery("");
-    setRoleFilter("");
-    setStatusFilter("");
+
+  const menuItems = (r: UserRow): RowMenuItem[] | null => {
+    if (!canManage) return null;
+    if (r.kind === "invite") {
+      return [
+        { label: "Resend invitation", onSelect: () => void act(() => resendInvitation(orgId, r.invite.invitation_id)) },
+        {
+          label: "Revoke invitation",
+          danger: true,
+          onSelect: () => void act(() => revokeInvitation(orgId, r.invite.invitation_id)),
+        },
+      ];
+    }
+    if (r.status === "archived") {
+      return [{ label: "Restore", onSelect: () => void act(() => reactivateTenantUser(orgId, r.member.user_id)) }];
+    }
+    const items: RowMenuItem[] = [{ label: "Edit", onSelect: () => setEditing(r.member) }];
+    // Nobody archives themselves: the admin doing it would lose access mid-click.
+    if (r.member.user_id !== currentUserId) {
+      items.push({
+        label: "Archive",
+        onSelect: () =>
+          setConfirming({
+            title: "Archive user",
+            confirmLabel: "Archive",
+            body: (
+              <p>
+                Archive <b>{r.email}</b>? They lose access to this organisation until restored.
+              </p>
+            ),
+            run: () => confirmed(() => deactivateTenantUser(orgId, r.member.user_id)),
+          }),
+      });
+    }
+    return items;
   };
 
   return (
-    <section className="section">
-      <div className="section-head">
-        <h2>Users</h2>
-        <span className="muted">{filtered ? `${visible.length} of ${rows.length}` : rows.length}</span>
+    <div className="page stack">
+      <div className="page-head">
+        <h1>Users</h1>
         <span className="shell-spacer" />
         {canManage && (
           <InviteButton
@@ -189,47 +218,30 @@ function UsersSection({
         )}
       </div>
 
-      <div className="toolbar">
-        <input
-          className="input search"
-          type="search"
-          placeholder="Search by email, name or role"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search users"
-        />
-        <select
-          className="select"
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value)}
-          aria-label="Filter by role"
-        >
-          <option value="">All roles</option>
-          {roles.map((r) => (
-            <option key={r} value={r}>
-              {byName[r]?.display_name ?? r.replace(/_/g, " ")}
-            </option>
-          ))}
-        </select>
-        <select
-          className="select"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as "" | UserStatus)}
-          aria-label="Filter by status"
-        >
-          <option value="">All statuses</option>
-          {(Object.keys(STATUS_LABEL) as UserStatus[]).map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABEL[s]}
-            </option>
-          ))}
-        </select>
-        {filtered && (
-          <button type="button" className="btn small ghost" onClick={clearFilters}>
-            Clear
-          </button>
-        )}
-      </div>
+      <ListToolbar
+        search={{ value: query, onChange: setQuery, placeholder: "Search by email, name or role", label: "Search users" }}
+        filters={[
+          {
+            label: "Filter by role",
+            value: roleFilter,
+            onChange: setRoleFilter,
+            options: [
+              { value: "", label: "All roles" },
+              ...roles.map((r) => ({ value: r, label: byName[r]?.display_name ?? r.replace(/_/g, " ") })),
+            ],
+          },
+          {
+            label: "Filter by status",
+            value: statusFilter,
+            onChange: (v) => setStatusFilter(v as "" | UserStatus),
+            options: [
+              { value: "", label: "All statuses" },
+              ...(Object.keys(STATUS_LABEL) as UserStatus[]).map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+            ],
+          },
+        ]}
+        count={{ visible: visible.length, total: rows.length, noun: ["user", "users"] }}
+      />
 
       {notice && <div className="status-banner">{notice}</div>}
       {error && <div className="status-banner warn">{error}</div>}
@@ -245,97 +257,52 @@ function UsersSection({
         }}
       />
 
-      {loading ? (
-        <div className="empty">Loading…</div>
-      ) : loadError ? (
-        <div className="empty error">{loadError}</div>
-      ) : visible.length === 0 ? (
-        <div className="empty">{filtered ? "No users match these filters." : "No users yet."}</div>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Name</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((r) => {
-              const isSelf = r.kind === "member" && r.member.user_id === currentUserId;
-              return (
-                <tr key={r.key}>
-                  <td>{r.email}</td>
-                  <td className="muted">{r.name ?? "—"}</td>
-                  <td>
-                    <RoleName name={r.role} />
-                  </td>
-                  <td>
-                    <span
-                      className={STATUS_BADGE[r.status]}
-                      title={r.kind === "invite" ? `Expires ${new Date(r.invite.expires_at).toLocaleDateString()}` : undefined}
-                    >
-                      {STATUS_LABEL[r.status]}
-                    </span>
-                  </td>
-                  <td className="actions">
-                    {canManage && r.kind === "member" && r.status === "active" && (
-                      <>
-                        <button className="btn small ghost" disabled={busy === r.key} onClick={() => setEditing(r.member)}>
-                          Edit
-                        </button>{" "}
-                      </>
-                    )}
-                    {canManage && r.kind === "member" && !isSelf && r.status === "active" && (
-                      <button
-                        className="btn small ghost"
-                        disabled={busy === r.key}
-                        onClick={() => {
-                          if (confirm(`Archive ${r.email}? They will lose access to this organisation until restored.`)) {
-                            void act(r.key, () => deactivateTenantUser(orgId, r.member.user_id));
-                          }
-                        }}
-                      >
-                        Archive
-                      </button>
-                    )}
-                    {canManage && r.kind === "member" && r.status === "archived" && (
-                      <button
-                        className="btn small ghost"
-                        disabled={busy === r.key}
-                        onClick={() => void act(r.key, () => reactivateTenantUser(orgId, r.member.user_id))}
-                      >
-                        Restore
-                      </button>
-                    )}
-                    {canManage && r.kind === "invite" && (
-                      <>
-                        <button
-                          className="btn small ghost"
-                          disabled={busy === r.key}
-                          onClick={() => void act(r.key, () => resendInvitation(orgId, r.invite.invitation_id))}
-                        >
-                          Resend
-                        </button>{" "}
-                        <button
-                          className="btn small ghost"
-                          disabled={busy === r.key}
-                          onClick={() => void act(r.key, () => revokeInvitation(orgId, r.invite.invitation_id))}
-                        >
-                          Revoke
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </section>
+      <ListTable
+        columns={[
+          {
+            header: "User",
+            className: "primary",
+            render: (r) => (
+              <NameCell
+                sub={r.name ?? undefined}
+                onOpen={canManage && r.kind === "member" && r.status === "active" ? () => setEditing(r.member) : undefined}
+              >
+                {r.email}
+              </NameCell>
+            ),
+          },
+          { header: "Role", className: "nowrap", render: (r) => <RoleName name={r.role} /> },
+          {
+            header: "Status",
+            render: (r) => (
+              <span
+                className={STATUS_BADGE[r.status]}
+                title={r.kind === "invite" ? `Expires ${formatDate(r.invite.expires_at)}` : undefined}
+              >
+                {STATUS_LABEL[r.status]}
+              </span>
+            ),
+          },
+        ]}
+        rows={visible}
+        rowKey={(r) => r.key}
+        rowLabel={(r) => r.email}
+        actions={menuItems}
+        loading={loading}
+        error={loadError}
+        empty={
+          filtered ? (
+            "No users match these filters."
+          ) : (
+            <>
+              <b>No users yet.</b> {canManage ? "Invite the first one." : "Nothing here yet."}
+            </>
+          )
+        }
+      />
+
+      <ConfirmationDrawer pending={confirming} onClose={() => setConfirming(null)} />
+    </div>
   );
 }
 
@@ -482,7 +449,7 @@ function InviteButton({ orgId, onInvited }: { orgId: string; onInvited: (notice:
 
   return (
     <>
-      <button className="btn small primary" onClick={openDrawer}>
+      <button className="btn primary" onClick={openDrawer}>
         Invite user
       </button>
       <Drawer

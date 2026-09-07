@@ -53,3 +53,33 @@ export function ConfirmDrawer({ open, title, children, confirmLabel = "Delete", 
     </Drawer>
   );
 }
+
+/**
+ * A confirmation a page has queued from a row menu: what it is for, what it
+ * says, and what to run once agreed. A page holds one of these in state and
+ * renders a single <ConfirmationDrawer> for all of its destructive actions,
+ * rather than a drawer and a flag per action.
+ */
+export interface Confirmation {
+  title: string;
+  body: ReactNode;
+  /** Defaults to "Delete"; reversible actions name themselves ("Suspend"). */
+  confirmLabel?: string;
+  run: () => Promise<unknown>;
+}
+
+export function ConfirmationDrawer({ pending, onClose }: { pending: Confirmation | null; onClose: () => void }) {
+  return (
+    <ConfirmDrawer
+      open={pending !== null}
+      title={pending?.title ?? ""}
+      confirmLabel={pending?.confirmLabel}
+      onClose={onClose}
+      onConfirm={async () => {
+        if (pending) await pending.run();
+      }}
+    >
+      {pending?.body}
+    </ConfirmDrawer>
+  );
+}

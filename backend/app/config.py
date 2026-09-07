@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -30,11 +32,56 @@ class Settings:
     documents_max_bytes: int
     presign_ttl_seconds: int
 
+    # ── GitHub App (linking a project to its repository) ──────────────────
+    # A GitHub *App*, not an OAuth App: an installation grants access to the
+    # repositories the organisation picks, and the only thing worth storing is
+    # the installation id -- which is not a secret. Access tokens are minted on
+    # demand from the private key and expire in an hour, so nothing long-lived
+    # is ever written to our database. Empty app id or key = the Repository
+    # section reports "not configured" rather than 500, the same way documents
+    # do without a bucket.
+    github_app_id: str
+    #: The App's URL slug, used to build https://github.com/apps/<slug>/installations/new.
+    github_app_slug: str
+    #: PEM private key. Accepts a real multi-line PEM or a base64 blob of one,
+    #: because most secret stores and CI environments cannot carry newlines.
+    github_app_private_key: str
+    #: The App's OAuth credentials, used only during installation. GitHub is
+    #: asked to authorise the *user* as well as install the App, so the callback
+    #: can prove the person who finished the flow genuinely has the installation
+    #: they claim -- without this, a replayed installation id would hand an
+    #: organisation read access to somebody else's repositories. The user token
+    #: that exchange returns is checked once and thrown away, never stored.
+    github_client_id: str
+    github_client_secret: str
+    #: Overridable for GitHub Enterprise Server.
+    github_api_base: str
+
 
 
 def _int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     return int(raw) if raw else default
+
+
+def _pem(name: str) -> str:
+    """A PEM private key from the environment, however it survived transport.
+
+    Secret stores, ECS task definitions and .env files all mangle newlines
+    differently, so three shapes are accepted: a real multi-line PEM, one with
+    literal backslash-n escapes, and a base64 blob of either. Anything that
+    does not end up looking like a PEM is returned as-is and fails loudly at
+    signing time rather than being silently treated as absent.
+    """
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return ""
+    if "-----BEGIN" not in raw:
+        try:
+            raw = base64.b64decode(raw, validate=True).decode("utf-8").strip()
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            return raw
+    return raw.replace("\\n", "\n")
 
 
 @lru_cache(maxsize=1)
@@ -52,4 +99,10 @@ def get_settings() -> Settings:
         documents_bucket=os.getenv("DOCUMENTS_BUCKET", "").strip(),
         documents_max_bytes=_int("DOCUMENTS_MAX_BYTES", 25 * 1024 * 1024),
         presign_ttl_seconds=_int("PRESIGN_TTL_SECONDS", 900),
+        github_app_id=os.getenv("GITHUB_APP_ID", "").strip(),
+        github_app_slug=os.getenv("GITHUB_APP_SLUG", "").strip(),
+        github_app_private_key=_pem("GITHUB_APP_PRIVATE_KEY"),
+        github_client_id=os.getenv("GITHUB_CLIENT_ID", "").strip(),
+        github_client_secret=os.getenv("GITHUB_CLIENT_SECRET", "").strip(),
+        github_api_base=os.getenv("GITHUB_API_BASE", "https://api.github.com").strip().rstrip("/"),
     )

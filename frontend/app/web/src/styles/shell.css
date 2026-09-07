@@ -32,6 +32,8 @@
 
 .sidebar-scope { display: flex; align-items: flex-end; gap: 6px; padding: 2px 4px 4px; }
 .sidebar-scope .sidebar-field { flex: 1; min-width: 0; }
+/* Project scope stacks: the version sits under the name it belongs to. */
+.sidebar-scope.stacked { flex-direction: column; align-items: stretch; gap: 8px; }
 .sidebar-scope-edit { flex: 0 0 auto; padding-bottom: 2px; }
 .sidebar-field { display: flex; flex-direction: column; gap: 3px; }
 .sidebar-field-name { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-mute); font-weight: 600; }
@@ -153,7 +155,6 @@
 .page.narrow { max-width: 640px; }
 .page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .page-head h1 { margin: 0; font-size: 20px; font-weight: 600; }
-.page-head .sub { color: var(--text-dim); font-size: 12px; }
 
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .row { display: flex; align-items: center; gap: 8px; }
@@ -176,26 +177,68 @@
 .card h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
 .card p { margin: 0; color: var(--text-dim); font-size: 12px; }
 .card .meta { margin-top: 10px; display: flex; gap: 6px; align-items: center; }
-/* Project cards: description fills the card, then a footer with the date on
-   the left and actions on the right; actions wrap rather than squash. */
-.card.project { display: flex; flex-direction: column; }
-.card.project p { flex: 1; line-height: 1.5; }
-.card.project .card-foot {
-  margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border);
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+/* ── Lists ─────────────────────────────────────────────────────────────── */
+/* One table for every list (components/ListTable.tsx): a name that opens the
+   row, a quieter line beneath it, badges, a date, and a "⋯" menu. The projects
+   list draws its own rows on these classes, since each project groups its
+   versions beneath it. */
+.list-toolbar .list-count {
+  margin-left: auto; white-space: nowrap; font-size: 11px; color: var(--text-mute);
 }
-.card.project .card-foot .when { white-space: nowrap; font-size: 11px; }
-.card.project .card-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
-
-/* Versions of one project, revealed from its card. Every version is a project
-   row of its own, so each entry is an ordinary link to that project. */
-.version-list { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 4px 0 10px; }
-.version-row {
-  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px;
-  border-radius: 6px; color: inherit; text-decoration: none; font-size: 12px;
+.list-table th.expand, .list-table td.expand { width: 26px; padding-right: 0; }
+.row-toggle {
+  width: 20px; height: 20px; padding: 0; line-height: 1; font-size: 10px; cursor: pointer;
+  border: 0; border-radius: 4px; background: transparent; color: var(--text-dim);
 }
-.version-row:hover { background: var(--accent-soft); }
-.version-row .when { margin-left: auto; white-space: nowrap; font-size: 11px; }
+.row-toggle:hover { background: var(--mute-soft); color: var(--text); }
+/* The name is a link, a button where opening has to do work first, or plain
+   text where there is nowhere to open; all three read as one thing. Outranks
+   brand.css's underline on table links, since a whole column of underlined
+   names reads as noise -- these lean on weight and hover colour instead. */
+.data-table.list-table .name {
+  border-bottom: 0; font: inherit; font-weight: 600; color: var(--text);
+  text-align: left; text-transform: none; letter-spacing: normal;
+}
+.data-table.list-table a.name:hover, .data-table.list-table button.name:hover { color: var(--orange-ink); }
+/* The primary column takes the slack -- 100% under auto layout means "whatever
+   the other columns leave". Without it the actions column absorbs the space
+   and the names wrap instead. A fixed width here would overflow the table. */
+.list-table td.primary { width: 100%; min-width: 150px; }
+.list-table .sub { display: block; margin-top: 3px; font-size: 11px; color: var(--text-dim); }
+/* One entry per line in a cell that lists several things (organisations, roles). */
+.list-table .line { display: block; }
+.list-table .line + .line { margin-top: 3px; }
+.list-table td.muted { color: var(--text-dim); }
+.list-table td.num, .list-table th.num { text-align: right; }
+.list-table th { white-space: nowrap; }
+.list-table td.nowrap { white-space: nowrap; }
+/* A tag riding on a name ("Super admin") sits beside it, not against it. */
+.list-table .name .badge { margin-left: 8px; vertical-align: middle; }
+/* Prose columns keep a readable measure instead of yielding it all to the name. */
+.list-table td.wide { min-width: 260px; }
+.list-table td .badge { white-space: nowrap; }
+.list-table .badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.list-table td.when { white-space: nowrap; }
+.list-table td.actions { width: 1%; }
+.list-table tbody > tr:hover > td { background: var(--mute-soft); }
+/* Grouped rows (the projects list): one project's rows stay visually joined,
+   so only the last row of a group draws the divider before the next project. */
+.list-table tbody.lineage > tr > td { border-bottom: 0; }
+.list-table tbody.lineage > tr:last-child > td { border-bottom: 1px solid var(--border); }
+.list-table tbody.lineage:last-child > tr:last-child > td { border-bottom: 0; }
+.list-table tbody.expanded > tr:first-child > td { padding-bottom: 4px; }
+.list-table tr.version-row > td { padding-top: 5px; padding-bottom: 5px; font-size: 11px; }
+/* A spine down the versions, so a row reads as belonging to the project above
+   it rather than as another project. */
+.list-table tr.version-row td.sub-name { padding-left: 30px; position: relative; }
+.list-table tr.version-row td.sub-name::before {
+  content: ""; position: absolute; left: 17px; top: 0; bottom: 0; width: 1px; background: var(--border);
+}
+.list-table tbody.lineage > tr.version-row:last-child td.sub-name::before { bottom: 50%; }
+.data-table.list-table tr.version-row .name { font-weight: 500; color: var(--text-dim); }
+/* A few lines of a longer list (a persona's jobs), then how many more. */
+.list-table .preview { display: flex; flex-direction: column; gap: 2px; max-width: 320px; color: var(--text-dim); }
+.list-table .preview-more { font-size: 11px; color: var(--text-mute); }
 
 .section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 .section-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
@@ -290,11 +333,6 @@
 .snapshot-name .muted { font-size: 11px; }
 .snapshot-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
-.card-grid.personas { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
-.persona-list { margin-top: 10px; }
-.persona-list-title { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-mute); font-weight: 600; margin-bottom: 3px; }
-.persona-list ul { margin: 0; padding-left: 16px; font-size: 12px; color: var(--text-dim); }
-.persona-list li { margin: 1px 0; }
 
 /* ── Combo box (input + themed suggestion menu) ─────────────────────────── */
 .combo { position: relative; width: 100%; }
@@ -361,10 +399,30 @@
 .usecase-actor circle { fill: currentColor; fill-opacity: .25; }
 .usecase-actor .usecase-actor-hit { fill: transparent; stroke: none; }
 .usecase-actor text { fill: var(--text); font-size: 11px; font-weight: 600; }
-.usecase-cell-name { font-weight: 600; white-space: nowrap; }
-.usecase-cell-desc { color: var(--text-dim); font-size: 12px; white-space: pre-wrap; max-width: 420px; }
-.usecase-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-.usecase-cell-actions { text-align: right; white-space: nowrap; }
-.usecase-cell-actions .btn + .btn { margin-left: 2px; }
 .usecase-checklist { display: flex; flex-direction: column; gap: 6px; }
 .usecase-check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+
+/* ── Linked GitHub repository (project details) ─────────────────────────── */
+/* The section reuses .details-grid for the repository itself; these cover the
+   states around it -- not connected, the connection footer, and the picker. */
+.repo-connect { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.repo-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
+.repo-footer .btn { height: 26px; padding: 0 10px; font-size: 12px; }
+.repo-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+.repo-link:hover { text-decoration: underline; }
+.details-value .badge { margin-left: 6px; vertical-align: middle; }
+/* Monospace so a sha stays scannable next to the message it belongs to. */
+.repo-sha { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--text-mute); }
+
+/* The picker list is bounded and scrolls: an installation may grant hundreds
+   of repositories, and the drawer's other fields must stay reachable. */
+.repo-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; scrollbar-gutter: stable; }
+.repo-option {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; width: 100%;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: transparent; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.repo-option:hover { border-color: var(--border-strong); }
+.repo-option.selected { border-color: var(--accent); background: var(--accent-soft); }
+.repo-option-name { font-weight: 600; }
+.repo-option .muted { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }

@@ -118,6 +118,27 @@ async def allow_cross_account(db: AsyncSession) -> None:
         await db.execute(text("SELECT set_config('app.is_super_admin', 'true', true)"))
 
 
+async def adopt_account_scope(db: AsyncSession, account_id: UUID) -> None:
+    """Run this transaction as one organisation, with no scope headers.
+
+    Only the OAuth-style callback needs this. It arrives as a top-level browser
+    navigation, so it carries neither a bearer token nor X-Scope-ID, and the
+    scope dependencies that normally set these variables never run -- leaving
+    the studio tables reading as empty and refusing every insert.
+
+    The organisation therefore comes from the signed ``state`` the callback
+    carries, which is why that signature is checked *before* this is called.
+    Transaction-local, like ``allow_cross_account``.
+    """
+    if db.bind and db.bind.dialect.name == "postgresql":
+        await db.execute(text("SELECT set_config('app.current_scope_type', 'account', true)"))
+        await db.execute(text("SELECT set_config('app.current_scope_id', :sid, true)"), {"sid": str(account_id)})
+        await db.execute(text("SELECT set_config('app.is_super_admin', 'false', true)"))
+        # Backward compat: older policies read these names (see _set_rls_vars).
+        await db.execute(text("SELECT set_config('app.current_tenant_id', :tid, true)"), {"tid": str(account_id)})
+        await db.execute(text("SELECT set_config('app.is_platform_admin', 'false', true)"))
+
+
 async def next_pos(db: AsyncSession, model: Any, *filters: Any) -> str:
     """An ordering key after the last row matching ``filters``."""
     last = (await db.execute(select(func.max(model.pos)).where(*filters))).scalar_one_or_none()

@@ -86,6 +86,22 @@ class Project(Base):
     # Idempotency key of the request that created this version: a retry finds
     # the version it already made rather than forking a second one.
     version_key = Column(String(64), nullable=True)
+    # -- Linked GitHub repository --
+    # Which repository this project's design is being built into. The numeric
+    # ``repo_id`` is the durable identity: GitHub lets a repository be renamed
+    # or moved between owners, and only the id survives that, so the link
+    # follows a rename instead of quietly pointing at nothing. ``repo_full_name``
+    # is cached alongside it so the page can render a link without a round trip
+    # to GitHub on every load, and is refreshed from GitHub when it drifts.
+    #
+    # Deliberately no branch. Branches are GitHub's to manage and they move
+    # faster than anything we could keep in step with; a branch recorded here
+    # would be a second, staler source of truth. Whatever reads or writes this
+    # repository later resolves the branch live.
+    repo_id = Column(BigInteger, nullable=True)
+    repo_full_name = Column(String(255), nullable=True)
+    repo_linked_at = Column(DateTime, nullable=True)
+    repo_linked_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
@@ -93,6 +109,42 @@ class Project(Base):
         Index("ix_projects_account_status", "account_id", "status"),
         Index("ix_projects_account_lineage", "account_id", "lineage_id", "version_no"),
     )
+
+
+class GitHubInstallation(Base):
+    """An organisation's GitHub App installation. One row per organisation.
+
+    Deliberately holds no secret. ``installation_id`` is a public identifier --
+    on its own it grants nothing, because every token is minted from the App's
+    private key, which lives in the environment and never in this table (see
+    ``github_client``). So this row can be read, dumped or backed up without
+    exposing anyone's code.
+
+    Not project-owned: the connection is made once for the organisation and
+    every project in it links to a repository through the same installation.
+    That is also why versioning does not copy it -- a version is a copy of a
+    project, and the installation is not part of one.
+
+    The cached ``account_login`` and ``account_type`` describe the GitHub
+    account the App was installed on. They are convenience only: GitHub remains
+    the authority, and a stale copy costs a wrong label, never wrong access.
+    """
+
+    __tablename__ = "github_installations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # Unique: connecting again replaces the existing row rather than leaving an
+    # organisation with two installations and no rule for which one wins.
+    account_id = Column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    installation_id = Column(BigInteger, nullable=False)
+    account_login = Column(String(255), nullable=True)
+    account_type = Column(String(32), nullable=True)  # "Organization" or "User"
+    repository_selection = Column(String(16), nullable=True)  # "all" or "selected"
+    connected_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
 
 # ── Personas ────────────────────────────────────────────────────────────────

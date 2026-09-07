@@ -3,6 +3,7 @@ import { FormEvent, useState } from "react";
 import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
 import { updateProject } from "../projects/projectsApi";
+import { RepositorySection } from "./RepositorySection";
 import { useProject } from "./ProjectLayout";
 
 export function ProjectDetailsPage() {
@@ -84,6 +85,8 @@ export function ProjectDetailsPage() {
           </DetailRow>
         </div>
       </section>
+
+      <RepositorySection />
 
       <Drawer
         open={open}
