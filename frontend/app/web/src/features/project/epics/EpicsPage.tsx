@@ -12,12 +12,18 @@ import { errorMessage } from "../../../core/api";
 import { useLoad } from "../../../core/useLoad";
 import { Release, listReleases } from "../roadmap/releasesApi";
 import { useProject } from "../ProjectLayout";
-import { createEpic, deleteEpic, Epic, EPIC_PHASES, EpicInput, EpicPhase, getBoardSummary, listEpics, updateEpic } from "./epicsApi";
+import { createEpic, deleteEpic, Epic, EPIC_STATUSES, EpicInput, EpicStatus, getBoardSummary, listEpics, updateEpic } from "./epicsApi";
 import { createFeature, deleteFeature, Feature, listFeatures } from "./featuresApi";
 
-const EMPTY: EpicInput = { title: "", summary: "", phase: "Later", release_id: null };
+const EMPTY: EpicInput = { title: "", summary: "", release_id: null };
 
-const PHASE_BADGE: Record<EpicPhase, string> = { Now: "accent", Next: "good", Later: "muted" };
+const STATUS_BADGE: Record<EpicStatus, string> = {
+  Readiness: "muted",
+  Implementation: "accent",
+  ReleasedToUAT: "warn",
+  HumanValidation: "warn",
+  Done: "good",
+};
 
 export function EpicsPage() {
   const { project, canWrite } = useProject();
@@ -27,10 +33,11 @@ export function EpicsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [deleting, setDeleting] = useState<Epic | null>(null);
   const [form, setForm] = useState<EpicInput>(EMPTY);
+  const [status, setStatus] = useState<EpicStatus>("Readiness");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [phaseFilter, setPhaseFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
 
   // Features for the epic currently open in the drawer.
   const features = useLoad(() => (editing ? listFeatures(project.id, editing.id) : Promise.resolve([])), [editing?.id]);
@@ -42,7 +49,8 @@ export function EpicsPage() {
 
   const openDrawer = (e: Epic | null) => {
     setEditing(e);
-    setForm(e ? { title: e.title, summary: e.summary, phase: e.phase, release_id: e.release_id } : EMPTY);
+    setForm(e ? { title: e.title, summary: e.summary, release_id: e.release_id } : EMPTY);
+    setStatus(e?.status ?? "Readiness");
     setNewFeatureTitle("");
     setFormError(null);
     setDrawerOpen(true);
@@ -52,10 +60,15 @@ export function EpicsPage() {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
-    const body = { title: form.title.trim(), summary: form.summary?.trim() || "", phase: form.phase, release_id: form.release_id };
+    const body = { title: form.title.trim(), summary: form.summary?.trim() || "", release_id: form.release_id };
     try {
-      if (editing) await updateEpic(project.id, editing.id, { ...body, clear_release: body.release_id === null });
-      else await createEpic(project.id, body);
+      if (editing) {
+        await updateEpic(project.id, editing.id, {
+          ...body,
+          status: status !== editing.status ? status : undefined,
+          clear_release: body.release_id === null,
+        });
+      } else await createEpic(project.id, body);
       setDrawerOpen(false);
       await summary.reload();
     } catch (err) {
@@ -88,11 +101,11 @@ export function EpicsPage() {
   const visible = useMemo(
     () =>
       rows.filter(
-        ({ epic }) => (!phaseFilter || epic.phase === phaseFilter) && matches(query, epic.human_id, epic.title, epic.summary),
+        ({ epic }) => (!statusFilter || epic.status === statusFilter) && matches(query, epic.human_id, epic.title, epic.summary),
       ),
-    [rows, query, phaseFilter],
+    [rows, query, statusFilter],
   );
-  const filtered = query.trim() !== "" || phaseFilter !== "";
+  const filtered = query.trim() !== "" || statusFilter !== "";
 
   return (
     <div className="page stack">
@@ -110,10 +123,10 @@ export function EpicsPage() {
         search={{ value: query, onChange: setQuery, placeholder: "Search epics", label: "Search epics" }}
         filters={[
           {
-            label: "Filter by phase",
-            value: phaseFilter,
-            onChange: setPhaseFilter,
-            options: [{ value: "", label: "All phases" }, ...EPIC_PHASES.map((p) => ({ value: p, label: p }))],
+            label: "Filter by status",
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [{ value: "", label: "All statuses" }, ...EPIC_STATUSES.map((s) => ({ value: s, label: s }))],
           },
         ]}
         count={{ visible: visible.length, total: rows.length, noun: ["epic", "epics"] }}
@@ -130,7 +143,7 @@ export function EpicsPage() {
               </NameCell>
             ),
           },
-          { header: "Phase", render: ({ epic }) => <span className={`badge ${PHASE_BADGE[epic.phase]}`}>{epic.phase}</span> },
+          { header: "Status", render: ({ epic }) => <span className={`badge ${STATUS_BADGE[epic.status]}`}>{epic.status}</span> },
           {
             header: "Release",
             render: ({ epic }) => (epic.release_id ? releaseById.get(epic.release_id)?.title ?? "—" : <span className="muted">Unscheduled</span>),
@@ -188,15 +201,17 @@ export function EpicsPage() {
         <Field label="Summary">
           <textarea className="input textarea" rows={2} value={form.summary} onChange={(e) => patch({ summary: e.target.value })} />
         </Field>
-        <Field label="Phase">
-          <select className="select" value={form.phase} onChange={(e) => patch({ phase: e.target.value as EpicPhase })}>
-            {EPIC_PHASES.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {editing && (
+          <Field label="Status">
+            <select className="select" value={status} onChange={(e) => setStatus(e.target.value as EpicStatus)}>
+              {EPIC_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Release" hint="Assigning a release here is inherited by every requirement under this epic that has no release of its own.">
           <select className="select" value={form.release_id ?? ""} onChange={(e) => patch({ release_id: e.target.value || null })}>
             <option value="">Unscheduled</option>

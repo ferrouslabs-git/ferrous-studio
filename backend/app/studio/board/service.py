@@ -236,6 +236,32 @@ _ENTITY_TABLES = {
 }
 
 
+async def unresolved_requirement_ids(db: AsyncSession, board_id: UUID, epic_id: UUID) -> list[UUID]:
+    """Requirement ids under this epic (direct, or via one of its features)
+    that aren't Done yet -- gates the epic status transition into 'Done'
+    (routes.py's update_epic). Same direct-or-via-feature membership the
+    board uses everywhere else (board_summary, effective_epic_id). Ported
+    from software-management's _unresolved_requirements."""
+    feature_ids = (
+        await db.execute(
+            select(Feature.id).where(
+                Feature.board_id == board_id, Feature.epic_id == epic_id, Feature.deleted_at.is_(None)
+            )
+        )
+    ).scalars().all()
+    rows = (
+        await db.execute(
+            select(Requirement.id).where(
+                Requirement.board_id == board_id,
+                Requirement.status != "Done",
+                Requirement.deleted_at.is_(None),
+                (Requirement.epic_id == epic_id) | (Requirement.feature_id.in_(feature_ids)),
+            )
+        )
+    ).scalars().all()
+    return list(rows)
+
+
 async def entity_exists(db: AsyncSession, board_id: UUID, entity_type: str, entity_id: UUID) -> bool:
     model = _ENTITY_TABLES.get(entity_type)
     if model is None:

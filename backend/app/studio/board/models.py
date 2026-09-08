@@ -101,7 +101,19 @@ class Release(Base):
 
 
 class Epic(Base):
-    PHASES = ("Now", "Next", "Later")
+    """``status`` tracks where the epic itself sits in the agreed
+    Definition-of-Done lifecycle -- distinct from the live done/doing
+    rollup computed from its requirements (progress_rollup). Ported from
+    software-management (store.py): the transition into 'Done' is refused
+    (routes.py's update_epic) unless every requirement under the epic --
+    direct, or via one of its features -- is itself Done.
+
+    Replaces ``phase`` (Now/Next/Later), dropped outright by
+    software-management on 2026-08-28: "it never represented real planning
+    (no owner, no dates, no dependency on anything else)."
+    """
+
+    STATUSES = ("Readiness", "Implementation", "ReleasedToUAT", "HumanValidation", "Done")
 
     __tablename__ = "board_epics"
 
@@ -111,7 +123,7 @@ class Epic(Base):
     seq = Column(Integer, nullable=False)
     title = Column(String(255), nullable=False)
     summary = Column(Text, nullable=False, default="")
-    phase = Column(String(10), nullable=False, default="Later")
+    status = Column(String(20), nullable=False, default="Readiness")
     release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)

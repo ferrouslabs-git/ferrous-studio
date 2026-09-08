@@ -339,6 +339,13 @@ async def update_epic(
     board = await _board(db, project)
     epic = await _get_epic(db, board, epic_id)
     data = payload.model_dump(exclude_unset=True)
+    if data.get("status") == "Done":
+        unresolved = await service.unresolved_requirement_ids(db, board.id, epic.id)
+        if unresolved:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{len(unresolved)} requirement(s) under this epic are not yet Done",
+            )
     clear_release = data.pop("clear_release", False)
     if clear_release:
         epic.release_id = None

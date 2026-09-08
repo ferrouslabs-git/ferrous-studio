@@ -45,17 +45,23 @@ class ReleaseRead(BaseModel):
 # ── Epics ────────────────────────────────────────────────────────────────
 
 
+EpicStatus = Literal["Readiness", "Implementation", "ReleasedToUAT", "HumanValidation", "Done"]
+
+
 class EpicCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     summary: str = ""
-    phase: Literal["Now", "Next", "Later"] = "Later"
     release_id: UUID | None = None
 
 
 class EpicUpdate(BaseModel):
+    """No ``status: "Done"`` unless every requirement under the epic (direct,
+    or via one of its features) is itself Done -- enforced in the route,
+    not here (needs a database lookup)."""
+
     title: str | None = Field(None, min_length=1, max_length=255)
     summary: str | None = None
-    phase: Literal["Now", "Next", "Later"] | None = None
+    status: EpicStatus | None = None
     release_id: UUID | None = None
     clear_release: bool = False
 
@@ -67,7 +73,7 @@ class EpicRead(BaseModel):
     human_id: str
     title: str
     summary: str
-    phase: str
+    status: str
     release_id: UUID | None
     created_at: datetime
     updated_at: datetime
