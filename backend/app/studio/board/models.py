@@ -198,7 +198,15 @@ class Sprint(Base):
 
 
 class Requirement(Base):
-    STATUSES = ("Todo", "Doing", "Done")
+    """``Blocked`` is a flag, not a stage on the normal Todo -> Doing ->
+    Review -> Done path -- a requirement can be blocked from any of the
+    three in-flight stages. ``blocked_from`` records which one, so
+    unblocking returns it there rather than losing that context; it is
+    computed automatically on the status transition (routes.py's
+    update_requirement), never set directly by a client. Ported from
+    software-management (store.py, static/js/reqpane.js's rqpStatusPatch)."""
+
+    STATUSES = ("Todo", "Doing", "Review", "Blocked", "Done")
     PRIORITIES = ("Low", "Medium", "High", "Urgent")
 
     __tablename__ = "board_requirements"
@@ -212,6 +220,7 @@ class Requirement(Base):
     epic_id = Column(UUID(as_uuid=True), ForeignKey("board_epics.id", ondelete="SET NULL"), nullable=True)
     feature_id = Column(UUID(as_uuid=True), ForeignKey("board_features.id", ondelete="SET NULL"), nullable=True)
     status = Column(String(10), nullable=False, default="Todo")
+    blocked_from = Column(String(10), nullable=True)
     priority = Column(String(10), nullable=False, default="Medium")
     assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)

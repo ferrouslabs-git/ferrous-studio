@@ -47,7 +47,13 @@ const EMPTY_REQUIREMENT: RequirementInput = {
   sprint_id: null,
 };
 
-const STATUS_BADGE: Record<RequirementStatus, string> = { Todo: "muted", Doing: "accent", Done: "good" };
+const STATUS_BADGE: Record<RequirementStatus, string> = {
+  Todo: "muted",
+  Doing: "accent",
+  Review: "accent",
+  Blocked: "warn",
+  Done: "good",
+};
 const PRIORITY_BADGE: Record<RequirementPriority, string> = { Low: "muted", Medium: "muted", High: "warn", Urgent: "warn" };
 const SPRINT_STATE_BADGE: Record<SprintState, string> = { planned: "muted", active: "accent", done: "good" };
 
@@ -539,7 +545,19 @@ function RequirementsSection({
                 </NameCell>
               ),
             },
-            { header: "Status", render: (r) => <span className={`badge ${STATUS_BADGE[r.status]}`}>{r.status}</span> },
+            {
+              header: "Status",
+              render: (r) => (
+                <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                  <span className={`badge ${STATUS_BADGE[r.status]}`}>{r.status}</span>
+                  {r.status === "Blocked" && r.blocked_from && (
+                    <span className="badge muted" title="Returns here when unblocked">
+                      was {r.blocked_from}
+                    </span>
+                  )}
+                </span>
+              ),
+            },
             { header: "Priority", render: (r) => <span className={`badge ${PRIORITY_BADGE[r.priority]}`}>{r.priority}</span> },
             { header: "Epic", render: (r) => (r.effective_epic_id ? epicById.get(r.effective_epic_id)?.title ?? "—" : <span className="muted">—</span>) },
             { header: "Sprint", render: (r) => (r.sprint_id ? sprintById.get(r.sprint_id)?.name ?? "—" : <span className="muted">Backlog</span>) },

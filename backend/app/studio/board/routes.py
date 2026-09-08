@@ -779,10 +779,28 @@ async def update_requirement(
         if data.pop(clear_field, False):
             setattr(requirement, target, None)
             data.pop(target, None)
+
+    # Entering a sprint resets a stale Doing/Review/Blocked back to Todo --
+    # ported invariant, software-management's update_requirement: the sprint
+    # board is the work queue, and a carried-over status would leave the
+    # item invisible there. Done stays Done -- finished work moved into a
+    # sprint (to ship it under that release, say) is still finished.
+    entering_sprint = data.get("sprint_id") is not None and data["sprint_id"] != requirement.sprint_id
+    if entering_sprint and before["status"] != "Done" and data.get("status", before["status"]) != "Done":
+        data["status"] = "Todo"
+
     for field, value in data.items():
         if value is None and field in ("epic_id", "feature_id", "assignee_id", "release_id", "sprint_id"):
             continue
         setattr(requirement, field, value)
+
+    # blocked_from bookkeeping -- the stage to return to when unblocked,
+    # computed from the transition, never sent directly by the client
+    # (RequirementUpdate has no such field). Ported from
+    # static/js/reqpane.js's rqpStatusPatch.
+    if requirement.status != before["status"]:
+        requirement.blocked_from = before["status"] if requirement.status == "Blocked" else None
+
     requirement.updated_at = utc_now()
 
     after = {"status": requirement.status, "sprint_id": requirement.sprint_id}

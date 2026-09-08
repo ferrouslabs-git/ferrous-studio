@@ -1,8 +1,13 @@
 // Client for a project's board requirements (backend app/studio/board/routes.py).
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
 
-export type RequirementStatus = "Todo" | "Doing" | "Done";
-export const REQUIREMENT_STATUSES: RequirementStatus[] = ["Todo", "Doing", "Done"];
+// Blocked is a flag, not a stage on the normal path -- a requirement can be
+// blocked from any of Todo/Doing/Review. blocked_from records which one, so
+// unblocking (setting status back to it) returns the item there instead of
+// losing that context; it's computed by the server on the transition, never
+// sent directly. Ported from software-management (static/js/core.js).
+export type RequirementStatus = "Todo" | "Doing" | "Review" | "Blocked" | "Done";
+export const REQUIREMENT_STATUSES: RequirementStatus[] = ["Todo", "Doing", "Review", "Blocked", "Done"];
 
 export type RequirementPriority = "Low" | "Medium" | "High" | "Urgent";
 export const REQUIREMENT_PRIORITIES: RequirementPriority[] = ["Low", "Medium", "High", "Urgent"];
@@ -15,6 +20,7 @@ export interface Requirement {
   epic_id: string | null;
   feature_id: string | null;
   status: RequirementStatus;
+  blocked_from: RequirementStatus | null;
   priority: RequirementPriority;
   assignee_id: string | null;
   release_id: string | null;

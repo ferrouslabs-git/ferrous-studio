@@ -180,12 +180,15 @@ class BurndownRead(BaseModel):
 # ── Requirements ─────────────────────────────────────────────────────────
 
 
+RequirementStatus = Literal["Todo", "Doing", "Review", "Blocked", "Done"]
+
+
 class RequirementCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     body: str = ""
     epic_id: UUID | None = None
     feature_id: UUID | None = None
-    status: Literal["Todo", "Doing", "Done"] = "Todo"
+    status: RequirementStatus = "Todo"
     priority: Literal["Low", "Medium", "High", "Urgent"] = "Medium"
     assignee_id: UUID | None = None
     release_id: UUID | None = None
@@ -199,7 +202,7 @@ class RequirementUpdate(BaseModel):
     clear_epic: bool = False
     feature_id: UUID | None = None
     clear_feature: bool = False
-    status: Literal["Todo", "Doing", "Done"] | None = None
+    status: RequirementStatus | None = None
     priority: Literal["Low", "Medium", "High", "Urgent"] | None = None
     assignee_id: UUID | None = None
     clear_assignee: bool = False
@@ -219,6 +222,7 @@ class RequirementRead(BaseModel):
     epic_id: UUID | None
     feature_id: UUID | None
     status: str
+    blocked_from: str | None
     priority: str
     assignee_id: UUID | None
     release_id: UUID | None
