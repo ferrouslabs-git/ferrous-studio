@@ -2,6 +2,7 @@
 // stack, and the clipboard. Every edit goes through the graph model so it is
 // undoable and triggers autosave.
 import { useEffect, useState } from "react";
+import { ARROW_KINDS, ArrowEnd, ArrowKind, arrowKindOf } from "../graph/arrows";
 import { GraphHandle } from "../graph/createGraph";
 import { EDGE_TYPES, FAMILIES, hasCompartments, isEdgeType, isNodeType, noteBody, PALETTE, UmlEdgeType, UmlNodeType } from "../graph/umlTypes";
 import { Selection } from "../graph/useGraph";
@@ -46,6 +47,22 @@ export function Inspector({ selection, handleRef, disabled, canPaste }: Inspecto
                 </select>
               )}
             </label>
+            {one.isEdge && (
+              <div className="field-row">
+                {(["start", "end"] as ArrowEnd[]).map((end) => (
+                  <label key={end} className="drawer-field">
+                    <span className="drawer-field-label">{end === "start" ? "Start arrow" : "End arrow"}</span>
+                    <select className="select" value={arrowKindOf(one.cell.style, end)} disabled={disabled} onChange={(e) => handleRef.current?.setArrow(one.cell, end, e.target.value as ArrowKind)}>
+                      {ARROW_KINDS.map((a) => (
+                        <option key={a.kind} value={a.kind}>
+                          {a.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            )}
             {one.umlType === "note" ? (
               // A note is one block of text and nothing else. Writing it here
               // retires the attribute older notes kept their body in.

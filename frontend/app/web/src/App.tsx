@@ -17,6 +17,7 @@ import { RoleCatalogueProvider } from "./features/orgs/roleLabels";
 import { DiagramsPage } from "./features/project/diagrams/DiagramsPage";
 import { DocumentsPage } from "./features/project/documents/DocumentsPage";
 import { EpicsPage } from "./features/project/epics/EpicsPage";
+import { FeedbackPage } from "./features/project/feedback/FeedbackPage";
 import { PersonasPage } from "./features/project/personas/PersonasPage";
 import { PlanPage } from "./features/project/plan/PlanPage";
 import { LegacyProjectRedirect, ProjectLayout } from "./features/project/ProjectLayout";
@@ -87,6 +88,7 @@ export function App() {
               <Route path="plan" element={<PlanPage />} />
               <Route path="roadmap" element={<RoadmapPage />} />
               <Route path="epics" element={<EpicsPage />} />
+              <Route path="feedback" element={<FeedbackPage />} />
             </Route>
 
             {/* Older links without the organisation. */}

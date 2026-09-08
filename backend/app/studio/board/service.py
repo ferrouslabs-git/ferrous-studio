@@ -24,6 +24,7 @@ from .models import (
     Epic,
     Event,
     Feature,
+    Feedback,
     Release,
     Requirement,
     RequirementSprintHistory,
@@ -178,6 +179,11 @@ _ENTITY_TABLES = {
     "requirement": Requirement,
     "sprint": Sprint,
     "doc": Doc,
+    # Attachments only -- Comment.ENTITY_TYPES does not list feedback, and its
+    # own CHECK constraint would refuse it. Missing this entry makes every
+    # screenshot upload 422 with "Attachment target does not exist", however
+    # right the CHECK constraint is.
+    "feedback": Feedback,
 }
 
 

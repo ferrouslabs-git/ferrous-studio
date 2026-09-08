@@ -184,9 +184,14 @@ export function AppShell() {
 }
 
 /**
- * The project's own menu: its seven sections, the version switcher and the
- * way out. For a platform admin the way out is the platform-wide Projects
- * list they came in from, since they have no organisation menu to go back to.
+ * The project's own menu: its sections, the version switcher and the way out.
+ *
+ * The sections group by the question they answer -- Scope is what is being
+ * built, Delivery is when it lands. Project details belongs to neither, so it
+ * sits ungrouped above both.
+ *
+ * For a platform admin the way out is the platform-wide Projects list they
+ * came in from, since they have no organisation menu to go back to.
  */
 function ProjectNav({
   orgId,
@@ -213,14 +218,19 @@ function ProjectNav({
       </div>
       <NavGroup>
         <NavItem to={`${base}/details`} icon="info" label="Project details" />
+      </NavGroup>
+      <NavGroup title="Scope">
         <NavItem to={`${base}/use-cases`} icon="usecase" label="Use case diagram" />
         <NavItem to={`${base}/personas`} icon="persona" label="Personas" />
         <NavItem to={`${base}/diagrams`} icon="diagram" label="Diagrams" />
         <NavItem to={`${base}/wireframes`} icon="layout" label="Wireframes" />
         <NavItem to={`${base}/documents`} icon="file" label="Documents" />
+      </NavGroup>
+      <NavGroup title="Delivery">
         <NavItem to={`${base}/plan`} icon="plan" label="Plan" />
         <NavItem to={`${base}/roadmap`} icon="roadmap" label="Roadmap" />
         <NavItem to={`${base}/epics`} icon="epic" label="Epics" />
+        <NavItem to={`${base}/feedback`} icon="feedback" label="Feedback" />
       </NavGroup>
       {isAdmin ? (
         <NavGroup title="Administration">
@@ -320,6 +330,7 @@ type IconName =
   | "plan"
   | "roadmap"
   | "epic"
+  | "feedback"
   | "arrowLeft";
 
 const PATHS: Record<IconName, ReactNode> = {
@@ -399,6 +410,12 @@ const PATHS: Record<IconName, ReactNode> = {
   epic: (
     <>
       <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
+    </>
+  ),
+  feedback: (
+    <>
+      <path d="M20 4H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h3v4l5-4h8a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1z" />
+      <path d="M12 7v4M12 13.5v.5" />
     </>
   ),
   arrowLeft: <path d="M19 12H5M11 6l-6 6 6 6" />,

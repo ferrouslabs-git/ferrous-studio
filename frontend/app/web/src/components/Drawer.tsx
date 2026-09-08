@@ -63,7 +63,11 @@ export function Drawer({ open, title, description, onClose, onSubmit, footer, ch
             <h2 id="drawer-title">{title}</h2>
             {description && <p className="drawer-desc">{description}</p>}
           </div>
-          <button className="drawer-close" onClick={onClose} aria-label="Close" title="Close (Esc)">
+          {/* type="button" is load-bearing: a <button> defaults to submit,
+              and a Drawer nested inside another Drawer's form (Builder,
+              the screenshot editor) would otherwise submit that form when
+              its close button is pressed. */}
+          <button type="button" className="drawer-close" onClick={onClose} aria-label="Close" title="Close (Esc)">
             ×
           </button>
         </div>

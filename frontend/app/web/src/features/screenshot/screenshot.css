@@ -1,0 +1,101 @@
+/* The screenshot annotation editor. Imported by ScreenshotEditor.tsx only, so
+   it ships in that component's lazy chunk rather than the main bundle -- the
+   same arrangement as features/diagrams/diagram.css. */
+
+/* Neutralise the drawer body so the editor owns the whole panel, exactly as
+   .builder-drawer does for the component builder. */
+.shot-drawer .drawer-body { padding: 0; gap: 0; overflow: hidden; }
+
+.shot-editor {
+  display: flex; flex-direction: column; height: 100%; min-height: 0; outline: none;
+}
+
+.shot-toolbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.shot-group { display: flex; align-items: center; gap: 4px; }
+.shot-group + .shot-group { padding-left: 14px; border-left: 1px solid var(--border); }
+.shot-toolbar .btn.is-on { background: var(--accent-soft); color: var(--accent); }
+.shot-meta { font-size: 11px; color: var(--text-mute); white-space: nowrap; }
+
+.shot-swatches { gap: 6px; }
+.shot-swatch {
+  width: 20px; height: 20px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 2px solid var(--border-strong);
+}
+.shot-swatch.is-on { border-color: var(--text); transform: scale(1.15); }
+
+/* The checkerboard says "this is the image, and that is not" for a capture
+   narrower than the panel. */
+.shot-stage {
+  flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 16px;
+  background-color: var(--bg-deep);
+  background-image:
+    linear-gradient(45deg, rgba(255,255,255,.03) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.03) 75%),
+    linear-gradient(45deg, rgba(255,255,255,.03) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.03) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+
+/* Sized by aspect-ratio in JS so the box matches the image exactly. If it did
+   not, the SVG's preserveAspectRatio would letterbox, the client rect and the
+   viewBox would disagree, and every click would land offset. */
+.shot-image {
+  position: relative; line-height: 0; width: 100%; max-height: 100%;
+  box-shadow: var(--shadow); container-type: size;
+}
+.shot-image > canvas { display: block; width: 100%; height: 100%; }
+
+.shot-svg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  /* Or a touch drag scrolls the stage instead of drawing on it. */
+  touch-action: none;
+}
+.shot-svg.tool-select { cursor: default; }
+.shot-svg:not(.tool-select) { cursor: crosshair; }
+
+/* Thin marks need a fat invisible stroke to be clickable -- the same trick
+   UseCaseDiagram.tsx uses for its association lines. */
+.shot-hit { fill: none; stroke: transparent; pointer-events: stroke; }
+.shot-shape { pointer-events: visiblePainted; }
+
+/* Text gets its halo from paint-order, so the stroke sits *under* the glyph
+   rather than eating into it. Must match the font in render.ts's drawShape. */
+.shot-text {
+  paint-order: stroke; stroke-linejoin: round; font-weight: 600;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.shot-selected { fill: none; stroke: var(--accent); pointer-events: none; }
+
+.shot-text-input {
+  position: absolute; transform: translateY(-0.15em); min-width: 6ch;
+  padding: 0 2px; border: 1px solid var(--accent); border-radius: 2px;
+  background: rgba(0,0,0,.55); font-weight: 600; line-height: 1.2;
+}
+
+/* ── The field on the feedback form ─────────────────────────────────────── */
+
+.shot-field { display: flex; flex-direction: column; gap: 8px; }
+.shot-sources { display: flex; gap: 6px; flex-wrap: wrap; }
+.shot-note { font-size: 11px; color: var(--text-mute); }
+
+.shot-thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+.shot-thumb {
+  position: relative; width: 92px; height: 62px; border-radius: 6px; overflow: hidden;
+  border: 1px solid var(--border-strong); background: var(--bg-deep);
+}
+.shot-thumb canvas, .shot-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shot-thumb-drop {
+  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 50%; cursor: pointer; line-height: 1; font-size: 12px;
+  background: rgba(0,0,0,.65); color: #fff;
+}
+/* A queued shot that has not uploaded yet, or one that failed. */
+.shot-thumb.is-busy { opacity: .55; }
+.shot-thumb.is-failed { border-color: var(--warn); }
+.shot-thumb-state {
+  position: absolute; inset: auto 0 0 0; padding: 1px 4px; font-size: 9px; text-align: center;
+  background: rgba(0,0,0,.7); color: #fff; text-transform: uppercase; letter-spacing: .08em;
+}

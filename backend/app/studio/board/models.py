@@ -37,6 +37,8 @@ __all__ = [
     "Feature",
     "Sprint",
     "Requirement",
+    "Environment",
+    "Feedback",
     "RequirementSprintHistory",
     "Doc",
     "Comment",
@@ -59,6 +61,7 @@ class Board(Base):
     requirement_seq = Column(Integer, nullable=False, default=0)
     sprint_seq = Column(Integer, nullable=False, default=0)
     doc_seq = Column(Integer, nullable=False, default=0)
+    feedback_seq = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
@@ -216,6 +219,93 @@ class RequirementSprintHistory(Base):
     )
 
 
+class Environment(Base):
+    """Where a build of this product can be reached: one row per environment
+    that has actually been given a URL.
+
+    Lives on the board -- keyed on the lineage -- rather than on the project
+    row, because a deployed environment is one address for the whole product,
+    not a fact about one frozen design version. Storing it per version would
+    hand v1 and v2 different UAT links and leave a locked version unable to
+    correct a wrong one.
+
+    An absent row means "not set up yet"; the URL is never blank.
+    """
+
+    SLUGS = ("uat", "staging", "production")
+
+    __tablename__ = "board_environments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    board_id = Column(UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    slug = Column(String(16), nullable=False)
+    url = Column(String(1024), nullable=False)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (UniqueConstraint("board_id", "slug", name="uq_board_environments_slug"),)
+
+
+class Feedback(Base):
+    """Something an organisation user noticed in a running environment.
+
+    Deliberately not a Requirement: this is what was reported, in the words of
+    whoever reported it, against the environment they saw it in. An admin
+    triages it, and only what survives triage becomes board work -- so a report
+    carries no epic, sprint or assignee of its own.
+
+    ``raised_by_name``/``raised_by_email`` snapshot the reporter at write time,
+    the same way ``WireframeAuditLog`` does, so a report still says who filed
+    it after that person leaves the organisation.
+
+    ``severity`` is the reporter's claim about impact, which is why it sits
+    beside ``kind`` and not beside ``status``. An admin may correct it exactly
+    as they may correct a title; what they may not do is let it stand in for a
+    decision. ``status`` remains the only thing triage moves, and
+    ``FeedbackCreate`` still refuses to accept one.
+
+    ``page_url`` is the exact page, the environment being only the base. ``''``
+    means "not given" -- unlike ``Environment``, where an absent *row* is the
+    unset state and the URL is never blank.
+    """
+
+    ENVIRONMENTS = ("uat", "staging", "production")
+    KINDS = ("feedback", "bug", "requirement")
+    SEVERITIES = ("low", "medium", "high", "critical")
+    STATUSES = ("New", "Triaged", "Accepted", "Declined", "Done")
+
+    __tablename__ = "board_feedback"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    board_id = Column(UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    seq = Column(Integer, nullable=False)
+    environment = Column(String(16), nullable=False)
+    kind = Column(String(16), nullable=False, default="feedback")
+    severity = Column(String(16), nullable=False, default="medium")
+    title = Column(String(255), nullable=False)
+    detail = Column(Text, nullable=False, default="")
+    page_url = Column(String(1024), nullable=False, default="")
+    status = Column(String(10), nullable=False, default="New")
+    raised_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    raised_by_name = Column(String(255), nullable=True)
+    raised_by_email = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("board_id", "seq", name="uq_board_feedback_seq"),
+        Index("ix_board_feedback_environment", "board_id", "environment"),
+        Index("ix_board_feedback_status", "board_id", "status"),
+    )
+
+    @property
+    def human_id(self) -> str:
+        return f"FB-{self.seq}"
+
+
 class Doc(Base):
     __tablename__ = "board_docs"
 
@@ -278,9 +368,14 @@ class Event(Base):
 
 class Attachment(Base):
     """Doesn't exist in SMA -- designed fresh, reusing storage.py's S3
-    helpers and documents.py's pending/uploaded confirmation pattern."""
+    helpers and documents.py's pending/uploaded confirmation pattern.
 
-    ENTITY_TYPES = ("release", "epic", "feature", "requirement", "doc")
+    ``feedback`` is the one entity here whose attachments come from an
+    untrusted producer: a member may upload a screenshot to a report they
+    raised without holding ``board:write``. That is why the routes restrict a
+    feedback attachment to PNG/JPEG and why confirm verifies magic bytes."""
+
+    ENTITY_TYPES = ("release", "epic", "feature", "requirement", "doc", "feedback")
     STATUSES = ("pending", "uploaded")
 
     __tablename__ = "board_attachments"

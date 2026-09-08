@@ -18,7 +18,6 @@ import { Palette } from "./components/Palette";
 import { CLIPBOARD_KEY, hasClipboard } from "./graph/clipboard";
 import type { GraphHandle } from "./graph/createGraph";
 import { deriveModel, exportXml, importXml, plainCellsOf } from "./graph/serialize";
-import { EDGE_TYPES, UmlEdgeType } from "./graph/umlTypes";
 import { useGraph } from "./graph/useGraph";
 import "./diagram.css";
 
@@ -32,7 +31,6 @@ export function DiagramEditorPage() {
   const record = useLoad(() => getDiagram(project.id, diagramId), [project.id, diagramId]);
   const { containerRef, handleRef, state, whileImporting } = useGraph();
   const [save, setSave] = useState<SaveState>({ kind: "clean" });
-  const [edgeType, setEdgeTypeState] = useState<UmlEdgeType>("association");
   const [gridOn, setGridOn] = useState(true);
   const [canPaste, setCanPaste] = useState(hasClipboard);
   const versionRef = useRef(0);
@@ -128,10 +126,6 @@ export function DiagramEditorPage() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [save.kind]);
 
-  useEffect(() => {
-    if (handleRef.current) handleRef.current.edgeType.current = edgeType;
-  }, [edgeType, handleRef, state.ready]);
-
   // The clipboard lives in localStorage, so a copy in another tab -- or in
   // another diagram open beside this one -- arms Paste here too.
   useEffect(() => {
@@ -179,18 +173,6 @@ export function DiagramEditorPage() {
             <button className="btn ghost" disabled={!state.canRedo} title="Redo (Ctrl+Y)" onClick={() => handle?.undoManager.redo()}>
               ↷ Redo
             </button>
-            <label className="row" title="Connector drawn from a shape's connect handle">
-              <span className="muted" style={{ fontSize: 11 }}>
-                Connector
-              </span>
-              <select className="select" value={edgeType} onChange={(e) => setEdgeTypeState(e.target.value as UmlEdgeType)}>
-                {EDGE_TYPES.map((t) => (
-                  <option key={t.type} value={t.type}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
           </>
         )}
         <span className="zoom-group">

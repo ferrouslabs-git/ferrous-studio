@@ -8,8 +8,11 @@ route -- and both fail *open* when someone gets them wrong: a stray
 are that backstop, and the place where each of the two deliberate exceptions
 has to be argued for in writing.
 
-The exceptions, both belonging to the member role:
+The exceptions, all three belonging to the member role:
   * ``tasks:create`` -- pin a task to a wireframe, and nothing else.
+  * ``feedback:create`` -- raise one report against a deployed environment,
+    and attach screenshots to a report they raised. Not triaging one, not
+    editing one, not deleting one, not even their own.
   * ``members:invite`` -- invite a member or a viewer, never an admin.
 
 Source inspection rather than live requests, because the suite has no database.
@@ -42,11 +45,27 @@ WRITE_PERMISSIONS = {"data:write", "board:write", "board:tokens"}
 #: Adding a name here widens what a read-only member can do -- it is a product
 #: decision, not a way to quiet the test.
 EXEMPT = {
-    # The one crack in a member's read-only access. The route takes
+    # The first crack in a member's read-only access. The route takes
     # require_any_permission([...]) and then refuses any kind but "task"
     # without data:write -- pinned by the tests further down, because the
     # dependency alone would let a member file notes too.
     "create_annotation",
+    # The second, and the point of the Feedback tab: an organisation user who
+    # has been given a UAT link has to be able to say what they found there,
+    # and a role that can only read is no use for that. Narrow in the same way
+    # -- POSTing one report, nothing else. FeedbackCreate carries no `status`,
+    # so a member cannot file a report as already Accepted, and triaging,
+    # editing and deleting one all stay behind board:write (asserted below).
+    "create_feedback",
+    # The third, and what makes the second worth anything: a report about a
+    # running environment is a description of a picture, and a member who can
+    # file the words but not the picture has filed half of it. Both routes take
+    # require_any_permission([...]) and then refuse, in the body, anything but a
+    # PNG or JPEG on a report the caller raised themselves -- pinned by the
+    # tests below, because the dependency alone would let a member bolt files
+    # onto every entity on the board.
+    "request_attachment_upload",
+    "confirm_attachment_upload",
 }
 
 
@@ -68,9 +87,13 @@ def test_member_and_viewer_hold_no_write_permission():
     assert not _permissions(VIEWER) & WRITE_PERMISSIONS
 
 
-def test_member_adds_exactly_two_things_to_a_viewer():
+def test_member_adds_exactly_three_things_to_a_viewer():
     """Spelling out the difference stops it drifting a permission at a time."""
-    assert _permissions(MEMBER) - _permissions(VIEWER) == {"tasks:create", "members:invite"}
+    assert _permissions(MEMBER) - _permissions(VIEWER) == {
+        "tasks:create",
+        "members:invite",
+        "feedback:create",
+    }
 
 
 def test_viewer_is_read_only_throughout():
@@ -253,3 +276,100 @@ def test_the_other_annotation_routes_stay_behind_data_write():
 
     assert required_permissions(update_annotation) == {"data:write"}
     assert required_permissions(delete_annotation) == {"data:write"}
+
+
+# ── Feedback: raising one is a member's, judging it is not ───────────────────
+# create_feedback is EXEMPT above. Unlike create_annotation it needs no
+# narrowing inside the body -- every field of a report belongs to the reporter
+# -- so what has to hold instead is that the *status* is not one of them, and
+# that nothing else about a report is reachable without board:write.
+
+
+def test_create_feedback_accepts_the_feedback_permission():
+    from app.studio.board.routes import create_feedback
+
+    assert required_permissions(create_feedback) == {"board:write", "feedback:create"}
+
+
+def test_a_member_cannot_file_a_report_as_already_triaged():
+    """A reporter says what they saw; an admin decides what it is worth. If
+    FeedbackCreate ever grew a `status`, a member could file straight into
+    Accepted and the triage queue would stop meaning anything."""
+    from app.studio.board.schemas import FeedbackCreate
+
+    assert "status" not in FeedbackCreate.model_fields
+
+
+def test_judging_a_report_stays_behind_board_write():
+    """Raising is the exception; triaging, correcting and deleting are not."""
+    from app.studio.board.routes import delete_feedback, update_feedback
+
+    assert required_permissions(update_feedback) == {"board:write"}
+    assert required_permissions(delete_feedback) == {"board:write"}
+
+
+def test_only_board_write_sets_an_environment_address():
+    """A member reads the UAT link; publishing one is an admin's act."""
+    from app.studio.board.routes import set_environment
+
+    assert required_permissions(set_environment) == {"board:write"}
+
+
+# ── Screenshots: the evidence for a report is part of the report ──────────
+# The two upload routes are EXEMPT above. Unlike create_feedback they are
+# generic -- they serve every board entity -- so the body, not the dependency,
+# is what keeps a member to their own report's screenshots. All of that lives in
+# _authorise_screenshot, which is why these read it rather than the routes.
+
+
+def test_uploading_a_screenshot_accepts_the_feedback_permission():
+    from app.studio.board.routes import confirm_attachment_upload, request_attachment_upload
+
+    assert required_permissions(request_attachment_upload) == {"board:write", "feedback:create"}
+    assert required_permissions(confirm_attachment_upload) == {"board:write", "feedback:create"}
+
+
+def test_a_member_may_only_attach_to_a_report_and_only_their_own():
+    """Without the first half a member could bolt files onto any epic on the
+    board; without the second, onto a colleague's report."""
+    from app.studio.board.routes import _authorise_screenshot
+
+    source = inspect.getsource(_authorise_screenshot)
+    assert 'has_permission("board:write")' in source
+    assert 'entity_type != "feedback"' in source
+    assert "report.raised_by != ctx.user_id" in source
+
+
+def test_both_upload_routes_actually_run_that_check():
+    """The helper is only worth anything if both routes call it. confirm takes
+    no payload, so it narrows on the stored row instead."""
+    from app.studio.board.routes import confirm_attachment_upload, request_attachment_upload
+
+    assert "await _authorise_screenshot(" in inspect.getsource(request_attachment_upload)
+    confirm = inspect.getsource(confirm_attachment_upload)
+    assert 'has_permission("board:write")' in confirm
+    assert "attachment.created_by != ctx.user_id" in confirm
+
+
+def test_a_report_takes_pictures_only():
+    """A member's one write path must not become a general file drop."""
+    from app.studio.board.routes import SCREENSHOT_TYPES
+
+    assert SCREENSHOT_TYPES == {"image/png", "image/jpeg"}
+
+
+def test_a_confirmed_screenshot_is_verified_not_just_measured():
+    """A member-supplied file is rendered straight back to an admin by the /raw
+    route, and "image/png" is trivially claimed by an SVG or an HTML document.
+    Size alone -- what this route used to check -- proves nothing about that."""
+    from app.studio.board.routes import confirm_attachment_upload
+
+    source = inspect.getsource(confirm_attachment_upload)
+    assert "MAGIC_BYTES" in source and "await reject(" in source
+
+
+def test_removing_a_screenshot_stays_behind_board_write():
+    """Attaching is the exception; unpicking the record is not."""
+    from app.studio.board.routes import delete_attachment
+
+    assert required_permissions(delete_attachment) == {"board:write"}
