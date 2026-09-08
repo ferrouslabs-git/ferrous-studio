@@ -103,7 +103,7 @@ async def list_all_projects(
     (see ``allow_cross_account`` -- without it the query returns nothing at all
     rather than failing).
     """
-    ensure_platform_admin(current_user, "list projects across organisations")
+    await ensure_platform_admin(current_user, "list projects across organisations", db, permission="accounts:read")
     await allow_cross_account(db)
     result = await db.execute(
         select(Project, Tenant.name)

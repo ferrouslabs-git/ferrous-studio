@@ -14,6 +14,7 @@ import { NameCell } from "../../components/ListTable";
 import { RowMenu, RowMenuItem } from "../../components/RowMenu";
 import { errorMessage, RequestOptions } from "../../core/api";
 import { formatDate } from "../../core/format";
+import { defaultBatchId } from "../studio/sync/outbox";
 import { ProjectFormDrawer } from "./ProjectFormDrawer";
 import {
   createProjectVersion,
@@ -314,7 +315,7 @@ function NewVersionDrawer<P extends Project>({
   onSaved: () => Promise<unknown>;
 }) {
   const [label, setLabel] = useState("");
-  const [key] = useState(() => crypto.randomUUID());
+  const [key] = useState(() => defaultBatchId());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

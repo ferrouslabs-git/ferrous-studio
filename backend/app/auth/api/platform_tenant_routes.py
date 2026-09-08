@@ -24,7 +24,7 @@ async def get_platform_tenants(
     db: AsyncSession = Depends(get_db),
 ):
     """List all tenants across the platform (super admin only)."""
-    ensure_platform_admin(current_user, "view tenants")
+    await ensure_platform_admin(current_user, "view tenants", db, permission="accounts:read")
     return await list_platform_tenants(db)
 
 
@@ -35,7 +35,7 @@ async def suspend_tenant_account(
     db: AsyncSession = Depends(get_db),
 ):
     """Suspend a tenant (super admin only)."""
-    ensure_platform_admin(current_user, "suspend tenant")
+    await ensure_platform_admin(current_user, "suspend tenant", db)
 
     try:
         tenant = await suspend_tenant(tenant_id, db)
@@ -64,7 +64,7 @@ async def unsuspend_tenant_account(
     db: AsyncSession = Depends(get_db),
 ):
     """Unsuspend a tenant (super admin only)."""
-    ensure_platform_admin(current_user, "unsuspend tenant")
+    await ensure_platform_admin(current_user, "unsuspend tenant", db)
 
     try:
         tenant = await unsuspend_tenant(tenant_id, db)
@@ -97,7 +97,7 @@ async def get_failed_invitation_emails(
     Returns audit events where ``action == 'email_send_failed'``,
     ordered by most recent first.
     """
-    ensure_platform_admin(current_user, "view failed invitation emails")
+    await ensure_platform_admin(current_user, "view failed invitation emails", db, permission="accounts:read")
 
     result = await db.execute(
         select(AuditEvent)
@@ -135,7 +135,7 @@ async def query_audit_events(
     db: AsyncSession = Depends(get_db),
 ):
     """Query audit events with optional filters (platform admin only)."""
-    ensure_platform_admin(current_user, "query audit events")
+    await ensure_platform_admin(current_user, "query audit events", db, permission="accounts:read")
     return await list_audit_events(
         db,
         action=action,
@@ -155,7 +155,7 @@ async def trigger_cleanup(
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger cleanup of expired tokens, invitations, and rate-limit hits (platform admin only)."""
-    ensure_platform_admin(current_user, "trigger cleanup")
+    await ensure_platform_admin(current_user, "trigger cleanup", db)
 
     result = await run_cleanup(db)
     await db.commit()
@@ -191,7 +191,7 @@ async def delete_tenant_permanently(
     db: AsyncSession = Depends(get_db),
 ):
     """Permanently delete a tenant and all associated data (platform admin only). Irreversible."""
-    ensure_platform_admin(current_user, "delete tenant")
+    await ensure_platform_admin(current_user, "delete tenant", db)
 
     try:
         result = await delete_tenant(tenant_id, db)

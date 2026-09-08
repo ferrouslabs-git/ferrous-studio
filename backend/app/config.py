@@ -57,6 +57,17 @@ class Settings:
     #: Overridable for GitHub Enterprise Server.
     github_api_base: str
 
+    # ── Agent runner (phase 5, deliberately not deployed yet) ──────────────
+    # Empty cluster/task definition = an agent run is recorded (queued) but
+    # never actually launched -- the API reports "not configured" rather than
+    # a 500, the same way documents/GitHub do without their own settings. See
+    # docs/go-live-and-merge-boards.md phase 5: this also needs a real
+    # per-organisation credential-storage design before it can run for real,
+    # which is a separate, undecided piece -- this setting alone does not
+    # make the feature safe to turn on.
+    agent_ecs_cluster: str
+    agent_task_definition: str
+
 
 
 def _int(name: str, default: int) -> int:
@@ -105,4 +116,6 @@ def get_settings() -> Settings:
         github_client_id=os.getenv("GITHUB_CLIENT_ID", "").strip(),
         github_client_secret=os.getenv("GITHUB_CLIENT_SECRET", "").strip(),
         github_api_base=os.getenv("GITHUB_API_BASE", "https://api.github.com").strip().rstrip("/"),
+        agent_ecs_cluster=os.getenv("AGENT_ECS_CLUSTER", "").strip(),
+        agent_task_definition=os.getenv("AGENT_TASK_DEFINITION", "").strip(),
     )

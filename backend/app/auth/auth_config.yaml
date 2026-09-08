@@ -9,13 +9,30 @@ layers:
     display_name: "Organisation"
 
 roles:
+  # Resolved from a real platform-scope Membership (scope_id =
+  # PLATFORM_SCOPE_ID) via has_platform_permission() / get_scope_context --
+  # see app/auth/security/dependencies.py. users.is_platform_admin still
+  # exists and is kept in sync, but only as a display flag for the existing
+  # API/frontend response shape; it is not consulted for authorisation.
   platform:
-    - name: super_admin
-      display_name: "Super Admin"
+    - name: platform_admin
+      display_name: "Platform Admin"
       permissions:
         - platform:configure
         - accounts:manage
+        - accounts:read
         - users:suspend
+
+    - name: platform_member
+      display_name: "Platform Member"
+      permissions:
+        - accounts:manage
+        - accounts:read
+
+    - name: platform_viewer
+      display_name: "Platform Viewer"
+      permissions:
+        - accounts:read
 
   account:
     - name: account_admin
@@ -27,6 +44,9 @@ roles:
         - members:invite
         - data:read
         - data:write
+        - board:read
+        - board:write
+        - board:tokens
 
     - name: account_member
       display_name: "Member"
@@ -34,9 +54,12 @@ roles:
         - account:read
         - data:read
         - data:write
+        - board:read
+        - board:write
 
     - name: account_viewer
       display_name: "Viewer"
       permissions:
         - account:read
         - data:read
+        - board:read

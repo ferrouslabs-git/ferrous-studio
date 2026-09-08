@@ -149,7 +149,7 @@ async def list_platform_datasets(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[DatasetRead]:
-    ensure_platform_admin(current_user, "list platform datasets")
+    await ensure_platform_admin(current_user, "list platform datasets", db, permission="accounts:read")
     return await _platform_reads(db)
 
 
@@ -159,7 +159,7 @@ async def create_platform_dataset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRead:
-    ensure_platform_admin(current_user, "create platform dataset")
+    await ensure_platform_admin(current_user, "create platform dataset", db)
     data = payload.model_dump()
     pos = data.pop("pos") or await next_pos(db, PlatformDataset)
     dataset = PlatformDataset(created_by=current_user.id, pos=pos, **data)
@@ -176,7 +176,7 @@ async def update_platform_dataset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRead:
-    ensure_platform_admin(current_user, "update platform dataset")
+    await ensure_platform_admin(current_user, "update platform dataset", db)
     dataset = await _platform_dataset(db, dataset_id)
     for field_name, value in payload.model_dump(exclude_unset=True).items():
         if value is None:
@@ -193,7 +193,7 @@ async def delete_platform_dataset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    ensure_platform_admin(current_user, "delete platform dataset")
+    await ensure_platform_admin(current_user, "delete platform dataset", db)
     dataset = await _platform_dataset(db, dataset_id)
     await db.delete(dataset)
     await db.commit()

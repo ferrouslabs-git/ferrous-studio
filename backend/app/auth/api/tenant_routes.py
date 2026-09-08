@@ -21,7 +21,7 @@ from ..schemas.tenant import (
     TenantListResponse,
     TenantUpdateRequest,
 )
-from ..security import ScopeContext, get_current_user, get_scope_context, require_permission
+from ..security import ScopeContext, get_current_user, get_scope_context, has_platform_permission, require_permission
 from ..services.audit_service import log_audit_event
 from .route_helpers import create_invitation_response, ensure_scope_access
 from ..services.invitation_service import create_invitation, list_tenant_invitations
@@ -45,14 +45,14 @@ async def create_new_tenant(
     """
     Create a new tenant (organisation).
 
-    Platform admins only: organisations are invite-only, so a super admin
-    creates the organisation and invites its owner. Checked directly on the
-    user rather than via require_permission("accounts:manage") because scope
-    resolution needs X-Scope-* headers, and there is no scope yet when the
-    organisation itself is being created.
+    Platform admins only: organisations are invite-only, so a platform admin
+    creates the organisation and invites its owner. Checked directly via
+    has_platform_permission rather than the require_permission dependency
+    because that resolves an "account" scope from X-Scope-* headers, and
+    there is no scope yet when the organisation itself is being created.
     Creator will be assigned 'owner' role automatically.
     """
-    if not current_user.is_platform_admin:
+    if not await has_platform_permission(db, current_user, "accounts:manage"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only platform administrators can create organisations",
@@ -114,7 +114,7 @@ async def get_tenant_detail(
     db: AsyncSession = Depends(get_db),
 ):
     """Get details for a single tenant. Requires membership or platform admin."""
-    if not current_user.is_platform_admin and not await verify_user_tenant_access(current_user.id, tenant_id, db):
+    if not await has_platform_permission(db, current_user, "accounts:read") and not await verify_user_tenant_access(current_user.id, tenant_id, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this tenant")
 
     tenant = await get_tenant_by_id(tenant_id, db)
@@ -148,7 +148,7 @@ async def update_tenant_detail(
     db: AsyncSession = Depends(get_db),
 ):
     """Update the organisation's name. Requires account_admin role or platform admin."""
-    if not current_user.is_platform_admin:
+    if not await has_platform_permission(db, current_user, "accounts:manage"):
         from ..services.tenant_service import get_user_tenant_role
         role = await get_user_tenant_role(current_user.id, tenant_id, db)
         if role not in ("account_admin", "admin"):
@@ -203,7 +203,7 @@ async def list_invitations_for_tenant(
     db: AsyncSession = Depends(get_db),
 ):
     """List invitations for a tenant. Requires membership or platform admin."""
-    if not current_user.is_platform_admin and not await verify_user_tenant_access(current_user.id, tenant_id, db):
+    if not await has_platform_permission(db, current_user, "accounts:read") and not await verify_user_tenant_access(current_user.id, tenant_id, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this tenant")
 
     try:

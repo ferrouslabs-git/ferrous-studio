@@ -9,7 +9,15 @@ Includes:
 - Deprecated role-based guards (remove after 2026-05-20)
 """
 from .jwt_verifier import verify_token, verify_token_async, verify_token_optional, verify_token_optional_async, InvalidTokenError
-from .dependencies import get_current_user, get_current_user_optional, oauth2_scheme, get_tenant_context, get_scope_context
+from .dependencies import (
+    get_current_user,
+    get_current_user_optional,
+    oauth2_scheme,
+    get_tenant_context,
+    get_scope_context,
+    has_platform_permission,
+    PLATFORM_SCOPE_ID,
+)
 from .tenant_context import TenantContext
 from .scope_context import ScopeContext
 from .tenant_middleware import TenantContextMiddleware
@@ -42,6 +50,8 @@ __all__ = [
     "oauth2_scheme",
     "get_tenant_context",
     "get_scope_context",
+    "has_platform_permission",
+    "PLATFORM_SCOPE_ID",
     "TenantContext",
     "ScopeContext",
     "TenantContextMiddleware",

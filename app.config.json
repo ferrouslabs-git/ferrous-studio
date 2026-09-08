@@ -3,7 +3,7 @@
   "container_port": 8080,
   "aws_region": "eu-west-1",
   "domain": {
-    "root": "",
+    "root": "studio.ferrouslabs.co.uk",
     "staging_subdomain": "staging"
   },
   "_alb_priority_base_comment": "Two ALB listener-rule priorities are claimed starting here (base=staging, base+1=prod) -- check `aws elbv2 describe-rules --listener-arn <alb_http_listener_arn>` for collisions before instantiating a second app and bump this if the block is taken.",

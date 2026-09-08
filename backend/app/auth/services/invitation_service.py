@@ -14,6 +14,7 @@ from ..models.invitation import Invitation
 from ..models.membership import Membership
 from ..models.user import User
 from ..models.tenant import Tenant
+from ..security.dependencies import PLATFORM_SCOPE_ID
 from ..security.jwt_verifier import InvalidTokenError, verify_token_async
 from .auth_config_loader import get_auth_config
 from .cognito_admin_service import (
@@ -34,11 +35,15 @@ class InvitationSignupError(Exception):
         self.status_code = status_code
 
 
-# A platform invitation: no organisation, and accepting it grants the super
-# admin flag rather than a membership. The role name matches
-# auth_config.yaml's platform layer so the invite page can label it.
+# A platform invitation: no organisation. Accepting it creates a real
+# platform-scope Membership (see PLATFORM_SCOPE_ID in
+# ../security/dependencies.py) *and* sets the is_platform_admin flag --
+# the flag stays in sync for the API/frontend response shape, but the
+# Membership row is what get_scope_context and has_platform_permission
+# actually resolve. The role name matches auth_config.yaml's platform layer
+# so the invite page can label it.
 PLATFORM_SCOPE = "platform"
-PLATFORM_ROLE = "super_admin"
+PLATFORM_ROLE = "platform_admin"
 
 
 # Legacy role → v3 role name mapping (used to derive target_role_name from
@@ -143,8 +148,11 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
     - Invitation email must match current user's email
     - Membership is created or re-activated for the invitation scope
 
-    A platform invitation creates no membership: it sets the super admin
-    flag on the user and returns None.
+    A platform invitation grants a real platform-scope Membership (scope_id
+    = PLATFORM_SCOPE_ID) rather than an account one -- has_platform_permission
+    and get_scope_context resolve access from this row, not from a boolean.
+    is_platform_admin is also set, kept in sync purely for the existing
+    API/frontend response shape that already reads it.
     """
     if invitation.is_expired:
         raise ValueError("Invitation has expired")
@@ -160,23 +168,22 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
 
     if invitation.is_platform:
         user.is_platform_admin = True
-        _finish_acceptance(invitation, user)
-        await db.commit()
-        return None
 
-    # Look for existing membership in the target scope
+    # Look for existing membership in the target scope. A platform invitation
+    # carries target_scope_id=None (see route_helpers.create_invitation_response),
+    # so it resolves to the platform sentinel here instead.
+    role_name = invitation.target_role_name
+    scope_type = invitation.target_scope_type
+    scope_id = PLATFORM_SCOPE_ID if invitation.is_platform else invitation.target_scope_id
+
     result = await db.execute(
         select(Membership).where(
             Membership.user_id == user.id,
-            Membership.scope_type == invitation.target_scope_type,
-            Membership.scope_id == invitation.target_scope_id,
+            Membership.scope_type == scope_type,
+            Membership.scope_id == scope_id,
         )
     )
     membership = result.scalar_one_or_none()
-
-    role_name = invitation.target_role_name
-    scope_type = invitation.target_scope_type
-    scope_id = invitation.target_scope_id
 
     if membership:
         # Compare permission sets: never downgrade through invitation.

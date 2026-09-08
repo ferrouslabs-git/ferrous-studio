@@ -44,6 +44,19 @@ EXEMPT = {
     # and needing to unlock a version to correct a link would be a poor trade.
     "link_project_repository",
     "unlink_project_repository",
+    # The board is live operational state keyed on (account_id, lineage_id),
+    # not the project row -- a locked design version must not freeze it, and
+    # copy_project must never learn it exists. See
+    # docs/go-live-and-merge-boards.md phase 3.3.
+    "create_release", "update_release", "delete_release",
+    "create_epic", "update_epic", "delete_epic",
+    "create_feature", "update_feature", "delete_feature",
+    "create_sprint", "update_sprint", "delete_sprint",
+    "create_requirement", "update_requirement", "delete_requirement", "claim_requirement_route",
+    "create_doc", "update_doc", "delete_doc",
+    "create_comment", "delete_comment",
+    "request_attachment_upload", "confirm_attachment_upload", "delete_attachment",
+    "create_board_token", "revoke_board_token_route", "queue_agent_run_route",
 }
 
 

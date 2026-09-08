@@ -633,13 +633,42 @@ async def restore_user(user_id: UUID, db: AsyncSession) -> User:
     return user
 
 
+async def _platform_membership(user_id: UUID, db: AsyncSession) -> Membership | None:
+    from ..security.dependencies import PLATFORM_SCOPE_ID
+
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.scope_type == "platform",
+            Membership.scope_id == PLATFORM_SCOPE_ID,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def promote_to_platform_admin(user_id: UUID, db: AsyncSession) -> User:
-    """Grant platform admin access to a user."""
+    """Grant platform admin access to a user: is_platform_admin plus the real
+    platform-scope Membership that has_platform_permission/get_scope_context
+    actually resolve (the boolean is kept in sync for the existing API shape)."""
+    from ..security.dependencies import PLATFORM_SCOPE_ID
+
     user = await get_user_by_id(user_id, db)
     if not user:
         raise ValueError(f"User {user_id} not found")
 
     user.is_platform_admin = True
+    membership = await _platform_membership(user_id, db)
+    if membership:
+        membership.role_name = "platform_admin"
+        membership.status = "active"
+    else:
+        db.add(Membership(
+            user_id=user_id,
+            scope_type="platform",
+            scope_id=PLATFORM_SCOPE_ID,
+            role_name="platform_admin",
+            status="active",
+        ))
     await db.commit()
     await db.refresh(user)
     return user
@@ -660,6 +689,9 @@ async def demote_from_platform_admin(user_id: UUID, db: AsyncSession) -> User:
             raise ValueError("Cannot remove the last platform administrator")
 
     user.is_platform_admin = False
+    membership = await _platform_membership(user_id, db)
+    if membership:
+        membership.status = "removed"
     await db.commit()
     await db.refresh(user)
     return user

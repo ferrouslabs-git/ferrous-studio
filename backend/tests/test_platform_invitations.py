@@ -1,13 +1,13 @@
 """Inviting someone straight in as a super admin.
 
-A super admin is a flag on the user, not a membership, so a platform
-invitation has to behave differently at three points or it quietly becomes
-either useless or dangerous: accepting it must set the flag and touch no
-membership; minting one must be possible only for a platform admin and only
-through the platform route (the organisation routes read the scope type
-from the request body, so trusting it there would let an organisation admin
-promote themselves); and the email must read sensibly with no organisation
-to name.
+A platform invitation has to behave differently at three points or it
+quietly becomes either useless or dangerous: accepting it must grant a real
+platform-scope Membership (scope_id = PLATFORM_SCOPE_ID) and keep
+is_platform_admin in sync with it; minting one must be possible only for a
+platform admin and only through the platform route (the organisation routes
+read the scope type from the request body, so trusting it there would let an
+organisation admin promote themselves); and the email must read sensibly
+with no organisation to name.
 
 Pure functions and stubs, no database -- the rest of the suite has none
 either.
@@ -23,8 +23,10 @@ from starlette.routing import Mount
 
 from app.auth.api import route_helpers
 from app.auth.models.invitation import Invitation
+from app.auth.models.membership import Membership
 from app.auth.models.user import User
 from app.auth.schemas.invitation import InvitationCreateRequest
+from app.auth.security.dependencies import PLATFORM_SCOPE_ID
 from app.auth.services import email_service, invitation_service
 from app.auth.services.invitation_service import (
     PLATFORM_ROLE,
@@ -35,12 +37,27 @@ from app.auth.services.invitation_service import (
 from app.main import app
 
 
-class FakeSession:
-    """Accepting a platform invitation must never look for a membership, so
-    any query is a failure, not a stub."""
+class FakeResult:
+    def __init__(self, value):
+        self._value = value
 
-    def __init__(self):
+    def scalar_one_or_none(self):
+        return self._value
+
+    def scalars(self):
+        rows = [self._value] if self._value is not None else []
+        return SimpleNamespace(all=lambda: rows)
+
+
+class FakeSession:
+    """No pre-existing membership by default (see `existing`) -- accepting a
+    platform invitation now queries for one exactly like an organisation
+    invitation does, just scoped to PLATFORM_SCOPE_ID instead of a tenant."""
+
+    def __init__(self, existing: Membership | None = None):
         self.commits = 0
+        self.added = []
+        self._existing = existing
 
     async def commit(self):
         self.commits += 1
@@ -49,10 +66,10 @@ class FakeSession:
         pass
 
     async def execute(self, _stmt):
-        raise AssertionError("a platform invitation queried the database on acceptance")
+        return FakeResult(self._existing)
 
-    def add(self, _obj):
-        raise AssertionError("a platform invitation added a row on acceptance")
+    def add(self, obj):
+        self.added.append(obj)
 
 
 def make_user(**overrides) -> User:
@@ -87,22 +104,48 @@ def make_platform_invitation(**overrides) -> Invitation:
     return invitation
 
 
-# ── accepting grants the flag and nothing else ──────────────────────────────
+# ── accepting grants a real platform membership, and keeps the flag in sync ─
 
 
-async def test_accepting_grants_the_flag_and_makes_no_membership():
+async def test_accepting_grants_a_platform_membership_and_the_flag():
     invitation = make_platform_invitation()
     user = make_user()
     db = FakeSession()
 
     membership = await accept_invitation(db, invitation, user)
 
-    assert membership is None
+    assert membership is not None
+    assert membership.scope_type == PLATFORM_SCOPE
+    assert membership.scope_id == PLATFORM_SCOPE_ID
+    assert membership.role_name == PLATFORM_ROLE
+    assert membership.status == "active"
+    assert membership in db.added
     assert user.is_platform_admin is True
     assert invitation.accepted_at is not None
     # Same courtesy as an organisation invitation: the inviter's name fills a blank.
     assert user.name == "Sam Taylor"
     assert db.commits == 1
+
+
+async def test_accepting_reactivates_an_existing_platform_membership():
+    """A previously-revoked platform admin re-invited must be reactivated in
+    place, not duplicated -- same rule as an organisation membership."""
+    invitation = make_platform_invitation()
+    user = make_user()
+    existing = Membership(
+        user_id=user.id,
+        scope_type=PLATFORM_SCOPE,
+        scope_id=PLATFORM_SCOPE_ID,
+        role_name=PLATFORM_ROLE,
+        status="removed",
+    )
+    db = FakeSession(existing=existing)
+
+    membership = await accept_invitation(db, invitation, user)
+
+    assert membership is existing
+    assert membership.status == "active"
+    assert db.added == []
 
 
 async def test_the_usual_guards_run_before_the_flag_is_set():
@@ -199,8 +242,16 @@ async def test_a_platform_invitation_carries_no_scope_and_the_platform_role(monk
     request = InvitationCreateRequest(
         email="sam@example.com", target_scope_type=PLATFORM_SCOPE, target_scope_id=uuid4(), target_role_name="account_admin"
     )
+    admin = make_user(is_platform_admin=True)
+    admin_membership = Membership(
+        user_id=admin.id,
+        scope_type=PLATFORM_SCOPE,
+        scope_id=PLATFORM_SCOPE_ID,
+        role_name=PLATFORM_ROLE,
+        status="active",
+    )
     response = await route_helpers.create_invitation_response(
-        FakeSession(), None, request, make_user(is_platform_admin=True), None
+        FakeSession(existing=admin_membership), None, request, admin, None
     )
 
     assert seen["tenant_id"] is None

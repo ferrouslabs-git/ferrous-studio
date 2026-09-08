@@ -36,12 +36,10 @@
         { "name": "PRODUCT_DISPLAY_NAME", "value": "{{EMAIL_FROM_NAME}}" },
         { "name": "EMAIL_LEGAL", "value": "{{EMAIL_LEGAL}}" },
 
-        { "name": "DOCUMENTS_BUCKET", "value": "{{DOCUMENTS_BUCKET}}" },
-        { "name": "ANTHROPIC_MODEL", "value": "claude-opus-5" }
+        { "name": "DOCUMENTS_BUCKET", "value": "{{DOCUMENTS_BUCKET}}" }
       ],
       "secrets": [
-        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" },
-        { "name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/ANTHROPIC_API_KEY" }
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

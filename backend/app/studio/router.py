@@ -10,6 +10,8 @@ from fastapi import APIRouter
 
 from .annotations import router as annotations_router
 from .audit import router as audit_router
+from .board.agent_routes import router as board_agent_router
+from .board.routes import router as board_router
 from .datasets import router as datasets_router
 from .diagrams import router as diagrams_router
 from .documents import router as documents_router
@@ -33,3 +35,5 @@ router.include_router(datasets_router)
 router.include_router(github_router)
 # Repository links hang off a project, so they carry no /github prefix.
 router.include_router(github_project_router)
+router.include_router(board_router)
+router.include_router(board_agent_router)

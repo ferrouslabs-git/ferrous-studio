@@ -97,6 +97,44 @@ _V3_TO_LEGACY_ROLE: dict[str, str] = {
 }
 
 
+# ── Platform layer ────────────────────────────────────────────────
+#
+# The platform tier has no scope row of its own -- membership needs a
+# scope_id (NOT NULL, and part of the (user_id, role_name, scope_type,
+# scope_id) uniqueness constraint), so platform-scope memberships use this
+# well-known sentinel rather than NULL, which would let the same platform
+# role be granted to the same user twice (NULL <> NULL in a unique index).
+PLATFORM_SCOPE_ID = UUID("00000000-0000-0000-0000-000000000000")
+
+
+async def _resolve_platform_roles(db: AsyncSession, user_id: UUID) -> list[str]:
+    """Active platform-scope role names for a user (usually 0 or 1)."""
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.scope_type == "platform",
+            Membership.scope_id == PLATFORM_SCOPE_ID,
+            Membership.status == "active",
+        )
+    )
+    return [m.role_name for m in result.scalars().all()]
+
+
+async def has_platform_permission(db: AsyncSession, current_user: User, permission: str) -> bool:
+    """Whether the user holds `permission` via an active platform-scope role.
+
+    Used in place of the old blanket ``current_user.is_platform_admin``
+    boolean check at platform-level routes (org creation, platform user
+    management, ...) -- these sit outside get_scope_context entirely, since
+    _parse_scope_headers only ever resolves an "account" scope.
+    """
+    roles = await _resolve_platform_roles(db, current_user.id)
+    if not roles:
+        return False
+    config = get_auth_config()
+    return any(permission in config.permissions_for_role(role) for role in roles)
+
+
 # ── get_scope_context (v3.0) ─────────────────────────────────────
 
 async def get_scope_context(
@@ -123,14 +161,27 @@ async def get_scope_context(
 
     scope_type, scope_id = _parse_scope_headers(request)
 
-    # Platform admin bypass
-    if current_user.is_platform_admin:
+    # Platform bypass: any active platform-scope role (admin/member/viewer
+    # alike) can visit any account scope for support/visibility. is_super_admin
+    # still drives the full has_permission() shortcut here, same as before --
+    # what changed is that the *write* half of that bypass is now refused by
+    # Postgres regardless (RLS WITH CHECK no longer honours app.is_super_admin,
+    # only USING/reads do -- see the RLS platform-read-only migration), so
+    # granting a platform_viewer or platform_member this same API-level
+    # shortcut cannot let them write cross-organisation even though nothing
+    # here itself distinguishes their role from platform_admin's.
+    platform_roles = await _resolve_platform_roles(db, current_user.id)
+    if platform_roles:
+        config = get_auth_config()
+        resolved: set[str] = set()
+        for role in platform_roles:
+            resolved |= config.permissions_for_role(role)
         ctx = ScopeContext(
             user_id=current_user.id,
             scope_type=scope_type,
             scope_id=scope_id,
-            active_roles=[],
-            resolved_permissions=set(),
+            active_roles=platform_roles,
+            resolved_permissions=resolved,
             is_super_admin=True,
         )
         request.state.scope_context = ctx

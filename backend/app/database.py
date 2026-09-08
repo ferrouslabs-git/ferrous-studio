@@ -57,7 +57,17 @@ class Base(DeclarativeBase):
 # create_engine opens no connection until first use, so building at import is
 # safe. With no DATABASE_URL set, everything stays None and only fails loudly
 # if a session is actually requested.
-sync_engine = create_engine(_url, pool_pre_ping=True, future=True) if _url else None
+#
+# Pool sizes: the RDS role backing DATABASE_URL is created with
+# CONNECTION LIMIT 20 (infra/terraform/scripts/create-rds-roles.sh). A rolling
+# deploy runs the replacement task before draining the old one, so two tasks'
+# pools are live at once — this must stay comfortably under 20 even doubled.
+# get_sync_db is unused in-container (only backend/scripts/bootstrap_admin.py
+# uses SessionLocal, standalone), so this is cheap insurance rather than load
+# capacity: pool_size=2, max_overflow=2 (4 per task, 8 across a deploy overlap).
+sync_engine = (
+    create_engine(_url, pool_pre_ping=True, pool_size=2, max_overflow=2, future=True) if _url else None
+)
 SessionLocal = (
     sessionmaker(bind=sync_engine, autoflush=False, expire_on_commit=False, future=True)
     if sync_engine is not None
@@ -65,7 +75,15 @@ SessionLocal = (
 )
 
 # ── async stack (app/auth/, and recommended for new feature code) ─────────
-async_engine = create_async_engine(_async_url(_url), pool_pre_ping=True, future=True) if _url else None
+# pool_size=4, max_overflow=4 (8 per task, 16 across a deploy overlap, headroom
+# under the role's CONNECTION LIMIT 20). Note RateLimitMiddleware
+# (app/main.py) opens its own session per request via this same engine, so an
+# /api/um/* request holds two concurrent checkouts, not one.
+async_engine = (
+    create_async_engine(_async_url(_url), pool_pre_ping=True, pool_size=4, max_overflow=4, future=True)
+    if _url
+    else None
+)
 AsyncSessionLocal = (
     async_sessionmaker(bind=async_engine, expire_on_commit=False, class_=AsyncSession)
     if async_engine is not None

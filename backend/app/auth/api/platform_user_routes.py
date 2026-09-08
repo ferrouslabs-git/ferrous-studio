@@ -18,7 +18,7 @@ from ..schemas.user_management import (
     PlatformUserResponse,
     UpdatePlatformUserRequest,
 )
-from ..security import get_current_user
+from ..security import get_current_user, has_platform_permission
 from ..services.audit_service import log_audit_event
 from ..services.user_service import (
     UserNotArchivedError,
@@ -80,7 +80,7 @@ async def consolidate_federated_user(
     Follows AWS guidance: if the federated profile already exists, linking typically requires deleting it first.
     This endpoint is platform-admin only and is intended for controlled migrations.
     """
-    ensure_platform_admin(current_user, "consolidate Cognito identities for")
+    await ensure_platform_admin(current_user, "consolidate Cognito identities for", db)
 
     user = await get_user_by_id(user_id, db)
     if not user:
@@ -183,7 +183,7 @@ async def get_platform_users(
     db: AsyncSession = Depends(get_db),
 ):
     """List all users across the platform. Supports ?role= filter (platform admin only)."""
-    if not current_user.is_platform_admin:
+    if not await has_platform_permission(db, current_user, "accounts:read"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only platform administrators can view all users",
@@ -199,7 +199,7 @@ async def get_platform_invitations(
 ):
     """Invitations across every organisation (platform admin only). Lets the
     platform Users page show invited-but-not-joined people alongside users."""
-    ensure_platform_admin(current_user, "view invitations for")
+    await ensure_platform_admin(current_user, "view invitations for", db, permission="accounts:read")
     return await list_platform_invitations(db, status_filter=status_filter)
 
 
@@ -217,7 +217,7 @@ async def invite_platform_admin(
     invitation, so it appears on the Users page and can be resent or revoked
     like any other.
     """
-    ensure_platform_admin(current_user, "create super admin")
+    await ensure_platform_admin(current_user, "create super admin", db, permission="platform:configure")
     invite = InvitationCreateRequest(email=payload.email, name=payload.name, target_scope_type=PLATFORM_SCOPE)
     return await create_invitation_response(db, None, invite, current_user)
 
@@ -231,7 +231,7 @@ async def resend_platform_invitation(
     """Resend any invitation by ID (platform admin only). Unlike the
     organisation route this needs no tenant, so it also serves super admin
     invitations, which have none."""
-    ensure_platform_admin(current_user, "resend invitations for")
+    await ensure_platform_admin(current_user, "resend invitations for", db)
     invitation = await get_any_invitation_by_id(db, invitation_id)
     if not invitation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
@@ -245,7 +245,7 @@ async def revoke_platform_invitation(
     db: AsyncSession = Depends(get_db),
 ):
     """Revoke any invitation by ID (platform admin only); see resend above."""
-    ensure_platform_admin(current_user, "revoke invitations for")
+    await ensure_platform_admin(current_user, "revoke invitations for", db)
     invitation = await get_any_invitation_by_id(db, invitation_id)
     if not invitation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
@@ -260,7 +260,7 @@ async def update_platform_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Edit a user's display name from the platform Users page (platform admin only)."""
-    ensure_platform_admin(current_user, "edit")
+    await ensure_platform_admin(current_user, "edit", db)
     fields = payload.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to update")
@@ -288,7 +288,7 @@ async def get_platform_user_detail(
     db: AsyncSession = Depends(get_db),
 ):
     """Get details for a single user including memberships (platform admin only)."""
-    ensure_platform_admin(current_user, "view user details for")
+    await ensure_platform_admin(current_user, "view user details for", db, permission="accounts:read")
 
     user = await get_user_by_id(user_id, db)
     if not user:
@@ -328,7 +328,7 @@ async def suspend_user_account(
     db: AsyncSession = Depends(get_db),
 ):
     """Suspend a user account (platform admin only)."""
-    ensure_platform_admin(current_user, "suspend")
+    await ensure_platform_admin(current_user, "suspend", db, permission="users:suspend")
     ensure_not_self_target(user_id, current_user)
 
     try:
@@ -361,7 +361,7 @@ async def unsuspend_user_account(
     db: AsyncSession = Depends(get_db),
 ):
     """Unsuspend a user account (platform admin only)."""
-    ensure_platform_admin(current_user, "unsuspend")
+    await ensure_platform_admin(current_user, "unsuspend", db, permission="users:suspend")
 
     try:
         unsuspended_user = await unsuspend_user(user_id, db)
@@ -393,7 +393,7 @@ async def promote_platform_admin_account(
     db: AsyncSession = Depends(get_db),
 ):
     """Grant platform admin access to another user (platform admin only)."""
-    ensure_platform_admin(current_user, "promote")
+    await ensure_platform_admin(current_user, "promote", db, permission="platform:configure")
 
     try:
         promoted_user = await promote_to_platform_admin(user_id, db)
@@ -425,7 +425,7 @@ async def demote_platform_admin_account(
     db: AsyncSession = Depends(get_db),
 ):
     """Remove platform admin access from another user (platform admin only)."""
-    ensure_platform_admin(current_user, "demote")
+    await ensure_platform_admin(current_user, "demote", db, permission="platform:configure")
     if current_user.id == user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -471,7 +471,7 @@ async def archive_platform_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Archive a user account (platform admin only)."""
-    ensure_platform_admin(current_user, "archive")
+    await ensure_platform_admin(current_user, "archive", db)
     ensure_not_self_target(user_id, current_user, "archive")
 
     try:
@@ -501,7 +501,7 @@ async def restore_platform_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Restore an archived user account (platform admin only)."""
-    ensure_platform_admin(current_user, "restore")
+    await ensure_platform_admin(current_user, "restore", db)
 
     try:
         restored = await restore_user(user_id, db)
@@ -539,7 +539,7 @@ async def delete_platform_user(
     Removes the user from Cognito, revokes all sessions, deletes memberships,
     anonymises invitations, and deletes the local User record. Irreversible.
     """
-    ensure_platform_admin(current_user, "delete")
+    await ensure_platform_admin(current_user, "delete", db)
     ensure_not_self_target(user_id, current_user, "delete")
 
     try:
@@ -578,7 +578,7 @@ async def disable_cognito_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Disable a user in Cognito — blocks sign-in but preserves the account (platform admin only)."""
-    ensure_platform_admin(current_user, "disable Cognito account for")
+    await ensure_platform_admin(current_user, "disable Cognito account for", db)
 
     user = await get_user_by_id(user_id, db)
     if not user:
@@ -606,7 +606,7 @@ async def enable_cognito_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Re-enable a disabled Cognito user (platform admin only)."""
-    ensure_platform_admin(current_user, "enable Cognito account for")
+    await ensure_platform_admin(current_user, "enable Cognito account for", db)
 
     user = await get_user_by_id(user_id, db)
     if not user:
@@ -634,7 +634,7 @@ async def get_cognito_user_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Look up a user's status in Cognito (platform admin only)."""
-    ensure_platform_admin(current_user, "view Cognito status for")
+    await ensure_platform_admin(current_user, "view Cognito status for", db, permission="accounts:read")
 
     user = await get_user_by_id(user_id, db)
     if not user:
@@ -660,7 +660,7 @@ async def reset_cognito_user_password(
     db: AsyncSession = Depends(get_db),
 ):
     """Force a password reset for a user — Cognito sends them a reset code (platform admin only)."""
-    ensure_platform_admin(current_user, "reset password for")
+    await ensure_platform_admin(current_user, "reset password for", db)
 
     user = await get_user_by_id(user_id, db)
     if not user:

@@ -12,7 +12,7 @@ from ..schemas.invitation import (
     InvitationResendResponse,
     InvitationRevokeResponse,
 )
-from ..security import ScopeContext, TenantContext
+from ..security import ScopeContext, TenantContext, has_platform_permission
 from ..services.audit_service import log_audit_event
 from ..services.auth_config_loader import get_auth_config
 from ..services.cognito_admin_service import create_invited_cognito_user_async
@@ -41,8 +41,18 @@ def ensure_tenant_access(tenant_id: UUID, ctx: TenantContext) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant mismatch")
 
 
-def ensure_platform_admin(current_user: User, action: str) -> None:
-    if not current_user.is_platform_admin:
+async def ensure_platform_admin(
+    current_user: User, action: str, db: AsyncSession, permission: str = "accounts:manage"
+) -> None:
+    """Require an active platform-scope role granting `permission`.
+
+    Resolved from a real Membership row (see PLATFORM_SCOPE_ID / has_platform_
+    permission in ../security/dependencies.py) rather than the old
+    ``current_user.is_platform_admin`` boolean -- these platform-level routes
+    sit outside get_scope_context entirely (it only ever resolves an
+    "account" scope), so they need their own permission check.
+    """
+    if not await has_platform_permission(db, current_user, permission):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Only platform administrators can {action} user accounts",
@@ -100,7 +110,7 @@ async def create_invitation_response(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Super admin invitations are sent from the platform Users page",
             )
-        ensure_platform_admin(current_user, "create super admin")
+        await ensure_platform_admin(current_user, "create super admin", db, permission="platform:configure")
         target_scope_id = None
         target_role_name = PLATFORM_ROLE
     elif target_scope_type not in (None, "account"):

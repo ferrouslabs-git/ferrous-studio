@@ -32,7 +32,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import func, select  # noqa: E402
 
 from app.auth.models import User  # noqa: E402
+from app.auth.models.membership import Membership  # noqa: E402
+from app.auth.security.dependencies import PLATFORM_SCOPE_ID  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
+
+PLATFORM_ROLE = "platform_admin"
 
 
 def main(argv: list[str]) -> int:
@@ -68,6 +72,24 @@ def main(argv: list[str]) -> int:
             return 3
 
         user.is_platform_admin = True
+        membership = db.scalar(
+            select(Membership).where(
+                Membership.user_id == user.id,
+                Membership.scope_type == "platform",
+                Membership.scope_id == PLATFORM_SCOPE_ID,
+            )
+        )
+        if membership:
+            membership.role_name = PLATFORM_ROLE
+            membership.status = "active"
+        else:
+            db.add(Membership(
+                user_id=user.id,
+                scope_type="platform",
+                scope_id=PLATFORM_SCOPE_ID,
+                role_name=PLATFORM_ROLE,
+                status="active",
+            ))
         db.commit()
 
     print(f"{email} is now a platform admin.")
