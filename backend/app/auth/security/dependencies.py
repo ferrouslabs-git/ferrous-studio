@@ -3,7 +3,7 @@ Authentication dependencies for FastAPI endpoints
 """
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import text, select
+from sqlalchemy import event, text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
@@ -286,12 +286,34 @@ async def _set_rls_vars(
     # normal function call, takes parameters, and is transaction-scoped in the
     # same way -- it never leaks onto a pooled connection.
     flag = "true" if is_super_admin else "false"
-    await db.execute(text("SELECT set_config('app.current_scope_type', :st, true)"), {"st": scope_type})
-    await db.execute(text("SELECT set_config('app.current_scope_id', :sid, true)"), {"sid": str(scope_id)})
-    await db.execute(text("SELECT set_config('app.is_super_admin', :sa, true)"), {"sa": flag})
-    # Backward compat: existing RLS policies use these variables
-    await db.execute(text("SELECT set_config('app.current_tenant_id', :tid, true)"), {"tid": str(scope_id)})
-    await db.execute(text("SELECT set_config('app.is_platform_admin', :ia, true)"), {"ia": flag})
+    stmts = [
+        (text("SELECT set_config('app.current_scope_type', :st, true)"), {"st": scope_type}),
+        (text("SELECT set_config('app.current_scope_id', :sid, true)"), {"sid": str(scope_id)}),
+        (text("SELECT set_config('app.is_super_admin', :sa, true)"), {"sa": flag}),
+        # Backward compat: existing RLS policies use these variables
+        (text("SELECT set_config('app.current_tenant_id', :tid, true)"), {"tid": str(scope_id)}),
+        (text("SELECT set_config('app.is_platform_admin', :ia, true)"), {"ia": flag}),
+    ]
+
+    for stmt, params in stmts:
+        await db.execute(stmt, params)
+
+    # is_local=true means these vars vanish the moment this transaction ends --
+    # by design, so they never leak onto a pooled connection a later, unrelated
+    # request might reuse. But several routes commit mid-request (e.g. an
+    # add()+commit()+refresh() to pick up server-generated defaults), and
+    # AsyncSession auto-begins a new transaction the instant the next
+    # statement runs on it. That new transaction starts with none of these
+    # vars set, so RLS's USING clause matches nothing and the refresh (or any
+    # later query) sees zero rows -- e.g. SQLAlchemy's
+    # "Could not refresh instance" on a create that just committed fine.
+    # Re-apply the same vars at the start of every later transaction this
+    # session opens, for as long as this request's session is alive: no route
+    # has to know this happens or remember to re-set anything itself.
+    @event.listens_for(db.sync_session, "after_begin")
+    def _reapply_rls_vars(session, transaction, connection) -> None:
+        for stmt, params in stmts:
+            connection.execute(stmt, params)
 
 
 # ──────────────────────────────────────────────────────────────────
