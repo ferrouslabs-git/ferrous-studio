@@ -240,12 +240,15 @@ class DocCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     body: str = ""
     tags: list[str] = []
+    epic_id: UUID | None = None
 
 
 class DocUpdate(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=255)
     body: str | None = None
     tags: list[str] | None = None
+    epic_id: UUID | None = None
+    clear_epic: bool = False
 
 
 class DocRead(BaseModel):
@@ -256,6 +259,7 @@ class DocRead(BaseModel):
     title: str
     body: str
     tags: list[str]
+    epic_id: UUID | None
     created_by: UUID | None
     created_at: datetime
     updated_at: datetime

@@ -399,6 +399,14 @@ async def delete_epic(
             r.feature_id = None
         r.updated_at = utc_now()
     now = utc_now()
+    # Docs are content a human could regret losing, so they follow the
+    # requirements rule (unfile, never delete) rather than cascading like
+    # features -- they become "unfiled" and show on the Overview.
+    await db.execute(
+        Doc.__table__.update()
+        .where(Doc.board_id == board.id, Doc.epic_id == epic.id, Doc.deleted_at.is_(None))
+        .values(epic_id=None, updated_at=now)
+    )
     doomed_entity_ids = [epic.id, *feature_ids]
     if doomed_entity_ids:
         await db.execute(
@@ -881,14 +889,16 @@ async def _get_doc(db: AsyncSession, board: Board, doc_id: UUID) -> Doc:
 @router.get("/projects/{project_id}/board/docs", response_model=list[DocRead])
 async def list_docs(
     project_id: UUID,
+    epic_id: UUID | None = Query(None),
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Doc]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    result = await db.execute(
-        select(Doc).where(Doc.board_id == board.id, Doc.deleted_at.is_(None)).order_by(Doc.seq)
-    )
+    stmt = select(Doc).where(Doc.board_id == board.id, Doc.deleted_at.is_(None))
+    if epic_id is not None:
+        stmt = stmt.where(Doc.epic_id == epic_id)
+    result = await db.execute(stmt.order_by(Doc.seq))
     return list(result.scalars().all())
 
 
@@ -901,6 +911,8 @@ async def create_doc(
 ) -> Doc:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
+    if payload.epic_id is not None:
+        await _get_epic(db, board, payload.epic_id)
     seq = await service._next_seq(db, board, "doc_seq")
     doc = Doc(board_id=board.id, account_id=board.account_id, seq=seq, created_by=ctx.user_id, **payload.model_dump())
     db.add(doc)
@@ -934,7 +946,15 @@ async def update_doc(
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     doc = await _get_doc(db, board, doc_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    clear_epic = data.pop("clear_epic", False)
+    if clear_epic:
+        doc.epic_id = None
+    elif data.get("epic_id") is not None:
+        await _get_epic(db, board, data["epic_id"])
+    for field, value in data.items():
+        if field == "epic_id" and value is None:
+            continue
         setattr(doc, field, value)
     doc.updated_at = utc_now()
     await db.commit()

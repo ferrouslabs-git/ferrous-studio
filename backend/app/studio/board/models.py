@@ -274,12 +274,18 @@ class Doc(Base):
     title = Column(String(255), nullable=False)
     body = Column(Text, nullable=False, default="")
     tags = Column(ARRAY(String), nullable=False, default=list)
+    # Nullable -- an "unfiled" doc shows on the Overview rather than under
+    # any epic. Ported from software-management (added to docs 2026-09-04).
+    epic_id = Column(UUID(as_uuid=True), ForeignKey("board_epics.id", ondelete="SET NULL"), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
 
-    __table_args__ = (UniqueConstraint("board_id", "seq", name="uq_board_docs_seq"),)
+    __table_args__ = (
+        UniqueConstraint("board_id", "seq", name="uq_board_docs_seq"),
+        Index("ix_board_docs_epic", "epic_id"),
+    )
 
     @property
     def human_id(self) -> str:
