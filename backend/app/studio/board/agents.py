@@ -18,10 +18,11 @@ import secrets
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
+from app.auth.security.dependencies import _set_rls_vars
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
@@ -61,11 +62,14 @@ async def revoke_board_token(db: AsyncSession, token: BoardToken) -> None:
 
 
 async def _set_rls_vars_for_account(db: AsyncSession, account_id: UUID) -> None:
-    if db.bind is None or db.bind.dialect.name != "postgresql":
-        return
-    await db.execute(text("SELECT set_config('app.current_scope_type', 'account', true)"), {})
-    await db.execute(text("SELECT set_config('app.current_scope_id', :sid, true)"), {"sid": str(account_id)})
-    await db.execute(text("SELECT set_config('app.is_super_admin', 'false', true)"))
+    """Thin wrapper over the shared _set_rls_vars (app/auth/security/
+    dependencies.py) -- board-token requests need the exact same
+    after_begin re-application it registers, or a route that commits
+    mid-request (add() -> commit() -> refresh(), same as any human-session
+    route) hits the identical "Could not refresh instance" RLS bug that fix
+    closed for Cognito sessions. Duplicating the GUC-setting SQL here
+    instead would silently drift the two paths apart again."""
+    await _set_rls_vars(db, "account", account_id, is_super_admin=False)
 
 
 async def require_board_token(

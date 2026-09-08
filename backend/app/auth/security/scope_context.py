@@ -10,6 +10,11 @@ class ScopeContext:
     active_roles: list[str] = field(default_factory=list)
     resolved_permissions: set[str] = field(default_factory=set)
     is_super_admin: bool = False
+    # Set only when this context was resolved from a board token (see
+    # app/studio/board/auth.py) rather than a human Cognito login -- the
+    # token is scoped to exactly one board, and every board route must
+    # refuse it against any other. None for a normal human request.
+    board_id: UUID | None = None
 
     def has_permission(self, perm: str) -> bool:
         if self.is_super_admin:

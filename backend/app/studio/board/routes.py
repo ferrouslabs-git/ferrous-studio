@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
-from app.auth.security import require_permission
+from .auth import require_board_permission as require_permission
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
@@ -66,8 +66,15 @@ router = APIRouter()
 PRESIGN_TTL_SECONDS = 900
 
 
-async def _board(db: AsyncSession, project: Project) -> Board:
-    return await service.get_or_create_board(db, project)
+async def _board(db: AsyncSession, project: Project, ctx: ScopeContext) -> Board:
+    board = await service.get_or_create_board(db, project)
+    # A board token is scoped to exactly one board at mint time
+    # (ctx.board_id, set only on that path -- see auth.py); refuse it
+    # against any other, the same way a Cognito session is already
+    # confined to its own account by RLS.
+    if ctx.board_id is not None and ctx.board_id != board.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Board token is not valid for this project")
+    return board
 
 
 def _jsonable(value):
@@ -126,7 +133,7 @@ async def list_releases(
     db: AsyncSession = Depends(get_db),
 ) -> list[ReleaseRead]:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     result = await db.execute(
         select(Release)
         .where(Release.board_id == board.id, Release.deleted_at.is_(None))
@@ -143,7 +150,7 @@ async def create_release(
     db: AsyncSession = Depends(get_db),
 ) -> ReleaseRead:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     seq = await service._next_seq(db, board, "release_seq")
     release = Release(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(release)
@@ -175,7 +182,7 @@ async def get_release(
     db: AsyncSession = Depends(get_db),
 ) -> ReleaseRead:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     release = await _get_release(db, board, release_id)
     return await _release_read(db, board, release)
 
@@ -193,7 +200,7 @@ async def update_release(
     logged as its own event on an actual transition, distinct from a plain
     field edit (ported from software-management's update_release)."""
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     release = await _get_release(db, board, release_id)
     data = payload.model_dump(exclude_unset=True)
     shipped = data.pop("shipped", None)
@@ -228,7 +235,7 @@ async def delete_release(
     Ported deletion semantics, software-management store.py's
     delete_release."""
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     release = await _get_release(db, board, release_id)
     now = utc_now()
     for model in (Epic, Requirement, Sprint):
@@ -272,7 +279,7 @@ async def list_epics(
     db: AsyncSession = Depends(get_db),
 ) -> list[Epic]:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     result = await db.execute(
         select(Epic).where(Epic.board_id == board.id, Epic.deleted_at.is_(None)).order_by(Epic.seq)
     )
@@ -286,7 +293,7 @@ async def get_board_summary(
     db: AsyncSession = Depends(get_db),
 ) -> BoardSummary:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     summary = await service.board_summary(db, board)
     return BoardSummary(
         epics=[EpicSummary(epic=e["epic"], progress=EpicProgress(**e["progress"])) for e in summary["epics"]],
@@ -302,7 +309,7 @@ async def create_epic(
     db: AsyncSession = Depends(get_db),
 ) -> Epic:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     if payload.release_id is not None:
         await _get_release(db, board, payload.release_id)
     seq = await service._next_seq(db, board, "epic_seq")
@@ -323,7 +330,7 @@ async def get_epic(
     db: AsyncSession = Depends(get_db),
 ) -> Epic:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     return await _get_epic(db, board, epic_id)
 
 
@@ -336,7 +343,7 @@ async def update_epic(
     db: AsyncSession = Depends(get_db),
 ) -> Epic:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     epic = await _get_epic(db, board, epic_id)
     data = payload.model_dump(exclude_unset=True)
     if data.get("status") == "Done":
@@ -378,7 +385,7 @@ async def delete_epic(
     anywhere. Ported deletion semantics, software-management store.py's
     delete_epic."""
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     epic = await _get_epic(db, board, epic_id)
     feature_ids = list(
         (await db.execute(select(Feature.id).where(Feature.epic_id == epic.id, Feature.deleted_at.is_(None))))
@@ -451,7 +458,7 @@ async def list_features(
     db: AsyncSession = Depends(get_db),
 ) -> list[Feature]:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     stmt = select(Feature).where(Feature.board_id == board.id, Feature.deleted_at.is_(None))
     if epic_id is not None:
         stmt = stmt.where(Feature.epic_id == epic_id)
@@ -467,7 +474,7 @@ async def create_feature(
     db: AsyncSession = Depends(get_db),
 ) -> Feature:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     await _get_epic(db, board, payload.epic_id)
     seq = await service._next_seq(db, board, "feature_seq")
     feature = Feature(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
@@ -487,7 +494,7 @@ async def get_feature(
     db: AsyncSession = Depends(get_db),
 ) -> Feature:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     return await _get_feature(db, board, feature_id)
 
 
@@ -500,7 +507,7 @@ async def update_feature(
     db: AsyncSession = Depends(get_db),
 ) -> Feature:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     feature = await _get_feature(db, board, feature_id)
     feature.title = payload.title
     feature.updated_at = utc_now()
@@ -523,7 +530,7 @@ async def delete_feature(
     cascade to soft-deleted. Ported deletion semantics, software-management
     store.py's delete_feature."""
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     feature = await _get_feature(db, board, feature_id)
     requirements = (
         await db.execute(select(Requirement).where(Requirement.feature_id == feature.id))
@@ -569,7 +576,7 @@ async def list_sprints(
     db: AsyncSession = Depends(get_db),
 ) -> list[Sprint]:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     result = await db.execute(
         select(Sprint).where(Sprint.board_id == board.id, Sprint.deleted_at.is_(None)).order_by(Sprint.seq)
     )
@@ -584,7 +591,7 @@ async def create_sprint(
     db: AsyncSession = Depends(get_db),
 ) -> Sprint:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     if payload.release_id is not None:
         await _get_release(db, board, payload.release_id)
     seq = await service._next_seq(db, board, "sprint_seq")
@@ -605,7 +612,7 @@ async def get_sprint(
     db: AsyncSession = Depends(get_db),
 ) -> Sprint:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     return await _get_sprint(db, board, sprint_id)
 
 
@@ -618,7 +625,7 @@ async def update_sprint(
     db: AsyncSession = Depends(get_db),
 ) -> SprintUpdateResult:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     sprint = await _get_sprint(db, board, sprint_id)
     data = payload.model_dump(exclude_unset=True)
     new_state = data.get("state")
@@ -651,7 +658,7 @@ async def delete_sprint(
     same deletion principle as releases/epics/features: a sprint is filing,
     requirements carry the real content."""
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     sprint = await _get_sprint(db, board, sprint_id)
     requirements = (
         await db.execute(select(Requirement).where(Requirement.sprint_id == sprint.id))
@@ -672,7 +679,7 @@ async def get_sprint_burndown(
     db: AsyncSession = Depends(get_db),
 ) -> BurndownRead:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     sprint = await _get_sprint(db, board, sprint_id)
     data = await service.sprint_burndown(db, board, sprint)
     return BurndownRead(
@@ -712,7 +719,7 @@ async def list_requirements(
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     stmt = select(Requirement).where(Requirement.board_id == board.id, Requirement.deleted_at.is_(None))
     if status_filter is not None:
         stmt = stmt.where(Requirement.status == status_filter)
@@ -740,7 +747,7 @@ async def create_requirement(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     seq = await service._next_seq(db, board, "requirement_seq")
     requirement = Requirement(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(requirement)
@@ -761,7 +768,7 @@ async def get_requirement(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     requirement = await _get_requirement(db, board, requirement_id)
     return await _requirement_read(db, board, requirement)
 
@@ -775,7 +782,7 @@ async def update_requirement(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     requirement = await _get_requirement(db, board, requirement_id)
 
     before = {"status": requirement.status, "sprint_id": requirement.sprint_id}
@@ -836,7 +843,7 @@ async def delete_requirement(
     beyond its own comments/attachments. Ported deletion semantics,
     software-management store.py's delete_requirement."""
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     requirement = await _get_requirement(db, board, requirement_id)
     now = utc_now()
     await db.execute(
@@ -861,7 +868,7 @@ async def claim_requirement_route(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     result = await service.claim_requirement(db, board, requirement_id, ctx.user_id)
     if result == service.ClaimResult.NOT_FOUND:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requirement not found")
@@ -894,7 +901,7 @@ async def list_docs(
     db: AsyncSession = Depends(get_db),
 ) -> list[Doc]:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     stmt = select(Doc).where(Doc.board_id == board.id, Doc.deleted_at.is_(None))
     if epic_id is not None:
         stmt = stmt.where(Doc.epic_id == epic_id)
@@ -910,7 +917,7 @@ async def create_doc(
     db: AsyncSession = Depends(get_db),
 ) -> Doc:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     if payload.epic_id is not None:
         await _get_epic(db, board, payload.epic_id)
     seq = await service._next_seq(db, board, "doc_seq")
@@ -931,7 +938,7 @@ async def get_doc(
     db: AsyncSession = Depends(get_db),
 ) -> Doc:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     return await _get_doc(db, board, doc_id)
 
 
@@ -944,7 +951,7 @@ async def update_doc(
     db: AsyncSession = Depends(get_db),
 ) -> Doc:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     doc = await _get_doc(db, board, doc_id)
     data = payload.model_dump(exclude_unset=True)
     clear_epic = data.pop("clear_epic", False)
@@ -970,7 +977,7 @@ async def delete_doc(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     doc = await _get_doc(db, board, doc_id)
     now = utc_now()
     await db.execute(
@@ -999,7 +1006,7 @@ async def list_comments(
     db: AsyncSession = Depends(get_db),
 ) -> list[Comment]:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     result = await db.execute(
         select(Comment)
         .where(
@@ -1021,7 +1028,7 @@ async def create_comment(
     db: AsyncSession = Depends(get_db),
 ) -> Comment:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     if not await service.entity_exists(db, board.id, payload.entity_type, payload.entity_id):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Comment target does not exist")
     comment = Comment(board_id=board.id, account_id=board.account_id, author_id=ctx.user_id, **payload.model_dump())
@@ -1043,7 +1050,7 @@ async def delete_comment(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     comment = (
         await db.execute(
             select(Comment).where(
@@ -1070,7 +1077,7 @@ async def list_events(
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     stmt = select(Event).where(Event.board_id == board.id)
     if entity_type is not None:
         stmt = stmt.where(Event.entity_type == entity_type)
@@ -1114,7 +1121,7 @@ async def list_attachments(
     db: AsyncSession = Depends(get_db),
 ) -> list[Attachment]:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     result = await db.execute(
         select(Attachment).where(
             Attachment.board_id == board.id,
@@ -1139,7 +1146,7 @@ async def request_attachment_upload(
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentUploadTicket:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     if not await service.entity_exists(db, board.id, payload.entity_type, payload.entity_id):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Attachment target does not exist")
 
@@ -1186,7 +1193,7 @@ async def confirm_attachment_upload(
     db: AsyncSession = Depends(get_db),
 ) -> Attachment:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     attachment = await _get_attachment(db, board, attachment_id)
     try:
         info = await storage.head_object(attachment.s3_key)
@@ -1213,7 +1220,7 @@ async def download_attachment(
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentDownload:
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     attachment = await _get_attachment(db, board, attachment_id)
     if attachment.status != "uploaded":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
@@ -1233,7 +1240,7 @@ async def delete_attachment(
     immediately -- keeping the file itself around isn't free, and there's no
     restore UI yet to make that trade-off worthwhile."""
     project = await get_project(db, project_id, ctx)
-    board = await _board(db, project)
+    board = await _board(db, project, ctx)
     attachment = await _get_attachment(db, board, attachment_id)
     await storage.delete_object(attachment.s3_key)
     attachment.deleted_at = utc_now()
