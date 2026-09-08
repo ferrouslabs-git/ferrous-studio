@@ -105,6 +105,7 @@ class TenantInvitationListResponse(BaseModel):
     status: str
     target_scope_type: str | None = None
     target_scope_id: UUID | None = None
+    created_by: UUID | None = None
     created_at: datetime
     expires_at: datetime
     accepted_at: datetime | None = None

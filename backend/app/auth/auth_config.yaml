@@ -34,6 +34,20 @@ roles:
       permissions:
         - accounts:read
 
+  # Only the organisation admin writes content. Members and viewers read it;
+  # a member's two additions are inviting people (member/viewer only -- see
+  # the subset rule below) and pinning tasks to a wireframe.
+  #
+  # `tasks:create` is deliberately narrower than `data:write`: it authorises
+  # POSTing an annotation of kind "task" and nothing else -- not notes, and
+  # not editing, deleting or resolving any annotation afterwards.
+  #
+  # Invite authority is a subset rule (create_invitation_response in
+  # api/route_helpers.py): you may only invite a role whose permissions are a
+  # subset of your own. That is what stops a member inviting an admin, and it
+  # is why account_admin must list every permission account_member holds --
+  # drop `tasks:create` from the admin below and admins can no longer invite
+  # members.
   account:
     - name: account_admin
       display_name: "Organisation Admin"
@@ -44,6 +58,7 @@ roles:
         - members:invite
         - data:read
         - data:write
+        - tasks:create
         - board:read
         - board:write
         - board:tokens
@@ -53,9 +68,9 @@ roles:
       permissions:
         - account:read
         - data:read
-        - data:write
+        - members:invite
+        - tasks:create
         - board:read
-        - board:write
 
     - name: account_viewer
       display_name: "Viewer"

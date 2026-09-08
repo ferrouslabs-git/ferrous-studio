@@ -52,11 +52,25 @@ export function OrgPage() {
     );
   }
 
-  // Admin is the top organisation role: it both manages members and invites.
+  // Read from the URL's organisation rather than the session's active one:
+  // on a deep link the active scope can still be catching up (the effect
+  // above), and the wrong role for a moment would flicker the controls.
+  //
+  // Only the admin manages members. A member may invite as well -- restricted
+  // to member/viewer, and to their own invitations afterwards; both rules are
+  // enforced by the backend (api/route_helpers.py), this only shapes the UI.
   const myRole = org?.role ?? null;
   const canManage = isPlatformAdmin || myRole === "account_admin";
+  const canInvite = canManage || myRole === "account_member";
 
-  return <UsersSection orgId={orgId} currentUserId={user?.id ?? ""} canManage={canManage} />;
+  return (
+    <UsersSection
+      orgId={orgId}
+      currentUserId={user?.id ?? ""}
+      canManage={canManage}
+      canInvite={canInvite}
+    />
+  );
 }
 
 // ── Users (members + open invitations) ─────────────────────────────────────
@@ -113,10 +127,12 @@ function UsersSection({
   orgId,
   currentUserId,
   canManage,
+  canInvite,
 }: {
   orgId: string;
   currentUserId: string;
   canManage: boolean;
+  canInvite: boolean;
 }) {
   const members = useLoad(() => getTenantUsers(orgId, "all"), [orgId]);
   const invites = useLoad(() => listTenantInvitations(orgId), [orgId]);
@@ -167,8 +183,10 @@ function UsersSection({
   const filtered = query.trim() !== "" || roleFilter !== "" || statusFilter !== "";
 
   const menuItems = (r: UserRow): RowMenuItem[] | null => {
-    if (!canManage) return null;
     if (r.kind === "invite") {
+      // An admin manages every invitation; a member only the ones they sent.
+      const mine = r.invite.created_by === currentUserId;
+      if (!canManage && !(canInvite && mine)) return null;
       return [
         { label: "Resend invitation", onSelect: () => void act(() => resendInvitation(orgId, r.invite.invitation_id)) },
         {
@@ -178,6 +196,7 @@ function UsersSection({
         },
       ];
     }
+    if (!canManage) return null;
     if (r.status === "archived") {
       return [{ label: "Restore", onSelect: () => void act(() => reactivateTenantUser(orgId, r.member.user_id)) }];
     }
@@ -207,9 +226,10 @@ function UsersSection({
       <div className="page-head">
         <h1>Users</h1>
         <span className="shell-spacer" />
-        {canManage && (
+        {canInvite && (
           <InviteButton
             orgId={orgId}
+            canInviteAdmins={canManage}
             onInvited={(msg) => {
               setNotice(msg);
               void reload();
@@ -295,7 +315,7 @@ function UsersSection({
             "No users match these filters."
           ) : (
             <>
-              <b>No users yet.</b> {canManage ? "Invite the first one." : "Nothing here yet."}
+              <b>No users yet.</b> {canInvite ? "Invite the first one." : "Nothing here yet."}
             </>
           )
         }
@@ -415,8 +435,24 @@ function EditUserDrawer({
 
 // ── Invite ─────────────────────────────────────────────────────────────────
 
-function InviteButton({ orgId, onInvited }: { orgId: string; onInvited: (notice: string) => void }) {
+/** Roles a member may invite: everything except the admin, which would hand
+ *  out more than they hold. The backend refuses it either way (the subset rule
+ *  in api/route_helpers.py); this keeps the option out of the list. */
+const MEMBER_INVITABLE_ROLES = new Set(["account_member", "account_viewer"]);
+
+function InviteButton({
+  orgId,
+  canInviteAdmins,
+  onInvited,
+}: {
+  orgId: string;
+  canInviteAdmins: boolean;
+  onInvited: (notice: string) => void;
+}) {
   const { byLayer } = useRoles();
+  const options = (byLayer.account ?? []).filter(
+    (r) => canInviteAdmins || MEMBER_INVITABLE_ROLES.has(r.name),
+  );
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState("account_member");
@@ -488,12 +524,9 @@ function InviteButton({ orgId, onInvited }: { orgId: string; onInvited: (notice:
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
-        <Field
-          label="Role"
-          hint="Admins manage users and invitations; members create and edit projects; viewers have read-only access."
-        >
+        <Field label="Role">
           <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
-            {(byLayer.account ?? []).map((r) => (
+            {options.map((r) => (
               <option key={r.name} value={r.name}>
                 {r.display_name}
               </option>

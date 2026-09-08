@@ -47,8 +47,11 @@ PLATFORM_ROLE = "platform_admin"
 
 
 # Legacy role → v3 role name mapping (used to derive target_role_name from
-# the legacy 'role' API field when callers haven't migrated yet).
-_LEGACY_TO_V3 = {
+# the legacy 'role' API field when callers haven't migrated yet). Public
+# because the invite authority check has to resolve a request's effective
+# role exactly the way create_invitation below does -- checking one and
+# storing the other is how a caller sneaks past it.
+LEGACY_TO_V3 = {
     "owner": "account_admin",
     "admin": "account_admin",
     "member": "account_member",
@@ -108,7 +111,7 @@ async def create_invitation(
     hashed = hash_token(raw_token)
     resolved_scope_type = target_scope_type or "account"
     resolved_scope_id = target_scope_id or tenant_id
-    resolved_role_name = target_role_name or _LEGACY_TO_V3.get(role, role)
+    resolved_role_name = target_role_name or LEGACY_TO_V3.get(role, role)
     invitation = Invitation(
         tenant_id=tenant_id,
         email=normalized_email,
@@ -335,6 +338,10 @@ async def list_tenant_invitations(
             "name": inv.name,
             "role": inv.target_role_name,
             "status": inv_status,
+            # Who sent it: a member may resend/revoke only their own, and the
+            # UI needs to know which rows those are (ensure_invitation_
+            # authority in api/route_helpers.py enforces it server-side).
+            "created_by": inv.created_by,
             "target_scope_type": inv.target_scope_type,
             "target_scope_id": inv.target_scope_id,
             "created_at": inv.created_at,
@@ -353,6 +360,7 @@ def _invitation_dict(inv: Invitation) -> dict:
         "name": inv.name,
         "role": inv.target_role_name,
         "status": inv.status,
+        "created_by": inv.created_by,
         "target_scope_type": inv.target_scope_type,
         "target_scope_id": inv.target_scope_id,
         "created_at": inv.created_at,

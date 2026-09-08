@@ -92,7 +92,7 @@ const isTextEditing = (el: HTMLElement): boolean =>
 
 export function StudioPage() {
   const { wireframeId = "" } = useParams();
-  const { project, canWrite } = useProject();
+  const { project, canWrite, canAddTasks } = useProject();
   const projectId = project.id;
   const wireframe = useLoad(() => getWireframe(projectId, wireframeId), [projectId, wireframeId]);
   const [customComponents, setCustomComponents] = useState<CustomDef[]>([]);
@@ -1305,7 +1305,11 @@ export function StudioPage() {
       }}
     >
       <div className="topbar">
-        <div className="brand">{wireframe.data.name}{!canWrite && <span className="v"> · read only</span>}</div>
+        <div className="brand">
+          {wireframe.data.name}
+          {/* A member edits nothing but may still pin tasks, so say which. */}
+          {!canWrite && <span className="v"> · {canAddTasks ? "tasks only" : "read only"}</span>}
+        </div>
         {versionCount !== null && <div className="crumbs"><b>v{versionCount}</b></div>}
         {/* The component library fills the bar's spare middle; viewers get a plain spacer. */}
         {canWrite ? (
@@ -1502,6 +1506,10 @@ export function StudioPage() {
                   pages={pages}
                   activePageId={activePageId}
                   composerTarget={composerTarget}
+                  // A member may add tasks and nothing else, so the Notes tab
+                  // stays composer-less for them and no row offers Edit or
+                  // Delete on either tab.
+                  canCreate={canWrite || (rightTab === "tasks" && canAddTasks)}
                   canWrite={canWrite}
                   describeTarget={describeTarget}
                   hotTarget={hotMark}

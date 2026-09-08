@@ -7,6 +7,11 @@ document's own ids. Anyone with ``data:write`` may edit, delete, resolve or
 reopen any annotation; accountability comes from the audit log, which records
 every mutation (see ``audit.py``).
 
+``tasks:create`` is the one crack in an otherwise read-only organisation
+member's access: it authorises creating an annotation of kind "task" here and
+nothing else. Notes, and every later change to a task, still need
+``data:write``.
+
 Annotations deliberately live outside the page-document op system: they are
 per-user-attributed metadata, not document content, so they do not participate
 in undo, snapshots, or conflict detection. A target that later disappears
@@ -23,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
 from app.auth.models.user import User
-from app.auth.security import require_permission
+from app.auth.security import require_any_permission, require_permission
 from app.auth.security.scope_context import ScopeContext
 
 from .audit import record_event
@@ -137,9 +142,18 @@ async def create_annotation(
     project_id: UUID,
     wireframe_id: UUID,
     payload: AnnotationCreate,
-    ctx: ScopeContext = Depends(require_permission("data:write")),
+    ctx: ScopeContext = Depends(require_any_permission(["data:write", "tasks:create"])),
     db: AsyncSession = Depends(get_db),
 ) -> AnnotationRead:
+    # An organisation member reads the whole product but writes nothing except
+    # tasks, so `tasks:create` opens this one route and only for kind="task".
+    # Notes stay behind data:write, as do editing, deleting and resolving --
+    # the other three routes in this module are unchanged.
+    if payload.kind != "task" and not ctx.has_permission("data:write"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Required permission: data:write",
+        )
     project = await get_project(db, project_id, ctx)
     wireframe = await get_wireframe(db, project, wireframe_id)
     # Lock the wireframe row while minting the number so concurrent creates
