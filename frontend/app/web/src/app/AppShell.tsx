@@ -218,7 +218,6 @@ function ProjectNav({
         <NavItem to={`${base}/diagrams`} icon="diagram" label="Diagrams" />
         <NavItem to={`${base}/wireframes`} icon="layout" label="Wireframes" />
         <NavItem to={`${base}/documents`} icon="file" label="Documents" />
-        <NavItem to={`${base}/plan`} icon="plan" label="Plan" />
         <NavItem to={`${base}/roadmap`} icon="roadmap" label="Roadmap" />
         <NavItem to={`${base}/epics`} icon="epic" label="Epics" />
       </NavGroup>

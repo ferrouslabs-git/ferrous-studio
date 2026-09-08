@@ -6,6 +6,7 @@
 // something typed in here -- the way to move a release's date is to move
 // the sprint that sets it, on the Plan page.
 import { FormEvent, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { ListTable, NameCell } from "../../../components/ListTable";
@@ -50,7 +51,8 @@ function dueStatus(r: Release): { tone: DueTone; label: string } {
 }
 
 export function RoadmapPage() {
-  const { project, canWrite } = useProject();
+  const { project, orgId, canWrite } = useProject();
+  const planUrl = (releaseId: string) => `/orgs/${orgId}/projects/${project.id}/roadmap/${releaseId}/plan`;
   const releases = useLoad(() => listReleases(project.id), [project.id]);
   const [editing, setEditing] = useState<Release | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -100,6 +102,9 @@ export function RoadmapPage() {
       <div className="page-head">
         <h1>Roadmap</h1>
         <span className="shell-spacer" />
+        <Link to={`/orgs/${orgId}/projects/${project.id}/roadmap/unscheduled/plan`} className="btn ghost">
+          Unscheduled work
+        </Link>
         {canWrite && (
           <button className="btn primary" onClick={() => openDrawer(null)}>
             New release
@@ -118,7 +123,7 @@ export function RoadmapPage() {
             header: "Release",
             className: "primary",
             render: (r) => (
-              <NameCell sub={r.human_id} onOpen={canWrite ? () => openDrawer(r) : undefined}>
+              <NameCell sub={r.human_id} to={planUrl(r.id)}>
                 {r.title}
               </NameCell>
             ),

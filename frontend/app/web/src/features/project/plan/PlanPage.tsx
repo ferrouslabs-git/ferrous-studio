@@ -1,7 +1,11 @@
-// A project's plan: sprints and the requirements moving through them. Epics
-// and features (the roadmap's shape) live on the Epics page; this is the
-// working view -- what's being built, by when, and how it's tracking.
+// A release's plan: its sprints and the requirements moving through them.
+// Reached only by drilling into a release from the Roadmap (or "Unscheduled"
+// for work with no release yet) -- not a nav item of its own, matching
+// software-management's own structure (static/js/views.js, 2026-09-07):
+// "Two nav tabs: Roadmap and Epics. Everything else is a page you drill
+// into." Ferrous Studio's board originally gave this a third, permanent tab.
 import { FormEvent, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { ListTable, NameCell } from "../../../components/ListTable";
@@ -49,6 +53,8 @@ const SPRINT_STATE_BADGE: Record<SprintState, string> = { planned: "muted", acti
 
 export function PlanPage() {
   const { project, orgId, canWrite } = useProject();
+  const { releaseId: releaseIdParam } = useParams<{ releaseId: string }>();
+  const scopeReleaseId = releaseIdParam === "unscheduled" ? null : releaseIdParam ?? null;
 
   const sprints = useLoad(() => listSprints(project.id), [project.id]);
   const requirements = useLoad(() => listRequirements(project.id), [project.id]);
@@ -61,27 +67,47 @@ export function PlanPage() {
   const sprintById = useMemo(() => new Map((sprints.data ?? []).map((s) => [s.id, s])), [sprints.data]);
   const memberById = useMemo(() => new Map((members.data ?? []).map((m) => [m.user_id, m])), [members.data]);
 
+  const scopedSprints = useMemo(
+    () => ({ ...sprints, data: (sprints.data ?? []).filter((s) => (s.release_id ?? null) === scopeReleaseId) }),
+    [sprints, scopeReleaseId],
+  );
+  const scopedRequirements = useMemo(
+    () => ({
+      ...requirements,
+      data: (requirements.data ?? []).filter((r) => (r.effective_release_id ?? null) === scopeReleaseId),
+    }),
+    [requirements, scopeReleaseId],
+  );
+
   const reloadAll = () => Promise.all([sprints.reload(), requirements.reload()]);
+
+  const release = scopeReleaseId ? releaseById.get(scopeReleaseId) : null;
 
   return (
     <div className="page stack">
       <div className="page-head">
-        <h1>Plan</h1>
+        <div className="stack" style={{ gap: 2 }}>
+          <Link to={`/orgs/${orgId}/projects/${project.id}/roadmap`} className="muted" style={{ fontSize: 12 }}>
+            ← Roadmap
+          </Link>
+          <h1>{scopeReleaseId ? release?.title ?? "Release" : "Unscheduled"}</h1>
+        </div>
       </div>
 
       <SprintsSection
         projectId={project.id}
         canWrite={canWrite}
-        sprints={sprints}
+        sprints={scopedSprints}
         releases={releases.data ?? []}
         releaseById={releaseById}
+        defaultReleaseId={scopeReleaseId}
         onChanged={reloadAll}
       />
 
       <RequirementsSection
         projectId={project.id}
         canWrite={canWrite}
-        requirements={requirements}
+        requirements={scopedRequirements}
         epics={epics.data ?? []}
         releases={releases.data ?? []}
         sprints={sprints.data ?? []}
@@ -90,6 +116,7 @@ export function PlanPage() {
         releaseById={releaseById}
         sprintById={sprintById}
         memberById={memberById}
+        defaultReleaseId={scopeReleaseId}
         onChanged={reloadAll}
       />
     </div>
@@ -104,6 +131,7 @@ function SprintsSection({
   sprints,
   releases,
   releaseById,
+  defaultReleaseId,
   onChanged,
 }: {
   projectId: string;
@@ -111,6 +139,7 @@ function SprintsSection({
   sprints: ReturnType<typeof useLoad<Sprint[]>>;
   releases: Release[];
   releaseById: Map<string, Release>;
+  defaultReleaseId: string | null;
   onChanged: () => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState<Sprint | null>(null);
@@ -136,7 +165,7 @@ function SprintsSection({
             release_id: s.release_id,
             capacity_hours: s.capacity_hours,
           }
-        : EMPTY_SPRINT,
+        : { ...EMPTY_SPRINT, release_id: defaultReleaseId },
     );
     setFormError(null);
     setDrawerOpen(true);
@@ -369,6 +398,7 @@ function RequirementsSection({
   releaseById,
   sprintById,
   memberById,
+  defaultReleaseId,
   onChanged,
 }: {
   projectId: string;
@@ -382,6 +412,7 @@ function RequirementsSection({
   releaseById: Map<string, Release>;
   sprintById: Map<string, Sprint>;
   memberById: Map<string, { user_id: string; email: string; name: string | null }>;
+  defaultReleaseId: string | null;
   onChanged: () => Promise<unknown>;
 }) {
   const { project } = useProject();
@@ -414,7 +445,7 @@ function RequirementsSection({
             status: r.status, priority: r.priority, assignee_id: r.assignee_id,
             release_id: r.release_id, sprint_id: r.sprint_id,
           }
-        : EMPTY_REQUIREMENT,
+        : { ...EMPTY_REQUIREMENT, release_id: defaultReleaseId },
     );
     setFormError(null);
     setNewComment("");

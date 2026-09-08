@@ -84,8 +84,8 @@ export function App() {
               <Route path="wireframes/:wireframeId/snapshots/:versionId/preview" element={<SnapshotPreviewPage />} />
               <Route path="wireframes/:wireframeId/audit" element={<AuditLogPage />} />
               <Route path="documents" element={<DocumentsPage />} />
-              <Route path="plan" element={<PlanPage />} />
               <Route path="roadmap" element={<RoadmapPage />} />
+              <Route path="roadmap/:releaseId/plan" element={<PlanPage />} />
               <Route path="epics" element={<EpicsPage />} />
             </Route>
 
