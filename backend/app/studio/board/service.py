@@ -84,12 +84,20 @@ async def _next_seq(db: AsyncSession, board: Board, column: str) -> int:
 
 
 async def _epic_release_map(db: AsyncSession, board_id: UUID) -> dict[UUID, UUID | None]:
-    rows = (await db.execute(select(Epic.id, Epic.release_id).where(Epic.board_id == board_id))).all()
+    rows = (
+        await db.execute(
+            select(Epic.id, Epic.release_id).where(Epic.board_id == board_id, Epic.deleted_at.is_(None))
+        )
+    ).all()
     return {epic_id: release_id for epic_id, release_id in rows}
 
 
 async def _feature_epic_map(db: AsyncSession, board_id: UUID) -> dict[UUID, UUID]:
-    rows = (await db.execute(select(Feature.id, Feature.epic_id).where(Feature.board_id == board_id))).all()
+    rows = (
+        await db.execute(
+            select(Feature.id, Feature.epic_id).where(Feature.board_id == board_id, Feature.deleted_at.is_(None))
+        )
+    ).all()
     return {feature_id: epic_id for feature_id, epic_id in rows}
 
 
@@ -144,9 +152,19 @@ def progress_rollup(requirements: list[Requirement]) -> dict:
 
 
 async def board_summary(db: AsyncSession, board: Board) -> dict:
-    epics = list((await db.execute(select(Epic).where(Epic.board_id == board.id).order_by(Epic.seq))).scalars().all())
+    epics = list(
+        (
+            await db.execute(
+                select(Epic).where(Epic.board_id == board.id, Epic.deleted_at.is_(None)).order_by(Epic.seq)
+            )
+        ).scalars().all()
+    )
     requirements = list(
-        (await db.execute(select(Requirement).where(Requirement.board_id == board.id))).scalars().all()
+        (
+            await db.execute(
+                select(Requirement).where(Requirement.board_id == board.id, Requirement.deleted_at.is_(None))
+            )
+        ).scalars().all()
     )
     feature_epic = await _feature_epic_map(db, board.id)
 
@@ -186,7 +204,7 @@ async def entity_exists(db: AsyncSession, board_id: UUID, entity_type: str, enti
     if model is None:
         return False
     result = await db.execute(
-        select(model.id).where(model.board_id == board_id, model.id == entity_id)
+        select(model.id).where(model.board_id == board_id, model.id == entity_id, model.deleted_at.is_(None))
     )
     return result.scalar_one_or_none() is not None
 
@@ -296,7 +314,11 @@ async def claim_requirement(
     row = (
         await db.execute(
             select(Requirement)
-            .where(Requirement.id == requirement_id, Requirement.board_id == board.id)
+            .where(
+                Requirement.id == requirement_id,
+                Requirement.board_id == board.id,
+                Requirement.deleted_at.is_(None),
+            )
             .with_for_update()
         )
     ).scalar_one_or_none()

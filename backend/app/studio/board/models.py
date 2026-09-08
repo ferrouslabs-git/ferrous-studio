@@ -79,6 +79,7 @@ class Release(Base):
     description = Column(Text, nullable=False, default="")
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("board_id", "seq", name="uq_board_releases_seq"),)
 
@@ -102,6 +103,7 @@ class Epic(Base):
     release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("board_id", "seq", name="uq_board_epics_seq"),
@@ -124,6 +126,7 @@ class Feature(Base):
     title = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("board_id", "seq", name="uq_board_features_seq"),
@@ -151,6 +154,7 @@ class Sprint(Base):
     state = Column(String(10), nullable=False, default="planned")
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("board_id", "seq", name="uq_board_sprints_seq"),)
 
@@ -180,6 +184,7 @@ class Requirement(Base):
     sprint_id = Column(UUID(as_uuid=True), ForeignKey("board_sprints.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("board_id", "seq", name="uq_board_requirements_seq"),
@@ -229,6 +234,7 @@ class Doc(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("board_id", "seq", name="uq_board_docs_seq"),)
 
@@ -253,6 +259,7 @@ class Comment(Base):
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     body = Column(Text, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (Index("ix_board_comments_entity", "entity_type", "entity_id"),)
 
@@ -298,6 +305,7 @@ class Attachment(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (Index("ix_board_attachments_entity", "entity_type", "entity_id"),)
 

@@ -98,7 +98,11 @@ async def list_releases(
 ) -> list[Release]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    result = await db.execute(select(Release).where(Release.board_id == board.id).order_by(Release.seq))
+    result = await db.execute(
+        select(Release)
+        .where(Release.board_id == board.id, Release.deleted_at.is_(None))
+        .order_by(Release.seq)
+    )
     return list(result.scalars().all())
 
 
@@ -123,7 +127,11 @@ async def create_release(
 
 async def _get_release(db: AsyncSession, board: Board, release_id: UUID) -> Release:
     release = (
-        await db.execute(select(Release).where(Release.id == release_id, Release.board_id == board.id))
+        await db.execute(
+            select(Release).where(
+                Release.id == release_id, Release.board_id == board.id, Release.deleted_at.is_(None)
+            )
+        )
     ).scalar_one_or_none()
     if release is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Release not found")
@@ -174,7 +182,7 @@ async def delete_release(
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     release = await _get_release(db, board, release_id)
-    await db.delete(release)
+    release.deleted_at = utc_now()
     await db.commit()
 
 
@@ -182,7 +190,11 @@ async def delete_release(
 
 
 async def _get_epic(db: AsyncSession, board: Board, epic_id: UUID) -> Epic:
-    epic = (await db.execute(select(Epic).where(Epic.id == epic_id, Epic.board_id == board.id))).scalar_one_or_none()
+    epic = (
+        await db.execute(
+            select(Epic).where(Epic.id == epic_id, Epic.board_id == board.id, Epic.deleted_at.is_(None))
+        )
+    ).scalar_one_or_none()
     if epic is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Epic not found")
     return epic
@@ -196,7 +208,9 @@ async def list_epics(
 ) -> list[Epic]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    result = await db.execute(select(Epic).where(Epic.board_id == board.id).order_by(Epic.seq))
+    result = await db.execute(
+        select(Epic).where(Epic.board_id == board.id, Epic.deleted_at.is_(None)).order_by(Epic.seq)
+    )
     return list(result.scalars().all())
 
 
@@ -282,16 +296,22 @@ async def delete_epic(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Cascades its features (FK ON DELETE CASCADE) but only unlinks
-    requirements under it or its features -- requirements are never deleted
-    as a side effect of anything, they carry real workflow state. Ported
-    deletion semantics, SMA store.py:766-789."""
+    """Soft delete, cascading to its features (also soft-deleted -- the FK's
+    ON DELETE CASCADE never fires now that epics are never really deleted,
+    this replaces it explicitly). Requirements under it or its features are
+    only unlinked, never deleted -- they carry real workflow state. Comments
+    and attachments on the epic and its features cascade to soft-deleted
+    too, since those belong to the thing that's gone; a requirement's own
+    comments/attachments are untouched, since the requirement isn't going
+    anywhere. Ported deletion semantics, software-management store.py's
+    delete_epic."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     epic = await _get_epic(db, board, epic_id)
-    feature_ids = (
-        await db.execute(select(Feature.id).where(Feature.epic_id == epic.id))
-    ).scalars().all()
+    feature_ids = list(
+        (await db.execute(select(Feature.id).where(Feature.epic_id == epic.id, Feature.deleted_at.is_(None))))
+        .scalars().all()
+    )
     requirements = (
         await db.execute(
             select(Requirement).where(
@@ -306,7 +326,24 @@ async def delete_epic(
         if r.feature_id in feature_ids:
             r.feature_id = None
         r.updated_at = utc_now()
-    await db.delete(epic)
+    now = utc_now()
+    doomed_entity_ids = [epic.id, *feature_ids]
+    if doomed_entity_ids:
+        await db.execute(
+            Comment.__table__.update()
+            .where(Comment.board_id == board.id, Comment.entity_id.in_(doomed_entity_ids))
+            .values(deleted_at=now)
+        )
+        await db.execute(
+            Attachment.__table__.update()
+            .where(Attachment.board_id == board.id, Attachment.entity_id.in_(doomed_entity_ids))
+            .values(deleted_at=now)
+        )
+    if feature_ids:
+        await db.execute(
+            Feature.__table__.update().where(Feature.id.in_(feature_ids)).values(deleted_at=now)
+        )
+    epic.deleted_at = now
     await db.commit()
 
 
@@ -315,7 +352,11 @@ async def delete_epic(
 
 async def _get_feature(db: AsyncSession, board: Board, feature_id: UUID) -> Feature:
     feature = (
-        await db.execute(select(Feature).where(Feature.id == feature_id, Feature.board_id == board.id))
+        await db.execute(
+            select(Feature).where(
+                Feature.id == feature_id, Feature.board_id == board.id, Feature.deleted_at.is_(None)
+            )
+        )
     ).scalar_one_or_none()
     if feature is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feature not found")
@@ -331,7 +372,7 @@ async def list_features(
 ) -> list[Feature]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    stmt = select(Feature).where(Feature.board_id == board.id)
+    stmt = select(Feature).where(Feature.board_id == board.id, Feature.deleted_at.is_(None))
     if epic_id is not None:
         stmt = stmt.where(Feature.epic_id == epic_id)
     result = await db.execute(stmt.order_by(Feature.seq))
@@ -395,7 +436,12 @@ async def delete_feature(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Only unlinks its requirements, never deletes them (SMA store.py:838-855)."""
+    """Soft delete. Requirements under it are only unlinked, never deleted --
+    they carry real workflow state, same principle as delete_epic. Their
+    comments/attachments aren't touched either, since the requirements
+    aren't going anywhere -- only the feature's own comments/attachments
+    cascade to soft-deleted. Ported deletion semantics, software-management
+    store.py's delete_feature."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     feature = await _get_feature(db, board, feature_id)
@@ -405,7 +451,18 @@ async def delete_feature(
     for r in requirements:
         r.feature_id = None
         r.updated_at = utc_now()
-    await db.delete(feature)
+    now = utc_now()
+    await db.execute(
+        Comment.__table__.update()
+        .where(Comment.board_id == board.id, Comment.entity_id == feature.id)
+        .values(deleted_at=now)
+    )
+    await db.execute(
+        Attachment.__table__.update()
+        .where(Attachment.board_id == board.id, Attachment.entity_id == feature.id)
+        .values(deleted_at=now)
+    )
+    feature.deleted_at = now
     await db.commit()
 
 
@@ -414,7 +471,11 @@ async def delete_feature(
 
 async def _get_sprint(db: AsyncSession, board: Board, sprint_id: UUID) -> Sprint:
     sprint = (
-        await db.execute(select(Sprint).where(Sprint.id == sprint_id, Sprint.board_id == board.id))
+        await db.execute(
+            select(Sprint).where(
+                Sprint.id == sprint_id, Sprint.board_id == board.id, Sprint.deleted_at.is_(None)
+            )
+        )
     ).scalar_one_or_none()
     if sprint is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sprint not found")
@@ -429,7 +490,9 @@ async def list_sprints(
 ) -> list[Sprint]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    result = await db.execute(select(Sprint).where(Sprint.board_id == board.id).order_by(Sprint.seq))
+    result = await db.execute(
+        select(Sprint).where(Sprint.board_id == board.id, Sprint.deleted_at.is_(None)).order_by(Sprint.seq)
+    )
     return list(result.scalars().all())
 
 
@@ -508,7 +571,7 @@ async def delete_sprint(
         r.sprint_id = None
         r.updated_at = utc_now()
         await service.record_sprint_history(db, board, r)
-    await db.delete(sprint)
+    sprint.deleted_at = utc_now()
     await db.commit()
 
 
@@ -537,7 +600,11 @@ async def get_sprint_burndown(
 async def _get_requirement(db: AsyncSession, board: Board, requirement_id: UUID) -> Requirement:
     r = (
         await db.execute(
-            select(Requirement).where(Requirement.id == requirement_id, Requirement.board_id == board.id)
+            select(Requirement).where(
+                Requirement.id == requirement_id,
+                Requirement.board_id == board.id,
+                Requirement.deleted_at.is_(None),
+            )
         )
     ).scalar_one_or_none()
     if r is None:
@@ -557,7 +624,7 @@ async def list_requirements(
 ) -> list[dict]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    stmt = select(Requirement).where(Requirement.board_id == board.id)
+    stmt = select(Requirement).where(Requirement.board_id == board.id, Requirement.deleted_at.is_(None))
     if status_filter is not None:
         stmt = stmt.where(Requirement.status == status_filter)
     if epic_id is not None:
@@ -658,10 +725,24 @@ async def delete_requirement(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    """Soft delete -- the only entity with no children of its own to cascade
+    beyond its own comments/attachments. Ported deletion semantics,
+    software-management store.py's delete_requirement."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     requirement = await _get_requirement(db, board, requirement_id)
-    await db.delete(requirement)
+    now = utc_now()
+    await db.execute(
+        Comment.__table__.update()
+        .where(Comment.board_id == board.id, Comment.entity_id == requirement.id)
+        .values(deleted_at=now)
+    )
+    await db.execute(
+        Attachment.__table__.update()
+        .where(Attachment.board_id == board.id, Attachment.entity_id == requirement.id)
+        .values(deleted_at=now)
+    )
+    requirement.deleted_at = now
     await db.commit()
 
 
@@ -688,7 +769,11 @@ async def claim_requirement_route(
 
 
 async def _get_doc(db: AsyncSession, board: Board, doc_id: UUID) -> Doc:
-    doc = (await db.execute(select(Doc).where(Doc.id == doc_id, Doc.board_id == board.id))).scalar_one_or_none()
+    doc = (
+        await db.execute(
+            select(Doc).where(Doc.id == doc_id, Doc.board_id == board.id, Doc.deleted_at.is_(None))
+        )
+    ).scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doc not found")
     return doc
@@ -702,7 +787,9 @@ async def list_docs(
 ) -> list[Doc]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    result = await db.execute(select(Doc).where(Doc.board_id == board.id).order_by(Doc.seq))
+    result = await db.execute(
+        select(Doc).where(Doc.board_id == board.id, Doc.deleted_at.is_(None)).order_by(Doc.seq)
+    )
     return list(result.scalars().all())
 
 
@@ -766,7 +853,18 @@ async def delete_doc(
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     doc = await _get_doc(db, board, doc_id)
-    await db.delete(doc)
+    now = utc_now()
+    await db.execute(
+        Comment.__table__.update()
+        .where(Comment.board_id == board.id, Comment.entity_id == doc.id)
+        .values(deleted_at=now)
+    )
+    await db.execute(
+        Attachment.__table__.update()
+        .where(Attachment.board_id == board.id, Attachment.entity_id == doc.id)
+        .values(deleted_at=now)
+    )
+    doc.deleted_at = now
     await db.commit()
 
 
@@ -785,7 +883,12 @@ async def list_comments(
     board = await _board(db, project)
     result = await db.execute(
         select(Comment)
-        .where(Comment.board_id == board.id, Comment.entity_type == entity_type, Comment.entity_id == entity_id)
+        .where(
+            Comment.board_id == board.id,
+            Comment.entity_type == entity_type,
+            Comment.entity_id == entity_id,
+            Comment.deleted_at.is_(None),
+        )
         .order_by(Comment.created_at)
     )
     return list(result.scalars().all())
@@ -823,11 +926,15 @@ async def delete_comment(
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     comment = (
-        await db.execute(select(Comment).where(Comment.id == comment_id, Comment.board_id == board.id))
+        await db.execute(
+            select(Comment).where(
+                Comment.id == comment_id, Comment.board_id == board.id, Comment.deleted_at.is_(None)
+            )
+        )
     ).scalar_one_or_none()
     if comment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
-    await db.delete(comment)
+    comment.deleted_at = utc_now()
     await db.commit()
 
 
@@ -868,7 +975,11 @@ def _attachment_key(account_id: UUID, board_id: UUID, attachment_id: UUID, filen
 
 async def _get_attachment(db: AsyncSession, board: Board, attachment_id: UUID) -> Attachment:
     a = (
-        await db.execute(select(Attachment).where(Attachment.id == attachment_id, Attachment.board_id == board.id))
+        await db.execute(
+            select(Attachment).where(
+                Attachment.id == attachment_id, Attachment.board_id == board.id, Attachment.deleted_at.is_(None)
+            )
+        )
     ).scalar_one_or_none()
     if a is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
@@ -891,6 +1002,7 @@ async def list_attachments(
             Attachment.entity_type == entity_type,
             Attachment.entity_id == entity_id,
             Attachment.status == "uploaded",
+            Attachment.deleted_at.is_(None),
         ).order_by(Attachment.created_at)
     )
     return list(result.scalars().all())
@@ -995,9 +1107,13 @@ async def delete_attachment(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    """Soft-deletes the row (so it can, in principle, still be reasoned
+    about/restored later) but the underlying S3 object is genuinely removed
+    immediately -- keeping the file itself around isn't free, and there's no
+    restore UI yet to make that trade-off worthwhile."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     attachment = await _get_attachment(db, board, attachment_id)
     await storage.delete_object(attachment.s3_key)
-    await db.delete(attachment)
+    attachment.deleted_at = utc_now()
     await db.commit()
