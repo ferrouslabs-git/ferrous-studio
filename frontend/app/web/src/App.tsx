@@ -16,6 +16,7 @@ import { OrgPage } from "./features/orgs/OrgPage";
 import { RoleCatalogueProvider } from "./features/orgs/roleLabels";
 import { DiagramsPage } from "./features/project/diagrams/DiagramsPage";
 import { DocumentsPage } from "./features/project/documents/DocumentsPage";
+import { EpicDetailPage } from "./features/project/epics/EpicDetailPage";
 import { EpicsPage } from "./features/project/epics/EpicsPage";
 import { PersonasPage } from "./features/project/personas/PersonasPage";
 import { PlanPage } from "./features/project/plan/PlanPage";
@@ -87,6 +88,7 @@ export function App() {
               <Route path="roadmap" element={<RoadmapPage />} />
               <Route path="roadmap/:releaseId/plan" element={<PlanPage />} />
               <Route path="epics" element={<EpicsPage />} />
+              <Route path="epics/:epicId" element={<EpicDetailPage />} />
             </Route>
 
             {/* Older links without the organisation. */}

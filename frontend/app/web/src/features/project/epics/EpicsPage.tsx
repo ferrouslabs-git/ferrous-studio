@@ -26,7 +26,7 @@ const STATUS_BADGE: Record<EpicStatus, string> = {
 };
 
 export function EpicsPage() {
-  const { project, canWrite } = useProject();
+  const { project, orgId, canWrite } = useProject();
   const summary = useLoad(() => getBoardSummary(project.id), [project.id]);
   const releases = useLoad(() => listReleases(project.id), [project.id]);
   const [editing, setEditing] = useState<Epic | null>(null);
@@ -138,7 +138,7 @@ export function EpicsPage() {
             header: "Epic",
             className: "primary",
             render: ({ epic }) => (
-              <NameCell sub={epic.summary || undefined} onOpen={canWrite ? () => openDrawer(epic) : undefined}>
+              <NameCell sub={epic.summary || undefined} to={`/orgs/${orgId}/projects/${project.id}/epics/${epic.id}`}>
                 {epic.human_id} · {epic.title}
               </NameCell>
             ),

@@ -314,6 +314,11 @@ class AttachmentUploadRequest(BaseModel):
 class AttachmentUploadTicket(BaseModel):
     attachment_id: UUID
     upload_url: str
+    # The exact value the URL was signed with -- S3 rejects the PUT with a
+    # 403 if the Content-Type header doesn't match, and the server may have
+    # canonicalised it (ALLOWED_TYPES) to something other than what the
+    # client sent, so the client can't be trusted to already know it.
+    content_type: str
     expires_in: int
 
 

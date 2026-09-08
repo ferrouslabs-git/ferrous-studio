@@ -44,6 +44,7 @@ export interface BoardSummary {
 const base = (projectId: string) => `/studio/projects/${projectId}/board/epics`;
 
 export const listEpics = (projectId: string) => apiGet<Epic[]>(base(projectId));
+export const getEpic = (projectId: string, epicId: string) => apiGet<Epic>(`${base(projectId)}/${epicId}`);
 export const createEpic = (projectId: string, input: EpicInput) => apiPost<Epic>(base(projectId), input);
 export const updateEpic = (
   projectId: string,

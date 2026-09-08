@@ -1173,7 +1173,9 @@ async def request_attachment_upload(
     await db.commit()
 
     url = storage.presign_put(key, canonical[0], payload.size_bytes, PRESIGN_TTL_SECONDS)
-    return AttachmentUploadTicket(attachment_id=attachment_id, upload_url=url, expires_in=PRESIGN_TTL_SECONDS)
+    return AttachmentUploadTicket(
+        attachment_id=attachment_id, upload_url=url, content_type=canonical[0], expires_in=PRESIGN_TTL_SECONDS
+    )
 
 
 @router.post("/projects/{project_id}/board/attachments/{attachment_id}/confirm", response_model=AttachmentRead)
