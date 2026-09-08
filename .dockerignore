@@ -1,0 +1,30 @@
+# Local dev config must never reach the image: backend/app/config.py's
+# load_dotenv(..., override=True) would clobber the real DATABASE_URL/Cognito
+# env vars ECS injects from Secrets Manager/the task definition with local
+# dev's values, and Vite's .env.local outranks .env.production too -- both
+# would silently point a deployed container at localhost. Found the hard way:
+# the first-ever staging deploy's migration task tried to connect to
+# 127.0.0.1:5442 instead of the real RDS instance.
+#
+# A bare pattern here only matches the CONTEXT ROOT, not subdirectories
+# (unlike .gitignore) -- backend/.env.local needs `**/` or its full path
+# spelled out. Both, to be sure nothing like it slips through again.
+**/.env
+**/.env.*
+!**/.env.*.example
+.env
+.env.*
+!.env.*.example
+
+# Local-only, never needed inside the image.
+.git
+.venv312
+node_modules
+frontend/app/web/node_modules
+frontend/app/web/dist
+backend/__pycache__
+**/__pycache__
+*.pyc
+infra/
+docs/
+scripts/
