@@ -11,6 +11,8 @@ export interface Sprint {
   start_date: string | null;
   end_date: string | null;
   state: SprintState;
+  release_id: string | null;
+  capacity_hours: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -20,6 +22,8 @@ export interface SprintInput {
   goal: string;
   start_date: string | null;
   end_date: string | null;
+  release_id: string | null;
+  capacity_hours: number | null;
 }
 
 export interface SprintUpdateResult {
@@ -47,7 +51,7 @@ export const createSprint = (projectId: string, input: SprintInput) => apiPost<S
 export const updateSprint = (
   projectId: string,
   sprintId: string,
-  patch: Partial<SprintInput> & { state?: SprintState },
+  patch: Partial<SprintInput> & { state?: SprintState; clear_release?: boolean },
 ) => apiPatch<SprintUpdateResult>(`${base(projectId)}/${sprintId}`, patch);
 export const deleteSprint = (projectId: string, sprintId: string) => apiDelete(`${base(projectId)}/${sprintId}`);
 export const getBurndown = (projectId: string, sprintId: string) =>

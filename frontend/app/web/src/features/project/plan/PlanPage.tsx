@@ -30,7 +30,7 @@ import {
 } from "./requirementsApi";
 import { Burndown, createSprint, deleteSprint, getBurndown, listSprints, Sprint, SprintInput, SprintState, updateSprint } from "./sprintsApi";
 
-const EMPTY_SPRINT: SprintInput = { name: "", goal: "", start_date: null, end_date: null };
+const EMPTY_SPRINT: SprintInput = { name: "", goal: "", start_date: null, end_date: null, release_id: null, capacity_hours: null };
 const EMPTY_REQUIREMENT: RequirementInput = {
   title: "",
   body: "",
@@ -73,6 +73,8 @@ export function PlanPage() {
         projectId={project.id}
         canWrite={canWrite}
         sprints={sprints}
+        releases={releases.data ?? []}
+        releaseById={releaseById}
         onChanged={reloadAll}
       />
 
@@ -100,11 +102,15 @@ function SprintsSection({
   projectId,
   canWrite,
   sprints,
+  releases,
+  releaseById,
   onChanged,
 }: {
   projectId: string;
   canWrite: boolean;
   sprints: ReturnType<typeof useLoad<Sprint[]>>;
+  releases: Release[];
+  releaseById: Map<string, Release>;
   onChanged: () => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState<Sprint | null>(null);
@@ -120,7 +126,18 @@ function SprintsSection({
 
   const openDrawer = (s: Sprint | null) => {
     setEditing(s);
-    setForm(s ? { name: s.name, goal: s.goal, start_date: s.start_date, end_date: s.end_date } : EMPTY_SPRINT);
+    setForm(
+      s
+        ? {
+            name: s.name,
+            goal: s.goal,
+            start_date: s.start_date,
+            end_date: s.end_date,
+            release_id: s.release_id,
+            capacity_hours: s.capacity_hours,
+          }
+        : EMPTY_SPRINT,
+    );
     setFormError(null);
     setDrawerOpen(true);
   };
@@ -129,9 +146,16 @@ function SprintsSection({
     e.preventDefault();
     setSaving(true);
     setFormError(null);
-    const body: SprintInput = { name: form.name.trim(), goal: form.goal?.trim() || "", start_date: form.start_date || null, end_date: form.end_date || null };
+    const body: SprintInput = {
+      name: form.name.trim(),
+      goal: form.goal?.trim() || "",
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      release_id: form.release_id || null,
+      capacity_hours: form.capacity_hours ?? null,
+    };
     try {
-      if (editing) await updateSprint(projectId, editing.id, body);
+      if (editing) await updateSprint(projectId, editing.id, { ...body, clear_release: !body.release_id });
       else await createSprint(projectId, body);
       setDrawerOpen(false);
       await onChanged();
@@ -186,6 +210,10 @@ function SprintsSection({
               className: "when",
               render: (s) => (s.start_date && s.end_date ? `${formatDate(s.start_date)} – ${formatDate(s.end_date)}` : <span className="muted">Not scheduled</span>),
             },
+            {
+              header: "Release",
+              render: (s) => (s.release_id ? releaseById.get(s.release_id)?.title ?? "—" : <span className="muted">None</span>),
+            },
           ]}
           rows={rows}
           rowKey={(s) => s.id}
@@ -232,6 +260,23 @@ function SprintsSection({
         </Field>
         <Field label="End date">
           <input className="input" type="date" value={form.end_date ?? ""} onChange={(e) => patch({ end_date: e.target.value || null })} />
+        </Field>
+        <Field label="Release" hint="Which release this sprint is planned to deliver -- its end date, if set, becomes that release's date.">
+          <select className="select" value={form.release_id ?? ""} onChange={(e) => patch({ release_id: e.target.value || null })}>
+            <option value="">No release</option>
+            {releases.map((r) => (
+              <option key={r.id} value={r.id}>{r.title}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Capacity (hours)" hint="Optional -- how much the sprint can hold.">
+          <input
+            className="input"
+            type="number"
+            min={0}
+            value={form.capacity_hours ?? ""}
+            onChange={(e) => patch({ capacity_hours: e.target.value ? Number(e.target.value) : null })}
+          />
         </Field>
         {formError && <div className="status-banner warn">{formError}</div>}
       </Drawer>

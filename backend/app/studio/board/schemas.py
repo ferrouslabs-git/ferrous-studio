@@ -15,14 +15,17 @@ AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc
 
 class ReleaseCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    release_date: date | None = None
     description: str = ""
 
 
 class ReleaseUpdate(BaseModel):
+    """No release_date -- it's derived, not settable (see the Release model's
+    docstring). ``shipped`` is a virtual field: True/False sets or clears
+    shipped_at, translated in the route rather than stored as written."""
+
     title: str | None = Field(None, min_length=1, max_length=255)
-    release_date: date | None = None
     description: str | None = None
+    shipped: bool | None = None
 
 
 class ReleaseRead(BaseModel):
@@ -31,8 +34,10 @@ class ReleaseRead(BaseModel):
     id: UUID
     human_id: str
     title: str
-    release_date: date | None
+    date: date | None
     description: str
+    shipped_at: datetime | None
+    progress: EpicProgress
     created_at: datetime
     updated_at: datetime
 
@@ -114,6 +119,8 @@ class SprintCreate(BaseModel):
     goal: str = ""
     start_date: date | None = None
     end_date: date | None = None
+    release_id: UUID | None = None
+    capacity_hours: int | None = Field(None, ge=0)
 
 
 class SprintUpdate(BaseModel):
@@ -122,6 +129,9 @@ class SprintUpdate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     state: Literal["planned", "active", "done"] | None = None
+    release_id: UUID | None = None
+    clear_release: bool = False
+    capacity_hours: int | None = Field(None, ge=0)
 
 
 class SprintRead(BaseModel):
@@ -134,6 +144,8 @@ class SprintRead(BaseModel):
     start_date: date | None
     end_date: date | None
     state: str
+    release_id: UUID | None
+    capacity_hours: int | None
     created_at: datetime
     updated_at: datetime
 

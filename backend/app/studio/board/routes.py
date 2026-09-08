@@ -87,6 +87,35 @@ async def _requirement_read(db: AsyncSession, board: Board, r: Requirement) -> R
     return RequirementRead.model_validate({**RequirementRead.model_validate(r).model_dump(), **extra})
 
 
+_EMPTY_PROGRESS = {"done": 0, "doing": 0, "total": 0, "pct": 0}
+
+
+async def _release_reads(db: AsyncSession, board: Board, releases: list[Release]) -> list[ReleaseRead]:
+    """Batched, not one query per release -- see service.release_dates_map /
+    release_progress_map."""
+    dates = await service.release_dates_map(db, board.id)
+    progress = await service.release_progress_map(db, board.id)
+    return [
+        ReleaseRead(
+            id=r.id,
+            human_id=r.human_id,
+            title=r.title,
+            description=r.description,
+            shipped_at=r.shipped_at,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+            date=dates.get(r.id),
+            progress=progress.get(r.id, _EMPTY_PROGRESS),
+        )
+        for r in releases
+    ]
+
+
+async def _release_read(db: AsyncSession, board: Board, r: Release) -> ReleaseRead:
+    [read] = await _release_reads(db, board, [r])
+    return read
+
+
 # ── Releases ─────────────────────────────────────────────────────────────
 
 
@@ -95,7 +124,7 @@ async def list_releases(
     project_id: UUID,
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
-) -> list[Release]:
+) -> list[ReleaseRead]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     result = await db.execute(
@@ -103,7 +132,7 @@ async def list_releases(
         .where(Release.board_id == board.id, Release.deleted_at.is_(None))
         .order_by(Release.seq)
     )
-    return list(result.scalars().all())
+    return await _release_reads(db, board, list(result.scalars().all()))
 
 
 @router.post("/projects/{project_id}/board/releases", response_model=ReleaseRead, status_code=status.HTTP_201_CREATED)
@@ -112,7 +141,7 @@ async def create_release(
     payload: ReleaseCreate,
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
-) -> Release:
+) -> ReleaseRead:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     seq = await service._next_seq(db, board, "release_seq")
@@ -122,7 +151,7 @@ async def create_release(
     await service.write_event(db, board, ctx.user_id, "release.created", "release", release.id, {})
     await db.commit()
     await db.refresh(release)
-    return release
+    return await _release_read(db, board, release)
 
 
 async def _get_release(db: AsyncSession, board: Board, release_id: UUID) -> Release:
@@ -144,10 +173,11 @@ async def get_release(
     release_id: UUID,
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
-) -> Release:
+) -> ReleaseRead:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    return await _get_release(db, board, release_id)
+    release = await _get_release(db, board, release_id)
+    return await _release_read(db, board, release)
 
 
 @router.patch("/projects/{project_id}/board/releases/{release_id}", response_model=ReleaseRead)
@@ -157,16 +187,31 @@ async def update_release(
     payload: ReleaseUpdate,
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
-) -> Release:
+) -> ReleaseRead:
+    """Shipping is a human judgment call, never computed -- a release can go
+    out with known gaps. ``shipped`` only sets/clears shipped_at and is
+    logged as its own event on an actual transition, distinct from a plain
+    field edit (ported from software-management's update_release)."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     release = await _get_release(db, board, release_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    shipped = data.pop("shipped", None)
+    for field, value in data.items():
         setattr(release, field, value)
+    if shipped is True and release.shipped_at is None:
+        release.shipped_at = utc_now()
+        await service.write_event(
+            db, board, ctx.user_id, "release.shipped", "release", release.id,
+            {"shipped_at": release.shipped_at.isoformat()},
+        )
+    elif shipped is False and release.shipped_at is not None:
+        release.shipped_at = None
+        await service.write_event(db, board, ctx.user_id, "release.unshipped", "release", release.id, {})
     release.updated_at = utc_now()
     await db.commit()
     await db.refresh(release)
-    return release
+    return await _release_read(db, board, release)
 
 
 @router.delete("/projects/{project_id}/board/releases/{release_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -176,13 +221,33 @@ async def delete_release(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Unlinks (not deletes) every epic/requirement tagged to it -- ported
-    deletion semantics, SMA store.py:1033-1043: a release is filing, the
-    epics/requirements under it carry the real content."""
+    """Soft delete. Epics/requirements/sprints tagged to this release get
+    release_id explicitly unlinked -- the FK's ON DELETE SET NULL never
+    fires now, since the row is never really deleted. Its own comments/
+    attachments cascade to soft-deleted, same principle as delete_epic.
+    Ported deletion semantics, software-management store.py's
+    delete_release."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
     release = await _get_release(db, board, release_id)
-    release.deleted_at = utc_now()
+    now = utc_now()
+    for model in (Epic, Requirement, Sprint):
+        await db.execute(
+            model.__table__.update()
+            .where(model.board_id == board.id, model.release_id == release.id)
+            .values(release_id=None, updated_at=now)
+        )
+    await db.execute(
+        Comment.__table__.update()
+        .where(Comment.board_id == board.id, Comment.entity_id == release.id)
+        .values(deleted_at=now)
+    )
+    await db.execute(
+        Attachment.__table__.update()
+        .where(Attachment.board_id == board.id, Attachment.entity_id == release.id)
+        .values(deleted_at=now)
+    )
+    release.deleted_at = now
     await db.commit()
 
 
@@ -505,6 +570,8 @@ async def create_sprint(
 ) -> Sprint:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
+    if payload.release_id is not None:
+        await _get_release(db, board, payload.release_id)
     seq = await service._next_seq(db, board, "sprint_seq")
     sprint = Sprint(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(sprint)
@@ -543,7 +610,14 @@ async def update_sprint(
     returned = 0
     if new_state is not None and new_state != sprint.state:
         returned = await service.apply_sprint_state_transition(db, board, sprint, new_state)
+    clear_release = data.pop("clear_release", False)
+    if clear_release:
+        sprint.release_id = None
+    elif data.get("release_id") is not None:
+        await _get_release(db, board, data["release_id"])
     for field, value in data.items():
+        if field == "release_id" and value is None:
+            continue
         setattr(sprint, field, value)
     sprint.updated_at = utc_now()
     await db.commit()

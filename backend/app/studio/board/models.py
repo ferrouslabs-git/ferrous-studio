@@ -66,7 +66,16 @@ class Board(Base):
 
 
 class Release(Base):
-    """SMA calls this a "milestone"; renamed per the go-live plan."""
+    """SMA calls this a "milestone"; renamed per the go-live plan.
+
+    Deliberately carries no date column of its own (ported from
+    software-management, 2026-09-07): a release's date is the end of the
+    latest sprint filed under it (service.release_dates_map), so "when does
+    this land?" is answered by the sprints actually planned to deliver it,
+    and moving a sprint moves the release automatically. The prior design
+    (an editable date nothing checked against the sprint plan) let the two
+    drift apart. See service.py's release_dates_map for the computation.
+    """
 
     __tablename__ = "board_releases"
 
@@ -75,11 +84,14 @@ class Release(Base):
     account_id = Column(UUID(as_uuid=True), nullable=False)
     seq = Column(Integer, nullable=False)
     title = Column(String(255), nullable=False)
-    release_date = Column(Date, nullable=True)
     description = Column(Text, nullable=False, default="")
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
+    # Set when a human marks the release shipped; NULL = still in flight.
+    # Shipping is a judgment call, never computed -- a release can go out
+    # with known gaps, so nothing here blocks or auto-sets it.
+    shipped_at = Column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("board_id", "seq", name="uq_board_releases_seq"),)
 
@@ -152,11 +164,21 @@ class Sprint(Base):
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
     state = Column(String(10), nullable=False, default="planned")
+    # Which release this sprint is planned to deliver -- also what makes a
+    # release's date computable at all (Release's docstring/
+    # service.release_dates_map: a release's date is the end of its latest
+    # sprint). Ported from software-management, which had this from the
+    # start; Ferrous Studio's board port originally missed it entirely.
+    release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)
+    capacity_hours = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
 
-    __table_args__ = (UniqueConstraint("board_id", "seq", name="uq_board_sprints_seq"),)
+    __table_args__ = (
+        UniqueConstraint("board_id", "seq", name="uq_board_sprints_seq"),
+        Index("ix_board_sprints_release", "release_id"),
+    )
 
     @property
     def human_id(self) -> str:

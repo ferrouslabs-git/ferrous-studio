@@ -14,7 +14,7 @@ import datetime as dt
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Project
@@ -149,6 +149,43 @@ def progress_rollup(requirements: list[Requirement]) -> dict:
     score = done + doing * 0.5
     pct = round(100 * score / total) if total else 0
     return {"done": done, "doing": doing, "total": total, "pct": pct}
+
+
+async def release_dates_map(db: AsyncSession, board_id: UUID) -> dict[UUID, dt.date | None]:
+    """A release's date is the end of the latest sprint filed under it --
+    ported from software-management's RELEASE_DATE_SQL (store.py). Answers
+    "when does this land?" from the sprints actually planned to deliver it,
+    so moving a sprint moves the release automatically instead of the two
+    drifting apart (the previous design: a plain editable date field)."""
+    rows = (
+        await db.execute(
+            select(Sprint.release_id, func.max(Sprint.end_date))
+            .where(Sprint.board_id == board_id, Sprint.deleted_at.is_(None), Sprint.end_date.isnot(None))
+            .group_by(Sprint.release_id)
+        )
+    ).all()
+    return {release_id: max_end for release_id, max_end in rows if release_id is not None}
+
+
+async def release_progress_map(db: AsyncSession, board_id: UUID) -> dict[UUID, dict]:
+    """Rolls up a release's whole backlog -- every requirement whose
+    *effective* release is this one (effective_release_id, above), whether
+    it got there through an epic, a feature under an epic, or by being
+    tagged directly. Ported from software-management's releaseProgress
+    (static/js/releases.js), which flags the same thing this fixes: walking
+    linked epics only misses a requirement tagged straight to the release
+    with no epic."""
+    requirements = list(
+        (await db.execute(select(Requirement).where(Requirement.board_id == board_id))).scalars().all()
+    )
+    feature_epic = await _feature_epic_map(db, board_id)
+    epic_release = await _epic_release_map(db, board_id)
+    by_release: dict[UUID, list[Requirement]] = {}
+    for r in requirements:
+        rid = effective_release_id(r, feature_epic, epic_release)
+        if rid is not None:
+            by_release.setdefault(rid, []).append(r)
+    return {release_id: progress_rollup(reqs) for release_id, reqs in by_release.items()}
 
 
 async def board_summary(db: AsyncSession, board: Board) -> dict:
