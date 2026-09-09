@@ -31,6 +31,8 @@
         { "name": "APP_PUBLIC_URL", "value": "{{APP_PUBLIC_URL}}" },
         { "name": "FRONTEND_URL", "value": "{{APP_PUBLIC_URL}}" },
 
+        { "name": "PLATFORM_ADMIN_EMAILS", "value": "{{PLATFORM_ADMIN_EMAILS}}" },
+
         { "name": "SES_REGION", "value": "{{AWS_REGION}}" },
         { "name": "SES_SENDER_EMAIL", "value": "{{SES_SENDER_EMAIL}}" },
         { "name": "PRODUCT_DISPLAY_NAME", "value": "{{EMAIL_FROM_NAME}}" },

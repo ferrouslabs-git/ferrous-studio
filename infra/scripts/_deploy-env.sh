@@ -36,6 +36,7 @@ DOCUMENTS_BUCKET=$(echo "$TF_OUT" | jq -r --arg env "$ENV_NAME" '.documents_buck
 SES_SENDER_EMAIL=$(jq -r .email.sender "$REPO_ROOT/app.config.json")
 EMAIL_FROM_NAME=$(jq -r .email.from_name "$REPO_ROOT/app.config.json")
 EMAIL_LEGAL=$(jq -r .email.legal "$REPO_ROOT/app.config.json")
+PLATFORM_ADMIN_EMAILS=$(jq -r '.platform_admin_emails // ""' "$REPO_ROOT/app.config.json")
 
 # ── 1. Build + push image ──
 echo; echo "[1/5] Build + push :$ENV_NAME image"
@@ -68,6 +69,7 @@ sed \
   -e "s#{{EMAIL_FROM_NAME}}#$EMAIL_FROM_NAME#g" \
   -e "s#{{EMAIL_LEGAL}}#$EMAIL_LEGAL#g" \
   -e "s#{{DOCUMENTS_BUCKET}}#$DOCUMENTS_BUCKET#g" \
+  -e "s#{{PLATFORM_ADMIN_EMAILS}}#$PLATFORM_ADMIN_EMAILS#g" \
   "$REPO_ROOT/infra/ecs/taskdef.template.json" > "$RENDERED"
 aws ecs register-task-definition --region "$REGION" --cli-input-json "file://$RENDERED" >/dev/null
 echo "  registered $PRODUCT-$ENV_NAME"

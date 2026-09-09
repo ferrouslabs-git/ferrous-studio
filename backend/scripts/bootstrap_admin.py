@@ -8,7 +8,16 @@ seed anywhere. A fresh environment therefore has no way to create its first
 super admin -- which blocks invite-only onboarding entirely.
 
 This is deliberately a one-shot: it refuses to run once *any* platform admin
-exists. After the first, use the promote endpoint (which is audited).
+exists. There are two better tools after the first one, and neither needs
+database access:
+
+* **Adding an admin** -- an existing platform admin promotes someone from the
+  Admin -> Users page (``PATCH /api/um/platform/users/{id}/promote``, audited),
+  or invites one directly (``POST /api/um/platform/invite``).
+* **Seeding admins** -- set ``PLATFORM_ADMIN_EMAILS`` (see
+  ``app/auth/config.py``) and those addresses become platform admins at their
+  next sign-in. That is how a deployed environment gets admins without anyone
+  reaching the private RDS.
 
 It is a script rather than an Alembic seed because the right email differs
 per environment, and a migration that hardcodes one would be wrong everywhere
@@ -57,7 +66,8 @@ def main(argv: list[str]) -> int:
         if existing:
             print(
                 f"Refusing: {existing} platform admin(s) already exist. "
-                "Use PATCH /api/um/platform/users/{id}/promote instead.",
+                "Promote from the Admin -> Users page, or set PLATFORM_ADMIN_EMAILS "
+                "to seed one without database access.",
                 file=sys.stderr,
             )
             return 2

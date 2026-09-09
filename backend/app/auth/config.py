@@ -66,6 +66,31 @@ class Settings(BaseSettings):
     auth_cookie_path: str = os.getenv("AUTH_COOKIE_PATH", "")
     auth_csrf_cookie_name: str = os.getenv("AUTH_CSRF_COOKIE_NAME", "")
 
+    # Platform admin seeding. A comma-separated list of addresses that are
+    # granted platform admin the next time each signs in (see
+    # apply_platform_admin_seed in services/user_service.py).
+    #
+    # This is how an environment gets its platform admins without database
+    # access: the container already holds DATABASE_URL and sits inside the
+    # VPC, so setting this and redeploying is enough, where a laptop cannot
+    # reach the private RDS at all. It is configuration, not an API, so it
+    # adds no route an attacker could call -- which is why there is
+    # deliberately no "make me an admin" endpoint (see
+    # backend/scripts/bootstrap_admin.py's docstring).
+    #
+    # Kept as a raw string rather than list[str] because pydantic-settings
+    # parses list fields as JSON, not comma-separated values.
+    platform_admin_emails: str = os.getenv("PLATFORM_ADMIN_EMAILS", "")
+
+    @property
+    def seeded_platform_admins(self) -> frozenset[str]:
+        """The configured addresses, lower-cased and stripped."""
+        return frozenset(
+            part.strip().lower()
+            for part in self.platform_admin_emails.split(",")
+            if part.strip()
+        )
+
     @property
     def resolved_auth_cookie_name(self) -> str:
         if self.auth_cookie_name:

@@ -119,8 +119,32 @@ async def sync_user_from_cognito(
             await db.commit()
             await db.refresh(user)
             logger.info("sync_user_from_cognito created user_id=%s", str(user.id))
-    
+
+    await apply_platform_admin_seed(user, db)
+
     return user
+
+
+async def apply_platform_admin_seed(user: User, db: AsyncSession) -> User:
+    """Grant platform admin to a user whose address is in PLATFORM_ADMIN_EMAILS.
+
+    Called on every sync, so the order does not matter: set the config and the
+    address becomes an admin at their next sign-in whether or not they had ever
+    signed in before. Idempotent -- a user who is already an admin is untouched.
+
+    The configured list is authoritative while it is set: demoting a seeded
+    address in the UI lasts only until that person signs in again. Remove them
+    from the config to make a demotion stick.
+    """
+    if user.is_platform_admin:
+        return user
+
+    seeded = get_settings().seeded_platform_admins
+    if not seeded or (user.email or "").strip().lower() not in seeded:
+        return user
+
+    logger.info("seeding platform admin from config user_id=%s email=%s", str(user.id), user.email)
+    return await promote_to_platform_admin(user.id, db)
 
 
 async def get_user_by_cognito_sub(cognito_sub: str, db: AsyncSession) -> Optional[User]:
