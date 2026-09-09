@@ -3,6 +3,7 @@ WORKDIR /workspace/frontend/app/web
 COPY frontend/app/web/package.json ./
 RUN npm install
 COPY frontend/app/web ./
+COPY backend/app/studio/catalog.json /workspace/backend/app/studio/catalog.json
 ARG VITE_COGNITO_DOMAIN
 ARG VITE_COGNITO_APP_CLIENT_ID
 RUN printf "VITE_COGNITO_DOMAIN=%s\nVITE_COGNITO_APP_CLIENT_ID=%s\n" "$VITE_COGNITO_DOMAIN" "$VITE_COGNITO_APP_CLIENT_ID" > .env.production
