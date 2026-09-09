@@ -1143,7 +1143,7 @@ async def list_environments(
     db: AsyncSession = Depends(get_db),
 ) -> list[EnvironmentRead]:
     project = await get_project(db, project_id, ctx)
-    return await _environment_rows(db, await _board(db, project))
+    return await _environment_rows(db, await _board(db, project, ctx))
 
 
 @router.put("/projects/{project_id}/board/environments/{slug}", response_model=list[EnvironmentRead])
