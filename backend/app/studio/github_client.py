@@ -321,7 +321,7 @@ async def latest_commit(installation_id: int, full_name: str, branch: str) -> di
 # carries no bearer token and no scope headers -- our whole API contract is
 # absent. The ``state`` parameter is therefore the only thing that says who
 # started the flow, which makes it a credential: it is signed, it names exactly
-# one organisation, user and project, and it expires.
+# one organisation and user, and it expires.
 
 #: Long enough to install an App (including creating a GitHub organisation
 #: mid-flow), short enough that a signed state left in a browser history or a
@@ -363,12 +363,11 @@ def new_nonce() -> str:
     return secrets.token_urlsafe(32)
 
 
-def sign_state(*, account_id: str, user_id: str, project_id: str | None, nonce: str) -> str:
+def sign_state(*, account_id: str, user_id: str, nonce: str) -> str:
     payload = json.dumps(
         {
             "a": account_id,
             "u": user_id,
-            "p": project_id,
             "n": nonce,
             "e": int(time.time() + STATE_TTL.total_seconds()),
         },

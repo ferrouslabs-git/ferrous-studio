@@ -2,6 +2,7 @@
 // only way an organisation comes into existence (invite-only onboarding).
 // The super admin does not join it -- they open it and invite its first admin.
 import { FormEvent, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useSession } from "../../app/session";
 import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
@@ -28,6 +29,7 @@ const statusLabel = (status: string) => status.charAt(0).toUpperCase() + status.
 export function AdminOrgsPage() {
   const tenants = useLoad(getPlatformTenants, []);
   const { refresh } = useSession();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<DrawerMode>({ kind: "closed" });
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -140,6 +142,8 @@ export function AdminOrgsPage() {
         rowLabel={(t) => t.name}
         actions={(t) => [
           { label: "Edit", onSelect: () => openEdit(t) },
+          { label: "GitHub", onSelect: () => navigate(`/orgs/${t.tenant_id}/github`) },
+          { label: "Audit log", onSelect: () => navigate(`/orgs/${t.tenant_id}/audit`) },
           t.status === "active"
             ? { label: "Suspend", onSelect: () => void act(() => suspendTenant(t.tenant_id)) }
             : { label: "Unsuspend", onSelect: () => void act(() => unsuspendTenant(t.tenant_id)) },

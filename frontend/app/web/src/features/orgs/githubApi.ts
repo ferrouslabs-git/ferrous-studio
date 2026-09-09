@@ -1,11 +1,12 @@
 // Client for /api/studio/github/* and a project's repository link (backend
 // app/studio/github.py).
 //
-// The connection is per organisation and shared by every project in it; the
-// repository link is per project. Installing the GitHub App leaves the app
-// entirely -- `startConnect` returns a URL for the browser to navigate to, and
-// GitHub sends the user back to the details page with a ?github= outcome (see
-// CONNECT_OUTCOMES below).
+// The connection is per organisation and shared by every project in it (see
+// OrgGitHubPage.tsx); the repository link is per project (see
+// features/project/RepositorySection.tsx). Installing the GitHub App leaves
+// the app entirely -- `startConnect` returns a URL for the browser to
+// navigate to, and GitHub sends the user back to Organisation ▸ GitHub with a
+// ?github= outcome (see CONNECT_OUTCOMES below).
 import { apiDelete, apiGet, apiPost, apiPut } from "../../core/api";
 import { Project } from "../projects/projectsApi";
 
@@ -22,6 +23,9 @@ export interface GitHubConnection {
   /** "all" or "selected" -- how much of that account we can see. */
   repository_selection: string | null;
   connected_at: string | null;
+  /** Who ran the install flow, if that user can still be resolved. No name
+   *  lookup here -- show the date alone when only the id is known. */
+  connected_by: string | null;
   /** GitHub's own page for changing which repositories we may see. */
   manage_url: string | null;
 }
@@ -75,10 +79,10 @@ export const getConnection = () => apiGet<GitHubConnection>("/studio/github/conn
  *
  * A URL rather than a redirect: this call carries the bearer token, and
  * following a redirect with fetch would forward that header to github.com.
- * `projectId` only decides where GitHub returns the user afterwards.
+ * The flow always starts on, and returns to, Organisation ▸ GitHub now, so
+ * there is nothing left to tell it where to come back to.
  */
-export const startConnect = (projectId: string | null) =>
-  apiPost<{ url: string }>("/studio/github/connect", { project_id: projectId });
+export const startConnect = () => apiPost<{ url: string }>("/studio/github/connect", {});
 
 export const disconnectGitHub = () => apiDelete("/studio/github/connection");
 

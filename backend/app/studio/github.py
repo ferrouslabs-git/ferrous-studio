@@ -44,6 +44,7 @@ from app.auth.config import get_settings as get_auth_settings
 from app.auth.database import get_db
 from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
+from app.auth.services.audit_service import log_audit_event
 
 from . import github_client as gh
 from .audit import record_event
@@ -144,6 +145,7 @@ async def read_connection(
         account_type=installation.account_type,
         repository_selection=installation.repository_selection,
         connected_at=installation.created_at,
+        connected_by=installation.connected_by,
         manage_url=gh.settings_url(
             installation.installation_id,
             installation.account_login if installation.account_type == "Organization" else None,
@@ -155,7 +157,7 @@ async def read_connection(
 async def start_connect(
     payload: GitHubConnectStart,
     response: Response,
-    ctx: ScopeContext = Depends(require_permission("data:write")),
+    ctx: ScopeContext = Depends(require_permission("integrations:manage")),
 ) -> GitHubConnectUrl:
     """Where to send the browser to install the App.
 
@@ -179,7 +181,6 @@ async def start_connect(
     state = gh.sign_state(
         account_id=str(ctx.scope_id),
         user_id=str(ctx.user_id),
-        project_id=str(payload.project_id) if payload.project_id else None,
         nonce=nonce,
     )
     response.set_cookie(
@@ -192,16 +193,18 @@ async def start_connect(
 
 
 def _return_to(claims: dict[str, Any] | None, outcome: str) -> RedirectResponse:
-    """Back into the app, on the page the flow started from.
+    """Back into the app, on the organisation's GitHub page.
+
+    The flow only ever starts there now, so that is where it ends too --
+    even on a failure, where ``claims`` may be missing the organisation
+    because verification never got that far.
 
     303 rather than 307: the browser must GET the app, whatever it used to
     reach the callback.
     """
     base = get_auth_settings().frontend_url.rstrip("/")
-    if claims and claims.get("a") and claims.get("p"):
-        path = f"/orgs/{claims['a']}/projects/{claims['p']}/details"
-    elif claims and claims.get("a"):
-        path = f"/orgs/{claims['a']}/projects"
+    if claims and claims.get("a"):
+        path = f"/orgs/{claims['a']}/github"
     else:
         path = "/orgs"
     redirect = RedirectResponse(f"{base}{path}?github={outcome}", status_code=status.HTTP_303_SEE_OTHER)
@@ -270,13 +273,17 @@ async def install_callback(
     await adopt_account_scope(db, account_id)
 
     row = await installation_for(db, account_id)
+    # Named before the row is touched -- "reconnected" means the organisation
+    # already had a connection and this callback replaced it with a different
+    # installation, which the mutation below is about to make indistinguishable.
+    reconnected = row is not None and row.installation_id != installation_id
     if row is None:
         row = GitHubInstallation(account_id=account_id, installation_id=installation_id)
         db.add(row)
     else:
         # Reconnecting to a different GitHub account: the old installation's
         # cached token must not outlive the row that justified it.
-        if row.installation_id != installation_id:
+        if reconnected:
             gh.forget_installation(row.installation_id)
         row.installation_id = installation_id
         row.updated_at = utc_now()
@@ -289,6 +296,17 @@ async def install_callback(
     except (KeyError, TypeError, ValueError):
         row.connected_by = None
 
+    await log_audit_event(
+        "github_connected",
+        actor_user_id=claims.get("u"),
+        db=db,
+        tenant_id=str(account_id),
+        installation_id=installation_id,
+        account_login=row.account_login,
+        account_type=row.account_type,
+        repository_selection=row.repository_selection,
+        reconnected=reconnected,
+    )
     await db.commit()
     return _return_to(claims, "connected")
 
@@ -298,7 +316,7 @@ async def install_callback(
 # and a 204 may carry no body.
 @router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def disconnect(
-    ctx: ScopeContext = Depends(require_permission("data:write")),
+    ctx: ScopeContext = Depends(require_permission("integrations:manage")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Forget this organisation's connection.
@@ -315,6 +333,14 @@ async def disconnect(
     if installation is None:
         return
     gh.forget_installation(installation.installation_id)
+    await log_audit_event(
+        "github_disconnected",
+        actor_user_id=str(ctx.user_id),
+        db=db,
+        tenant_id=str(ctx.scope_id),
+        installation_id=installation.installation_id,
+        account_login=installation.account_login,
+    )
     await db.delete(installation)
     await db.commit()
 

@@ -62,6 +62,8 @@ roles:
         - account:read
         - members:manage
         - members:invite
+        - integrations:manage
+        - audit:read
         - data:read
         - data:write
         - tasks:create

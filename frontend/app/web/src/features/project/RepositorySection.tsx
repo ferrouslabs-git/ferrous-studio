@@ -1,36 +1,33 @@
-// The Repository section of the project details page: connect the organisation
-// to GitHub once, then point this project at one repository.
+// The Repository section of the project details page: point this project at
+// one repository through the organisation's GitHub connection.
 //
-// Three things can be true at the same time and the section has to be readable
-// in all of them -- the deployment may have no GitHub App, the organisation may
-// not have installed it, and the project may not be linked. They are handled in
-// that order, because each only makes sense once the one before it holds.
-//
-// Installing leaves the app: `startConnect` returns a URL, the browser
-// navigates to GitHub, and the user comes back to this page with a ?github=
-// outcome that `useConnectOutcome` turns into a banner and then clears.
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+// Connecting the organisation itself lives on Organisation ▸ GitHub now (see
+// features/orgs/OrgGitHubPage.tsx) -- this section only offers to link,
+// change or unlink, and says where to go when there is nothing to link yet.
+import { useCallback, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { useSession } from "../../app/session";
 import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
 import { formatDateTime } from "../../core/format";
 import { useLoad } from "../../core/useLoad";
 import {
-  CONNECT_OUTCOMES,
   ProjectRepository,
-  disconnectGitHub,
   getConnection,
   getProjectRepository,
   linkRepository,
   listRepositories,
-  startConnect,
   unlinkRepository,
-} from "./githubApi";
+} from "../orgs/githubApi";
 import { useProject } from "./ProjectLayout";
 
 export function RepositorySection() {
-  const { project, canWrite, reload } = useProject();
-  const outcome = useConnectOutcome();
+  const { project, reload } = useProject();
+  const { orgId = "" } = useParams();
+  // Lock-exempt, like the backend routes: which repository a project builds
+  // into is filing, not content, so a locked version stays changeable here
+  // even though useProject().canWrite is narrowed by the lock.
+  const { canWrite, canManageIntegrations } = useSession();
 
   const connection = useLoad(() => getConnection(), []);
   const repository = useLoad(() => getProjectRepository(project.id), [project.id, project.repo_id]);
@@ -57,30 +54,26 @@ export function RepositorySection() {
     }
   };
 
-  const connect = () =>
-    run(async () => {
-      const { url } = await startConnect(project.id);
-      // A full navigation, not a new tab: GitHub returns the browser to this
-      // page, and a popup would land the result somewhere the user is not.
-      window.location.href = url;
-      // Nothing after this matters -- the page is on its way out.
-      await new Promise(() => {});
-    });
-
   return (
     <section className="section">
       <div className="section-head">
         <h2>Repository</h2>
         <span className="shell-spacer" />
         {canWrite && connection.data?.connected && (
-          <button className="btn ghost" disabled={busy} onClick={() => setPicking(true)}>
-            {project.repo_id ? "Change" : "Link repository"}
-          </button>
+          <>
+            <button className="btn ghost" disabled={busy} onClick={() => setPicking(true)}>
+              {project.repo_id ? "Change" : "Link repository"}
+            </button>
+            {project.repo_id && (
+              <button className="btn ghost" disabled={busy} onClick={() => run(() => unlinkRepository(project.id))}>
+                Unlink
+              </button>
+            )}
+          </>
         )}
       </div>
 
       <div className="section-body stack">
-        {outcome && <div className={`status-banner ${outcome.tone === "ok" ? "" : "warn"}`}>{outcome.message}</div>}
         {error && <div className="status-banner warn">{error}</div>}
 
         {connection.loading && !connection.data ? (
@@ -92,10 +85,10 @@ export function RepositorySection() {
         ) : !connection.data.connected ? (
           <div className="repo-connect">
             <span className="muted">This organisation is not connected to GitHub.</span>
-            {canWrite && (
-              <button className="btn primary" disabled={busy} onClick={connect}>
-                Connect GitHub
-              </button>
+            {canManageIntegrations && (
+              <Link className="btn ghost" to={`/orgs/${orgId}/github`}>
+                Connect under Organisation
+              </Link>
             )}
           </div>
         ) : (
@@ -105,11 +98,6 @@ export function RepositorySection() {
               login={connection.data.account_login}
               selection={connection.data.repository_selection}
               manageUrl={connection.data.manage_url}
-              canWrite={canWrite}
-              busy={busy}
-              linked={!!project.repo_id}
-              onUnlink={() => run(() => unlinkRepository(project.id))}
-              onDisconnect={() => run(disconnectGitHub)}
             />
           </>
         )}
@@ -184,25 +172,16 @@ function RepositoryDetail({ repository, loading }: { repository: ProjectReposito
   );
 }
 
-/** Which GitHub account we are reading through, and the ways out. */
+/** Which GitHub account this project reads through -- connecting and
+ *  disconnecting that account happens on the organisation's own page. */
 function ConnectionFooter({
   login,
   selection,
   manageUrl,
-  canWrite,
-  busy,
-  linked,
-  onUnlink,
-  onDisconnect,
 }: {
   login: string | null;
   selection: string | null;
   manageUrl: string | null;
-  canWrite: boolean;
-  busy: boolean;
-  linked: boolean;
-  onUnlink: () => void;
-  onDisconnect: () => void;
 }) {
   return (
     <div className="repo-footer">
@@ -215,16 +194,6 @@ function ConnectionFooter({
         <a className="btn ghost" href={manageUrl} target="_blank" rel="noreferrer noopener">
           Manage on GitHub
         </a>
-      )}
-      {canWrite && linked && (
-        <button className="btn ghost" disabled={busy} onClick={onUnlink}>
-          Unlink
-        </button>
-      )}
-      {canWrite && (
-        <button className="btn ghost" disabled={busy} onClick={onDisconnect}>
-          Disconnect
-        </button>
       )}
     </div>
   );
@@ -321,31 +290,4 @@ function RepositoryPicker({
       {error && <div className="status-banner warn">{error}</div>}
     </Drawer>
   );
-}
-
-/**
- * The ?github= outcome GitHub sent us back with, shown once.
- *
- * Cleared from the URL as soon as it is read, so a refresh or a shared link
- * does not replay a message about something that already happened. Unknown
- * values are dropped rather than shown -- the query string is whatever was in
- * the address bar.
- */
-function useConnectOutcome() {
-  const [params, setParams] = useSearchParams();
-  const raw = params.get("github");
-  const [outcome, setOutcome] = useState(() => (raw ? CONNECT_OUTCOMES[raw] ?? null : null));
-
-  useEffect(() => {
-    if (!raw) return;
-    setOutcome(CONNECT_OUTCOMES[raw] ?? null);
-    const next = new URLSearchParams(params);
-    next.delete("github");
-    setParams(next, { replace: true });
-    // `params` and `setParams` change identity on every render; this runs for
-    // the value that arrived, which is what `raw` tracks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [raw]);
-
-  return outcome;
 }

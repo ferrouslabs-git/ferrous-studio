@@ -34,6 +34,10 @@ const FEEDBACK_ACCOUNT_ROLES = new Set(["account_admin", "account_member"]);
 const INVITE_ACCOUNT_ROLES = new Set(["account_admin", "account_member"]);
 /** members:manage */
 const MANAGE_ACCOUNT_ROLES = new Set(["account_admin"]);
+/** integrations:manage */
+const INTEGRATIONS_ACCOUNT_ROLES = new Set(["account_admin"]);
+/** audit:read */
+const AUDIT_ACCOUNT_ROLES = new Set(["account_admin"]);
 
 export interface Session {
   status: SessionStatus;
@@ -50,6 +54,10 @@ export interface Session {
   canInvite: boolean;
   /** Whether the user may change roles, archive members, and manage anyone's invitations. */
   canManageMembers: boolean;
+  /** Whether the user may connect/disconnect the organisation's GitHub App. */
+  canManageIntegrations: boolean;
+  /** Whether the user may read the organisation's audit log. */
+  canReadAudit: boolean;
   /** True once signed in but with no organisation membership (and not a platform admin). */
   isPending: boolean;
   selectOrg: (orgId: string) => Promise<void>;
@@ -128,6 +136,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const canRaiseFeedback = useMemo(() => holds(FEEDBACK_ACCOUNT_ROLES), [holds]);
   const canInvite = useMemo(() => holds(INVITE_ACCOUNT_ROLES), [holds]);
   const canManageMembers = useMemo(() => holds(MANAGE_ACCOUNT_ROLES), [holds]);
+  const canManageIntegrations = useMemo(() => holds(INTEGRATIONS_ACCOUNT_ROLES), [holds]);
+  const canReadAudit = useMemo(() => holds(AUDIT_ACCOUNT_ROLES), [holds]);
 
   const value = useMemo<Session>(
     () => ({
@@ -140,6 +150,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       canRaiseFeedback,
       canInvite,
       canManageMembers,
+      canManageIntegrations,
+      canReadAudit,
       isPending: status === "ready" && !!user && !user.is_platform_admin && orgs.length === 0,
       selectOrg,
       refresh: load,
@@ -154,6 +166,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       canRaiseFeedback,
       canInvite,
       canManageMembers,
+      canManageIntegrations,
+      canReadAudit,
       selectOrg,
       load,
     ],

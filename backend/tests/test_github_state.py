@@ -24,7 +24,6 @@ NONCE = "test-nonce-value"
 
 ACCOUNT = "11111111-1111-4111-8111-111111111111"
 USER = "22222222-2222-4222-8222-222222222222"
-PROJECT = "33333333-3333-4333-8333-333333333333"
 
 # Only ever hashed into an HMAC key, never parsed as a key, so it does not have
 # to be a real PEM -- the signing tests never reach jose.
@@ -52,16 +51,9 @@ def configured(monkeypatch):
 
 def test_state_round_trips(configured):
     configured()
-    claims = gh.verify_state(gh.sign_state(account_id=ACCOUNT, user_id=USER, project_id=PROJECT, nonce=NONCE))
+    claims = gh.verify_state(gh.sign_state(account_id=ACCOUNT, user_id=USER, nonce=NONCE))
     assert claims["a"] == ACCOUNT
     assert claims["u"] == USER
-    assert claims["p"] == PROJECT
-
-
-def test_state_carries_no_project_when_none_was_given(configured):
-    configured()
-    claims = gh.verify_state(gh.sign_state(account_id=ACCOUNT, user_id=USER, project_id=None, nonce=NONCE))
-    assert claims["p"] is None
 
 
 def test_a_rewritten_organisation_is_rejected(configured):
@@ -72,7 +64,7 @@ def test_a_rewritten_organisation_is_rejected(configured):
     at somebody else's organisation and connect GitHub on its behalf.
     """
     configured()
-    state = gh.sign_state(account_id=ACCOUNT, user_id=USER, project_id=None, nonce=NONCE)
+    state = gh.sign_state(account_id=ACCOUNT, user_id=USER, nonce=NONCE)
     payload, signature = state.split(".", 1)
 
     claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
@@ -86,7 +78,7 @@ def test_a_rewritten_organisation_is_rejected(configured):
 def test_a_state_signed_with_another_key_is_rejected(configured):
     """A state minted against a different App must not verify here."""
     configured("-----BEGIN RSA PRIVATE KEY-----\nother\n-----END RSA PRIVATE KEY-----")
-    foreign = gh.sign_state(account_id=ACCOUNT, user_id=USER, project_id=None, nonce=NONCE)
+    foreign = gh.sign_state(account_id=ACCOUNT, user_id=USER, nonce=NONCE)
 
     configured(FAKE_KEY)
     with pytest.raises(ValueError):
@@ -95,7 +87,7 @@ def test_a_state_signed_with_another_key_is_rejected(configured):
 
 def test_an_expired_state_is_rejected(configured, monkeypatch):
     configured()
-    state = gh.sign_state(account_id=ACCOUNT, user_id=USER, project_id=None, nonce=NONCE)
+    state = gh.sign_state(account_id=ACCOUNT, user_id=USER, nonce=NONCE)
     # Well past STATE_TTL, without waiting for it. The real clock is captured
     # first: gh.time is the time module itself, so a lambda calling time.time()
     # after the patch would call its own replacement.
@@ -128,7 +120,7 @@ def test_signing_without_an_app_configured_is_refused(monkeypatch):
     monkeypatch.setattr(gh, "get_settings", lambda: settings)
     assert not gh.configured()
     with pytest.raises(gh.GitHubNotConfigured):
-        gh.sign_state(account_id=ACCOUNT, user_id=USER, project_id=None, nonce=NONCE)
+        gh.sign_state(account_id=ACCOUNT, user_id=USER, nonce=NONCE)
 
 
 def test_missing_settings_names_every_gap(monkeypatch):
@@ -159,7 +151,7 @@ def test_missing_settings_names_every_gap(monkeypatch):
 
 def test_the_nonce_travels_inside_the_state(configured):
     configured()
-    claims = gh.verify_state(gh.sign_state(account_id=ACCOUNT, user_id=USER, project_id=None, nonce=NONCE))
+    claims = gh.verify_state(gh.sign_state(account_id=ACCOUNT, user_id=USER, nonce=NONCE))
     assert claims["n"] == NONCE
     assert gh.nonce_matches(claims, NONCE)
 
@@ -173,7 +165,7 @@ def test_a_leaked_state_without_the_cookie_is_not_enough(configured):
     the real connection.
     """
     configured()
-    claims = gh.verify_state(gh.sign_state(account_id=ACCOUNT, user_id=USER, project_id=None, nonce=NONCE))
+    claims = gh.verify_state(gh.sign_state(account_id=ACCOUNT, user_id=USER, nonce=NONCE))
     assert not gh.nonce_matches(claims, None)
     assert not gh.nonce_matches(claims, "")
     assert not gh.nonce_matches(claims, "a-different-browsers-nonce")
@@ -184,7 +176,7 @@ def test_a_state_with_no_nonce_is_refused(configured):
     binding, and honouring one would reopen the hole it closed."""
     configured()
     stale = json.dumps(
-        {"a": ACCOUNT, "u": USER, "p": None, "e": int(time.time() + 600)}, separators=(",", ":"), sort_keys=True
+        {"a": ACCOUNT, "u": USER, "e": int(time.time() + 600)}, separators=(",", ":"), sort_keys=True
     ).encode()
     # Signed correctly, so only the missing nonce can be what rejects it.
     payload = base64.urlsafe_b64encode(stale).decode().rstrip("=")

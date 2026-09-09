@@ -50,6 +50,7 @@ from .session import (
     SessionResponse,
 )
 from .auth_type import AuthTypeResponse
+from .audit import AuditActor, OrgAuditEventRead, OrgAuditPage
 from .account import (
     AccountActionResponse,
     AccountChangeEmailRequest,
@@ -91,4 +92,7 @@ __all__ = [
     "AccountDeleteRequest",
     "AccountDisconnectSsoRequest",
     "AccountSetPasswordRequest",
+    "AuditActor",
+    "OrgAuditEventRead",
+    "OrgAuditPage",
 ]

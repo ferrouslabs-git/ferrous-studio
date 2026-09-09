@@ -639,6 +639,10 @@ class GitHubConnectionRead(BaseModel):
     #: on the account or only the ones that were picked.
     repository_selection: str | None = None
     connected_at: datetime | None = None
+    #: Who ran the install flow. No join to a name here -- the page shows the
+    #: date alone unless a name lookup is already on hand (see the org audit
+    #: log, which does resolve one).
+    connected_by: UUID | None = None
     #: GitHub's own page for changing which repositories we may see.
     manage_url: str | None = None
 
@@ -646,11 +650,9 @@ class GitHubConnectionRead(BaseModel):
 class GitHubConnectStart(BaseModel):
     """Ask for somewhere to send the browser to install the App.
 
-    ``project_id`` only decides where GitHub returns the user afterwards, so
-    the flow ends on the page they started from.
+    Empty: the flow always starts on, and returns to, the organisation's
+    GitHub page now, so there is nothing left to carry.
     """
-
-    project_id: UUID | None = None
 
 
 class GitHubConnectUrl(BaseModel):

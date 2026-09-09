@@ -373,3 +373,35 @@ def test_removing_a_screenshot_stays_behind_board_write():
     from app.studio.board.routes import delete_attachment
 
     assert required_permissions(delete_attachment) == {"board:write"}
+
+
+# ── Connecting GitHub is organisation administration, not content editing ────
+# `integrations:manage` is deliberately its own permission rather than reusing
+# `data:write`: today only account_admin holds either, so nothing changes in
+# practice, but a future role that can write content should not thereby gain
+# the power to rebind the organisation's GitHub account.
+
+
+def test_connecting_github_is_organisation_administration():
+    from app.studio.github import disconnect, start_connect
+
+    assert required_permissions(start_connect) == {"integrations:manage"}
+    assert required_permissions(disconnect) == {"integrations:manage"}
+
+
+def test_only_the_admin_manages_integrations():
+    assert "integrations:manage" in _permissions(ADMIN)
+    assert "integrations:manage" not in _permissions(MEMBER)
+    assert "integrations:manage" not in _permissions(VIEWER)
+
+
+def test_a_platform_admin_passes_the_integrations_guard():
+    ctx = ScopeContext(
+        user_id=uuid4(),
+        scope_type="account",
+        scope_id=uuid4(),
+        active_roles=["platform_admin"],
+        resolved_permissions=set(),
+        is_super_admin=True,
+    )
+    assert ctx.has_permission("integrations:manage")

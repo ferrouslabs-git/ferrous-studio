@@ -12,6 +12,8 @@ import { AuthCallbackPage, ForgotPasswordPage, LoginPage } from "./features/auth
 import { LandingPage } from "./features/marketing/LandingPage";
 import { InvitePage } from "./features/onboarding/InvitePage";
 import { PendingPage } from "./features/onboarding/PendingPage";
+import { OrgAuditPage } from "./features/orgs/OrgAuditPage";
+import { OrgGitHubPage } from "./features/orgs/OrgGitHubPage";
 import { OrgPage } from "./features/orgs/OrgPage";
 import { RoleCatalogueProvider } from "./features/orgs/roleLabels";
 import { DiagramsPage } from "./features/project/diagrams/DiagramsPage";
@@ -63,6 +65,8 @@ export function App() {
                 organisation path is kept for older links and lands there. */}
             <Route path="/orgs/:orgId" element={<Navigate to="users" replace />} />
             <Route path="/orgs/:orgId/users" element={<OrgPage />} />
+            <Route path="/orgs/:orgId/github" element={<OrgGitHubPage />} />
+            <Route path="/orgs/:orgId/audit" element={<OrgAuditPage />} />
             <Route path="/orgs/:orgId/projects" element={<ProjectsPage />} />
 
             {/* A project: its own menu replaces the organisation's. */}

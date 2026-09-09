@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.audit_event import AuditEvent
@@ -73,6 +73,24 @@ async def list_audit_events(
         }
         for e in events
     ]
+
+
+def org_audit_query(scope_id: UUID, *, before: datetime | None, action: str | None, limit: int) -> Select:
+    """Newest-first, keyset-paged rows for one organisation's audit log.
+
+    ``audit_events`` carries no RLS -- platform-level rows have a NULL
+    ``tenant_id`` and the platform listing runs without scope variables, so a
+    policy would break that. This filter is therefore the only thing standing
+    between an organisation admin and another organisation's log, which is
+    why it is pulled out as its own pure function: it can be asserted against
+    directly, rather than trusted to read correctly inside a route.
+    """
+    stmt = select(AuditEvent).where(AuditEvent.tenant_id == scope_id)
+    if action:
+        stmt = stmt.where(AuditEvent.action == action)
+    if before is not None:
+        stmt = stmt.where(AuditEvent.timestamp < before)
+    return stmt.order_by(AuditEvent.timestamp.desc(), AuditEvent.id.desc()).limit(limit + 1)
 
 
 async def log_audit_event(

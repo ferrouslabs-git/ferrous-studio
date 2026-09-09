@@ -81,6 +81,24 @@ entirely separate — nothing you sign up with in staging exists in prod.
     `aws secretsmanager put-secret-value --secret-id <product>/<env>/ANTHROPIC_API_KEY --secret-string sk-ant-...`.
     The deploy scripts pass it to the task as a secret and
     `DOCUMENTS_BUCKET` as an environment variable.
+11. **GitHub App secrets** (`secrets.tf`): `<product>/<env>/GITHUB_APP_ID`,
+    `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_CLIENT_ID`,
+    `GITHUB_CLIENT_SECRET` — one set per environment, created **empty** for
+    the same reason as the Claude key above. Each environment needs its own
+    GitHub App, because the App's Setup URL is fixed to one origin and must
+    match that environment's domain (`app.config.json` is where the domain
+    comes from — see `docs/github-repository.md` for the App's settings).
+    Create it at `github.com/organizations/<org>/settings/apps/new`, then set
+    the values by hand:
+    `aws secretsmanager put-secret-value --secret-id <product>/<env>/GITHUB_APP_PRIVATE_KEY --secret-string "$(base64 -w0 <key>.pem)"`
+    (base64 is what `config.py`'s `_pem` accepts and the form that survives
+    every secret store). `GITHUB_APP_ID` and `GITHUB_APP_SLUG` are not
+    secrets, but live alongside the rest so there is one mechanism and one
+    runbook entry. Leaving an environment's values empty is a valid choice —
+    the backend reports `configured: false` and the GitHub/Repository pages
+    say so rather than offering a Connect button that cannot work.
+    `infra/ecs/taskdef.template.json` passes all five to the task as secrets,
+    the same shape as `DATABASE_URL`.
 
 What Terraform does **not** create: the ECS task definition or service.
 Those change on every deploy (new image tag), so `infra/scripts/deploy-*`

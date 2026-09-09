@@ -1,11 +1,15 @@
+from datetime import datetime
 from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 
+from ..models.user import User
+from ..schemas.audit import AuditActor, OrgAuditEventRead, OrgAuditPage
 from ..schemas.user_management import (
     RemoveUserResponse,
     TenantUserResponse,
@@ -14,7 +18,7 @@ from ..schemas.user_management import (
     UpdateUserRoleResponse,
 )
 from ..security import ScopeContext, require_permission
-from ..services.audit_service import log_audit_event
+from ..services.audit_service import log_audit_event, org_audit_query
 from ..services.user_management_service import (
     list_tenant_users,
     reactivate_user_in_tenant,
@@ -234,4 +238,63 @@ async def reactivate_tenant_user(
         tenant_id=tenant_id,
         status=membership.status,
         message="User reactivated in tenant",
+    )
+
+
+@router.get("/tenants/{tenant_id}/audit-events", response_model=OrgAuditPage)
+async def list_org_audit_events(
+    tenant_id: UUID,
+    limit: int = Query(50, ge=1, le=200),
+    before: datetime | None = None,
+    action: str | None = None,
+    ctx: ScopeContext = Depends(require_permission("audit:read")),
+    db: AsyncSession = Depends(get_db),
+) -> OrgAuditPage:
+    """This organisation's history: memberships, invitations, GitHub.
+
+    ``audit_events`` has no RLS (platform rows have a NULL ``tenant_id``, and
+    the platform listing runs without scope variables), so ``ensure_scope_access``
+    plus the ``tenant_id`` filter inside ``org_audit_query`` are the only thing
+    standing between an admin and another organisation's log -- see the tests
+    that pin the query.
+
+    ``ip_address`` is deliberately not returned here; the platform-level
+    listing keeps it.
+    """
+    ensure_scope_access(tenant_id, ctx)
+    stmt = org_audit_query(tenant_id, before=before, action=action, limit=limit)
+    rows = list((await db.execute(stmt)).scalars().all())
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    actor_ids = {row.actor_user_id for row in rows if row.actor_user_id}
+    actors: dict[UUID, User] = {}
+    if actor_ids:
+        found = (await db.execute(select(User).where(User.id.in_(actor_ids)))).scalars().all()
+        actors = {user.id: user for user in found}
+
+    events = [
+        OrgAuditEventRead(
+            id=row.id,
+            action=row.action,
+            actor=(
+                AuditActor(
+                    id=row.actor_user_id,
+                    name=actors[row.actor_user_id].name if row.actor_user_id in actors else None,
+                    email=actors[row.actor_user_id].email if row.actor_user_id in actors else None,
+                )
+                if row.actor_user_id
+                else None
+            ),
+            target_type=row.target_type,
+            target_id=row.target_id,
+            metadata=row.metadata_json or {},
+            timestamp=row.timestamp,
+        )
+        for row in rows
+    ]
+    return OrgAuditPage(
+        events=events,
+        has_more=has_more,
+        next_before=rows[-1].timestamp if rows and has_more else None,
     )

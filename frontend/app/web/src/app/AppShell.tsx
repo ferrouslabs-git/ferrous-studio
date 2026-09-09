@@ -16,7 +16,7 @@ import { useLoad } from "../core/useLoad";
 import { listProjectVersions } from "../features/projects/projectsApi";
 
 export function AppShell() {
-  const { user, orgs, activeOrg, selectOrg, refresh } = useSession();
+  const { user, orgs, activeOrg, selectOrg, refresh, canReadAudit } = useSession();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [shellProject, setShellProject] = useState<ShellProject | null>(null);
@@ -135,6 +135,13 @@ export function AppShell() {
             <NavGroup>
               <NavItem to={`/orgs/${activeOrg.id}/projects`} icon="folder" label="Projects" />
               <NavItem to={`/orgs/${activeOrg.id}/users`} icon="users" label="Users" />
+              {/* Everyone in the organisation may see which account is
+                  connected; only canManageIntegrations sees the controls,
+                  which the page itself decides. */}
+              <NavItem to={`/orgs/${activeOrg.id}/github`} icon="github" label="GitHub" />
+              {canReadAudit && (
+                <NavItem to={`/orgs/${activeOrg.id}/audit`} icon="audit" label="Audit log" />
+              )}
             </NavGroup>
           )}
 
@@ -330,6 +337,8 @@ type IconName =
   | "roadmap"
   | "epic"
   | "feedback"
+  | "github"
+  | "audit"
   | "arrowLeft";
 
 const PATHS: Record<IconName, ReactNode> = {
@@ -415,6 +424,20 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M20 4H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h3v4l5-4h8a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1z" />
       <path d="M12 7v4M12 13.5v.5" />
+    </>
+  ),
+  github: (
+    <>
+      <path d="M9 15l6-6" />
+      <path d="M8 16.5a4 4 0 0 1 0-5.7l2-2a4 4 0 0 1 5.7 5.7l-1 1" />
+      <path d="M16 7.5a4 4 0 0 1 0 5.7l-2 2a4 4 0 0 1-5.7-5.7l1-1" />
+    </>
+  ),
+  audit: (
+    <>
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v4h4" />
+      <path d="M12 8v4l3 2" />
     </>
   ),
   arrowLeft: <path d="M19 12H5M11 6l-6 6 6 6" />,

@@ -39,7 +39,12 @@
         { "name": "DOCUMENTS_BUCKET", "value": "{{DOCUMENTS_BUCKET}}" }
       ],
       "secrets": [
-        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" }
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" },
+        { "name": "GITHUB_APP_ID", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_ID" },
+        { "name": "GITHUB_APP_SLUG", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_SLUG" },
+        { "name": "GITHUB_APP_PRIVATE_KEY", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_PRIVATE_KEY" },
+        { "name": "GITHUB_CLIENT_ID", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_CLIENT_ID" },
+        { "name": "GITHUB_CLIENT_SECRET", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_CLIENT_SECRET" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
