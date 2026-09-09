@@ -18,6 +18,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -229,6 +230,17 @@ class Requirement(Base):
     assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)
     sprint_id = Column(UUID(as_uuid=True), ForeignKey("board_sprints.id", ondelete="SET NULL"), nullable=True)
+    # Effort estimate, in HOURS. Nullable on purpose: NULL means "not estimated
+    # yet", which is a real state and must never be conflated with zero.
+    # ``Float`` (double precision), deliberately not ``Numeric``: psycopg maps
+    # numeric to decimal.Decimal, which is not JSON-serialisable and would
+    # break every response that carries a requirement.
+    #
+    # Carried over from software-management, whose effort rollups and
+    # capacity-vs-committed sprint lane are built on it. Nothing in this app
+    # surfaces it yet -- it exists so estimates survive the import rather than
+    # being silently dropped.
+    estimate_hours = Column(Float, nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)

@@ -8,6 +8,8 @@ import { Link, useParams } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { errorMessage } from "../../../core/api";
+import { formatDateTime } from "../../../core/format";
+import { getTenantUsers } from "../../../core/umApi";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
 import { Release, listReleases } from "../roadmap/releasesApi";
@@ -44,6 +46,15 @@ export function EpicDetailPage() {
   const features = useLoad(() => listFeatures(project.id, epicId), [project.id, epicId]);
   const requirements = useLoad(() => listRequirements(project.id, { epic_id: epicId }), [project.id, epicId]);
   const docs = useLoad(() => listBoardDocs(project.id, epicId), [project.id, epicId]);
+  // Docs carry created_by; resolving it to a name needs the organisation's
+  // members, the same lookup CommentsSection already does for author_id.
+  const members = useLoad(() => getTenantUsers(orgId, "active"), [orgId]);
+  const authorName = useMemo(() => {
+    const byId = new Map((members.data ?? []).map((m) => [m.user_id, m]));
+    // Null once the author's account is deleted (created_by is ON DELETE SET
+    // NULL), and unresolved while the member list is still loading.
+    return (id: string | null) => (id && (byId.get(id)?.name ?? byId.get(id)?.email)) || "Someone";
+  }, [members.data]);
 
   const epic = epicLoad.data;
 
@@ -239,6 +250,9 @@ export function EpicDetailPage() {
               <button type="button" className="btn-link" onClick={() => setViewingDoc(d)}>
                 {d.human_id} · {d.title}
               </button>
+              <span className="muted" style={{ fontSize: 12 }}>
+                {authorName(d.created_by)} · {formatDateTime(d.created_at)}
+              </span>
               {canWrite && (
                 <>
                   <button type="button" className="btn small ghost" onClick={() => openDocDrawer(d)}>
@@ -348,7 +362,14 @@ export function EpicDetailPage() {
       </Drawer>
 
       <Drawer open={viewingDoc !== null} title={viewingDoc ? `${viewingDoc.human_id} · ${viewingDoc.title}` : ""} onClose={() => setViewingDoc(null)} width={720}>
-        {viewingDoc && <MarkdownWithMermaid body={viewingDoc.body} />}
+        {viewingDoc && (
+          <>
+            <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+              {authorName(viewingDoc.created_by)} · {formatDateTime(viewingDoc.created_at)}
+            </p>
+            <MarkdownWithMermaid body={viewingDoc.body} />
+          </>
+        )}
       </Drawer>
 
       <ConfirmDrawer

@@ -2,10 +2,35 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+
+
+def _not_a_bool(value: object) -> object:
+    """Reject True/False before float coercion sees them.
+
+    ``bool`` is a subclass of ``int``, so pydantic happily reads ``True`` as
+    ``1.0`` -- a silent one-hour estimate. Same guard software-management
+    applies in its own ``_estimate_hours`` validator, and for the same reason.
+    """
+    if isinstance(value, bool):
+        raise ValueError("must be a number, not a boolean")
+    return value
+
+
+#: Hours. ``None`` means "not estimated", which is distinct from ``0`` -- see
+#: the ``estimate_hours`` column in models.py.
+#:
+#: The constraints sit on the ``float`` member rather than on the union: an
+#: ``Annotated[float | None, Field(ge=0)]`` applies ``ge`` to ``None`` too and
+#: raises ``TypeError`` (a 500, not a 422) the moment a client sends null to
+#: clear the estimate.
+EstimateHours = Annotated[
+    Annotated[float, Field(ge=0, allow_inf_nan=False)] | None,
+    BeforeValidator(_not_a_bool),
+]
 
 EntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc"]
 AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc", "feedback"]
@@ -197,6 +222,8 @@ class RequirementCreate(BaseModel):
     assignee_id: UUID | None = None
     release_id: UUID | None = None
     sprint_id: UUID | None = None
+    # No UI surfaces this yet; it is accepted so imported estimates are not lost.
+    estimate_hours: EstimateHours = None
 
 
 class RequirementUpdate(BaseModel):
@@ -214,6 +241,9 @@ class RequirementUpdate(BaseModel):
     clear_release: bool = False
     sprint_id: UUID | None = None
     clear_sprint: bool = False
+    # Sending null clears the estimate back to "not estimated" -- unlike the id
+    # fields above, null is meaningful here, so it needs no clear_ flag.
+    estimate_hours: EstimateHours = None
 
 
 class RequirementRead(BaseModel):
@@ -231,6 +261,7 @@ class RequirementRead(BaseModel):
     assignee_id: UUID | None
     release_id: UUID | None
     sprint_id: UUID | None
+    estimate_hours: float | None = None
     effective_epic_id: UUID | None = None
     effective_release_id: UUID | None = None
     created_at: datetime
