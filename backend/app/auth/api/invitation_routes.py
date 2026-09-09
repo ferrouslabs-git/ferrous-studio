@@ -34,6 +34,7 @@ from ..services.invitation_service import (
 )
 from .route_helpers import (
     create_invitation_response,
+    ensure_invitation_authority,
     ensure_scope_access,
     resend_invitation_response,
     revoke_invitation_response,
@@ -144,11 +145,12 @@ async def revoke_tenant_invitation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Revoke a pending invitation token for a tenant (admin+)."""
+    """Revoke a pending invitation token for a tenant (its sender, or an admin)."""
     ensure_scope_access(tenant_id, ctx)
     invitation = await get_tenant_invitation_by_token(db, tenant_id, token)
     if not invitation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+    ensure_invitation_authority(invitation, ctx)
 
     try:
         invitation = await revoke_invitation(db, invitation)
@@ -185,6 +187,7 @@ async def resend_tenant_invitation(
     invitation = await get_tenant_invitation_by_token(db, tenant_id, token)
     if not invitation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+    ensure_invitation_authority(invitation, ctx)
 
     try:
         invitation, raw_token = await resend_invitation(db, invitation)
@@ -235,11 +238,13 @@ async def resend_invitation_by_id(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Resend a pending or expired invitation looked up by row ID (admin+)."""
+    """Resend a pending or expired invitation looked up by row ID (its sender,
+    or an admin)."""
     ensure_scope_access(tenant_id, ctx)
     invitation = await get_invitation_by_id(db, tenant_id, invitation_id)
     if not invitation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+    ensure_invitation_authority(invitation, ctx)
     return await resend_invitation_response(db, invitation, current_user)
 
 
@@ -289,7 +294,7 @@ async def revoke_invitation_by_id(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Revoke a pending invitation looked up by row ID (admin+).
+    """Revoke a pending invitation looked up by row ID (its sender, or an admin).
 
     The invitation list endpoint deliberately never returns tokens, so a UI
     working from that list needs an ID-addressed revoke to pair with the
@@ -299,4 +304,5 @@ async def revoke_invitation_by_id(
     invitation = await get_invitation_by_id(db, tenant_id, invitation_id)
     if not invitation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+    ensure_invitation_authority(invitation, ctx)
     return await revoke_invitation_response(db, invitation, current_user)

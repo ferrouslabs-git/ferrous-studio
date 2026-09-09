@@ -5,10 +5,14 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 EntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc"]
-AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc"]
+AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc", "feedback"]
+EnvironmentSlug = Literal["uat", "staging", "production"]
+FeedbackKind = Literal["feedback", "bug", "requirement"]
+FeedbackSeverity = Literal["low", "medium", "high", "critical"]
+FeedbackStatus = Literal["New", "Triaged", "Accepted", "Declined", "Done"]
 
 # ── Releases ─────────────────────────────────────────────────────────────
 
@@ -285,6 +289,106 @@ class CommentRead(BaseModel):
     created_at: datetime
 
 
+# ── Environments ─────────────────────────────────────────────────────────
+
+
+def http_url(value: str, subject: str) -> str:
+    """An optional http(s) address, trimmed. Blank stays blank.
+
+    Shared by an environment's address and a report's page address, which are
+    the same rule about the same kind of value -- a second copy is exactly
+    where the two would drift.
+    """
+    url = value.strip()
+    if url and not url.startswith(("http://", "https://")):
+        raise ValueError(f"{subject} must start with http:// or https://")
+    if len(url) > 1024:
+        raise ValueError(f"{subject} may be at most 1024 characters")
+    return url
+
+
+class EnvironmentWrite(BaseModel):
+    """Setting an environment's address. An empty ``url`` clears it."""
+
+    url: str = ""
+
+    @field_validator("url")
+    @classmethod
+    def _http_url(cls, value: str) -> str:
+        return http_url(value, "An environment address")
+
+
+class EnvironmentRead(BaseModel):
+    """One environment, set or not. Unset ones are returned too, so the client
+    always renders the same three rows in the same order."""
+
+    slug: EnvironmentSlug
+    label: str
+    url: str | None
+    updated_at: datetime | None
+
+
+# ── Feedback ─────────────────────────────────────────────────────────────
+
+
+class FeedbackCreate(BaseModel):
+    """What a reporter may say. Deliberately no ``status``: that is what stops
+    a member filing a report as already Accepted, and it is asserted by
+    tests/test_role_permissions.py -- do not add one here."""
+
+    environment: EnvironmentSlug
+    kind: FeedbackKind = "feedback"
+    severity: FeedbackSeverity = "medium"
+    title: str = Field(min_length=1, max_length=255)
+    detail: str = ""
+    page_url: str = ""
+
+    @field_validator("page_url")
+    @classmethod
+    def _page_url(cls, value: str) -> str:
+        return http_url(value, "A page address")
+
+
+class FeedbackUpdate(BaseModel):
+    environment: EnvironmentSlug | None = None
+    kind: FeedbackKind | None = None
+    severity: FeedbackSeverity | None = None
+    title: str | None = Field(None, min_length=1, max_length=255)
+    detail: str | None = None
+    page_url: str | None = None
+    status: FeedbackStatus | None = None
+
+    @field_validator("page_url")
+    @classmethod
+    def _page_url(cls, value: str | None) -> str | None:
+        return None if value is None else http_url(value, "A page address")
+
+
+class FeedbackRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    human_id: str
+    environment: str
+    kind: str
+    severity: str
+    title: str
+    detail: str
+    page_url: str
+    status: str
+    raised_by: UUID | None
+    raised_by_name: str | None
+    raised_by_email: str | None
+    #: How many screenshots are attached. The one field here that is not a
+    #: straight ORM projection -- list_feedback fills it from a grouped count
+    #: rather than leaving each row to fetch its own. Create/update leave it at
+    #: 0, which is right for create and stale-by-one-render for update, where
+    #: the drawer holds the real list anyway.
+    screenshot_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
 # ── Events (activity feed) ───────────────────────────────────────────────
 
 
@@ -314,11 +418,13 @@ class AttachmentUploadRequest(BaseModel):
 class AttachmentUploadTicket(BaseModel):
     attachment_id: UUID
     upload_url: str
-    # The exact value the URL was signed with -- S3 rejects the PUT with a
-    # 403 if the Content-Type header doesn't match, and the server may have
-    # canonicalised it (ALLOWED_TYPES) to something other than what the
-    # client sent, so the client can't be trusted to already know it.
-    content_type: str
+    #: The headers the PUT must carry, as DocumentUploadTicket already returns.
+    #: The presign signs the *canonical* content type, which the request's own
+    #: content_type need not equal (".jpg" sent as "image/jpeg" is remapped), so
+    #: a client left to guess gets a bare 403 from S3. (Independently found and
+    #: fixed twice, this session and on Org-users -- same bug, this shape kept
+    #: for consistency with DocumentUploadTicket's own headers field.)
+    headers: dict[str, str]
     expires_in: int
 
 

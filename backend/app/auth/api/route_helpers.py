@@ -18,6 +18,7 @@ from ..services.auth_config_loader import get_auth_config
 from ..services.cognito_admin_service import create_invited_cognito_user_async
 from ..services.email_service import send_invitation_email
 from ..services.invitation_service import (
+    LEGACY_TO_V3,
     PLATFORM_ROLE,
     PLATFORM_SCOPE,
     create_invitation,
@@ -33,6 +34,24 @@ _logger = logging.getLogger(__name__)
 def ensure_scope_access(scope_id: UUID, ctx: ScopeContext) -> None:
     if scope_id != ctx.scope_id and not ctx.is_super_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch")
+
+
+def ensure_invitation_authority(invitation: Invitation, ctx: ScopeContext) -> None:
+    """Require authority to resend or revoke this particular invitation.
+
+    ``members:manage`` (the organisation admin) covers every invitation in the
+    scope. ``members:invite`` alone -- what an otherwise read-only member
+    holds -- covers only the invitations that member sent themselves, so one
+    member cannot revoke or re-issue another's.
+
+    A 404 rather than a 403: someone who may not act on an invitation has no
+    business learning it exists, and the list this is reached from is
+    membership-wide.
+    """
+    if ctx.is_super_admin or ctx.has_permission("members:manage"):
+        return
+    if invitation.created_by != ctx.user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
 
 
 # DEPRECATED: Use ensure_scope_access. Remove after 2026-05-20.
@@ -120,11 +139,22 @@ async def create_invitation_response(
         )
 
     # --- Invite authority check: inviter permissions must be superset of target role ---
-    if target_role_name and ctx and not ctx.is_super_admin:
+    # This subset rule is the whole of the role restriction: an organisation
+    # member holds members:invite but not data:write or members:manage, so
+    # account_member and account_viewer pass and account_admin does not.
+    #
+    # Resolve the effective role the same way create_invitation does. Checking
+    # only the explicit target_role_name would leave the legacy `role` field as
+    # a way round the rule -- {"role": "admin"} with no target_role_name once
+    # skipped this branch entirely and was then stored as account_admin.
+    if ctx and not ctx.is_super_admin:
+        effective_role_name = target_role_name or LEGACY_TO_V3.get(invite_data.role, invite_data.role)
         config = get_auth_config()
         inviter_perms = config.permissions_for_role(ctx.role_name)
-        target_perms = config.permissions_for_role(target_role_name)
-        if not target_perms.issubset(inviter_perms):
+        target_perms = config.permissions_for_role(effective_role_name)
+        # An unknown role name resolves to an empty permission set, which is a
+        # subset of anything -- refuse it rather than let it through.
+        if effective_role_name not in config.permission_map or not target_perms.issubset(inviter_perms):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot invite with a role that has more permissions than your own",

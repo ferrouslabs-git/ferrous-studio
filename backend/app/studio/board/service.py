@@ -24,6 +24,7 @@ from .models import (
     Epic,
     Event,
     Feature,
+    Feedback,
     Release,
     Requirement,
     RequirementSprintHistory,
@@ -233,6 +234,11 @@ _ENTITY_TABLES = {
     "requirement": Requirement,
     "sprint": Sprint,
     "doc": Doc,
+    # Attachments only -- Comment.ENTITY_TYPES does not list feedback, and its
+    # own CHECK constraint would refuse it. Missing this entry makes every
+    # screenshot upload 422 with "Attachment target does not exist", however
+    # right the CHECK constraint is.
+    "feedback": Feedback,
 }
 
 
@@ -266,9 +272,12 @@ async def entity_exists(db: AsyncSession, board_id: UUID, entity_type: str, enti
     model = _ENTITY_TABLES.get(entity_type)
     if model is None:
         return False
-    result = await db.execute(
-        select(model.id).where(model.board_id == board_id, model.id == entity_id, model.deleted_at.is_(None))
-    )
+    conditions = [model.board_id == board_id, model.id == entity_id]
+    # Not every entity here is soft-deletable -- Feedback isn't (see
+    # _ENTITY_TABLES's own comment on why it's in this dict at all).
+    if hasattr(model, "deleted_at"):
+        conditions.append(model.deleted_at.is_(None))
+    result = await db.execute(select(model.id).where(*conditions))
     return result.scalar_one_or_none() is not None
 
 

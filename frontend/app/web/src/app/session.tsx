@@ -17,8 +17,23 @@ import { pickInitialOrg, readRemembered, rememberScope } from "./scopeSelection"
 
 export type SessionStatus = "loading" | "anonymous" | "ready";
 
-/** Organisation roles that carry data:write (see backend auth_config.yaml). */
-const WRITE_ACCOUNT_ROLES = new Set(["account_admin", "account_member"]);
+// Which organisation role carries which capability. backend/app/auth/
+// auth_config.yaml is the source of truth and the server decides every
+// request; these sets only mirror it so the UI can hide what would 403.
+//
+// Only the admin writes content. A member reads everything and may do exactly
+// three more things: pin a task to a wireframe, raise feedback against a
+// deployed environment, and invite member/viewer.
+/** data:write */
+const WRITE_ACCOUNT_ROLES = new Set(["account_admin"]);
+/** tasks:create */
+const TASK_ACCOUNT_ROLES = new Set(["account_admin", "account_member"]);
+/** feedback:create */
+const FEEDBACK_ACCOUNT_ROLES = new Set(["account_admin", "account_member"]);
+/** members:invite */
+const INVITE_ACCOUNT_ROLES = new Set(["account_admin", "account_member"]);
+/** members:manage */
+const MANAGE_ACCOUNT_ROLES = new Set(["account_admin"]);
 
 export interface Session {
   status: SessionStatus;
@@ -27,6 +42,14 @@ export interface Session {
   activeOrg: UmTenant | null;
   /** Whether the user may create/edit projects here. UX only; the server decides. */
   canWrite: boolean;
+  /** Whether the user may add tasks to a wireframe. */
+  canAddTasks: boolean;
+  /** Whether the user may raise feedback against a deployed environment. */
+  canRaiseFeedback: boolean;
+  /** Whether the user may invite people (members and viewers only). */
+  canInvite: boolean;
+  /** Whether the user may change roles, archive members, and manage anyone's invitations. */
+  canManageMembers: boolean;
   /** True once signed in but with no organisation membership (and not a platform admin). */
   isPending: boolean;
   selectOrg: (orgId: string) => Promise<void>;
@@ -89,11 +112,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [user, orgs],
   );
 
-  const canWrite = useMemo(() => {
-    if (!user) return false;
-    if (user.is_platform_admin) return true;
-    return !!activeOrg && WRITE_ACCOUNT_ROLES.has(activeOrg.role);
-  }, [user, activeOrg]);
+  /** Does the active organisation role sit in `roles`? Platform admins, who
+   *  hold no organisation membership, pass everything. */
+  const holds = useCallback(
+    (roles: Set<string>) => {
+      if (!user) return false;
+      if (user.is_platform_admin) return true;
+      return !!activeOrg && roles.has(activeOrg.role);
+    },
+    [user, activeOrg],
+  );
+
+  const canWrite = useMemo(() => holds(WRITE_ACCOUNT_ROLES), [holds]);
+  const canAddTasks = useMemo(() => holds(TASK_ACCOUNT_ROLES), [holds]);
+  const canRaiseFeedback = useMemo(() => holds(FEEDBACK_ACCOUNT_ROLES), [holds]);
+  const canInvite = useMemo(() => holds(INVITE_ACCOUNT_ROLES), [holds]);
+  const canManageMembers = useMemo(() => holds(MANAGE_ACCOUNT_ROLES), [holds]);
 
   const value = useMemo<Session>(
     () => ({
@@ -102,11 +136,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       orgs,
       activeOrg,
       canWrite,
+      canAddTasks,
+      canRaiseFeedback,
+      canInvite,
+      canManageMembers,
       isPending: status === "ready" && !!user && !user.is_platform_admin && orgs.length === 0,
       selectOrg,
       refresh: load,
     }),
-    [status, user, orgs, activeOrg, canWrite, selectOrg, load],
+    [
+      status,
+      user,
+      orgs,
+      activeOrg,
+      canWrite,
+      canAddTasks,
+      canRaiseFeedback,
+      canInvite,
+      canManageMembers,
+      selectOrg,
+      load,
+    ],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

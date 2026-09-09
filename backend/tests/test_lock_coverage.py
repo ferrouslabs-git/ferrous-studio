@@ -55,6 +55,7 @@ EXEMPT = {
     "create_requirement", "update_requirement", "delete_requirement", "claim_requirement_route",
     "create_doc", "update_doc", "delete_doc",
     "create_comment", "delete_comment",
+    "set_environment", "create_feedback", "update_feedback", "delete_feedback",
     "request_attachment_upload", "confirm_attachment_upload", "delete_attachment",
     "create_board_token", "revoke_board_token_route", "queue_agent_run_route",
     "create_agent_route", "update_agent_route", "delete_agent_route",

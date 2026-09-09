@@ -108,6 +108,8 @@ export interface TenantInvitation {
   status: "pending" | "accepted" | "expired" | "revoked";
   target_scope_type: string | null;
   target_scope_id: string | null;
+  /** Who sent it. A member may resend/revoke only their own invitations. */
+  created_by: string | null;
   created_at: string;
   expires_at: string;
   accepted_at: string | null;

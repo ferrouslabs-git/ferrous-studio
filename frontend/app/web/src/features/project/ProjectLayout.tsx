@@ -23,6 +23,21 @@ export interface ProjectContextValue {
    * this is false -- so the lock is enforced in the UI by this one value.
    */
   canWrite: boolean;
+  /**
+   * Whether tasks may be pinned to this project's wireframes. Members get this
+   * without `canWrite`. Unlike `canWrite` the lock does NOT narrow it: the
+   * backend exempts annotations from the freeze on purpose, because locking a
+   * version starts the review rather than ending the conversation about it
+   * (see the EXEMPT list in backend/tests/test_lock_coverage.py).
+   */
+  canAddTasks: boolean;
+  /**
+   * Whether feedback may be raised against this project's deployed
+   * environments. Members get this without `canWrite`, and like `canAddTasks`
+   * the lock does NOT narrow it: an environment is live whatever a design
+   * version says, so freezing v1 must not silence the people testing it.
+   */
+  canRaiseFeedback: boolean;
   /** Re-fetch after an edit; the sidebar title follows. */
   reload: () => Promise<void>;
 }
@@ -37,7 +52,7 @@ export function useProject(): ProjectContextValue {
 
 export function ProjectLayout() {
   const { orgId = "", projectId = "" } = useParams();
-  const { user, orgs, activeOrg, selectOrg, canWrite } = useSession();
+  const { user, orgs, activeOrg, selectOrg, canWrite, canAddTasks, canRaiseFeedback } = useSession();
   const { setProject: setShellProject } = useShellProject();
 
   const member = !!user?.is_platform_admin || orgs.some((o) => o.id === orgId);
@@ -85,7 +100,16 @@ export function ProjectLayout() {
 
   const locked = project.locked_at !== null;
   return (
-    <ProjectContext.Provider value={{ project, orgId, canWrite: canWrite && !locked, reload: load.reload }}>
+    <ProjectContext.Provider
+      value={{
+        project,
+        orgId,
+        canWrite: canWrite && !locked,
+        canAddTasks,
+        canRaiseFeedback,
+        reload: load.reload,
+      }}
+    >
       {locked && <LockedBanner project={project} canUnlock={canWrite} onUnlocked={load.reload} />}
       <Outlet />
     </ProjectContext.Provider>

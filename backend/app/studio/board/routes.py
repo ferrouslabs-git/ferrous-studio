@@ -13,10 +13,12 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
+from app.auth.models.user import User
+from app.auth.security import require_any_permission
 from .agents import maybe_wake_agent
 from .auth import require_board_permission as require_permission
 from app.auth.security.scope_context import ScopeContext
@@ -24,12 +26,26 @@ from app.config import get_settings
 
 from .. import storage
 from ..common import get_project
-from ..documents import ALLOWED_TYPES, sanitise_filename
+from ..documents import ALLOWED_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
 from . import service
-from .models import Attachment, Board, Comment, Doc, Epic, Event, Feature, Release, Requirement, Sprint
+from .models import (
+    Attachment,
+    Board,
+    Comment,
+    Doc,
+    Environment,
+    Epic,
+    Event,
+    Feature,
+    Feedback,
+    Release,
+    Requirement,
+    Sprint,
+)
 from .schemas import (
     AttachmentDownload,
+    AttachmentEntityType,
     AttachmentRead,
     AttachmentUploadRequest,
     AttachmentUploadTicket,
@@ -41,6 +57,9 @@ from .schemas import (
     DocRead,
     DocUpdate,
     EntityType,
+    EnvironmentRead,
+    EnvironmentSlug,
+    EnvironmentWrite,
     EpicCreate,
     EpicProgress,
     EpicRead,
@@ -50,6 +69,10 @@ from .schemas import (
     FeatureCreate,
     FeatureRead,
     FeatureUpdate,
+    FeedbackCreate,
+    FeedbackRead,
+    FeedbackSeverity,
+    FeedbackUpdate,
     ReleaseCreate,
     ReleaseRead,
     ReleaseUpdate,
@@ -1077,6 +1100,239 @@ async def delete_comment(
     await db.commit()
 
 
+# ── Environments ─────────────────────────────────────────────────────────
+#
+# Where a build of this product can actually be reached. Fixed at three rather
+# than user-defined: an organisation user raising feedback has to name the
+# environment they saw the problem in, and a free-form list would make one
+# organisation's reports incomparable with another's -- and with its own, six
+# months later. Ordered the way a build is promoted through them.
+#
+# Only board:write sets one; everyone with board:read sees the links, which is
+# the point (see the Feedback section below).
+
+
+ENVIRONMENTS: tuple[tuple[str, str], ...] = (
+    ("uat", "UAT"),
+    ("staging", "Staging"),
+    ("production", "Production"),
+)
+
+
+async def _environment_rows(db: AsyncSession, board: Board) -> list[EnvironmentRead]:
+    """All three environments, set or not, always in promotion order."""
+    rows = {
+        row.slug: row
+        for row in (await db.execute(select(Environment).where(Environment.board_id == board.id))).scalars()
+    }
+    return [
+        EnvironmentRead(
+            slug=slug,
+            label=label,
+            url=rows[slug].url if slug in rows else None,
+            updated_at=rows[slug].updated_at if slug in rows else None,
+        )
+        for slug, label in ENVIRONMENTS
+    ]
+
+
+@router.get("/projects/{project_id}/board/environments", response_model=list[EnvironmentRead])
+async def list_environments(
+    project_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[EnvironmentRead]:
+    project = await get_project(db, project_id, ctx)
+    return await _environment_rows(db, await _board(db, project))
+
+
+@router.put("/projects/{project_id}/board/environments/{slug}", response_model=list[EnvironmentRead])
+async def set_environment(
+    project_id: UUID,
+    slug: EnvironmentSlug,
+    payload: EnvironmentWrite,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> list[EnvironmentRead]:
+    # get_project, not get_writable_project: an environment address belongs to
+    # the lineage, so a frozen design version must neither carry a copy of its
+    # own nor stop a wrong link being corrected. See test_lock_coverage.py.
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    row = (
+        await db.execute(select(Environment).where(Environment.board_id == board.id, Environment.slug == slug))
+    ).scalar_one_or_none()
+
+    # An empty URL means "not set up", which is the absence of a row rather
+    # than a row holding "". Reports already filed against the environment are
+    # untouched: they name it by slug, not by this row.
+    if not payload.url:
+        if row is not None:
+            await db.delete(row)
+            await service.write_event(
+                db, board, ctx.user_id, "environment.cleared", "environment", row.id, {"slug": slug}
+            )
+    elif row is None:
+        row = Environment(
+            board_id=board.id, account_id=board.account_id, slug=slug, url=payload.url, updated_by=ctx.user_id
+        )
+        db.add(row)
+        await db.flush()
+        await service.write_event(db, board, ctx.user_id, "environment.set", "environment", row.id, {"slug": slug})
+    elif row.url != payload.url:
+        row.url = payload.url
+        row.updated_by = ctx.user_id
+        row.updated_at = utc_now()
+        await service.write_event(db, board, ctx.user_id, "environment.set", "environment", row.id, {"slug": slug})
+
+    await db.commit()
+    return await _environment_rows(db, board)
+
+
+# ── Feedback ─────────────────────────────────────────────────────────────
+#
+# What an organisation user noticed in one of those environments. This is the
+# one board route an organisation *member* may write to: ``feedback:create``
+# opens the POST below and nothing else, the same shape as ``tasks:create`` on
+# wireframe annotations. A member cannot triage, edit or delete a report --
+# not even their own -- because each of those is board:write.
+#
+# Reports are deliberately not requirements: a report is what was seen, in the
+# reporter's words, against the environment they saw it in. An admin triages
+# through ``status``, and only what survives triage becomes board work.
+
+
+async def _get_feedback(db: AsyncSession, board: Board, feedback_id: UUID) -> Feedback:
+    item = (
+        await db.execute(select(Feedback).where(Feedback.id == feedback_id, Feedback.board_id == board.id))
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
+    return item
+
+
+@router.get("/projects/{project_id}/board/feedback", response_model=list[FeedbackRead])
+async def list_feedback(
+    project_id: UUID,
+    environment: EnvironmentSlug | None = Query(None),
+    severity: FeedbackSeverity | None = Query(None),
+    ctx: ScopeContext = Depends(require_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[FeedbackRead]:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    # Newest first: a triage queue is read from the top, unlike the rest of the
+    # board, which reads in the order things were numbered.
+    stmt = select(Feedback).where(Feedback.board_id == board.id).order_by(Feedback.created_at.desc())
+    if environment is not None:
+        stmt = stmt.where(Feedback.environment == environment)
+    if severity is not None:
+        stmt = stmt.where(Feedback.severity == severity)
+    items = list((await db.execute(stmt)).scalars().all())
+
+    # One grouped count for the whole page rather than a listAttachments call
+    # per row: an admin scanning the queue wants to see which reports carry
+    # evidence, and that must not cost a query each.
+    counts = dict(
+        (
+            await db.execute(
+                select(Attachment.entity_id, func.count())
+                .where(
+                    Attachment.board_id == board.id,
+                    Attachment.entity_type == "feedback",
+                    Attachment.status == "uploaded",
+                )
+                .group_by(Attachment.entity_id)
+            )
+        ).all()
+    )
+    rows = [FeedbackRead.model_validate(item) for item in items]
+    for row in rows:
+        row.screenshot_count = counts.get(row.id, 0)
+    return rows
+
+
+@router.post("/projects/{project_id}/board/feedback", response_model=FeedbackRead, status_code=status.HTTP_201_CREATED)
+async def create_feedback(
+    project_id: UUID,
+    payload: FeedbackCreate,
+    ctx: ScopeContext = Depends(require_any_permission(["board:write", "feedback:create"])),
+    db: AsyncSession = Depends(get_db),
+) -> Feedback:
+    # An organisation member reads the whole product and writes nothing except
+    # tasks and this. Unlike create_annotation there is no narrower check in
+    # the body: every field of a report is the reporter's to fill in, and the
+    # status it lands in is not one of them -- FeedbackCreate has no status, so
+    # a report always starts at "New", and only board:write moves it.
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    # Snapshot the reporter, so a report still says who filed it once that
+    # person has left the organisation (same reason as WireframeAuditLog).
+    user = await db.get(User, ctx.user_id) if ctx.user_id else None
+    seq = await service._next_seq(db, board, "feedback_seq")
+    item = Feedback(
+        board_id=board.id,
+        account_id=board.account_id,
+        seq=seq,
+        raised_by=ctx.user_id,
+        raised_by_name=user.name if user else None,
+        raised_by_email=user.email if user else None,
+        **payload.model_dump(),
+    )
+    db.add(item)
+    await db.flush()
+    await service.write_event(
+        db,
+        board,
+        ctx.user_id,
+        "feedback.created",
+        "feedback",
+        item.id,
+        {"environment": item.environment, "kind": item.kind, "severity": item.severity},
+    )
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.patch("/projects/{project_id}/board/feedback/{feedback_id}", response_model=FeedbackRead)
+async def update_feedback(
+    project_id: UUID,
+    feedback_id: UUID,
+    payload: FeedbackUpdate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> Feedback:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    item = await _get_feedback(db, board, feedback_id)
+    before = {"status": item.status}
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(item, field, value)
+    item.updated_at = utc_now()
+    # Only the status move is worth an event; correcting a title is not a
+    # triage decision, and logging it would bury the ones that are.
+    changed = _diff(before, {"status": item.status}, ("status",))
+    if changed:
+        await service.write_event(db, board, ctx.user_id, "feedback.triaged", "feedback", item.id, changed)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.delete("/projects/{project_id}/board/feedback/{feedback_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_feedback(
+    project_id: UUID,
+    feedback_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    await db.delete(await _get_feedback(db, board, feedback_id))
+    await db.commit()
+
+
 # ── Events (activity feed) ────────────────────────────────────────────────
 
 
@@ -1108,8 +1364,59 @@ async def list_events(
 # magic-byte verification, random key, download forced as an attachment).
 
 
+#: What a report's evidence may be. Enforced for *every* caller, not just the
+#: member path, so anything hanging off a report is known to be an image the
+#: client can decode and draw.
+SCREENSHOT_TYPES = {"image/png", "image/jpeg"}
+
+
 def _attachment_key(account_id: UUID, board_id: UUID, attachment_id: UUID, filename: str) -> str:
     return f"board-attachments/{account_id}/{board_id}/{attachment_id}/{filename}"
+
+
+def _require_bucket() -> None:
+    """503 rather than an uncaught 500 when DOCUMENTS_BUCKET is unset.
+
+    documents.py guards every storage call this way; these routes did not, so
+    an unconfigured deployment raised StorageNotConfigured out of presign_put.
+    """
+    if not get_settings().documents_bucket:
+        raise _not_configured()
+
+
+async def _authorise_screenshot(
+    db: AsyncSession, board: Board, ctx: ScopeContext, entity_type: str, entity_id: UUID
+) -> None:
+    """The one place a caller without ``board:write`` may write to the board.
+
+    An organisation member reads the whole product and writes nothing except
+    tasks, a report, and the screenshots that report is about -- a report of
+    what someone saw in UAT is a description of a picture, and a member who can
+    file the words but not the picture has filed half of it. So these routes
+    admit ``feedback:create`` and then refuse, here, everything that is not
+    exactly that: any entity but a report, and any report but one the caller
+    raised themselves.
+
+    Deliberately *not* also gated on ``status == "New"``. It would close the
+    report to new evidence the moment an admin opened it, and it would make an
+    admin triaging in the second between create and upload fail an upload for a
+    report that already exists -- a confusing loss for a small gain.
+    """
+    if ctx.has_permission("board:write"):
+        return
+    if entity_type != "feedback":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Required permission: board:write",
+        )
+    # _get_feedback scopes on board_id and 404s, so this cannot be used to
+    # probe another organisation's reports.
+    report = await _get_feedback(db, board, entity_id)
+    if report.raised_by != ctx.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only attach screenshots to a report you raised",
+        )
 
 
 async def _get_attachment(db: AsyncSession, board: Board, attachment_id: UUID) -> Attachment:
@@ -1128,7 +1435,7 @@ async def _get_attachment(db: AsyncSession, board: Board, attachment_id: UUID) -
 @router.get("/projects/{project_id}/board/attachments", response_model=list[AttachmentRead])
 async def list_attachments(
     project_id: UUID,
-    entity_type: str = Query(...),
+    entity_type: AttachmentEntityType = Query(...),
     entity_id: UUID = Query(...),
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
@@ -1155,11 +1462,13 @@ async def list_attachments(
 async def request_attachment_upload(
     project_id: UUID,
     payload: AttachmentUploadRequest,
-    ctx: ScopeContext = Depends(require_permission("board:write")),
+    ctx: ScopeContext = Depends(require_any_permission(["board:write", "feedback:create"])),
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentUploadTicket:
+    _require_bucket()
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
+    await _authorise_screenshot(db, board, ctx, payload.entity_type, payload.entity_id)
     if not await service.entity_exists(db, board.id, payload.entity_type, payload.entity_id):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Attachment target does not exist")
 
@@ -1172,6 +1481,11 @@ async def request_attachment_upload(
     canonical = ALLOWED_TYPES.get(ext)
     if canonical is None or payload.content_type not in canonical[1]:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File type not allowed")
+    if payload.entity_type == "feedback" and canonical[0] not in SCREENSHOT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A report takes screenshots only (PNG or JPEG)",
+        )
 
     filename = sanitise_filename(payload.filename)
     attachment_id = uuid4()
@@ -1194,7 +1508,10 @@ async def request_attachment_upload(
 
     url = storage.presign_put(key, canonical[0], payload.size_bytes, PRESIGN_TTL_SECONDS)
     return AttachmentUploadTicket(
-        attachment_id=attachment_id, upload_url=url, content_type=canonical[0], expires_in=PRESIGN_TTL_SECONDS
+        attachment_id=attachment_id,
+        upload_url=url,
+        headers={"Content-Type": canonical[0]},
+        expires_in=PRESIGN_TTL_SECONDS,
     )
 
 
@@ -1202,18 +1519,50 @@ async def request_attachment_upload(
 async def confirm_attachment_upload(
     project_id: UUID,
     attachment_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("board:write")),
+    ctx: ScopeContext = Depends(require_any_permission(["board:write", "feedback:create"])),
     db: AsyncSession = Depends(get_db),
 ) -> Attachment:
+    _require_bucket()
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     attachment = await _get_attachment(db, board, attachment_id)
+    # Narrow on the row, not a payload: the caller sends nothing here but an id,
+    # and it is the pending row that says whose upload this is.
+    if not ctx.has_permission("board:write") and (
+        attachment.entity_type != "feedback" or attachment.created_by != ctx.user_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Required permission: board:write",
+        )
     try:
         info = await storage.head_object(attachment.s3_key)
     except storage.ObjectMissing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found in storage")
-    if info.size != attachment.size_bytes:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Uploaded size does not match")
+
+    async def reject(detail: str) -> None:
+        """Bin the object and the row, then 422 -- confirm_document's contract.
+
+        Verification matters more here than it does for documents: a member may
+        upload a screenshot without holding board:write, and that file is
+        decoded and drawn straight back to an admin triaging the report.
+        "image/png" is trivially claimed by an SVG or an HTML document.
+        """
+        await storage.delete_object(attachment.s3_key)
+        await db.delete(attachment)
+        await db.commit()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
+
+    if info.size != attachment.size_bytes or info.size > get_settings().documents_max_bytes:
+        await reject("Uploaded size does not match")
+    if info.content_type and info.content_type.split(";")[0].strip().lower() != attachment.content_type:
+        await reject("Uploaded file type does not match")
+    signatures = MAGIC_BYTES.get(attachment.content_type)
+    if signatures:
+        head = await storage.read_object(attachment.s3_key, (0, 7))
+        if not any(head.startswith(sig) for sig in signatures):
+            await reject(f"The file does not look like a {attachment.filename.rsplit('.', 1)[-1].upper()} image")
+
     attachment.status = "uploaded"
     attachment.updated_at = utc_now()
     await service.write_event(
@@ -1232,6 +1581,7 @@ async def download_attachment(
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentDownload:
+    _require_bucket()
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     attachment = await _get_attachment(db, board, attachment_id)

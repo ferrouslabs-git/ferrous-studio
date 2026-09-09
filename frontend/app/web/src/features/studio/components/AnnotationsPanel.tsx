@@ -3,6 +3,11 @@
 // filters over the whole wireframe, and rows that jump to their target.
 // Annotations are REST state outside the op/undo system, so every mutation
 // is a call up to StudioPage followed by a reload.
+//
+// Creating and changing are separate permissions, hence two gates: `canCreate`
+// shows the composer, `canWrite` shows each row's Edit/Delete/Resolve. An
+// organisation member gets the first on the Tasks tab only, and never the
+// second (backend/app/studio/annotations.py).
 import { useMemo, useState } from "react";
 import { formatDateTime, parseUtcDate } from "../../../core/format";
 import {
@@ -43,6 +48,10 @@ interface Props {
   pages: PageSummary[];
   activePageId: string | null;
   composerTarget: ComposerTarget | null;
+  /** Whether the composer is offered. An organisation member has this on the
+   *  Tasks tab but not the Notes tab, and never gets `canWrite` with it. */
+  canCreate: boolean;
+  /** Whether existing rows may be edited, deleted, resolved or reopened. */
   canWrite: boolean;
   describeTarget(a: WireframeAnnotation): TargetInfo;
   /** Two-way hover link with the canvas: the target hovered on either side.
@@ -67,7 +76,7 @@ const DATE_RANGES: { value: string; label: string; days: number | null }[] = [
 const authorOf = (a: WireframeAnnotation): string => a.author_name || a.author_email || "Unknown user";
 
 export function AnnotationsPanel(props: Props) {
-  const { kind, items, pages, canWrite } = props;
+  const { kind, items, pages, canCreate, canWrite } = props;
   const task = kind === "task";
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
@@ -144,7 +153,7 @@ export function AnnotationsPanel(props: Props) {
 
   return (
     <div className="panel-body notes-panel">
-      {canWrite && (
+      {canCreate && (
         <form
           className="note-composer"
           onSubmit={(e) => {

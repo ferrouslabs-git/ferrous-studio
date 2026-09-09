@@ -21,7 +21,7 @@ export interface BoardAttachment {
 interface UploadTicket {
   attachment_id: string;
   upload_url: string;
-  content_type: string;
+  headers: Record<string, string>;
   expires_in: number;
 }
 
@@ -54,7 +54,7 @@ export async function uploadBoardAttachment(
     size_bytes: file.size,
   });
   opts.onPhase?.("uploading");
-  await putToPresignedUrl(ticket.upload_url, file, { "Content-Type": ticket.content_type }, opts.signal);
+  await putToPresignedUrl(ticket.upload_url, file, ticket.headers, opts.signal);
   opts.onPhase?.("confirming");
   return apiPost<BoardAttachment>(`${base(projectId)}/${ticket.attachment_id}/confirm`, {});
 }

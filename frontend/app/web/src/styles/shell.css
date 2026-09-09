@@ -402,6 +402,22 @@
 .usecase-checklist { display: flex; flex-direction: column; gap: 6px; }
 .usecase-check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
 
+/* ── Deployed environments (details, feedback) ──────────────────────────── */
+/* On project details each environment is a row of the same .details-grid the
+   repository uses: the address, when it was published, and the way to change
+   it sit on one line. */
+.env-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.env-row .btn { height: 26px; padding: 0 10px; font-size: 12px; }
+
+/* On the feedback page the same three are cards, because there the address is
+   the way in rather than a setting -- the whole card is the link. */
+.env-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.env-card .env-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
+/* An environment nobody has published reads as a gap rather than as a card
+   that failed to load, and keeps its place so the set of three stays legible. */
+.env-card.unset { border-style: dashed; box-shadow: none; }
+.env-card.unset h3 { color: var(--text-dim); }
+
 /* ── Linked GitHub repository (project details) ─────────────────────────── */
 /* The section reuses .details-grid for the repository itself; these cover the
    states around it -- not connected, the connection footer, and the picker. */

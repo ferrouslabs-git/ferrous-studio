@@ -1,8 +1,11 @@
-// Project details: name, description and rationale, with an Edit drawer.
+// Project details: name, description and rationale, with an Edit drawer,
+// followed by the two things filed against the project rather than designed
+// in it -- where it is deployed, and which repository it is built from.
 import { FormEvent, useState } from "react";
 import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
 import { updateProject } from "../projects/projectsApi";
+import { EnvironmentsSection } from "./EnvironmentsSection";
 import { RepositorySection } from "./RepositorySection";
 import { useProject } from "./ProjectLayout";
 
@@ -85,6 +88,8 @@ export function ProjectDetailsPage() {
           </DetailRow>
         </div>
       </section>
+
+      <EnvironmentsSection />
 
       <RepositorySection />
 

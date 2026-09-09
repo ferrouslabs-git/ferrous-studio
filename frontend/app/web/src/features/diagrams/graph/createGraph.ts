@@ -10,6 +10,7 @@ import {
   BaseGraph,
   Cell,
   CellEditorHandler,
+  ConnectionConstraint,
   ConnectionHandler,
   FitPlugin,
   Geometry,
@@ -17,6 +18,7 @@ import {
   InternalEvent,
   KeyHandler,
   PanningHandler,
+  Point,
   RubberBandHandler,
   SelectionCellsHandler,
   SelectionHandler,
@@ -24,9 +26,10 @@ import {
   UndoManager,
   type EventObject,
 } from "@maxgraph/core";
+import { ArrowEnd, ArrowKind, withArrow } from "./arrows";
 import { boundsOrigin, cellsToCopy, decodeCells, encodeCells, readClipboard, writeClipboard } from "./clipboard";
 import { applyGraphChrome, registerStyleElements } from "./registerStyleElements";
-import { applyUmlTheme, CANVAS_BG, currentUmlTheme, registerUmlStyles, styleName, UmlTheme } from "./umlStyles";
+import { ACCENT, applyUmlTheme, CANVAS_BG, currentUmlTheme, registerUmlStyles, styleName, UmlTheme } from "./umlStyles";
 import { EDGE_BY_TYPE, hasCompartments, isEdgeType, NODE_BY_TYPE, noteBody, UmlEdgeType, UmlNodeType } from "./umlTypes";
 import { createUserObject, isUmlCell, readUml, withAttrs } from "./userObject";
 
@@ -36,13 +39,13 @@ export type OrderHow = "front" | "forward" | "backward" | "back";
 export interface GraphHandle {
   graph: BaseGraph;
   undoManager: UndoManager;
-  /** Connector type used for the next drawn edge. */
-  edgeType: { current: UmlEdgeType };
   insertNode(type: UmlNodeType, x: number, y: number, target?: Cell | null): Cell;
   insertNodeAtCentre(type: UmlNodeType): Cell;
   setAttrs(cell: Cell, patch: Record<string, string>): void;
   setNodeType(cell: Cell, type: UmlNodeType): void;
   setEdgeType(cell: Cell, type: UmlEdgeType): void;
+  /** Put an arrowhead on one end of a connector, or hand the end back to its type. */
+  setArrow(cell: Cell, end: ArrowEnd, kind: ArrowKind): void;
   /** Whether the diagram may be modified; the keyboard bindings respect it. */
   editable: { current: boolean };
   /** Remove the selected cells and the connectors attached to them. */
@@ -65,10 +68,30 @@ export interface GraphHandle {
   dispose(): void;
 }
 
-const connectIcon = () =>
+/**
+ * The eight places a connector can be anchored to a shape: its corners and
+ * the middle of each side, as fractions of its bounds. `perimeter` projects
+ * them onto the outline, so a corner of an ellipse or a stencil sits on the
+ * curve rather than floating outside it.
+ */
+const PORTS: ConnectionConstraint[] = [
+  [0, 0],
+  [0.5, 0],
+  [1, 0],
+  [0, 0.5],
+  [1, 0.5],
+  [0, 1],
+  [0.5, 1],
+  [1, 1],
+].map(([x, y]) => new ConnectionConstraint(new Point(x, y), true));
+
+const PORT_PX = 11;
+
+/** A port handle: an accent dot punched out of the canvas, like the resize grips. */
+const portIcon = () =>
   "data:image/svg+xml;utf8," +
   encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="#FF5B1A" stroke="${CANVAS_BG}" stroke-width="1.5"/><path d="M5 8h6M8.5 5.5 11 8l-2.5 2.5" stroke="${CANVAS_BG}" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${PORT_PX}" height="${PORT_PX}" viewBox="0 0 ${PORT_PX} ${PORT_PX}"><circle cx="5.5" cy="5.5" r="4.25" fill="${ACCENT}" stroke="${CANVAS_BG}" stroke-width="1.5"/></svg>`,
   );
 
 function escapeHtml(s: string): string {
@@ -178,14 +201,48 @@ export function createDiagramGraph(container: HTMLElement): GraphHandle {
     return t in NODE_BY_TYPE && !!NODE_BY_TYPE[t as UmlNodeType].container;
   };
 
-  // New edges carry the connector type chosen in the toolbar.
-  const edgeType = { current: "association" as UmlEdgeType };
+  // Connectors are drawn from one of a shape's eight port handles, the way
+  // diagrams.net does it. Hovering an unselected shape shows its ports; a
+  // drag that starts on one draws a connector, and a drag that starts
+  // anywhere else on the shape moves it. A selected shape shows its resize
+  // grips in those same eight places instead, so its ports stay hidden and
+  // the grips win. Dropping on one of the target's ports pins that end there
+  // (exitX/Y, entryX/Y on the edge's style); dropping on its body leaves the
+  // end floating, so it slides round the outline as the shapes move.
+  graph.getAllConnectionConstraints = (terminal) =>
+    terminal && terminal.cell.isVertex() && terminal.cell.isConnectable() ? PORTS : null;
+
+  // A new connector is a plain association; the inspector retypes it.
   const connection = graph.getPlugin<ConnectionHandler>(ConnectionHandler.pluginId);
-  if (connection) {
-    connection.connectImage = new ImageBox(connectIcon(), 16, 16);
+  const ports = connection?.constraintHandler ?? null;
+  if (connection && ports) {
+    // No centre connect icon: the ports are the only way in.
+    connection.connectImage = null;
     connection.select = true;
-    connection.factoryMethod = () => makeEdge(edgeType.current);
+    connection.factoryMethod = () => makeEdge("association");
+    ports.pointImage = new ImageBox(portIcon(), PORT_PX, PORT_PX);
+    ports.highlightColor = ACCENT;
+    connection.isStartEvent = () => !!ports.currentFocus && !!ports.currentConstraint;
+    // Without a connect image the handler would otherwise light up a hovered
+    // shape's centre as somewhere to start dragging from -- it is not.
+    connection.isValidSource = () => false;
+    // No ports on a selected shape (as a source; a selected target still
+    // offers them while a connector is being dragged onto it).
+    ports.isStateIgnored = (state, source) => !!source && graph.isCellSelected(state.cell);
   }
+  // Selecting the shape under the pointer must take its ports away at once,
+  // not on the next hover, or the first drag on a fresh selection's corner
+  // grip would still draw a connector.
+  const onSelectionChange = () => {
+    if (!ports) return;
+    if (ports.currentFocus && ports.isStateIgnored(ports.currentFocus, true)) {
+      ports.currentFocus = null;
+      ports.constraints = null;
+      ports.destroyIcons();
+    }
+    ports.destroyFocusHighlight();
+  };
+  graph.getSelectionModel().addListener(InternalEvent.CHANGE, onSelectionChange);
 
   // Undo/redo.
   const undoManager = new UndoManager(200);
@@ -319,7 +376,6 @@ export function createDiagramGraph(container: HTMLElement): GraphHandle {
   const handle: GraphHandle = {
     graph,
     undoManager,
-    edgeType,
     onSave,
     onClipboardChange,
     insertNode(type, x, y, target) {
@@ -343,17 +399,22 @@ export function createDiagramGraph(container: HTMLElement): GraphHandle {
     setAttrs(cell, patch) {
       graph.batchUpdate(() => graph.getDataModel().setValue(cell, withAttrs(cell, patch)));
     },
+    // setCellStyle replaces the whole style, so the rest of it -- the port
+    // anchors on a connector -- is carried across by hand.
     setNodeType(cell, type) {
       graph.batchUpdate(() => {
         graph.getDataModel().setValue(cell, withAttrs(cell, { umlType: type }));
-        graph.setCellStyle({ baseStyleNames: [styleName(type)] }, [cell]);
+        graph.setCellStyle({ ...cell.style, baseStyleNames: [styleName(type)] }, [cell]);
       });
     },
     setEdgeType(cell, type) {
       graph.batchUpdate(() => {
         graph.getDataModel().setValue(cell, withAttrs(cell, { umlType: type }));
-        graph.setCellStyle({ baseStyleNames: [styleName(type)] }, [cell]);
+        graph.setCellStyle({ ...cell.style, baseStyleNames: [styleName(type)] }, [cell]);
       });
+    },
+    setArrow(cell, end, kind) {
+      graph.batchUpdate(() => graph.setCellStyle(withArrow(cell.style, end, kind), [cell]));
     },
     editable,
     deleteSelection: () => {
@@ -438,7 +499,7 @@ export function createDiagramGraph(container: HTMLElement): GraphHandle {
       applyUmlTheme(theme);
       applyGraphChrome();
       registerUmlStyles(graph.getStylesheet());
-      if (connection) connection.connectImage = new ImageBox(connectIcon(), 16, 16);
+      if (ports) ports.pointImage = new ImageBox(portIcon(), PORT_PX, PORT_PX);
       // Cells reference styles by name, so clearing the view's cached states
       // and revalidating is enough -- no cell is touched and nothing is dirtied.
       graph.getView().clear(graph.getDataModel().getRoot(), true, true);
@@ -452,6 +513,7 @@ export function createDiagramGraph(container: HTMLElement): GraphHandle {
       container.removeEventListener("pointerleave", onPointerLeave);
       graph.getDataModel().removeListener(undoListener);
       graph.getView().removeListener(undoListener);
+      graph.getSelectionModel().removeListener(onSelectionChange);
       keys.onDestroy();
       undoManager.clear();
       graph.destroy();
