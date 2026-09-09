@@ -569,7 +569,12 @@ function RequirementsSection({
             status: r.status, priority: r.priority, assignee_id: r.assignee_id,
             release_id: r.release_id, sprint_id: r.sprint_id,
           }
-        : { ...EMPTY_REQUIREMENT, release_id: defaultReleaseId },
+        : {
+            ...EMPTY_REQUIREMENT,
+            release_id: defaultReleaseId,
+            sprint_id: sprintFilter || null,
+            status: (statusFilter as RequirementInput["status"]) || EMPTY_REQUIREMENT.status,
+          },
     );
     setFormError(null);
     setNewComment("");
