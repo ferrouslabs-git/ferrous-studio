@@ -34,7 +34,15 @@ $cognitoDomain = $cognito.domain
 
 # ── 1. Build + push image ──
 Write-Host "`n[1/5] Build + push :$Env image" -ForegroundColor Cyan
-aws ecr get-login-password --region $Region | docker login --username AWS --password-stdin "$AccountId.dkr.ecr.$Region.amazonaws.com"
+# The pipe is delegated to cmd.exe on purpose. Piping one native executable
+# into another inside Windows PowerShell 5.1 round-trips the bytes through
+# PowerShell's own encoding, which corrupts the ECR token and makes
+# `docker login` fail with a misleading "400 Bad Request" -- the credential is
+# fine, the pipe is not. cmd.exe passes the bytes through untouched, and the
+# same command works unchanged under bash (see _deploy-env.sh).
+$ecrRegistry = "$AccountId.dkr.ecr.$Region.amazonaws.com"
+cmd /c "aws ecr get-login-password --region $Region | docker login --username AWS --password-stdin $ecrRegistry"
+if ($LASTEXITCODE -ne 0) { throw "docker login to $ecrRegistry failed" }
 Push-Location $RepoRoot
 docker build -t "${Product}:$Env" `
     --build-arg VITE_COGNITO_DOMAIN=$cognitoDomain `
@@ -114,19 +122,31 @@ if ($existing) {
     Write-Host "  created new service" -ForegroundColor Green
 }
 
-# ── 5. Wait for a healthy target ──
-Write-Host "`n[5/5] Waiting for target group health..." -ForegroundColor Cyan
-$healthy = $false
-for ($i = 0; $i -lt 30; $i++) {
+# ── 5. Wait for the new deployment to roll out ──
+#
+# Waits on the SERVICE's primary deployment, not on target health. Target
+# health answers "is something healthy behind this target group", and during a
+# rolling deploy that something is the OLD task -- which is still serving,
+# still healthy, and still running the previous image. Polling it reported
+# "deploy succeeded" while the new task was pending, so the very next request
+# hit the old code and made the deploy look like it had silently done nothing.
+# rolloutState is the only signal that means what this step claims.
+Write-Host "`n[5/5] Waiting for the new deployment to roll out..." -ForegroundColor Cyan
+$rolledOut = $false
+for ($i = 0; $i -lt 60; $i++) {
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $health = aws elbv2 describe-target-health --region $Region --target-group-arn $tgArn --query "TargetHealthDescriptions[0].TargetHealth.State" --output text 2>$null
+    $state = aws ecs describe-services --region $Region --cluster $Shared.ecs_cluster --services $serviceName `
+        --query "services[0].deployments[?status=='PRIMARY'].rolloutState | [0]" --output text 2>$null
     $ErrorActionPreference = $prevPref
-    if ($health -eq "healthy") { $healthy = $true; break }
+    if ($state -eq "COMPLETED") { $rolledOut = $true; break }
+    if ($state -eq "FAILED") {
+        throw "ECS rollout FAILED -- see CloudWatch /ecs/$Product-$Env and 'aws ecs describe-services --cluster $($Shared.ecs_cluster) --services $serviceName'"
+    }
     Start-Sleep -Seconds 10
 }
-if ($healthy) {
-    Write-Host "`n== $Env deploy succeeded -- target is healthy ==" -ForegroundColor Green
+if ($rolledOut) {
+    Write-Host "`n== $Env deploy succeeded -- new task definition is live ==" -ForegroundColor Green
 } else {
-    Write-Host "`n== $Env deploy: target not healthy yet -- check 'aws ecs describe-services --cluster $($Shared.ecs_cluster) --services $serviceName' and CloudWatch /ecs/$Product-$Env ==" -ForegroundColor Yellow
+    Write-Host "`n== $Env deploy: rollout still in progress after 10 min -- check 'aws ecs describe-services --cluster $($Shared.ecs_cluster) --services $serviceName' and CloudWatch /ecs/$Product-$Env ==" -ForegroundColor Yellow
 }

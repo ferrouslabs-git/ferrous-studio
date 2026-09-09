@@ -108,16 +108,29 @@ else
   echo "  created new service"
 fi
 
-# ── 5. Wait for a healthy target ──
-echo; echo "[5/5] Waiting for target group health..."
-HEALTHY=0
-for i in $(seq 1 30); do
-  STATE=$(aws elbv2 describe-target-health --region "$REGION" --target-group-arn "$TG_ARN" --query "TargetHealthDescriptions[0].TargetHealth.State" --output text 2>/dev/null || true)
-  if [ "$STATE" = "healthy" ]; then HEALTHY=1; break; fi
+# ── 5. Wait for the new deployment to roll out ──
+#
+# Waits on the SERVICE's primary deployment, not on target health. Target
+# health answers "is something healthy behind this target group", and during a
+# rolling deploy that something is the OLD task -- still serving, still
+# healthy, still running the previous image. Polling it reported "deploy
+# succeeded" while the new task was pending, so the next request hit the old
+# code and the deploy looked like it had silently done nothing. rolloutState
+# is the only signal that means what this step claims.
+echo; echo "[5/5] Waiting for the new deployment to roll out..."
+ROLLED_OUT=0
+for i in $(seq 1 60); do
+  STATE=$(aws ecs describe-services --region "$REGION" --cluster "$ECS_CLUSTER" --services "$SERVICE_NAME" \
+    --query "services[0].deployments[?status=='PRIMARY'].rolloutState | [0]" --output text 2>/dev/null || true)
+  if [ "$STATE" = "COMPLETED" ]; then ROLLED_OUT=1; break; fi
+  if [ "$STATE" = "FAILED" ]; then
+    echo "ECS rollout FAILED -- see CloudWatch /ecs/$PRODUCT-$ENV_NAME" >&2
+    exit 1
+  fi
   sleep 10
 done
-if [ "$HEALTHY" = "1" ]; then
-  echo; echo "== $ENV_NAME deploy succeeded -- target is healthy =="
+if [ "$ROLLED_OUT" = "1" ]; then
+  echo; echo "== $ENV_NAME deploy succeeded -- new task definition is live =="
 else
-  echo; echo "== $ENV_NAME deploy: target not healthy yet -- check 'aws ecs describe-services --cluster $ECS_CLUSTER --services $SERVICE_NAME' and CloudWatch /ecs/$PRODUCT-$ENV_NAME =="
+  echo; echo "== $ENV_NAME deploy: rollout still in progress after 10 min -- check 'aws ecs describe-services --cluster $ECS_CLUSTER --services $SERVICE_NAME' and CloudWatch /ecs/$PRODUCT-$ENV_NAME =="
 fi

@@ -13,7 +13,7 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
@@ -753,7 +753,26 @@ async def list_requirements(
     if status_filter is not None:
         stmt = stmt.where(Requirement.status == status_filter)
     if epic_id is not None:
-        stmt = stmt.where(Requirement.epic_id == epic_id)
+        # Filter on the EFFECTIVE epic, mirroring service.effective_epic_id:
+        # a requirement's own epic_id if set, else the epic of its feature.
+        # Filtering on the literal column instead would hide a requirement
+        # that hangs off a feature with its own epic left unset -- it would
+        # exist, and be invisible on the only page that lists it.
+        stmt = stmt.where(
+            or_(
+                Requirement.epic_id == epic_id,
+                and_(
+                    Requirement.epic_id.is_(None),
+                    Requirement.feature_id.in_(
+                        select(Feature.id).where(
+                            Feature.board_id == board.id,
+                            Feature.epic_id == epic_id,
+                            Feature.deleted_at.is_(None),
+                        )
+                    ),
+                ),
+            )
+        )
     if feature_id is not None:
         stmt = stmt.where(Requirement.feature_id == feature_id)
     if sprint_id is not None:
