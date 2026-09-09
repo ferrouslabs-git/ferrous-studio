@@ -949,6 +949,44 @@ async def _live_ids(db: AsyncSession, model: Any, project: Project, raw: Any) ->
     return [wid for wid in dict.fromkeys(wanted) if wid in found]
 
 
+async def insert_pages(
+    db: AsyncSession,
+    project: Project,
+    wireframe: Wireframe,
+    pages_data: list[dict[str, Any]],
+    mapping: dict[str, str],
+) -> None:
+    """Import each of ``pages_data`` (export-shaped, ids not yet remapped) as
+    a fresh ``ProjectPage`` row on ``wireframe``, in array order.
+
+    Shared by ``copy_version_to_wireframe`` and the bundle importer
+    (``importing.py``) -- the only two places a whole wireframe's pages are
+    ever created at once, generalising "copy a snapshot" into "import a
+    bundle" without a second copy of this loop.
+    """
+    pos: str | None = None
+    for data in remap_page_ids(pages_data, mapping):
+        imported = import_page(data)
+        page_id = _page_id_of(data)
+        pos = key_after(pos)
+        db.add(
+            ProjectPage(
+                id=page_id,
+                project_id=project.id,
+                wireframe_id=wireframe.id,
+                account_id=project.account_id,
+                name=imported["name"],
+                route=imported["route"],
+                pos=pos,
+                placement=imported["placement"],
+                presentation=imported["presentation"],
+                document=imported["document"],
+                entity_versions={},
+                version=0,
+            )
+        )
+
+
 @router.post(
     "/projects/{project_id}/wireframes/{wireframe_id}/versions/{version_id}/copy",
     response_model=WireframeDetail,
@@ -990,27 +1028,7 @@ async def copy_version_to_wireframe(
     await _set_personas(db, project, wireframe, await _live_ids(db, Persona, project, snapshot.get("personas")))
     await _set_actors(db, project, wireframe, await _live_ids(db, UseCaseActor, project, snapshot.get("userTypes")))
 
-    pos: str | None = None
-    for data in remap_page_ids(pages_data, mapping):
-        imported = import_page(data)
-        page_id = _page_id_of(data)
-        pos = key_after(pos)
-        db.add(
-            ProjectPage(
-                id=page_id,
-                project_id=project.id,
-                wireframe_id=wireframe.id,
-                account_id=project.account_id,
-                name=imported["name"],
-                route=imported["route"],
-                pos=pos,
-                placement=imported["placement"],
-                presentation=imported["presentation"],
-                document=imported["document"],
-                entity_versions={},
-                version=0,
-            )
-        )
+    await insert_pages(db, project, wireframe, pages_data, mapping)
     # The landing choice is a page id like any other, so it follows the remap.
     landing = mapping.get(str(snapshot.get("landingPageId")))
     wireframe.landing_page_id = UUID(landing) if landing else None

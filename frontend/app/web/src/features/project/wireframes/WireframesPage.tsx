@@ -8,6 +8,7 @@ import { RowMenu } from "../../../components/RowMenu";
 import { errorMessage } from "../../../core/api";
 import { formatDateTime } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
+import { ImportBundleDrawer } from "../ImportBundleDrawer";
 import { listPersonas } from "../personas/personasApi";
 import { useProject } from "../ProjectLayout";
 import { listActors } from "../usecases/useCasesApi";
@@ -66,6 +67,7 @@ export function WireframesPage() {
   const [copyError, setCopyError] = useState<string | null>(null);
   // Archived wireframe awaiting delete confirmation.
   const [deleting, setDeleting] = useState<Wireframe | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const [wireframes, personas, actors] = data.data ?? [[], [], []];
   const personaNames = useMemo(() => new Map(personas.map((p) => [p.id, p.name])), [personas]);
@@ -228,11 +230,25 @@ export function WireframesPage() {
           </Link>
         )}
         {canWrite && (
+          <button className="btn ghost" onClick={() => setImporting(true)}>
+            Import…
+          </button>
+        )}
+        {canWrite && (
           <button className="btn primary" onClick={() => openDrawer(null)}>
             New wireframe
           </button>
         )}
       </div>
+
+      {importing && (
+        <ImportBundleDrawer
+          projectId={project.id}
+          orgId={orgId}
+          onClose={() => setImporting(false)}
+          onImported={data.reload}
+        />
+      )}
 
       <div className="toolbar">
         <input

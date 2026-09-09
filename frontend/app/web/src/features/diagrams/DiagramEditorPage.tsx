@@ -15,6 +15,7 @@ import { useProject } from "../project/ProjectLayout";
 import { diagramKindLabel, DiagramRecord, getDiagram, saveDiagram } from "../project/diagrams/diagramsApi";
 import { Inspector } from "./components/Inspector";
 import { Palette } from "./components/Palette";
+import { buildFromModel } from "./graph/applyModel";
 import { CLIPBOARD_KEY, hasClipboard } from "./graph/clipboard";
 import type { GraphHandle } from "./graph/createGraph";
 import { deriveModel, exportXml, importXml, plainCellsOf } from "./graph/serialize";
@@ -40,26 +41,6 @@ export function DiagramEditorPage() {
   const againRef = useRef(false);
   const saveRef = useRef<SaveState>(save);
   saveRef.current = save;
-
-  // Load the document into the graph once both are ready.
-  useEffect(() => {
-    const handle = handleRef.current;
-    const data = record.data;
-    if (!state.ready || !handle || !data || loadedRef.current === data.id) return;
-    loadedRef.current = data.id;
-    versionRef.current = data.version;
-    whileImporting(() => {
-      if (data.xml) {
-        try {
-          importXml(handle.graph, data.xml);
-        } catch (err) {
-          setSave({ kind: "error", message: `Could not read the saved diagram: ${errorMessage(err)}` });
-        }
-      }
-      handle.undoManager.clear();
-      fitView(handle);
-    });
-  }, [state.ready, record.data, handleRef, whileImporting]);
 
   const doSave = useCallback(async () => {
     const handle = handleRef.current;
@@ -91,6 +72,36 @@ export function DiagramEditorPage() {
       }
     }
   }, [handleRef, canWrite, project.id, diagramId]);
+
+  // Load the document into the graph once both are ready. An imported
+  // diagram (backend/app/studio/importing.py) has a `model` but no `xml` yet
+  // -- build the graph from that model instead, then save once immediately
+  // so the xml exists from this point on and every later open is the
+  // ordinary xml-import path above. Read-only viewers still see the built
+  // diagram; doSave's own canWrite guard just means nothing is persisted
+  // until an editor opens it.
+  useEffect(() => {
+    const handle = handleRef.current;
+    const data = record.data;
+    if (!state.ready || !handle || !data || loadedRef.current === data.id) return;
+    loadedRef.current = data.id;
+    versionRef.current = data.version;
+    const seeding = !data.xml && (data.model?.nodes?.length ?? 0) > 0;
+    whileImporting(() => {
+      if (data.xml) {
+        try {
+          importXml(handle.graph, data.xml);
+        } catch (err) {
+          setSave({ kind: "error", message: `Could not read the saved diagram: ${errorMessage(err)}` });
+        }
+      } else if (seeding) {
+        buildFromModel(handle.graph, data.model);
+      }
+      handle.undoManager.clear();
+      fitView(handle);
+    });
+    if (seeding) void doSave();
+  }, [state.ready, record.data, handleRef, whileImporting, doSave]);
 
   // Debounced autosave on every model change.
   useEffect(() => {

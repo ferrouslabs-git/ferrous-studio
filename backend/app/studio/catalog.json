@@ -1,0 +1,820 @@
+{
+  "dataKinds": [
+    "text",
+    "number",
+    "date",
+    "time",
+    "email",
+    "phone",
+    "currency",
+    "percentage",
+    "status",
+    "person",
+    "tags",
+    "image",
+    "boolean",
+    "url",
+    "actions"
+  ],
+  "inputKinds": [
+    "text",
+    "email",
+    "number",
+    "password",
+    "phone",
+    "url"
+  ],
+  "presentations": [
+    "modal",
+    "drawer",
+    "drawer-left"
+  ],
+  "retired": [
+    "detail",
+    "empty",
+    "footer",
+    "hero",
+    "main",
+    "modal",
+    "rightpanel-detail"
+  ],
+  "umlNodeTypes": [
+    "actor",
+    "usecase",
+    "boundary",
+    "class",
+    "entity",
+    "start",
+    "end",
+    "action",
+    "decision",
+    "fork",
+    "forkV",
+    "swimlane",
+    "swimlaneV",
+    "lifeline",
+    "activation",
+    "rect",
+    "roundRect",
+    "ellipse",
+    "circle",
+    "triangle",
+    "diamond",
+    "pentagon",
+    "hexagon",
+    "star",
+    "cross",
+    "cylinder",
+    "cloud",
+    "parallelogram",
+    "trapezium",
+    "arrow",
+    "callout",
+    "note",
+    "text"
+  ],
+  "umlEdgeTypes": [
+    "association",
+    "directed",
+    "generalisation",
+    "aggregation",
+    "composition",
+    "dependency",
+    "flow",
+    "include",
+    "extend",
+    "message",
+    "messageAsync"
+  ],
+  "umlNodeDefaults": {
+    "actor": {
+      "w": 40,
+      "h": 70
+    },
+    "usecase": {
+      "w": 150,
+      "h": 60
+    },
+    "boundary": {
+      "w": 320,
+      "h": 260
+    },
+    "class": {
+      "w": 180,
+      "h": 110
+    },
+    "entity": {
+      "w": 170,
+      "h": 90
+    },
+    "start": {
+      "w": 28,
+      "h": 28
+    },
+    "end": {
+      "w": 32,
+      "h": 32
+    },
+    "action": {
+      "w": 140,
+      "h": 50
+    },
+    "decision": {
+      "w": 60,
+      "h": 60
+    },
+    "fork": {
+      "w": 140,
+      "h": 8
+    },
+    "forkV": {
+      "w": 8,
+      "h": 140
+    },
+    "swimlane": {
+      "w": 560,
+      "h": 160
+    },
+    "swimlaneV": {
+      "w": 180,
+      "h": 480
+    },
+    "lifeline": {
+      "w": 120,
+      "h": 320
+    },
+    "activation": {
+      "w": 12,
+      "h": 80
+    },
+    "rect": {
+      "w": 140,
+      "h": 80
+    },
+    "roundRect": {
+      "w": 140,
+      "h": 80
+    },
+    "ellipse": {
+      "w": 150,
+      "h": 90
+    },
+    "circle": {
+      "w": 100,
+      "h": 100
+    },
+    "triangle": {
+      "w": 110,
+      "h": 95
+    },
+    "diamond": {
+      "w": 120,
+      "h": 90
+    },
+    "pentagon": {
+      "w": 110,
+      "h": 105
+    },
+    "hexagon": {
+      "w": 130,
+      "h": 90
+    },
+    "star": {
+      "w": 110,
+      "h": 105
+    },
+    "cross": {
+      "w": 110,
+      "h": 110
+    },
+    "cylinder": {
+      "w": 110,
+      "h": 120
+    },
+    "cloud": {
+      "w": 170,
+      "h": 105
+    },
+    "parallelogram": {
+      "w": 160,
+      "h": 80
+    },
+    "trapezium": {
+      "w": 160,
+      "h": 80
+    },
+    "arrow": {
+      "w": 150,
+      "h": 80
+    },
+    "callout": {
+      "w": 160,
+      "h": 100
+    },
+    "note": {
+      "w": 160,
+      "h": 100
+    },
+    "text": {
+      "w": 140,
+      "h": 30
+    }
+  },
+  "components": {
+    "navbar": {
+      "shapes": [
+        "plain",
+        "tabs",
+        "icons",
+        "breadcrumb",
+        "grouped"
+      ],
+      "layouts": [
+        "horizontal",
+        "vertical"
+      ],
+      "elements": {
+        "brand": {
+          "fields": [
+            "logo"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "nav-item": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "group-heading": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "search": {
+          "fields": [],
+          "max": 1,
+          "shapeable": true,
+          "fillable": true
+        },
+        "select": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "button": {
+          "fields": [
+            "style"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "avatar": {
+          "fields": [
+            "name",
+            "role"
+          ],
+          "max": 1,
+          "shapeable": true,
+          "fillable": false
+        },
+        "workspace-switcher": {
+          "fields": [],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "divider": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        }
+      }
+    },
+    "list": {
+      "shapes": [
+        "table",
+        "cards",
+        "rows",
+        "feed"
+      ],
+      "layouts": [
+        "vertical",
+        "grid",
+        "horizontal"
+      ],
+      "elements": {
+        "header": {
+          "fields": [
+            "placement"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "column": {
+          "fields": [
+            "kind",
+            "dataset",
+            "samples"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "column-header": {
+          "fields": [],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "row-action": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "select-column": {
+          "fields": [],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "search": {
+          "fields": [],
+          "max": 1,
+          "shapeable": true,
+          "fillable": true
+        },
+        "filter": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "pagination": {
+          "fields": [
+            "pageSize"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        }
+      }
+    },
+    "form": {
+      "shapes": [
+        "simple",
+        "sections",
+        "wizard",
+        "inline"
+      ],
+      "layouts": [
+        "one-column",
+        "two-column",
+        "horizontal"
+      ],
+      "elements": {
+        "header": {
+          "fields": [
+            "placement"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "text-input": {
+          "fields": [
+            "kind",
+            "placeholder"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "text-area": {
+          "fields": [
+            "placeholder"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "select": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "radio-group": {
+          "fields": [
+            "options"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "checkbox": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "toggle": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "date-picker": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "file-upload": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "section-heading": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "step": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "help-text": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "button": {
+          "fields": [
+            "style"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        }
+      }
+    },
+    "graph": {
+      "shapes": [
+        "bar",
+        "line",
+        "area",
+        "pie",
+        "donut",
+        "scatter",
+        "stats"
+      ],
+      "layouts": [
+        "vertical",
+        "horizontal"
+      ],
+      "elements": {
+        "header": {
+          "fields": [
+            "placement"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "series": {
+          "fields": [
+            "values"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "category-axis": {
+          "fields": [
+            "categories"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "value-axis": {
+          "fields": [
+            "unit"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "legend": {
+          "fields": [],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "range-selector": {
+          "fields": [],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "stat": {
+          "fields": [
+            "value",
+            "delta"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        }
+      }
+    },
+    "canvas": {
+      "shapes": [
+        "plain",
+        "card",
+        "grid",
+        "transparent"
+      ],
+      "layouts": [
+        "fixed",
+        "fill",
+        "float"
+      ],
+      "elements": {
+        "heading": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "text": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "label": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "badge": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "button": {
+          "fields": [
+            "style"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "text-input": {
+          "fields": [
+            "kind",
+            "placeholder"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "link": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "image": {
+          "fields": [
+            "src"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": false
+        },
+        "box": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "divider": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "text-area": {
+          "fields": [
+            "placeholder"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "select": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "radio-group": {
+          "fields": [
+            "options"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "checkbox": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "toggle": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "date-picker": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "file-upload": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "section-heading": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "step": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "help-text": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "column": {
+          "fields": [
+            "kind",
+            "dataset",
+            "samples"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "column-header": {
+          "fields": [],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "row-action": {
+          "fields": [],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "select-column": {
+          "fields": [],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "search": {
+          "fields": [],
+          "max": 1,
+          "shapeable": true,
+          "fillable": true
+        },
+        "filter": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "pagination": {
+          "fields": [
+            "pageSize"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        }
+      }
+    },
+    "calendar": {
+      "shapes": [
+        "month",
+        "week",
+        "day",
+        "schedule",
+        "mini"
+      ],
+      "layouts": [
+        "full",
+        "compact"
+      ],
+      "elements": {
+        "header": {
+          "fields": [
+            "placement"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "event": {
+          "fields": [
+            "when",
+            "kind"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "view-switcher": {
+          "fields": [
+            "views"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "calendar-nav": {
+          "fields": [],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        },
+        "resource-row": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
+        "calendar-legend": {
+          "fields": [
+            "kinds"
+          ],
+          "max": 1,
+          "shapeable": false,
+          "fillable": false
+        }
+      }
+    }
+  }
+}

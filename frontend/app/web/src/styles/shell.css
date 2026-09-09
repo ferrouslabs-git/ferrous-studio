@@ -442,3 +442,14 @@
 .repo-option.selected { border-color: var(--accent); background: var(--accent-soft); }
 .repo-option-name { font-weight: 600; }
 .repo-option .muted { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* ── Bundle import (project details / wireframes list) ──────────────────── */
+/* One row per validate_bundle error: the path in monospace so it stays
+   scannable, the message beside it. Bounded and scrollable, like .repo-list --
+   a bad bundle can carry a very long list. */
+.bundle-error-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; scrollbar-gutter: stable; }
+.bundle-error-row {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px;
+}
+.bundle-error-path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--text-mute); }

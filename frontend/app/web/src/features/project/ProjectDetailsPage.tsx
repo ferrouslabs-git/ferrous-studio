@@ -6,12 +6,14 @@ import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
 import { updateProject } from "../projects/projectsApi";
 import { EnvironmentsSection } from "./EnvironmentsSection";
+import { ImportBundleDrawer } from "./ImportBundleDrawer";
 import { RepositorySection } from "./RepositorySection";
 import { useProject } from "./ProjectLayout";
 
 export function ProjectDetailsPage() {
-  const { project, canWrite, reload } = useProject();
+  const { project, orgId, canWrite, reload } = useProject();
   const [open, setOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rationale, setRationale] = useState("");
@@ -59,11 +61,25 @@ export function ProjectDetailsPage() {
         {project.status === "archived" && <span className="badge">archived</span>}
         <span className="shell-spacer" />
         {canWrite && (
+          <button className="btn ghost" onClick={() => setImporting(true)}>
+            Import…
+          </button>
+        )}
+        {canWrite && (
           <button className="btn primary" onClick={openDrawer}>
             Edit
           </button>
         )}
       </div>
+
+      {importing && (
+        <ImportBundleDrawer
+          projectId={project.id}
+          orgId={orgId}
+          onClose={() => setImporting(false)}
+          onImported={reload}
+        />
+      )}
 
       <section className="section">
         <div className="section-body details-grid">
