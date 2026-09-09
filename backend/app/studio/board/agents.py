@@ -80,6 +80,18 @@ async def require_board_token(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bearer board token required")
     raw = authorization.split(None, 1)[1].strip()
 
+    # board_tokens is FORCE ROW LEVEL SECURITY, and looking a token up by its
+    # hash is the one query that must run before its account_id is known --
+    # that's the whole point of the lookup. With no scope set yet, RLS's
+    # USING clause is neither the bypass OR nor an account match, so it
+    # silently returns zero rows regardless of whether the token exists.
+    # Never caught locally (the local Postgres role is a superuser and
+    # bypasses RLS outright) or by this session's own earlier testing (same
+    # reason) -- only surfaced against a real non-superuser role, in
+    # production, on the very feature this fix was supposed to complete.
+    # Bypass for this one lookup only; _set_rls_vars_for_account below
+    # immediately replaces it with the token's real, narrow scope.
+    await _set_rls_vars(db, "account", UUID(int=0), is_super_admin=True)
     token = (
         await db.execute(select(BoardToken).where(BoardToken.token_hash == _hash(raw)))
     ).scalar_one_or_none()
