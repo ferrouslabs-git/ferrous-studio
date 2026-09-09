@@ -35,7 +35,7 @@ export function BoardTokensSection() {
   const [formError, setFormError] = useState<string | null>(null);
   // Held only until the drawer closes: the raw value exists nowhere else.
   const [issued, setIssued] = useState<BoardTokenIssued | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"token" | "config" | null>(null);
   const [revoking, setRevoking] = useState<BoardToken | null>(null);
 
   // Nothing to show, and listing would 403 anyway.
@@ -57,7 +57,7 @@ export function BoardTokensSection() {
     try {
       const token = await createBoardToken(project.id, label.trim());
       setCreating(false);
-      setCopied(false);
+      setCopied(null);
       setIssued(token);
       await tokens.reload();
     } catch (err) {
@@ -67,16 +67,38 @@ export function BoardTokensSection() {
     }
   };
 
-  const copy = async () => {
-    if (!issued) return;
+  const copy = async (value: string, what: "token" | "config") => {
     try {
-      await navigator.clipboard.writeText(issued.token);
-      setCopied(true);
+      await navigator.clipboard.writeText(value);
+      setCopied(what);
     } catch {
-      // Clipboard access can be refused; the value is selectable regardless.
-      setCopied(false);
+      // Clipboard access can be refused; both values stay selectable.
+      setCopied(null);
     }
   };
+
+  /** The three variables board_mcp.py reads, as a ready .mcp.json block.
+   *  Assembled here because this drawer is the only place all three exist at
+   *  once -- the token is never retrievable again, and pairing it with the
+   *  project UUID is otherwise a manual dig through the address bar. */
+  const mcpConfig = (token: string) =>
+    JSON.stringify(
+      {
+        mcpServers: {
+          "ferrous-board": {
+            command: "uv",
+            args: ["run", "--with", "mcp", "python", "board_mcp.py"],
+            env: {
+              FERROUS_STUDIO_URL: window.location.origin,
+              FERROUS_STUDIO_PROJECT: project.id,
+              FERROUS_BOARD_TOKEN: token,
+            },
+          },
+        },
+      },
+      null,
+      2,
+    );
 
   return (
     <section className="section">
@@ -147,6 +169,7 @@ export function BoardTokensSection() {
         open={issued !== null}
         title={issued ? `Token — ${issued.label}` : ""}
         onClose={() => setIssued(null)}
+        width={620}
         footer={
           <button type="button" className="btn primary" onClick={() => setIssued(null)}>
             Done
@@ -162,8 +185,25 @@ export function BoardTokensSection() {
             <Field label="Token">
               <input className="input" readOnly value={issued.token} onFocus={(e) => e.currentTarget.select()} />
             </Field>
-            <button type="button" className="btn small ghost" onClick={() => void copy()}>
-              {copied ? "Copied" : "Copy"}
+            <button type="button" className="btn small ghost" onClick={() => void copy(issued.token, "token")}>
+              {copied === "token" ? "Copied" : "Copy token"}
+            </button>
+
+            <Field label=".mcp.json">
+              <textarea
+                className="input"
+                readOnly
+                rows={16}
+                value={mcpConfig(issued.token)}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            </Field>
+            <button
+              type="button"
+              className="btn small ghost"
+              onClick={() => void copy(mcpConfig(issued.token), "config")}
+            >
+              {copied === "config" ? "Copied" : "Copy .mcp.json"}
             </button>
           </>
         )}
