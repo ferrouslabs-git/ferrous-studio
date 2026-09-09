@@ -133,9 +133,10 @@ export function OrgGitHubPage() {
                         confirmLabel: "Disconnect",
                         body: (
                           <p>
-                            Disconnect from <b>{data.account_login ?? "GitHub"}</b>? Projects keep their repository
-                            links and report them as disconnected until the organisation connects again. The App
-                            stays installed on GitHub.
+                            Disconnect from <b>{data.account_login ?? "GitHub"}</b>? This uninstalls the App from
+                            GitHub as well, so connecting again will ask you to choose an account and repositories
+                            from scratch. Projects keep their repository links and report them as disconnected until
+                            the organisation connects again.
                           </p>
                         ),
                         run: () => run(disconnectGitHub),

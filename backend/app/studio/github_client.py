@@ -262,6 +262,28 @@ async def get_installation(installation_id: int) -> dict[str, Any]:
     return await _get(f"/app/installations/{installation_id}", _app_jwt())
 
 
+async def delete_installation(installation_id: int) -> None:
+    """Uninstall the App from this installation.
+
+    Only an app-level credential (the JWT) can do this -- an installation
+    token cannot revoke itself. Without this, "disconnecting" only forgets our
+    own pointer while the App stays installed on GitHub's side, which makes a
+    later reconnect silently no-op instead of showing GitHub's consent screen
+    again. A 404 means it is already gone, which is the outcome we wanted, so
+    that is treated as success rather than an error.
+    """
+    _require_config()
+    base = get_settings().github_api_base
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        response = await client.delete(
+            f"{base}/app/installations/{installation_id}",
+            headers={**API_HEADERS, "Authorization": f"Bearer {_app_jwt()}"},
+        )
+    if response.status_code in (204, 404):
+        return
+    raise GitHubError(_detail(response), status=response.status_code)
+
+
 async def list_repositories(installation_id: int) -> list[Repository]:
     """Every repository this installation can see, most recently pushed first.
 

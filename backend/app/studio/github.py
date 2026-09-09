@@ -319,19 +319,26 @@ async def disconnect(
     ctx: ScopeContext = Depends(require_permission("integrations:manage")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Forget this organisation's connection.
+    """Forget this organisation's connection, and uninstall the App on GitHub's side.
 
     Project repository links are left alone. Disconnecting is usually a
     reinstall or a change of GitHub account, and clearing every link would make
     that a destructive act with nothing to undo it; while there is no
     connection each linked project simply reports that it cannot reach GitHub.
 
-    This does not uninstall the App on GitHub's side -- only an owner there can
-    do that, which is what ``manage_url`` is for.
+    The GitHub uninstall call happens before the local row is deleted: if
+    GitHub cannot be reached, the connection is left in place rather than
+    forgotten locally while still installed on GitHub's side -- that
+    combination is what used to make reconnecting silently no-op instead of
+    showing GitHub's consent screen again.
     """
     installation = await installation_for(db, ctx.scope_id)
     if installation is None:
         return
+    try:
+        await gh.delete_installation(installation.installation_id)
+    except gh.GitHubError as exc:
+        raise _github_http_error(exc) from exc
     gh.forget_installation(installation.installation_id)
     await log_audit_event(
         "github_disconnected",
