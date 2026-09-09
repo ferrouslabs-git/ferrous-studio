@@ -20,7 +20,17 @@ Environment:
 
     STUDIO_URL          default https://studio.ferrouslabs.co.uk
     STUDIO_PROJECT_ID   the Studio project whose board receives the import
-    STUDIO_TOKEN        a board token (bt_...) minted for that project
+    STUDIO_ORG_ID       the organisation owning it -- both ids are in the
+                        project's URL: /orgs/<org>/projects/<project>/details
+    STUDIO_TOKEN        either a board token (bt_...) or your own Cognito
+                        access token. Board routes accept both (see
+                        board/auth.py); a Cognito token additionally needs
+                        STUDIO_ORG_ID, because the scope headers are what
+                        resolve an organisation for a human caller, whereas a
+                        board token already names its board. Read the browser
+                        one from the devtools console on the live site:
+                            localStorage.auth_access_token
+                        It expires in about an hour, which is ample here.
 
 DELIBERATE OMISSIONS
 --------------------
@@ -41,21 +51,24 @@ WHAT CANNOT BE PRESERVED
 * **Historical burndown.** ``record_sprint_history`` writes one row per
   requirement at import time, so past sprints cannot be reconstructed.
 
-ORDERING (both of these are load-bearing -- see the route code)
----------------------------------------------------------------
+ORDERING (all three are load-bearing -- see the route code)
+-----------------------------------------------------------
 * A requirement is created in ONE POST carrying its sprint and status
-  together. ``update_requirement`` resets a non-Done status to ``Todo``
+  together. ``update_requirement`` resets an unfinished status to ``Todo``
   whenever a requirement *enters* a sprint, so POST-then-PATCH would silently
   flatten every in-flight status.
-* Sprint states are set LAST. ``SprintCreate`` has no ``state`` field, and
-  moving a sprint to ``done`` returns its non-Done requirements to the
-  backlog -- so states go on only once the requirements are in place, and this
-  script reports anything that got returned.
+* Sprint states are set BEFORE the requirements, while the sprints are still
+  empty. ``SprintCreate`` has no ``state`` field, and moving a sprint to
+  ``done`` returns its unfinished work to the backlog -- doing that after the
+  requirements landed would quietly empty every finished sprint.
+* Epic statuses are set AFTER the requirements: Studio refuses ``Done`` until
+  every requirement under the epic is itself Done.
 
-REQUIRES: the ``estimate_hours`` migration must already be deployed.
-``RequirementCreate`` does not forbid extra fields, so against an older API
-every estimate is silently dropped rather than rejected. --apply refuses to
-run unless it can see the field on a round-tripped requirement.
+ESTIMATES: ``RequirementCreate`` does not forbid extra fields, so an API
+predating the estimate_hours migration accepts the value and throws it away.
+--apply therefore checks the published schema first -- but only when the
+source board actually carries estimates, since otherwise there is nothing to
+lose and the check would just be ceremony.
 """
 from __future__ import annotations
 
@@ -69,10 +82,16 @@ import urllib.request
 SMA_URL = os.environ.get("SMA_URL", "https://management.fnai.dev").rstrip("/")
 STUDIO_URL = os.environ.get("STUDIO_URL", "https://studio.ferrouslabs.co.uk").rstrip("/")
 
-# MoSCoW (SMA) -> Studio's four levels. "Urgent" is deliberately unused: nothing
-# in the source board means it, and inventing urgency during a migration would
-# be a lie the next person has to unpick.
-PRIORITY = {"Must": "High", "Should": "Medium", "Could": "Low"}
+# The live board uses Low/Medium/High -- the same vocabulary as Studio, minus
+# Urgent -- so those pass through untouched. SMA's core.js still declares
+# MoSCoW (Must/Should/Could), which the data does not use; those are mapped
+# anyway so an older board would import correctly rather than silently
+# flattening to Medium. A dry run against the real board caught this: the
+# MoSCoW-only map would have levelled all 348 requirements.
+PRIORITY = {
+    "Low": "Low", "Medium": "Medium", "High": "High", "Urgent": "Urgent",
+    "Must": "High", "Should": "Medium", "Could": "Low",
+}
 
 # Statuses and epic/sprint vocabularies are identical on both sides -- SMA's
 # four requirement statuses are a subset of Studio's five (Studio adds Review).
@@ -84,10 +103,19 @@ class ImportError_(RuntimeError):
     pass
 
 
+#: Board tokens are self-describing (they name their own board); a Cognito
+#: token is not, so it needs the scope headers get_scope_context reads.
+STUDIO_ORG_ID = os.environ.get("STUDIO_ORG_ID", "").strip()
+BOARD_TOKEN_PREFIX = "bt_"
+
+
 def _request(url: str, *, token: str, method: str = "GET", body: dict | None = None) -> dict | list:
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Authorization", f"Bearer {token}")
+    if STUDIO_ORG_ID and not token.startswith(BOARD_TOKEN_PREFIX) and url.startswith(STUDIO_URL):
+        req.add_header("X-Scope-Type", "account")
+        req.add_header("X-Scope-ID", STUDIO_ORG_ID)
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
@@ -244,7 +272,10 @@ class Importer:
             "sprint": self.ids["sprint"], "requirement": self.ids["requirement"], "doc": self.ids["doc"],
         }
         for c in sorted(self.board.get("comments", []), key=lambda x: x.get("created_at") or ""):
-            source_entity = c.get("entity_id") or ""
+            # The board API serves this as "entity"; "entity_id" is the column
+            # name and appears on older payloads. Reading only entity_id would
+            # skip every comment on the live board.
+            source_entity = c.get("entity") or c.get("entity_id") or ""
             kind = next((k for k, m in entity_of.items() if source_entity in m), None)
             if kind is None:
                 if self.apply:
@@ -320,16 +351,22 @@ class Importer:
         self.epic_statuses()  # after requirements -- see the docstring
 
 
-def preflight_estimate_hours(token: str) -> None:
+def preflight_estimate_hours(token: str, board: dict) -> None:
     """Refuse to run against an API that would silently drop estimates.
 
     RequirementCreate does not forbid unknown fields, so an older deployment
     accepts estimate_hours and throws it away -- the failure mode being checked
     for is silent data loss, not an error.
 
+    Skipped entirely when the source board has no estimates: there is then
+    nothing to lose, and blocking the import on a deploy that buys nothing
+    would be pointless ceremony.
+
     Reads the published schema rather than an existing requirement: the board
     being imported into is empty, so there is nothing to inspect otherwise.
     """
+    if not any(r.get("estimate_hours") is not None for r in board.get("requirements", [])):
+        return
     try:
         schema = _request(f"{STUDIO_URL}/api/openapi.json", token=token)
     except ImportError_ as exc:
@@ -364,8 +401,8 @@ def report_source_keys(board: dict) -> list[str]:
         "sprints": ("id", "name", "goal", "start", "end", "state", "capacity_hours"),
         "requirements": ("id", "title", "body", "epic", "feature", "status", "priority",
                           "release", "sprint", "estimate_hours"),
-        "docs": ("id", "title", "body", "tags", "epic_id"),
-        "comments": ("id", "entity_id", "author", "text", "created_at"),
+        "docs": ("id", "title", "body", "tags", "epic"),
+        "comments": ("id", "entity", "author", "text", "created_at"),
     }
     notes = []
     for collection, fields in expected.items():
@@ -390,12 +427,20 @@ def main() -> int:
     if args.apply and not (project_id and studio_token):
         print("STUDIO_PROJECT_ID and STUDIO_TOKEN are required for --apply.", file=sys.stderr)
         return 1
+    if args.apply and not studio_token.startswith(BOARD_TOKEN_PREFIX) and not STUDIO_ORG_ID:
+        print(
+            "STUDIO_TOKEN looks like a Cognito token, which also needs STUDIO_ORG_ID "
+            "(the scope headers a human caller is resolved by). Both ids are in the "
+            "project's URL: /orgs/<org>/projects/<project>/details",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         board = _request(f"{SMA_URL}/api/board", token=sma_login())
         importer = Importer(board, studio_token, project_id, args.apply)
         if args.apply:
-            preflight_estimate_hours(studio_token)
+            preflight_estimate_hours(studio_token, board)
         importer.run()
     except ImportError_ as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

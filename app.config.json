@@ -15,7 +15,7 @@
     "legal": "Entendex Ltd trading as Ferrous Labs \u00b7 1 Empire Mews, Streatham, London SW16 2BF"
   },
   "_platform_admin_comment": "Addresses granted platform admin at their next sign-in (PLATFORM_ADMIN_EMAILS -> app/auth/config.py). This is how a deployed environment gets admins without reaching the private RDS. Removing someone here does not demote them -- demote from Admin > Users.",
-  "platform_admin_emails": "ali@ferrouslabs.co.uk",
+  "platform_admin_emails": "ali.nadian.82@gmail.com,ali@ferrouslabs.co.uk",
   "shared_infra": {
     "_comment": "Known IDs for the shared VPC/ALB/ECS/RDS — see infra/docs/onboarding-runbook.md. These don't change per app; only product_name/container_port/domain above do.",
     "account_id": "690488446356",
