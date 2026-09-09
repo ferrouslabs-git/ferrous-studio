@@ -38,6 +38,8 @@ const MANAGE_ACCOUNT_ROLES = new Set(["account_admin"]);
 const INTEGRATIONS_ACCOUNT_ROLES = new Set(["account_admin"]);
 /** audit:read */
 const AUDIT_ACCOUNT_ROLES = new Set(["account_admin"]);
+/** board:tokens */
+const BOARD_TOKEN_ACCOUNT_ROLES = new Set(["account_admin"]);
 
 export interface Session {
   status: SessionStatus;
@@ -58,6 +60,8 @@ export interface Session {
   canManageIntegrations: boolean;
   /** Whether the user may read the organisation's audit log. */
   canReadAudit: boolean;
+  /** Whether the user may mint and revoke a project's board tokens. */
+  canManageBoardTokens: boolean;
   /** True once signed in but with no organisation membership (and not a platform admin). */
   isPending: boolean;
   selectOrg: (orgId: string) => Promise<void>;
@@ -138,6 +142,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const canManageMembers = useMemo(() => holds(MANAGE_ACCOUNT_ROLES), [holds]);
   const canManageIntegrations = useMemo(() => holds(INTEGRATIONS_ACCOUNT_ROLES), [holds]);
   const canReadAudit = useMemo(() => holds(AUDIT_ACCOUNT_ROLES), [holds]);
+  const canManageBoardTokens = useMemo(() => holds(BOARD_TOKEN_ACCOUNT_ROLES), [holds]);
 
   const value = useMemo<Session>(
     () => ({
@@ -152,6 +157,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       canManageMembers,
       canManageIntegrations,
       canReadAudit,
+      canManageBoardTokens,
       isPending: status === "ready" && !!user && !user.is_platform_admin && orgs.length === 0,
       selectOrg,
       refresh: load,
@@ -168,6 +174,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       canManageMembers,
       canManageIntegrations,
       canReadAudit,
+      canManageBoardTokens,
       selectOrg,
       load,
     ],

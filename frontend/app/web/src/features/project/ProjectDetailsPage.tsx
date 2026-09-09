@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
 import { updateProject } from "../projects/projectsApi";
+import { BoardTokensSection } from "./BoardTokensSection";
 import { EnvironmentsSection } from "./EnvironmentsSection";
 import { ImportBundleDrawer } from "./ImportBundleDrawer";
 import { RepositorySection } from "./RepositorySection";
@@ -108,6 +109,8 @@ export function ProjectDetailsPage() {
       <EnvironmentsSection />
 
       <RepositorySection />
+
+      <BoardTokensSection />
 
       <Drawer
         open={open}
