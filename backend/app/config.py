@@ -67,6 +67,11 @@ class Settings:
     # make the feature safe to turn on.
     agent_ecs_cluster: str
     agent_task_definition: str
+    agent_subnets: list[str]
+    agent_security_group: str
+    # Best-effort only -- a notification posted on Blocked/Done never gates
+    # anything. Empty = notifications are silently skipped.
+    slack_webhook_url: str
 
 
 
@@ -118,4 +123,7 @@ def get_settings() -> Settings:
         github_api_base=os.getenv("GITHUB_API_BASE", "https://api.github.com").strip().rstrip("/"),
         agent_ecs_cluster=os.getenv("AGENT_ECS_CLUSTER", "").strip(),
         agent_task_definition=os.getenv("AGENT_TASK_DEFINITION", "").strip(),
+        agent_subnets=[s.strip() for s in os.getenv("AGENT_SUBNETS", "").split(",") if s.strip()],
+        agent_security_group=os.getenv("AGENT_SECURITY_GROUP", "").strip(),
+        slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL", "").strip(),
     )

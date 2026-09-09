@@ -44,6 +44,7 @@ __all__ = [
     "Attachment",
     "BoardToken",
     "AgentRun",
+    "Agent",
 ]
 
 
@@ -405,3 +406,49 @@ class AgentRun(Base):
         Index("ix_agent_runs_requirement", "requirement_id"),
         Index("ix_agent_runs_board_status", "board_id", "status"),
     )
+
+
+class Agent(Base):
+    """A persistent, named worker -- started and stopped repeatedly over its
+    lifetime, unlike AgentRun (one single attempt). Ported from
+    software-management (backend/store.py's agents table, added
+    incrementally through Sept 2026): an agent is assigned exactly one
+    sprint and works its Todo requirements in queue order; the older
+    per-epic scoping was retired as untrustworthy (two stacked filters).
+
+    Not wired to a real ECS launch unless AGENT_ECS_CLUSTER/
+    AGENT_TASK_DEFINITION/AGENT_SUBNETS/AGENT_SECURITY_GROUP are all set
+    (app/config.py) -- see agents.py's launch_agent, same honest "not
+    configured" rather than faking a launch that AgentRun's docstring
+    already established for this codebase.
+
+    ``board_token`` is a real board_tokens row's raw value, kept here in
+    the clear (unlike a human-minted token, shown once and only ever
+    stored hashed) because the agent's own launched container needs to
+    keep re-authenticating with it -- there's no human present to hand it
+    a fresh one. Excluded from AgentRead for the same reason SMA's
+    AGENT_SELECT excludes it.
+    """
+
+    DESIRED_STATES = ("running", "stopped")
+    STATUSES = ("running", "stopped", "error")
+
+    __tablename__ = "board_agents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    board_id = Column(UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    name = Column(String(200), nullable=False)
+    sprint_id = Column(UUID(as_uuid=True), ForeignKey("board_sprints.id", ondelete="SET NULL"), nullable=True)
+    desired_state = Column(String(10), nullable=False, default="stopped")
+    status = Column(String(10), nullable=False, default="stopped")
+    task_arn = Column(String(512), nullable=True)
+    last_error = Column(Text, nullable=True)
+    current_requirement_id = Column(UUID(as_uuid=True), ForeignKey("board_requirements.id", ondelete="SET NULL"), nullable=True)
+    board_token_id = Column(UUID(as_uuid=True), ForeignKey("board_tokens.id", ondelete="SET NULL"), nullable=True)
+    board_token = Column(String(64), nullable=True)
+    last_heartbeat = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (Index("ix_board_agents_sprint", "sprint_id"),)

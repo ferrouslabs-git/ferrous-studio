@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
+from .agents import maybe_wake_agent
 from .auth import require_board_permission as require_permission
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
@@ -630,6 +631,7 @@ async def update_sprint(
     data = payload.model_dump(exclude_unset=True)
     new_state = data.get("state")
     returned = 0
+    activating = new_state == "active" and new_state != sprint.state
     if new_state is not None and new_state != sprint.state:
         returned = await service.apply_sprint_state_transition(db, board, sprint, new_state)
     clear_release = data.pop("clear_release", False)
@@ -642,6 +644,10 @@ async def update_sprint(
             continue
         setattr(sprint, field, value)
     sprint.updated_at = utc_now()
+    if activating:
+        # Starting a sprint is what releases its work to agents -- an
+        # agent assigned to a planned sprint deliberately stays idle.
+        await maybe_wake_agent(db, board, sprint.id)
     await db.commit()
     await db.refresh(sprint)
     return SprintUpdateResult(sprint=sprint, returned_to_backlog=returned)
@@ -755,6 +761,8 @@ async def create_requirement(
     # Initial sprint membership, even NULL/backlog -- see service.record_sprint_history.
     await service.record_sprint_history(db, board, requirement)
     await service.write_event(db, board, ctx.user_id, "requirement.created", "requirement", requirement.id, {})
+    if requirement.sprint_id is not None:
+        await maybe_wake_agent(db, board, requirement.sprint_id)
     await db.commit()
     await db.refresh(requirement)
     return await _requirement_read(db, board, requirement)
@@ -826,6 +834,11 @@ async def update_requirement(
     changes = _diff(before, after, ("status", "sprint_id"))
     if changes:
         await service.write_event(db, board, ctx.user_id, "requirement.updated", "requirement", requirement.id, changes)
+
+    if before["sprint_id"] != after["sprint_id"] and after["sprint_id"] is not None:
+        # New Todo work just landed in a sprint -- wake whatever agent is
+        # assigned to it, if the sprint is active and none is already running.
+        await maybe_wake_agent(db, board, after["sprint_id"])
 
     await db.commit()
     await db.refresh(requirement)

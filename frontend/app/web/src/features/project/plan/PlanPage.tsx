@@ -18,6 +18,7 @@ import { Epic, listEpics } from "../epics/epicsApi";
 import { Feature, listFeatures } from "../epics/featuresApi";
 import { Release, listReleases } from "../roadmap/releasesApi";
 import { useProject } from "../ProjectLayout";
+import { Agent, createAgent, deleteAgent, listAgents, updateAgent } from "./boardAgentsApi";
 import { BoardComment, createBoardComment, deleteBoardComment, listBoardComments } from "./boardCommentsApi";
 import {
   claimRequirement,
@@ -152,6 +153,7 @@ function SprintsSection({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [deleting, setDeleting] = useState<Sprint | null>(null);
   const [viewingBurndown, setViewingBurndown] = useState<Sprint | null>(null);
+  const [viewingAgents, setViewingAgents] = useState<Sprint | null>(null);
   const [form, setForm] = useState<SprintInput>(EMPTY_SPRINT);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -254,7 +256,10 @@ function SprintsSection({
           rowKey={(s) => s.id}
           rowLabel={(s) => s.name}
           actions={(s) => {
-            const items = [{ label: "Burndown", onSelect: () => setViewingBurndown(s) }];
+            const items = [
+              { label: "Burndown", onSelect: () => setViewingBurndown(s) },
+              { label: "Agents", onSelect: () => setViewingAgents(s) },
+            ];
             if (!canWrite) return items;
             if (s.state === "planned") items.push({ label: "Start sprint", onSelect: () => void setState(s, "active") });
             if (s.state === "active") items.push({ label: "Complete sprint", onSelect: () => void setState(s, "done") });
@@ -332,6 +337,7 @@ function SprintsSection({
       </ConfirmDrawer>
 
       {viewingBurndown && <BurndownDrawer projectId={projectId} sprint={viewingBurndown} onClose={() => setViewingBurndown(null)} />}
+      {viewingAgents && <AgentsDrawer projectId={projectId} sprint={viewingAgents} canWrite={canWrite} onClose={() => setViewingAgents(null)} />}
     </section>
   );
 }
@@ -387,6 +393,118 @@ function BurndownChart({ burndown }: { burndown: Burndown }) {
         </span>
       </div>
     </div>
+  );
+}
+
+const AGENT_STATUS_BADGE: Record<string, string> = { running: "accent", stopped: "muted", error: "warn" };
+
+// Agents are run from the sprint board, not a separate view of their own --
+// ported placement decision from software-management (static/js/views.js,
+// 2026-09-04): "Overview, Agents and Work History left the nav the same
+// day: agents are run from the sprint board." An agent works exactly one
+// sprint's Todo requirements in queue order; starting one only succeeds if
+// the environment actually configures somewhere to launch it
+// (AGENT_ECS_CLUSTER etc.) -- otherwise it fails with that said plainly,
+// not a silent no-op.
+function AgentsDrawer({
+  projectId,
+  sprint,
+  canWrite,
+  onClose,
+}: {
+  projectId: string;
+  sprint: Sprint;
+  canWrite: boolean;
+  onClose: () => void;
+}) {
+  const agents = useLoad(() => listAgents(projectId), [projectId]);
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const forThisSprint = (agents.data ?? []).filter((a) => a.sprint_id === sprint.id);
+
+  const create = async () => {
+    if (!newName.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await createAgent(projectId, newName.trim(), sprint.id);
+      setNewName("");
+      await agents.reload();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const toggle = async (a: Agent) => {
+    setBusyId(a.id);
+    setError(null);
+    try {
+      await updateAgent(projectId, a.id, { desired_state: a.status === "running" ? "stopped" : "running" });
+      await agents.reload();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const remove = async (a: Agent) => {
+    await deleteAgent(projectId, a.id);
+    await agents.reload();
+  };
+
+  return (
+    <Drawer open title={`${sprint.human_id} agents`} onClose={onClose} width={480}>
+      <div className="stack" style={{ gap: 10 }}>
+        {agents.loading && <p className="muted">Loading…</p>}
+        {forThisSprint.length === 0 && !agents.loading && <span className="muted">No agents assigned to this sprint yet.</span>}
+        {forThisSprint.map((a) => (
+          <div key={a.id} className="section" style={{ padding: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <b>{a.name}</b>
+              <span className={`badge ${AGENT_STATUS_BADGE[a.status]}`}>{a.status}</span>
+              <span className="shell-spacer" />
+              {canWrite && (
+                <>
+                  <button type="button" className="btn small ghost" disabled={busyId === a.id} onClick={() => void toggle(a)}>
+                    {a.status === "running" ? "Stop" : "Start"}
+                  </button>
+                  <button type="button" className="btn icon ghost" aria-label={`Delete ${a.name}`} onClick={() => void remove(a)}>
+                    ×
+                  </button>
+                </>
+              )}
+            </div>
+            {a.last_error && <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>{a.last_error}</p>}
+          </div>
+        ))}
+        {canWrite && (
+          <div className="list-editor-row">
+            <input
+              className="input"
+              placeholder="e.g. Claude worker"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void create();
+                }
+              }}
+            />
+            <button type="button" className="btn small ghost" disabled={creating || !newName.trim()} onClick={() => void create()}>
+              + Agent
+            </button>
+          </div>
+        )}
+        {error && <div className="status-banner warn">{error}</div>}
+      </div>
+    </Drawer>
   );
 }
 

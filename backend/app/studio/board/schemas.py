@@ -384,6 +384,48 @@ class AgentRunQueued(BaseModel):
     launch_message: str | None = None
 
 
+# ── Agents: persistent, named, sprint-scoped workers ─────────────────────
+#
+# Distinct from AgentRun above (one single attempt at a requirement): an
+# Agent is started/stopped repeatedly over its lifetime and works its
+# assigned sprint's Todo requirements in queue order. Ported from
+# software-management's agents table.
+
+AgentDesiredState = Literal["running", "stopped"]
+AgentStatus = Literal["running", "stopped", "error"]
+
+
+class AgentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    sprint_id: UUID | None = None
+
+
+class AgentUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=200)
+    sprint_id: UUID | None = None
+    clear_sprint: bool = False
+    # Starting (desired_state="running") launches a real task only if
+    # AGENT_ECS_CLUSTER/AGENT_TASK_DEFINITION/AGENT_SUBNETS/
+    # AGENT_SECURITY_GROUP are all set -- otherwise the route reports
+    # exactly that, honestly, rather than pretending to launch anything.
+    desired_state: AgentDesiredState | None = None
+
+
+class AgentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    sprint_id: UUID | None
+    desired_state: str
+    status: str
+    last_error: str | None
+    current_requirement_id: UUID | None
+    last_heartbeat: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class AgentRunFinish(BaseModel):
     success: bool
     error: str | None = None
