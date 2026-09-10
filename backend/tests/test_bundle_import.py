@@ -48,3 +48,13 @@ def test_import_bundle_is_lock_exempt_like_restore():
 def test_import_bundle_validates_before_writing_anything():
     source = inspect.getsource(import_bundle)
     assert source.index("validate_bundle(") < source.index("_resolve_actors(")
+
+
+def test_remap_dataset_ids_is_called_for_its_mutation_not_its_return_value():
+    """remap_dataset_ids mutates its ``pages`` argument in place and returns
+    None (see its docstring in ops.py) -- assigning its result, as in
+    ``pages_data = remap_dataset_ids(...)``, silently sets pages_data to None
+    and breaks every import. This shipped to staging once; guard against it
+    coming back."""
+    source = inspect.getsource(_import_wireframe)
+    assert "= remap_dataset_ids(" not in source

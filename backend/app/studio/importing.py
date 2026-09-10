@@ -632,7 +632,8 @@ async def _import_wireframe(
     source: dict[str, Any],
     warnings: list[str],
 ) -> dict[str, Any]:
-    pages_data = remap_dataset_ids(wireframe_data.get("pages") or [], dataset_id_map)
+    pages_data = wireframe_data.get("pages") or []
+    remap_dataset_ids(pages_data, dataset_id_map)
 
     wireframe = Wireframe(
         project_id=project.id,
