@@ -4,17 +4,24 @@ The routes themselves need a database and a real (or mocked) Anthropic
 call -- exercised live via run-local, not here, matching every other
 route-level test in this suite (test_bundle_import.py's own docstring
 states the same reasoning). What's tested here is what can be: the
-configured() gate, which permission/lock each route asks for, and how a
-failed Anthropic call is translated into an HTTP response.
+configured() gate, which permission/lock each route asks for, the prompt
+and tool-loop wiring, and how a failed Anthropic call or a failed tool
+call is handled -- with create_bundle_content itself mocked out, since
+it's a real DB-touching function tested on its own terms elsewhere
+(test_bundle_import.py).
 """
 import inspect
 from dataclasses import replace
+from types import SimpleNamespace
 
 import anthropic
 import pytest
 
 from app.config import get_settings
 from app.studio import project_agent as pa
+from app.studio.importing import BundleError
+
+FAKE_PROJECT = SimpleNamespace(name="Test", id="proj-1", account_id="acct-1", repo_full_name=None)
 
 
 @pytest.fixture
@@ -48,8 +55,9 @@ def test_list_messages_works_on_a_locked_version():
 
 
 def test_send_message_takes_the_project_lock():
-    """A locked version is a frozen record; Phase 2 will let this route
-    change project content, so it takes the lock now rather than later."""
+    """A locked version is a frozen record, and the agent can now write real
+    content via create_bundle, so a conversation against a locked version
+    must not proceed."""
     assert "get_writable_project(" in inspect.getsource(pa.send_message)
 
 
@@ -66,6 +74,14 @@ def test_the_prompt_tells_the_agent_to_lead_with_the_fact():
     assert "open your reply with that plain fact" in pa.SYSTEM_PROMPT
 
 
+def test_the_prompt_requires_confirmation_before_adding_to_existing_content():
+    assert "do not create anything until they confirm" in pa.SYSTEM_PROMPT
+
+
+def test_the_prompt_forbids_claiming_unconfirmed_creation():
+    assert "never say you built something you didn't call the tool for" in pa.SYSTEM_PROMPT
+
+
 def test_send_message_looks_up_existing_content_before_asking():
     """Both counts must actually be queried, not just accepted as parameters
     -- otherwise _ask_claude's defaults (0, 0) silently claim every project
@@ -73,6 +89,39 @@ def test_send_message_looks_up_existing_content_before_asking():
     source = inspect.getsource(pa.send_message)
     assert "_count(db, Wireframe, project)" in source
     assert "_count(db, ProjectDiagram, project)" in source
+
+
+def test_catalogue_reference_is_generated_not_hand_written():
+    """Proves the reference text actually reflects the real catalogue --
+    a hand-written copy could silently drift from what validate_bundle
+    accepts; this can't, since it's built from get_catalog() itself."""
+    ref = pa._catalogue_reference()
+    assert "navbar" in ref
+    assert "list" in ref
+    assert "canvas" in ref
+
+
+def test_create_bundle_tool_only_exposes_wireframes_and_diagrams():
+    """Matches the client's own scope decision for the reverse-engineer-repo
+    skill: no actors, use cases or datasets from this tool, ever -- even
+    though create_bundle_content would technically accept them if the model
+    somehow produced them, the tool schema doesn't invite it."""
+    props = pa.CREATE_BUNDLE_TOOL["input_schema"]["properties"]
+    assert set(props) == {"wireframes", "diagrams"}
+
+
+async def test_a_text_only_reply_needs_no_tool_call(configured, monkeypatch):
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage(text="noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    assert reply == "noted"
+    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL]
 
 
 async def test_the_agent_is_told_plainly_when_no_repo_is_connected(configured, monkeypatch):
@@ -85,10 +134,10 @@ async def test_the_agent_is_told_plainly_when_no_repo_is_connected(configured, m
 
     async def _create(**kwargs):
         captured.update(kwargs)
-        return _FakeMessage("noted")
+        return _FakeMessage(text="noted")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
     assert "No repository is connected" in captured["system"]
 
 
@@ -98,10 +147,10 @@ async def test_the_agent_is_told_the_repo_when_one_is_connected(configured, monk
 
     async def _create(**kwargs):
         captured.update(kwargs)
-        return _FakeMessage("noted")
+        return _FakeMessage(text="noted")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    await pa._ask_claude(project_name="Test", repo_full_name="acme/website", history=[])
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name="acme/website", history=[])
     assert 'A repository is connected: "acme/website"' in captured["system"]
 
 
@@ -111,10 +160,10 @@ async def test_the_agent_is_told_plainly_when_nothing_exists_yet(configured, mon
 
     async def _create(**kwargs):
         captured.update(kwargs)
-        return _FakeMessage("noted")
+        return _FakeMessage(text="noted")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
     assert "no wireframes or diagrams yet" in captured["system"]
 
 
@@ -127,24 +176,120 @@ async def test_the_agent_is_told_the_real_counts_when_content_already_exists(con
 
     async def _create(**kwargs):
         captured.update(kwargs)
-        return _FakeMessage("noted")
+        return _FakeMessage(text="noted")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    await pa._ask_claude(project_name="Test", repo_full_name=None, wireframe_count=3, diagram_count=2, history=[])
+    await pa._ask_claude(
+        db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, wireframe_count=3, diagram_count=2, history=[]
+    )
     assert "already has 3 wireframe(s) and 2 diagram(s)" in captured["system"]
+
+
+async def test_a_successful_tool_call_creates_content_and_the_model_narrates(configured, monkeypatch):
+    """The full round trip: the model calls create_bundle, the tool succeeds,
+    and the model's second call gets a clean (non-error) tool_result it can
+    narrate from."""
+    configured()
+    calls = []
+
+    async def _create(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _FakeMessage(tool_use=("call-1", "create_bundle", {"wireframes": [{"name": "Login"}]}))
+        return _FakeMessage(text="Done -- I created a wireframe called Login.")
+
+    async def _fake_create_bundle_content(db, project, ctx, payload):
+        assert payload == {"wireframes": [{"name": "Login"}]}
+        return {"wireframes": [{"id": "w1", "name": "Login", "pages": 1}], "diagrams": []}, []
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
+
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+
+    assert reply == "Done -- I created a wireframe called Login."
+    assert len(calls) == 2
+    # Second call's messages must carry the tool_result, and it must not be
+    # flagged as an error -- a successful create must not look like a failure.
+    tool_result_message = calls[1]["messages"][-1]
+    assert tool_result_message["role"] == "user"
+    assert tool_result_message["content"][0]["tool_use_id"] == "call-1"
+    assert "is_error" not in tool_result_message["content"][0]
+
+
+async def test_a_validation_failure_is_fed_back_as_an_error_tool_result(configured, monkeypatch):
+    """The model gets the exact validator errors back and (in a real call)
+    would retry -- this test only proves the error is surfaced correctly,
+    not that the model successfully fixes it."""
+    configured()
+    calls = []
+
+    async def _create(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _FakeMessage(tool_use=("call-1", "create_bundle", {"wireframes": [{"name": "Bad"}]}))
+        return _FakeMessage(text="Let me fix that.")
+
+    async def _fake_create_bundle_content(db, project, ctx, payload):
+        return {}, [BundleError(path="wireframes[0].pages", message="required")]
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
+
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+
+    tool_result = calls[1]["messages"][-1]["content"][0]
+    assert tool_result["is_error"] is True
+    assert "wireframes[0].pages" in tool_result["content"]
+
+
+async def test_an_unknown_tool_name_is_reported_as_an_error_without_crashing(configured, monkeypatch):
+    """Defensive: nothing should call a tool other than create_bundle today,
+    but if the model ever does, the loop must not raise -- it should tell
+    the model plainly and let the conversation continue."""
+    configured()
+    calls = []
+
+    async def _create(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _FakeMessage(tool_use=("call-1", "delete_everything", {}))
+        return _FakeMessage(text="I can't do that.")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+
+    assert reply == "I can't do that."
+    tool_result = calls[1]["messages"][-1]["content"][0]
+    assert tool_result["is_error"] is True
+
+
+async def test_the_loop_gives_up_after_max_rounds_instead_of_looping_forever(configured, monkeypatch):
+    async def _create(**kwargs):
+        return _FakeMessage(tool_use=("call-x", "create_bundle", {"wireframes": []}))
+
+    async def _fake_create_bundle_content(db, project, ctx, payload):
+        return {}, [BundleError(path="wireframes", message="empty")]
+
+    configured()
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
+
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    assert "wasn't able to finish" in reply
 
 
 async def test_authentication_error_becomes_a_502(monkeypatch):
     async def _raise(*args, **kwargs):
-        raise anthropic.AuthenticationError(
-            message="bad key", response=_fake_response(401), body=None
-        )
+        raise anthropic.AuthenticationError(message="bad key", response=_fake_response(401), body=None)
 
-    monkeypatch.setattr(pa, "get_settings", lambda: replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5"))
+    monkeypatch.setattr(
+        pa, "get_settings", lambda: replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5")
+    )
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_raise))
 
     with pytest.raises(pa.HTTPException) as excinfo:
-        await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
+        await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
     assert excinfo.value.status_code == 502
 
 
@@ -152,23 +297,36 @@ async def test_connection_error_becomes_a_502(monkeypatch):
     async def _raise(*args, **kwargs):
         raise anthropic.APIConnectionError(request=_fake_request())
 
-    monkeypatch.setattr(pa, "get_settings", lambda: replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5"))
+    monkeypatch.setattr(
+        pa, "get_settings", lambda: replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5")
+    )
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_raise))
 
     with pytest.raises(pa.HTTPException) as excinfo:
-        await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
+        await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
     assert excinfo.value.status_code == 502
 
 
-class _FakeBlock:
+class _FakeTextBlock:
     def __init__(self, text: str):
         self.type = "text"
         self.text = text
 
 
+class _FakeToolUseBlock:
+    def __init__(self, tool_use_id: str, name: str, input_: dict):
+        self.type = "tool_use"
+        self.id = tool_use_id
+        self.name = name
+        self.input = input_
+
+
 class _FakeMessage:
-    def __init__(self, text: str):
-        self.content = [_FakeBlock(text)]
+    def __init__(self, text: str | None = None, tool_use: tuple[str, str, dict] | None = None):
+        if tool_use is not None:
+            self.content = [_FakeToolUseBlock(*tool_use)]
+        else:
+            self.content = [_FakeTextBlock(text or "")]
 
 
 class _FakeMessages:

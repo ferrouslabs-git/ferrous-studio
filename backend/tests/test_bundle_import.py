@@ -8,7 +8,7 @@ via ``run-local``, not here.
 """
 import inspect
 
-from app.studio.importing import _import_wireframe, import_bundle, resolve_by_name
+from app.studio.importing import _import_wireframe, create_bundle_content, import_bundle, resolve_by_name
 from app.studio.wireframes import copy_version_to_wireframe, insert_pages
 
 
@@ -46,8 +46,20 @@ def test_import_bundle_is_lock_exempt_like_restore():
 
 
 def test_import_bundle_validates_before_writing_anything():
-    source = inspect.getsource(import_bundle)
+    """The route delegates to create_bundle_content, which is where the
+    actual validate-then-write ordering lives now."""
+    assert "create_bundle_content(" in inspect.getsource(import_bundle)
+    source = inspect.getsource(create_bundle_content)
     assert source.index("validate_bundle(") < source.index("_resolve_actors(")
+
+
+def test_import_bundle_commits_only_after_create_bundle_content_succeeds():
+    """create_bundle_content itself never commits (so the chatbot's tool can
+    share one transaction with the rest of the conversation) -- only the
+    route commits, and only once errors have been checked."""
+    source = inspect.getsource(import_bundle)
+    assert "await db.commit()" not in inspect.getsource(create_bundle_content)
+    assert source.index("if errors:") < source.index("await db.commit()")
 
 
 def test_remap_dataset_ids_is_called_for_its_mutation_not_its_return_value():

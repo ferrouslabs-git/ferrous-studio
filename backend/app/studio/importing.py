@@ -710,31 +710,25 @@ def _import_diagram(project: Project, ctx: ScopeContext, diagram_data: dict[str,
     return diagram
 
 
-@router.post("/projects/{project_id}/import")
-async def import_bundle(
-    project_id: UUID,
-    payload: dict[str, Any] = Body(...),
-    ctx: ScopeContext = Depends(require_permission("data:write")),
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """Import a project bundle: the inverse of ``GET /projects/{id}/export``.
+async def create_bundle_content(
+    db: AsyncSession, project: Project, ctx: ScopeContext, payload: dict[str, Any]
+) -> tuple[dict[str, Any], list[BundleError]]:
+    """Validate a bundle and create everything in it -- the whole of what
+    ``import_bundle`` does, minus resolving the project and committing, so a
+    second caller can run this inside its own transaction/lock decision.
+    Shared by the Import button's route and the Project Agent chatbot's
+    ``create_bundle`` tool, so a bundle the chat produces is validated and
+    created by the exact same code, not a second copy of it.
 
-    One transaction -- any failure rolls the whole bundle back, so half an
-    import never lands. 423 on a locked version: import is content, exactly
-    like restore.
+    Returns ``(result, [])`` on success or ``({}, errors)`` on a bundle that
+    doesn't validate -- nothing is created in the error case. Flushes (so
+    new ids are available to the caller) but never commits.
     """
-    project = await get_writable_project(db, project_id, ctx)
-
     catalog = get_catalog()
     bundle = wrap_bare_envelope(payload)
     errors = validate_bundle(bundle, catalog)
     if errors:
-        # A direct JSONResponse, not HTTPException(detail=...) -- the latter
-        # would nest this under a second "detail" key (see the op-batch and
-        # diagram-save conflict responses, which use the same pattern).
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"errors": [e.as_dict() for e in errors]}
-        )
+        return {}, errors
 
     warnings: list[str] = []
     source = bundle.get("source") or {}
@@ -772,7 +766,6 @@ async def import_bundle(
         detail={"source": source, "wireframes": len(wireframes_out), "diagrams": len(diagrams_out)},
     )
     project.updated_at = utc_now()
-    await db.commit()
 
     return {
         "wireframes": wireframes_out,
@@ -781,4 +774,32 @@ async def import_bundle(
         "use_cases": {"created": use_cases_created, "matched": use_cases_matched},
         "datasets": {"created": datasets_created, "matched": datasets_matched},
         "warnings": warnings,
-    }
+    }, []
+
+
+@router.post("/projects/{project_id}/import")
+async def import_bundle(
+    project_id: UUID,
+    payload: dict[str, Any] = Body(...),
+    ctx: ScopeContext = Depends(require_permission("data:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Import a project bundle: the inverse of ``GET /projects/{id}/export``.
+
+    One transaction -- any failure rolls the whole bundle back, so half an
+    import never lands. 423 on a locked version: import is content, exactly
+    like restore.
+    """
+    project = await get_writable_project(db, project_id, ctx)
+
+    result, errors = await create_bundle_content(db, project, ctx, payload)
+    if errors:
+        # A direct JSONResponse, not HTTPException(detail=...) -- the latter
+        # would nest this under a second "detail" key (see the op-batch and
+        # diagram-save conflict responses, which use the same pattern).
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"errors": [e.as_dict() for e in errors]}
+        )
+
+    await db.commit()
+    return result
