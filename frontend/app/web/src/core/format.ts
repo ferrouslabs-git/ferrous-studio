@@ -18,6 +18,14 @@ export function formatDateTime(iso: string): string {
   });
 }
 
+/** Time only, for a running conversation where the date is implied by
+ *  position on screen: "14:05". */
+export function formatTime(iso: string): string {
+  const date = parseUtcDate(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
 /** 1536 -> "1.5 KB". Binary units, one decimal above KB, none for bytes. */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";

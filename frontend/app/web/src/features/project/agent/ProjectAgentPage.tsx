@@ -1,12 +1,21 @@
 // The Project Agent tab: a live chat with Claude, scoped to this one
-// project. Phase 1 only (see docs/project-agent-implementation-plan.md) --
-// plain conversation, no tools yet. The agent cannot change the project;
-// it can only discuss it.
+// project, that can create wireframes and diagrams via tool use (see
+// backend/app/studio/project_agent.py). Replies render as markdown --
+// the same renderer the board docs feature already uses -- since a
+// wireframe/diagram summary reads as headings and lists.
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../../core/api";
+import { formatTime } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
+import { MarkdownWithMermaid } from "../epics/MarkdownWithMermaid";
 import { useProject } from "../ProjectLayout";
 import { getAgentStatus, listAgentMessages, ProjectAgentMessage, sendAgentMessage } from "./projectAgentApi";
+
+const STARTER_PROMPTS = [
+  "What can you help me with?",
+  "Build me wireframes from the connected repo",
+  "Summarise this project so far",
+];
 
 export function ProjectAgentPage() {
   const { project, canWrite } = useProject();
@@ -18,14 +27,15 @@ export function ProjectAgentPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<ProjectAgentMessage | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [history.data, pending]);
+  }, [history.data, pending, sending]);
 
-  const submit = async (e: FormEvent) => {
+  const submit = async (e: FormEvent, override?: string) => {
     e.preventDefault();
-    const content = draft.trim();
+    const content = (override ?? draft).trim();
     if (!content || sending) return;
     setSending(true);
     setError(null);
@@ -54,6 +64,7 @@ export function ProjectAgentPage() {
   }
 
   const messages = history.data ?? [];
+  const empty = messages.length === 0 && !pending;
 
   return (
     <div className="page stack">
@@ -66,14 +77,36 @@ export function ProjectAgentPage() {
       <section className="section">
         <div className="section-body agent-chat-section">
           <div className="agent-chat-log">
-            {messages.length === 0 && !pending && <div className="empty">Say hello to get started.</div>}
+            {empty && (
+              <div className="agent-empty">
+                <p className="muted">Say hello to get started, or try:</p>
+                <div className="agent-starters">
+                  {STARTER_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      className="btn ghost small"
+                      disabled={!canWrite}
+                      onClick={(e) => void submit(e, prompt)}
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {messages.map((m) => (
               <AgentBubble key={m.id} message={m} />
             ))}
             {pending && <AgentBubble message={pending} />}
             {sending && (
-              <div className="agent-bubble agent-bubble-assistant">
-                <span className="muted">Thinking…</span>
+              <div className="agent-bubble agent-bubble-assistant agent-bubble-thinking">
+                <span className="agent-bubble-role">Project Agent</span>
+                <span className="agent-typing" aria-label="Thinking">
+                  <span />
+                  <span />
+                  <span />
+                </span>
               </div>
             )}
             <div ref={bottomRef} />
@@ -83,6 +116,7 @@ export function ProjectAgentPage() {
 
           <form className="agent-compose" onSubmit={submit}>
             <textarea
+              ref={textareaRef}
               className="input textarea"
               rows={2}
               placeholder={canWrite ? "Ask Project Agent…" : "You need edit access to this project to use Project Agent."}
@@ -107,10 +141,14 @@ export function ProjectAgentPage() {
 }
 
 function AgentBubble({ message }: { message: ProjectAgentMessage }) {
+  const isUser = message.role === "user";
   return (
     <div className={`agent-bubble agent-bubble-${message.role}`}>
-      <span className="agent-bubble-role">{message.role === "user" ? "You" : "Project Agent"}</span>
-      <p>{message.content}</p>
+      <div className="agent-bubble-meta">
+        <span className="agent-bubble-role">{isUser ? "You" : "Project Agent"}</span>
+        {message.id !== "pending" && <span className="agent-bubble-time">{formatTime(message.created_at)}</span>}
+      </div>
+      {isUser ? <p className="agent-bubble-text">{message.content}</p> : <MarkdownWithMermaid body={message.content} />}
     </div>
   );
 }
