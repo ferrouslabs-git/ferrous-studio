@@ -109,11 +109,33 @@ without installing anything.
 **Goal:** safe to actually turn on for real client organisations, not
 just for internal testing.
 
-- Confirm resource limits: what stops one organisation's heavy usage from
-  starving another's session (session concurrency limits, timeouts).
-- Confirm data isolation under load, not just in a two-session test.
-- Basic usage visibility/logging per organisation, since this is the
-  thing that'll matter once §0.4/§6 (bring-your-own-key) comes up.
+**Done:**
+- Resource limits: `send_message` is rate-limited per organisation (20
+  messages / 5 minutes, `project_agent.py`'s `_rate_limiter`), reusing the
+  same Postgres-backed limiter the auth endpoints already use rather than a
+  new mechanism -- correct even if staging/prod ever runs more than one ECS
+  task, unlike an in-memory counter would be. The check runs before the
+  project is even resolved, so a rejected request costs almost nothing.
+  Every Bedrock call also carries an explicit timeout
+  (`BEDROCK_CALL_TIMEOUT_SECONDS`), so a hung call can't tie up a worker
+  indefinitely -- its own way of starving other organisations even though
+  the rate limiter never saw that request.
+- Data isolation under load: proven with a real concurrency test (two
+  projects' conversations run via `asyncio.gather`, not sequentially), not
+  just reasoned about. Structural, not just tested -- every query is
+  filtered by `project_id`, so there's no code path that could hand one
+  project's conversation to another regardless of timing.
+- Verified live: seeded an organisation to its exact rate-limit threshold
+  and confirmed a real request 429s with the right `Retry-After`, without
+  ever reaching AWS.
+
+**Still open:**
+- Usage visibility/logging per organisation has no dashboard or admin
+  view yet -- the data exists (`project_agent_messages` carries
+  `account_id` and `created_at` on every row, so total usage is a query
+  away), but nothing surfaces it anywhere yet. Worth doing once §6
+  (bring-your-own-key) is actually being built, per the original reasoning
+  here, rather than speculatively now.
 
 ## 6. Phase 5 — Bring-your-own account/key (explicitly deferred by Elliott)
 

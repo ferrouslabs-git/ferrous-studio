@@ -18,6 +18,12 @@ and diagrams only, nothing else, matching the client's own scope decision
 for the reverse-engineer-repo skill. There is no separate "wireframe
 editing" or "board" tool here yet -- see
 docs/project-agent-implementation-plan.md for what's still Phase 3+.
+
+Phase 4 hardening: rate-limited per organisation (reusing the same
+Postgres-backed limiter the auth endpoints use, not a new mechanism), and
+every Bedrock call carries an explicit timeout -- one organisation sending
+a burst of messages, or one hung network call, must not starve or block
+every other organisation sharing this one platform-wide Bedrock capacity.
 """
 from __future__ import annotations
 
@@ -33,7 +39,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.database import get_db
 from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
+from app.auth.services.rate_limiter_service import create_rate_limiter
 from app.config import get_settings
+from app.database import AsyncSessionLocal
 
 from .catalog import get_catalog
 from .common import get_project, get_writable_project
@@ -43,6 +51,27 @@ from .projects import _count
 from .schemas import ProjectAgentMessageRead, ProjectAgentSend, ProjectAgentStatus
 
 router = APIRouter(prefix="/projects/{project_id}/agent", tags=["project-agent"])
+
+#: Postgres-backed, not in-memory: staging/prod may run more than one ECS
+#: task, and an in-memory counter would let each task give the same
+#: organisation its own separate allowance. Same service the auth endpoints
+#: already use (app.main wires it up with AsyncSessionLocal too) -- reusing
+#: it rather than inventing a second rate-limiting mechanism.
+_rate_limiter = create_rate_limiter(AsyncSessionLocal)
+
+#: Per organisation (ctx.scope_id), not per project or per user -- the
+#: thing to prevent is one organisation's heavy use starving every other
+#: organisation sharing this one platform-wide Bedrock capacity, not
+#: limiting how much one person can chat on one project.
+RATE_LIMIT_MAX_MESSAGES = 20
+RATE_LIMIT_WINDOW_SECONDS = 300
+
+#: Without an explicit timeout a hung Bedrock call (a stalled connection, a
+#: model having a bad day) would otherwise sit on the SDK's own default for
+#: as long as it likes, tying up a worker and an open DB transaction the
+#: whole time -- long enough to be its own way of starving other
+#: organisations even though the rate limiter above never saw the request.
+BEDROCK_CALL_TIMEOUT_SECONDS = 60.0
 
 #: Generous enough for a long back-and-forth including tool results, which
 #: run larger than a plain chat turn.
@@ -287,7 +316,23 @@ async def send_message(
     is only committed once a final reply is ready, alongside both chat
     messages. A failed Anthropic call rolls everything back -- no orphaned
     wireframe from a request that never got a reply.
+
+    Rate-limited per organisation before anything else runs, deliberately
+    cheaper than resolving the project: a burst from one organisation
+    should cost the shared Bedrock capacity nothing once it's over its
+    allowance, not one more DB round trip per rejected request.
     """
+    rate_limit_key = f"project-agent:{ctx.scope_id}"
+    if await _rate_limiter.is_rate_limited(rate_limit_key, RATE_LIMIT_MAX_MESSAGES, RATE_LIMIT_WINDOW_SECONDS):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Project Agent is being used heavily by this organisation right now -- "
+                "please wait a moment and try again."
+            ),
+            headers={"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)},
+        )
+
     project = await get_writable_project(db, project_id, ctx)
     if not configured():
         raise HTTPException(
@@ -350,7 +395,7 @@ async def _ask_claude(
     history: list[ProjectAgentMessage],
 ) -> str:
     settings = get_settings()
-    client = anthropic.AsyncAnthropicBedrock(aws_region=settings.aws_region)
+    client = anthropic.AsyncAnthropicBedrock(aws_region=settings.aws_region, timeout=BEDROCK_CALL_TIMEOUT_SECONDS)
     messages: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in history]
     repo_fact = (
         f'A repository is connected: "{repo_full_name}".'

@@ -63,6 +63,57 @@ def test_send_message_takes_the_project_lock():
     assert "get_writable_project(" in inspect.getsource(pa.send_message)
 
 
+def test_send_message_checks_the_rate_limit_before_anything_else():
+    """A rejected request from an organisation already over its allowance
+    should cost nothing more than the rate limiter's own check -- not a DB
+    round trip to resolve the project too."""
+    source = inspect.getsource(pa.send_message)
+    assert source.index("_rate_limiter.is_rate_limited(") < source.index("get_writable_project(")
+
+
+def test_the_rate_limit_key_is_per_organisation_not_per_project_or_user():
+    """The thing to prevent is one organisation's heavy use starving every
+    other organisation sharing this one platform-wide Bedrock capacity --
+    the key must be built from ctx.scope_id (the organisation), not e.g.
+    project_id or ctx.user_id."""
+    assert 'f"project-agent:{ctx.scope_id}"' in inspect.getsource(pa.send_message)
+
+
+def test_the_rate_limiter_is_postgres_backed_not_in_memory():
+    """staging/prod may run more than one ECS task; an in-memory counter
+    would give each task its own separate allowance for the same
+    organisation, silently multiplying the real limit by however many
+    tasks happen to be running."""
+    from app.auth.services.rate_limiter_service import PostgresRateLimiter
+
+    assert isinstance(pa._rate_limiter, PostgresRateLimiter)
+
+
+async def test_send_message_rejects_an_organisation_over_its_rate_limit(monkeypatch):
+    async def _always_limited(key, limit, window_seconds):
+        assert key == "project-agent:acct-1"
+        assert limit == pa.RATE_LIMIT_MAX_MESSAGES
+        assert window_seconds == pa.RATE_LIMIT_WINDOW_SECONDS
+        return True
+
+    monkeypatch.setattr(pa._rate_limiter, "is_rate_limited", _always_limited)
+    fake_ctx = SimpleNamespace(scope_id="acct-1")
+
+    with pytest.raises(pa.HTTPException) as excinfo:
+        await pa.send_message(project_id="proj-1", payload=pa.ProjectAgentSend(content="hi"), ctx=fake_ctx, db=None)
+
+    assert excinfo.value.status_code == 429
+    assert excinfo.value.headers["Retry-After"] == str(pa.RATE_LIMIT_WINDOW_SECONDS)
+
+
+def test_bedrock_calls_carry_an_explicit_timeout():
+    """Without one, a hung call would sit on the SDK's own default for as
+    long as it likes, tying up a worker and an open DB transaction the
+    whole time -- its own way of starving other organisations even though
+    the rate limiter above never saw the request."""
+    assert "timeout=BEDROCK_CALL_TIMEOUT_SECONDS" in inspect.getsource(pa._ask_claude)
+
+
 def test_permissions_match_the_data_routes_convention():
     read_source = inspect.getsource(pa.list_messages)
     write_source = inspect.getsource(pa.send_message)
@@ -347,6 +398,43 @@ async def test_a_partial_success_is_not_reported_as_a_full_failure(configured, m
 
     assert "I created a Login wireframe" in reply
     assert "wasn't able to finish" not in reply
+
+
+async def test_two_projects_conversations_never_cross_talk_under_real_concurrency(configured, monkeypatch):
+    """Not just "two sequential calls, checked afterwards" -- this actually
+    runs both conversations at the same time via asyncio.gather, so if
+    _ask_claude ever picked up shared/module-level state instead of the
+    project it was called with, this is the shape of test that would catch
+    it. Each fake reply is built from the project name it was actually
+    asked with, so a swap would produce the wrong reply, not just a slower
+    one."""
+    import asyncio
+
+    configured()
+    project_a = SimpleNamespace(name="Alpha", id="proj-a", account_id="acct-a", repo_full_name=None)
+    project_b = SimpleNamespace(name="Bravo", id="proj-b", account_id="acct-b", repo_full_name="acme/bravo")
+
+    async def _create(**kwargs):
+        # The one place the project's identity is visible to this fake is
+        # the system prompt _ask_claude builds -- a real cross-talk bug
+        # would show up here as the wrong project's name/repo appearing.
+        system = kwargs["system"]
+        if "Alpha" in system:
+            await asyncio.sleep(0.02)  # resolve out of submission order on purpose
+            return _FakeMessage(text="Reply for Alpha")
+        assert "Bravo" in system
+        assert "acme/bravo" in system
+        return _FakeMessage(text="Reply for Bravo")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+
+    reply_a, reply_b = await asyncio.gather(
+        pa._ask_claude(db=None, project=project_a, ctx=None, repo_full_name=None, history=[]),
+        pa._ask_claude(db=None, project=project_b, ctx=None, repo_full_name="acme/bravo", history=[]),
+    )
+
+    assert reply_a == "Reply for Alpha"
+    assert reply_b == "Reply for Bravo"
 
 
 async def test_authentication_error_becomes_a_502(monkeypatch):
