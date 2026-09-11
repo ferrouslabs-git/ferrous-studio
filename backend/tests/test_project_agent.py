@@ -11,6 +11,7 @@ it's a real DB-touching function tested on its own terms elsewhere
 (test_bundle_import.py).
 """
 import inspect
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -19,7 +20,8 @@ import pytest
 
 from app.config import get_settings
 from app.studio import project_agent as pa
-from app.studio.importing import BundleError
+from app.studio.catalog import get_catalog
+from app.studio.importing import BundleError, validate_bundle, wrap_bare_envelope
 
 FAKE_PROJECT = SimpleNamespace(name="Test", id="proj-1", account_id="acct-1", repo_full_name=None)
 
@@ -99,6 +101,23 @@ def test_catalogue_reference_is_generated_not_hand_written():
     assert "navbar" in ref
     assert "list" in ref
     assert "canvas" in ref
+
+
+def test_the_worked_example_in_the_prompt_is_actually_valid():
+    """A live run against a real project showed the model needs a concrete
+    example to get the shape right -- an element's label is a top-level
+    field, not data.label/data.text, among other things (see
+    pa._WORKED_EXAMPLE's own comment for the exact failure). If this example
+    were ever wrong, it would be actively teaching the model the wrong
+    shape, so it must validate cleanly, always."""
+    bundle = json.loads(pa._WORKED_EXAMPLE)
+    errors = validate_bundle(wrap_bare_envelope(bundle), get_catalog())
+    assert errors == []
+
+
+def test_the_prompt_warns_about_the_mistakes_actually_seen_live():
+    assert "TOP-LEVEL field" in pa.BUNDLE_FORMAT_GUIDE
+    assert "root layout node needs" in pa.BUNDLE_FORMAT_GUIDE
 
 
 def test_create_bundle_tool_only_exposes_wireframes_and_diagrams():
@@ -264,8 +283,15 @@ async def test_an_unknown_tool_name_is_reported_as_an_error_without_crashing(con
     assert tool_result["is_error"] is True
 
 
-async def test_the_loop_gives_up_after_max_rounds_instead_of_looping_forever(configured, monkeypatch):
+async def test_the_loop_asks_for_one_final_honest_summary_after_max_rounds(configured, monkeypatch):
+    """After MAX_TOOL_ROUNDS the loop must not just hand back a canned
+    string -- it makes one more call with no tools, forcing a text reply,
+    and uses whatever the model says. This is what test_a_partial_success_is_not_reported_as_a_full_failure
+    below depends on to be honest about partial success."""
+    calls = []
+
     async def _create(**kwargs):
+        calls.append(kwargs)
         return _FakeMessage(tool_use=("call-x", "create_bundle", {"wireframes": []}))
 
     async def _fake_create_bundle_content(db, project, ctx, payload):
@@ -276,7 +302,51 @@ async def test_the_loop_gives_up_after_max_rounds_instead_of_looping_forever(con
     monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
 
     reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+
+    # MAX_TOOL_ROUNDS tool-bearing calls, plus one final call without tools.
+    assert len(calls) == pa.MAX_TOOL_ROUNDS + 1
+    assert "tools" not in calls[-1]
+    # Every fake response here is a tool_use with no text, so even the final
+    # forced-text call yields nothing usable -- the canned string is the
+    # correct fallback only in that specific case.
     assert "wasn't able to finish" in reply
+
+
+async def test_a_partial_success_is_not_reported_as_a_full_failure(configured, monkeypatch):
+    """The real bug this fixes: a live run created a real wireframe and
+    diagram in an early round, hit trouble in a later round, exhausted
+    MAX_TOOL_ROUNDS, and the old canned fallback told the user nothing had
+    been created -- while it actually had. The final forced-text call must
+    be able to report the truth, since the model's own context already has
+    the successful tool_result from the earlier round."""
+    calls = []
+
+    async def _create(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _FakeMessage(tool_use=("call-1", "create_bundle", {"wireframes": [{"name": "Login"}]}))
+        if len(calls) <= pa.MAX_TOOL_ROUNDS:
+            return _FakeMessage(tool_use=("call-x", "create_bundle", {"wireframes": [{"name": "Bad"}]}))
+        # The final, tools-less call: the model summarises honestly from
+        # what's already in its own context.
+        return _FakeMessage(text="I created a Login wireframe, but ran into trouble adding a second one.")
+
+    call_count = [0]
+
+    async def _fake_create_bundle_content(db, project, ctx, payload):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return {"wireframes": [{"id": "w1", "name": "Login", "pages": 1}], "diagrams": []}, []
+        return {}, [BundleError(path="wireframes[0]", message="bad")]
+
+    configured()
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
+
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+
+    assert "I created a Login wireframe" in reply
+    assert "wasn't able to finish" not in reply
 
 
 async def test_authentication_error_becomes_a_502(monkeypatch):

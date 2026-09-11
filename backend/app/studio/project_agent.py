@@ -94,17 +94,84 @@ def _catalogue_reference() -> str:
     return "\n".join(lines)
 
 
+#: A minimal but complete, valid example -- shown verbatim because prose
+#: description alone was not enough in practice: a live run asked to
+#: reverse-engineer a plausible app put every element's label under
+#: data.label/data.text instead of as a top-level field, invented fields
+#: like "icon" that don't exist, and omitted "size" on the root layout node.
+#: An example anchors the exact shape in a way a list of field names doesn't.
+_WORKED_EXAMPLE = """
+{
+  "wireframes": [{
+    "name": "Example app", "interfaceType": "desktop", "landingPageId": "page-dashboard",
+    "pages": [
+      {
+        "id": "page-dashboard", "name": "Dashboard",
+        "layout": {
+          "kind": "split", "dir": "row", "size": {"fr": 1},
+          "children": [
+            {"kind": "region", "id": "r-nav", "size": 220, "components": [
+              {"id": "c-nav", "type": "navbar", "shape": "plain", "layout": "vertical", "elements": [
+                {"id": "e-brand", "type": "brand", "label": "Example app"},
+                {"id": "e-home", "type": "nav-item", "label": "Dashboard", "props": {"links": {"e-home": {"pageId": "page-dashboard"}}}},
+                {"id": "e-settings", "type": "nav-item", "label": "Settings", "props": {"links": {"e-settings": {"pageId": "page-settings"}}}}
+              ]}
+            ]},
+            {"kind": "region", "id": "r-content", "size": {"fr": 1}, "components": [
+              {"id": "c-stats", "type": "graph", "shape": "stats", "layout": "horizontal", "elements": [
+                {"id": "e-stat1", "type": "stat", "label": "Active users", "data": {"value": "128"}}
+              ]}
+            ]}
+          ]
+        }
+      },
+      {
+        "id": "page-settings", "name": "Settings", "route": "/settings",
+        "placement": {"page_id": "page-dashboard", "region_id": "r-content"},
+        "layout": {"kind": "region", "id": "r-root", "size": {"fr": 1}, "components": [
+          {"id": "c-form", "type": "form", "shape": "simple", "layout": "one-column", "elements": [
+            {"id": "e-header", "type": "header", "label": "Account settings"},
+            {"id": "e-name", "type": "text-input", "label": "Name", "data": {"kind": "text"}},
+            {"id": "e-submit", "type": "button", "label": "Save"}
+          ]}
+        ]}
+      }
+    ]
+  }],
+  "diagrams": [{
+    "name": "Data model", "kind": "class",
+    "model": {
+      "nodes": [
+        {"id": "n-user", "type": "entity", "label": "User", "text": "id\\nname\\nemail", "x": 0, "y": 0, "w": 180, "h": 100}
+      ],
+      "edges": []
+    }
+  }]
+}
+""".strip()
+
 BUNDLE_FORMAT_GUIDE = (
     "wireframes: a list of {name, interfaceType (desktop/tablet/mobile), landingPageId, "
     "pages}. Each page: {id (any short readable string, e.g. \"page-dashboard\"), name, "
     "route (optional), layout, placement (optional, {page_id, region_id} for a page that "
-    "renders inside another page's shell)}. A layout is a nested tree: "
-    '{"kind": "region", "id", "size" ({"fr": 1}, a pixel number, or "auto"), "components": '
-    '[...]} or {"kind": "split", "dir": "row"/"col", "size", "children": [<region or split>, '
-    '...]}. A component: {id, type (one of the six below), shape, layout, elements, "props": '
-    '{"links": {<element id>: {"pageId": <page id or "@back">}}} on elements that navigate}. '
-    "Write shell/nav pages after every page they link to, so every nav-item's link resolves. "
-    "Sample data (data.samples) is invented, never a real person's data.\n\n"
+    "renders inside another page's shell)}. A layout is a nested tree, and EVERY node in it "
+    '-- including the outermost/root one -- needs its own "size": {"kind": "region", "id", '
+    '"size" ({"fr": 1}, a positive integer, or "auto"), "components": [...]} or {"kind": '
+    '"split", "dir": "row"/"col", "size", "children": [<region or split>, ...]}. A component: '
+    "{id, type (one of the six below), shape, layout, elements}. An element: {id, type, "
+    '"label" (a plain string, directly on the element -- see the common mistakes below), '
+    '"data" (optional, only the specific fields that element type actually takes -- e.g. '
+    '"kind"/"samples"/"placeholder"/"value", never invented ones), "props": {"links": '
+    '{<element id>: {"pageId": <page id or "@back">}}} only on elements that navigate}. '
+    "Write shell/nav pages after every page they link to, so every nav-item's link resolves "
+    "to a page id that's actually in the SAME wireframe's pages list. Sample data "
+    "(data.samples) is invented, never a real person's data.\n\n"
+    "Common mistakes to avoid (all seen in real runs):\n"
+    '- An element\'s label is a TOP-LEVEL field: {"type": "nav-item", "label": "Dashboard"} '
+    '-- never {"data": {"label": ...}} or {"data": {"text": ...}}.\n'
+    "- Only use fields a given element type actually has. Don't add fields like \"icon\" or "
+    '"title" that aren\'t in its list just because they seem plausible.\n'
+    '- The root layout node needs a "size" too, not just its children.\n\n'
     f"{_catalogue_reference()}\n\n"
     "diagrams: a list of {name, kind (class/freeform/usecase/activity/sequence/state), model: "
     "{nodes, edges}}. A node: {id, type, label, text (optional multi-line detail), x, y, w, h "
@@ -112,7 +179,9 @@ BUNDLE_FORMAT_GUIDE = (
     "grid, roughly 240px pitch, for a readable result)}. An edge: {id, type, label (optional), "
     "source, target}. For a data-model diagram (kind: class): one entity node per table, "
     '"text" listing its fields one per line; association edges labelled with cardinality '
-    "(1..*, 0..1, etc)."
+    "(1..*, 0..1, etc).\n\n"
+    "A complete, valid example (follow this shape exactly):\n"
+    f"{_WORKED_EXAMPLE}"
 )
 
 CREATE_BUNDLE_TOOL: dict[str, Any] = {
@@ -299,26 +368,7 @@ async def _ask_claude(
     )
 
     for _round in range(MAX_TOOL_ROUNDS):
-        try:
-            response = await client.messages.create(
-                model=settings.bedrock_claude_model,
-                max_tokens=8192,
-                system=system,
-                messages=messages,
-                tools=[CREATE_BUNDLE_TOOL],
-            )
-        except anthropic.AuthenticationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail="Project Agent's credentials were rejected."
-            ) from exc
-        except anthropic.APIStatusError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Project Agent could not reply: {exc}"
-            ) from exc
-        except anthropic.APIConnectionError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail="Project Agent could not be reached."
-            ) from exc
+        response = await _call_claude(client, settings.bedrock_claude_model, system, messages, tools=True)
 
         tool_uses = [block for block in response.content if block.type == "tool_use"]
         if not tool_uses:
@@ -357,7 +407,43 @@ async def _ask_claude(
                 )
         messages.append({"role": "user", "content": tool_results})
 
+    # Out of rounds without a natural stop. Do NOT hand back a canned "I
+    # wasn't able to finish" here -- a live run showed that lies exactly
+    # when it matters most: an earlier round in this same loop can have
+    # already created real content before a later round ran into trouble,
+    # and a canned failure message left the user thinking nothing happened
+    # when a wireframe and a diagram genuinely existed in their project. One
+    # final call with no tools forces a text reply, and the model has every
+    # prior tool_result (successes and failures both) in its own context to
+    # summarise honestly from.
+    response = await _call_claude(client, settings.bedrock_claude_model, system, messages, tools=False)
+    text_blocks = [block.text for block in response.content if block.type == "text"]
     return (
-        "I wasn't able to finish that after a few attempts -- could you clarify what "
-        "you'd like, or try asking for something smaller?"
+        "".join(text_blocks).strip()
+        or "I wasn't able to finish that after a few attempts -- could you clarify what you'd like, or try asking for something smaller?"
     )
+
+
+async def _call_claude(
+    client: anthropic.AsyncAnthropicBedrock, model: str, system: str, messages: list[dict[str, Any]], *, tools: bool
+) -> Any:
+    try:
+        return await client.messages.create(
+            model=model,
+            max_tokens=8192,
+            system=system,
+            messages=messages,
+            **({"tools": [CREATE_BUNDLE_TOOL]} if tools else {}),
+        )
+    except anthropic.AuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Project Agent's credentials were rejected."
+        ) from exc
+    except anthropic.APIStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Project Agent could not reply: {exc}"
+        ) from exc
+    except anthropic.APIConnectionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Project Agent could not be reached."
+        ) from exc
