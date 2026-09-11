@@ -60,6 +60,12 @@ def test_permissions_match_the_data_routes_convention():
     assert 'require_permission("data:write")' in write_source
 
 
+def test_the_prompt_tells_the_agent_to_lead_with_the_fact():
+    """A soft "mention it somewhere" instruction is easy for a model to bury
+    at the end of a long reply. The instruction must say to open with it."""
+    assert "open your reply with that plain fact" in pa.SYSTEM_PROMPT
+
+
 def test_send_message_looks_up_existing_content_before_asking():
     """Both counts must actually be queried, not just accepted as parameters
     -- otherwise _ask_claude's defaults (0, 0) silently claim every project

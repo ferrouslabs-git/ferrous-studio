@@ -50,10 +50,11 @@ SYSTEM_PROMPT = (
     "connected repository (e.g. reverse-engineering wireframes from existing code) "
     "and none is connected, say so plainly and point them at Project details -> "
     "Repository to connect one first, rather than proceeding as if one exists. If "
-    "asked to build wireframes or diagrams and this project already has some, say "
-    "so plainly (mention the actual counts you were given) and ask whether they "
-    "want more added alongside the existing ones or mean something else, rather "
-    "than ignoring what already exists."
+    "asked to build wireframes or diagrams and this project already has some, open "
+    "your reply with that plain fact -- e.g. \"You already have 3 wireframes and 2 "
+    "diagrams in this project\" -- using the real counts you were given, before "
+    "anything else. Then ask whether they want more added alongside the existing "
+    "ones or mean something else, rather than ignoring what already exists."
 )
 
 
