@@ -18,15 +18,18 @@ import { OrgPage } from "./features/orgs/OrgPage";
 import { RoleCatalogueProvider } from "./features/orgs/roleLabels";
 import { DiagramsPage } from "./features/project/diagrams/DiagramsPage";
 import { DocumentsPage } from "./features/project/documents/DocumentsPage";
+import { BoardProvider } from "./features/project/board/boardData";
+import { PlanRedirect, UnscheduledRedirect } from "./features/project/board/redirects";
 import { EpicDetailPage } from "./features/project/epics/EpicDetailPage";
 import { EpicsPage } from "./features/project/epics/EpicsPage";
 import { FeedbackPage } from "./features/project/feedback/FeedbackPage";
 import { PersonasPage } from "./features/project/personas/PersonasPage";
-import { PlanPage } from "./features/project/plan/PlanPage";
 import { ProjectAgentPage } from "./features/project/agent/ProjectAgentPage";
 import { LegacyProjectRedirect, ProjectLayout } from "./features/project/ProjectLayout";
 import { ProjectDetailsPage } from "./features/project/ProjectDetailsPage";
+import { ReleasePage } from "./features/project/roadmap/ReleasePage";
 import { RoadmapPage } from "./features/project/roadmap/RoadmapPage";
+import { SprintBoardPage } from "./features/project/roadmap/SprintBoardPage";
 import { UseCaseDiagramPage } from "./features/project/usecases/UseCaseDiagramPage";
 import { AuditLogPage } from "./features/project/wireframes/AuditLogPage";
 import { WireframesPage } from "./features/project/wireframes/WireframesPage";
@@ -92,10 +95,19 @@ export function App() {
               <Route path="wireframes/:wireframeId/snapshots/:versionId/preview" element={<SnapshotPreviewPage />} />
               <Route path="wireframes/:wireframeId/audit" element={<AuditLogPage />} />
               <Route path="documents" element={<DocumentsPage />} />
-              <Route path="roadmap" element={<RoadmapPage />} />
-              <Route path="roadmap/:releaseId/plan" element={<PlanPage />} />
-              <Route path="epics" element={<EpicsPage />} />
-              <Route path="epics/:epicId" element={<EpicDetailPage />} />
+              {/* The delivery board: two tabs (Roadmap, Epics); the release
+                  page, the sprint board and the epic page are drilled into
+                  from them, sharing one loaded board (BoardProvider). */}
+              <Route element={<BoardProvider />}>
+                <Route path="roadmap" element={<RoadmapPage />} />
+                <Route path="roadmap/sprints/:sprintId" element={<SprintBoardPage />} />
+                <Route path="roadmap/unscheduled" element={<UnscheduledRedirect />} />
+                <Route path="roadmap/unscheduled/plan" element={<UnscheduledRedirect />} />
+                <Route path="roadmap/:releaseId" element={<ReleasePage />} />
+                <Route path="roadmap/:releaseId/plan" element={<PlanRedirect />} />
+                <Route path="epics" element={<EpicsPage />} />
+                <Route path="epics/:epicId" element={<EpicDetailPage />} />
+              </Route>
               <Route path="feedback" element={<FeedbackPage />} />
             </Route>
 

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 
 def _not_a_bool(value: object) -> object:
@@ -31,6 +31,11 @@ EstimateHours = Annotated[
     Annotated[float, Field(ge=0, allow_inf_nan=False)] | None,
     BeforeValidator(_not_a_bool),
 ]
+
+#: Position in a sprint's work order. ``None`` means "not ordered" (sorts
+#: last). Same bool guard as EstimateHours: ``True`` must not read as
+#: position 1.
+QueuePosition = Annotated[int | None, BeforeValidator(_not_a_bool)]
 
 EntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc"]
 AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc", "feedback"]
@@ -80,6 +85,7 @@ EpicStatus = Literal["Readiness", "Implementation", "ReleasedToUAT", "HumanValid
 class EpicCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     summary: str = ""
+    status: EpicStatus = "Readiness"
     release_id: UUID | None = None
 
 
@@ -109,18 +115,28 @@ class EpicRead(BaseModel):
 
 
 class EpicProgress(BaseModel):
-    """Status-weighted rollup: 1.0 per Done requirement, 0.5 per Doing.
+    """Status-weighted rollup: Done = 1, Review = 0.75, Doing = 0.5, every
+    other status 0 -- mirrors the reference's effort.js rollup(), so the
+    server and the client agree on every figure.
 
-    Consolidates what SMA duplicates across roadmap.js/features.js/
-    milestones.js/sma_mcp.py into one server-side implementation -- includes
-    every requirement whose *effective* epic is this one (its own epic_id,
-    or its feature's), not just requirements attached to the epic directly.
+    Counts a requirement wherever it sits on the board: for an epic, every
+    requirement whose *effective* epic is this one (its own epic_id, or its
+    feature's), not just those attached directly. ``hours`` sums only the
+    estimates that exist (``hours_done`` those on Done requirements);
+    ``estimated``/``unestimated`` say how many carry one, and ``coverage``
+    is their share of ``total`` -- 1.0 when there is nothing to estimate.
     """
 
+    total: int
     done: int
     doing: int
-    total: int
+    review: int
     pct: int
+    hours: float
+    hours_done: float
+    estimated: int
+    unestimated: int
+    coverage: float
 
 
 # ── Features ─────────────────────────────────────────────────────────────
@@ -150,12 +166,25 @@ class FeatureRead(BaseModel):
 
 
 class SprintCreate(BaseModel):
+    """A sprint must belong to a release: a release's date is the end of its
+    latest sprint (see the Release model), so a sprint filed under nothing
+    plans nothing. The model validator, not a bare required field, so a
+    missing or null release_id reads as the rule it breaks rather than
+    "field required"."""
+
     name: str = Field(min_length=1, max_length=255)
     goal: str = ""
     start_date: date | None = None
     end_date: date | None = None
-    release_id: UUID | None = None
+    release_id: UUID
     capacity_hours: int | None = Field(None, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _requires_release(cls, data: object) -> object:
+        if isinstance(data, dict) and data.get("release_id") is None:
+            raise ValueError("a sprint must belong to a release")
+        return data
 
 
 class SprintUpdate(BaseModel):
@@ -164,6 +193,10 @@ class SprintUpdate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     state: Literal["planned", "active", "done"] | None = None
+    # A sprint may move between releases but never leave one: the route
+    # refuses ``clear_release`` and an explicit null ``release_id`` with a
+    # 422. Both fields are kept so an older client gets that error rather
+    # than a silent no-op from an unknown-field drop.
     release_id: UUID | None = None
     clear_release: bool = False
     capacity_hours: int | None = Field(None, ge=0)
@@ -193,17 +226,31 @@ class SprintUpdateResult(BaseModel):
     returned_to_backlog: int = 0
 
 
-class BurndownPoint(BaseModel):
-    day: date
-    remaining: int | None  # None for days after today -- not drawn yet
-    ideal: float | None  # None alongside remaining, for the same reason
-
-
 class BurndownRead(BaseModel):
+    """Day-by-day burndown, ported from software-management's
+    get_sprint_burndown. Parallel series indexed by ``dates``: ``remaining``/
+    ``total`` count requirements, ``remaining_hours``/``total_hours`` sum
+    estimates, ``scope``/``scope_hours`` are the sprint's whole membership
+    on each day (a rising scope line is work added mid-sprint). Actual
+    series are ``None`` for days after today; the ideal lines run the full
+    sprint. ``estimated_count``/``unestimated_count`` are over the sprint's
+    current membership, so the client can fall back from hours to counts
+    when coverage is incomplete. Every key is present on every response
+    (``note`` set, series empty, when the sprint has no dates)."""
+
     sprint_id: UUID
     note: str | None = None
-    total_start: int = 0
-    points: list[BurndownPoint] = []
+    dates: list[date] = []
+    remaining: list[int | None] = []
+    ideal: list[float] = []
+    total: int = 0
+    remaining_hours: list[float | None] = []
+    ideal_hours: list[float] = []
+    total_hours: float = 0.0
+    scope: list[int | None] = []
+    scope_hours: list[float | None] = []
+    estimated_count: int = 0
+    unestimated_count: int = 0
 
 
 # ── Requirements ─────────────────────────────────────────────────────────
@@ -244,6 +291,10 @@ class RequirementUpdate(BaseModel):
     # Sending null clears the estimate back to "not estimated" -- unlike the id
     # fields above, null is meaningful here, so it needs no clear_ flag.
     estimate_hours: EstimateHours = None
+    # Same rule: null clears the position ("not ordered"), so no clear_ flag.
+    # Not on RequirementCreate -- a requirement is ordered once it is in a
+    # sprint and someone ranks it, never at creation.
+    queue_position: QueuePosition = None
 
 
 class RequirementRead(BaseModel):
@@ -262,6 +313,7 @@ class RequirementRead(BaseModel):
     release_id: UUID | None
     sprint_id: UUID | None
     estimate_hours: float | None = None
+    queue_position: int | None = None
     effective_epic_id: UUID | None = None
     effective_release_id: UUID | None = None
     created_at: datetime
@@ -316,6 +368,9 @@ class CommentRead(BaseModel):
     entity_type: str
     entity_id: UUID
     author_id: UUID
+    #: Set when an agent wrote this through its board token (see the Comment
+    #: model); None for a human comment.
+    agent_id: UUID | None = None
     body: str
     created_at: datetime
 
@@ -566,6 +621,45 @@ class AgentRead(BaseModel):
 class AgentRunFinish(BaseModel):
     success: bool
     error: str | None = None
+
+
+# ── Sprint activity (the sprint board's poll) ────────────────────────────
+
+
+class SprintQuestionRequirement(BaseModel):
+    """Just enough of a Blocked requirement to render its question card."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    human_id: str
+    title: str
+    epic_id: UUID | None
+    priority: str
+    blocked_from: str | None
+
+
+class SprintQuestion(BaseModel):
+    """A Blocked requirement in the sprint whose latest live comment was
+    written by one of the sprint's agents, or reads like a question -- see
+    service.detect_questions. Answering is a comment plus a flip back to
+    Todo, which wakes the agent."""
+
+    requirement: SprintQuestionRequirement
+    comment: CommentRead
+
+
+class SprintActivityRead(BaseModel):
+    """One read for the sprint board's 10 s poll, ported from
+    software-management's get_sprint_activity: the sprint, its requirements
+    in queue order, the agents assigned to it, the newest events touching
+    any of those, and the open questions."""
+
+    sprint: SprintRead
+    requirements: list[RequirementRead]
+    agents: list[AgentRead]
+    events: list[EventRead]
+    questions: list[SprintQuestion]
 
 
 # ── Board summary ────────────────────────────────────────────────────────

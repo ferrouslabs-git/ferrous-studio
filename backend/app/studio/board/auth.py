@@ -46,6 +46,7 @@ def require_board_permission(permission: str) -> Callable:
                     detail=f"Access denied. Required permission: {permission}",
                 )
             ctx.board_id = token.board_id
+            ctx.board_token_id = token.id
             return ctx
 
         # Human path: the same two steps get_current_user/get_scope_context

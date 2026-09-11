@@ -80,9 +80,11 @@ def _patch_of(**kwargs) -> dict:
 @mcp.tool()
 def board_summary() -> dict:
     """Every epic with its lifecycle status and requirement progress
-    (done/doing/total, including requirements organised under one of its
-    features, not just directly-attached ones), plus requirement counts by
-    status across the whole board. Start here."""
+    (total/done/doing/review/pct, plus hours/hours_done summed from the
+    estimates that exist and estimated/unestimated/coverage saying how
+    complete those are -- including requirements organised under one of
+    its features, not just directly-attached ones), plus requirement counts
+    by status across the whole board. Start here."""
     return _call("GET", "/summary")
 
 
@@ -103,8 +105,10 @@ def recent_activity(limit: int = 30, entity_type: str | None = None, entity_id: 
 @mcp.tool()
 def list_releases() -> dict:
     """Every release, with its derived date (the end of its latest sprint,
-    not something anyone sets directly), shipped status, and progress
-    (every requirement whose effective release is this one)."""
+    not something anyone sets directly), shipped status, and progress over
+    every requirement whose effective release is this one -- total/done/
+    doing/review/pct, hours/hours_done from the estimates that exist, and
+    estimated/unestimated/coverage saying how complete those are."""
     return {"releases": _call("GET", "/releases")}
 
 
@@ -188,18 +192,19 @@ def get_sprint_burndown(sprint_id: str) -> dict:
 
 
 @mcp.tool()
-def create_sprint(name: str, release_id: str | None = None, goal: str = "", start_date: str | None = None, end_date: str | None = None) -> dict:
-    """A release's date is the end of the latest sprint filed under it, so
-    giving a sprint both a release_id and an end_date is how you move that
-    release's date."""
+def create_sprint(name: str, release_id: str, goal: str = "", start_date: str | None = None, end_date: str | None = None) -> dict:
+    """A sprint must belong to a release -- the server refuses one without
+    a release_id (HTTP 422). A release's date is the end of the latest
+    sprint filed under it, so giving a sprint an end_date is how you move
+    that release's date."""
     return _call("POST", "/sprints", _patch_of(name=name, release_id=release_id, goal=goal, start_date=start_date, end_date=end_date))
 
 
 @mcp.tool()
 def update_sprint(sprint_id: str, name: str | None = None, goal: str | None = None, start_date: str | None = None, end_date: str | None = None, state: str | None = None) -> dict:
-    """state: planned | active | done. Promoting one sprint to active
-    demotes any other active sprint; completing one (-> done) returns its
-    non-Done requirements to the backlog."""
+    """state: planned | active | done. Several sprints may be active at
+    once; completing one (-> done) returns its non-Done requirements to the
+    backlog and clears their queue positions."""
     return _call("PATCH", f"/sprints/{sprint_id}", _patch_of(name=name, goal=goal, start_date=start_date, end_date=end_date, state=state))
 
 
@@ -249,15 +254,21 @@ def update_requirement(
     status: str | None = None, priority: str | None = None,
     epic_id: str | None = None, feature_id: str | None = None,
     release_id: str | None = None, sprint_id: str | None = None,
+    queue_position: int | None = None,
 ) -> dict:
     """status: Todo | Doing | Review | Blocked | Done. Moving into Blocked
     records which of the three in-flight stages to return to when
     unblocked automatically -- there's nothing to pass for that. Moving a
     requirement into a sprint resets a stale Doing/Review/Blocked back to
-    Todo automatically too, unless it's already Done."""
+    Todo automatically too, unless it's already Done.
+
+    queue_position: the requirement's position within its sprint's work
+    order (lower first; unordered ones sort last). It cannot be cleared via
+    this tool -- moving the requirement to another sprint clears it."""
     return _call("PATCH", f"/requirements/{requirement_id}", _patch_of(
         title=title, body=body, status=status, priority=priority,
         epic_id=epic_id, feature_id=feature_id, release_id=release_id, sprint_id=sprint_id,
+        queue_position=queue_position,
     ))
 
 

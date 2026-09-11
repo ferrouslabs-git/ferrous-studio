@@ -1,12 +1,6 @@
 // Client for a project's board releases (backend app/studio/board/routes.py).
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
-
-export interface ReleaseProgress {
-  done: number;
-  doing: number;
-  total: number;
-  pct: number;
-}
+import type { Rollup } from "./effort";
 
 export interface Release {
   id: string;
@@ -17,7 +11,7 @@ export interface Release {
   date: string | null;
   description: string;
   shipped_at: string | null;
-  progress: ReleaseProgress;
+  progress: Rollup;
   created_at: string;
   updated_at: string;
 }
@@ -28,6 +22,7 @@ export type ReleaseUpdateInput = Partial<Pick<Release, "title" | "description">>
 const base = (projectId: string) => `/studio/projects/${projectId}/board/releases`;
 
 export const listReleases = (projectId: string) => apiGet<Release[]>(base(projectId));
+export const getRelease = (projectId: string, releaseId: string) => apiGet<Release>(`${base(projectId)}/${releaseId}`);
 export const createRelease = (projectId: string, input: ReleaseCreateInput) => apiPost<Release>(base(projectId), input);
 export const updateRelease = (projectId: string, releaseId: string, patch: ReleaseUpdateInput) =>
   apiPatch<Release>(`${base(projectId)}/${releaseId}`, patch);

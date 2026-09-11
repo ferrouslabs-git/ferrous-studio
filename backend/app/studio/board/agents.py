@@ -27,6 +27,7 @@ from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
 from .models import Agent, AgentRun, Board, BoardToken, Requirement, Sprint, utc_now
+from .service import write_event  # service imports only models, so no cycle
 
 TOKEN_PREFIX = "bt_"
 
@@ -144,6 +145,13 @@ async def queue_agent_run(
 
     requirement.status = "Doing"
     requirement.updated_at = utc_now()
+    # The same status event a PATCH or a claim writes: sprint_burndown
+    # reconstructs status history from requirement.updated rows, so a
+    # queue-driven move to Doing must not be invisible to it.
+    await write_event(
+        db, board, actor_id, "requirement.updated", "requirement", requirement.id,
+        {"status": {"from": "Todo", "to": "Doing"}},
+    )
     run = AgentRun(board_id=board.id, account_id=board.account_id, requirement_id=requirement.id, created_by=actor_id, status="queued")
     db.add(run)
     await db.flush()

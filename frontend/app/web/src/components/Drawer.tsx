@@ -15,9 +15,26 @@ interface DrawerProps {
   width?: number;
   /** Extra class on the panel, for callers that need to restyle the body. */
   className?: string;
+  /**
+   * Whether Escape closes this drawer. A drawer that has opened a dialog over
+   * itself (a confirmation, a picker) passes false while that dialog is up,
+   * so one Escape closes the dialog rather than both.
+   */
+  closeOnEscape?: boolean;
 }
 
-export function Drawer({ open, title, description, onClose, onSubmit, footer, children, width = 440, className }: DrawerProps) {
+export function Drawer({
+  open,
+  title,
+  description,
+  onClose,
+  onSubmit,
+  footer,
+  children,
+  width = 440,
+  className,
+  closeOnEscape = true,
+}: DrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   // Callers usually pass an inline arrow for onClose, which has a new identity
   // on every render. Read it through a ref so the effect below only re-runs
@@ -25,11 +42,13 @@ export function Drawer({ open, title, description, onClose, onSubmit, footer, ch
   // to the first field.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const closeOnEscapeRef = useRef(closeOnEscape);
+  closeOnEscapeRef.current = closeOnEscape;
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCloseRef.current();
+      if (e.key === "Escape" && closeOnEscapeRef.current) onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     // Focus the first field so keyboard users can start typing straight away.
