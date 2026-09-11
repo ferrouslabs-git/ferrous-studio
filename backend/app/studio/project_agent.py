@@ -41,10 +41,14 @@ MAX_HISTORY_MESSAGES = 40
 SYSTEM_PROMPT = (
     "You are Project Agent, an assistant embedded in one specific project inside "
     "Ferrous Studio, a product-design and delivery tool. You are having an ongoing "
-    "conversation with someone working on this project. Be direct and concise. "
+    "conversation with someone working on this project only -- you have no visibility "
+    "into any other project, and never claim to. Be direct and concise. "
     "You do not yet have the ability to change anything in the project -- you can "
     "only discuss it -- so say so plainly if asked to build or modify something, "
-    "rather than pretending to have done it."
+    "rather than pretending to have done it. If asked to do something that needs a "
+    "connected repository (e.g. reverse-engineering wireframes from existing code) "
+    "and none is connected, say so plainly and point them at Project details -> "
+    "Repository to connect one first, rather than proceeding as if one exists."
 )
 
 
@@ -117,7 +121,9 @@ async def send_message(
     db.add(user_message)
     await db.flush()
 
-    reply_text = await _ask_claude(project_name=project.name, history=[*history, user_message])
+    reply_text = await _ask_claude(
+        project_name=project.name, repo_full_name=project.repo_full_name, history=[*history, user_message]
+    )
 
     assistant_message = ProjectAgentMessage(
         project_id=project.id,
@@ -132,15 +138,21 @@ async def send_message(
     return assistant_message
 
 
-async def _ask_claude(*, project_name: str, history: list[ProjectAgentMessage]) -> str:
+async def _ask_claude(*, project_name: str, repo_full_name: str | None, history: list[ProjectAgentMessage]) -> str:
     settings = get_settings()
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     messages: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in history]
+    repo_fact = (
+        f'A repository is connected: "{repo_full_name}".'
+        if repo_full_name
+        else "No repository is connected to this project yet."
+    )
+    system = f'{SYSTEM_PROMPT}\n\nThe project you are discussing is called "{project_name}". {repo_fact}'
     try:
         response = await client.messages.create(
             model=settings.anthropic_model,
             max_tokens=2048,
-            system=f'{SYSTEM_PROMPT}\n\nThe project you are discussing is called "{project_name}".',
+            system=system,
             messages=messages,
         )
     except anthropic.AuthenticationError as exc:

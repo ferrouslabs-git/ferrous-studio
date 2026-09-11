@@ -60,6 +60,36 @@ def test_permissions_match_the_data_routes_convention():
     assert 'require_permission("data:write")' in write_source
 
 
+async def test_the_agent_is_told_plainly_when_no_repo_is_connected(configured, monkeypatch):
+    """Without this, a request to "build wireframes from my repo" has no way
+    to distinguish "no repo connected" from any other kind of not-yet-built
+    request -- the reply would be generically unhelpful instead of pointing
+    at Project details -> Repository."""
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage("noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
+    await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
+    assert "No repository is connected" in captured["system"]
+
+
+async def test_the_agent_is_told_the_repo_when_one_is_connected(configured, monkeypatch):
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage("noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
+    await pa._ask_claude(project_name="Test", repo_full_name="acme/website", history=[])
+    assert 'A repository is connected: "acme/website"' in captured["system"]
+
+
 async def test_authentication_error_becomes_a_502(monkeypatch):
     async def _raise(*args, **kwargs):
         raise anthropic.AuthenticationError(
@@ -70,7 +100,7 @@ async def test_authentication_error_becomes_a_502(monkeypatch):
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_raise))
 
     with pytest.raises(pa.HTTPException) as excinfo:
-        await pa._ask_claude(project_name="Test", history=[])
+        await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
     assert excinfo.value.status_code == 502
 
 
@@ -82,8 +112,19 @@ async def test_connection_error_becomes_a_502(monkeypatch):
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_raise))
 
     with pytest.raises(pa.HTTPException) as excinfo:
-        await pa._ask_claude(project_name="Test", history=[])
+        await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
     assert excinfo.value.status_code == 502
+
+
+class _FakeBlock:
+    def __init__(self, text: str):
+        self.type = "text"
+        self.text = text
+
+
+class _FakeMessage:
+    def __init__(self, text: str):
+        self.content = [_FakeBlock(text)]
 
 
 class _FakeMessages:
