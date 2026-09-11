@@ -60,6 +60,15 @@ def test_permissions_match_the_data_routes_convention():
     assert 'require_permission("data:write")' in write_source
 
 
+def test_send_message_looks_up_existing_content_before_asking():
+    """Both counts must actually be queried, not just accepted as parameters
+    -- otherwise _ask_claude's defaults (0, 0) silently claim every project
+    is empty."""
+    source = inspect.getsource(pa.send_message)
+    assert "_count(db, Wireframe, project)" in source
+    assert "_count(db, ProjectDiagram, project)" in source
+
+
 async def test_the_agent_is_told_plainly_when_no_repo_is_connected(configured, monkeypatch):
     """Without this, a request to "build wireframes from my repo" has no way
     to distinguish "no repo connected" from any other kind of not-yet-built
@@ -88,6 +97,35 @@ async def test_the_agent_is_told_the_repo_when_one_is_connected(configured, monk
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(project_name="Test", repo_full_name="acme/website", history=[])
     assert 'A repository is connected: "acme/website"' in captured["system"]
+
+
+async def test_the_agent_is_told_plainly_when_nothing_exists_yet(configured, monkeypatch):
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage("noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
+    await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
+    assert "no wireframes or diagrams yet" in captured["system"]
+
+
+async def test_the_agent_is_told_the_real_counts_when_content_already_exists(configured, monkeypatch):
+    """Without this, asking the agent to "build wireframes" on a project that
+    already has some would get a reply that ignores what's already there,
+    instead of surfacing the actual counts and asking whether to add more."""
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage("noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
+    await pa._ask_claude(project_name="Test", repo_full_name=None, wireframe_count=3, diagram_count=2, history=[])
+    assert "already has 3 wireframe(s) and 2 diagram(s)" in captured["system"]
 
 
 async def test_authentication_error_becomes_a_502(monkeypatch):

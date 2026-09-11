@@ -28,7 +28,8 @@ from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
 from .common import get_project, get_writable_project
-from .models import ProjectAgentMessage
+from .models import Project, ProjectAgentMessage, ProjectDiagram, Wireframe
+from .projects import _count
 from .schemas import ProjectAgentMessageRead, ProjectAgentSend, ProjectAgentStatus
 
 router = APIRouter(prefix="/projects/{project_id}/agent", tags=["project-agent"])
@@ -48,7 +49,11 @@ SYSTEM_PROMPT = (
     "rather than pretending to have done it. If asked to do something that needs a "
     "connected repository (e.g. reverse-engineering wireframes from existing code) "
     "and none is connected, say so plainly and point them at Project details -> "
-    "Repository to connect one first, rather than proceeding as if one exists."
+    "Repository to connect one first, rather than proceeding as if one exists. If "
+    "asked to build wireframes or diagrams and this project already has some, say "
+    "so plainly (mention the actual counts you were given) and ask whether they "
+    "want more added alongside the existing ones or mean something else, rather "
+    "than ignoring what already exists."
 )
 
 
@@ -111,6 +116,9 @@ async def send_message(
     )
     history = list(reversed(history_result.scalars().all()))
 
+    wireframe_count = await _count(db, Wireframe, project)
+    diagram_count = await _count(db, ProjectDiagram, project)
+
     user_message = ProjectAgentMessage(
         project_id=project.id,
         account_id=project.account_id,
@@ -122,7 +130,11 @@ async def send_message(
     await db.flush()
 
     reply_text = await _ask_claude(
-        project_name=project.name, repo_full_name=project.repo_full_name, history=[*history, user_message]
+        project_name=project.name,
+        repo_full_name=project.repo_full_name,
+        wireframe_count=wireframe_count,
+        diagram_count=diagram_count,
+        history=[*history, user_message],
     )
 
     assistant_message = ProjectAgentMessage(
@@ -138,7 +150,14 @@ async def send_message(
     return assistant_message
 
 
-async def _ask_claude(*, project_name: str, repo_full_name: str | None, history: list[ProjectAgentMessage]) -> str:
+async def _ask_claude(
+    *,
+    project_name: str,
+    repo_full_name: str | None,
+    wireframe_count: int = 0,
+    diagram_count: int = 0,
+    history: list[ProjectAgentMessage],
+) -> str:
     settings = get_settings()
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     messages: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in history]
@@ -147,7 +166,15 @@ async def _ask_claude(*, project_name: str, repo_full_name: str | None, history:
         if repo_full_name
         else "No repository is connected to this project yet."
     )
-    system = f'{SYSTEM_PROMPT}\n\nThe project you are discussing is called "{project_name}". {repo_fact}'
+    content_fact = (
+        f"This project already has {wireframe_count} wireframe(s) and {diagram_count} diagram(s)."
+        if wireframe_count or diagram_count
+        else "This project has no wireframes or diagrams yet."
+    )
+    system = (
+        f'{SYSTEM_PROMPT}\n\nThe project you are discussing is called "{project_name}". '
+        f"{repo_fact} {content_fact}"
+    )
     try:
         response = await client.messages.create(
             model=settings.anthropic_model,
