@@ -12,25 +12,50 @@ These came up while working through the idea and were never actually
 answered by Ali or Elliott. Building ahead of these being settled risks
 throwaway work.
 
-1. **Who can use the chatbot on a project?** Everyone in the organisation,
-   or only members with edit access to that project (matching how every
-   other write action in Studio already works)?
-2. **Does a project's chat remember previous conversations**, or does it
-   start fresh every time the tab is opened?
-3. **What happens if wireframes/diagrams already exist** when the chatbot
-   is asked to reverse-engineer the repo again — warn, replace, or version?
-   (Confirmed via code: today's plain Import endpoint does none of these —
-   it silently creates a duplicate wireframe every time. That gap exists
-   today, independent of the chatbot, and should probably be fixed either
-   way.)
-4. **Is the "agent connection" (whichever Claude credential powers a
-   session) org-level or platform-level for v1?** Leaning platform-level
-   per Elliott ("our claude code subscription"), with org-level
-   bring-your-own-key explicitly deferred (§0.5) — but worth a one-line
-   confirmation.
-5. Confirm scope: is "Project Agent" v1 chatbot going to cover **both**
-   reverse-engineering and planning (epics/features/requirements), or
-   should it ship reverse-engineering only first, planning later?
+1. ~~Who can use the chatbot on a project?~~ **Answered by Ali (Slack,
+   2026-09-11):** everyone with access to the project, but *"a user asking
+   for anything doesn't mean a user gets everything"* — access must be
+   gated per tool category (wireframe tools vs. management/board tools),
+   not one blanket check. **Not built yet** -- today's `send_message` only
+   checks the same blanket `data:write` every other write route uses; there
+   is no per-tool-category permission split.
+2. ~~Does a project's chat remember previous conversations?~~ **Answered
+   in code:** yes, persists indefinitely, one thread per project.
+3. ~~What happens if wireframes/diagrams already exist and the chatbot is
+   asked to build more?~~ **Answered by Ali (Slack, 2026-09-11):**
+   *"Regenerate just generates a new wireframes file... Version is the
+   history"* -- don't try to merge/update, just create a new one every
+   time and rely on the existing version-snapshot system to keep the old
+   one recoverable. **Not built to match yet** -- the chatbot currently
+   pauses and asks for confirmation before creating more when content
+   already exists, rather than just creating a new one outright.
+4. ~~Is the "agent connection" org-level or platform-level for v1?~~
+   **Answered and built:** platform-level (AWS Bedrock, the ECS task's own
+   IAM role) -- see §7. Org-level bring-your-own-key stays deferred (§6).
+5. ~~Confirm scope: reverse-engineering only, or also planning
+   (epics/features/requirements)?~~ **Answered by Ali (Slack,
+   2026-09-11):** *"On the first one yes"* -- the chatbot should
+   eventually do both. **Not built yet** -- only the `create_bundle`
+   (wireframes/diagrams) tool exists; no board/planning tool.
+6. **NEW, unresolved -- do not build yet:** Ali separately floated a
+   *different* shape entirely: a dedicated "Reverse Engineer This Repo"
+   button tied to its own one-off chat thread, which disappears once
+   reverse-engineering finishes. This directly contradicts the
+   always-available "Project Agent" tab that's already built and shipped
+   (§7-9) -- a chat can't both be a permanent, ongoing assistant and a
+   wizard that vanishes after one use. Elliott read it and said *"Not sure
+   I understand. Jump on this call with Dustin and let's discuss"* --
+   i.e. unresolved even inside the client's own team. **Do not implement
+   either direction until that call happens and the team picks one.**
+7. **Ali's proposed architecture for §0.1's access control** (Slack,
+   2026-09-11): tool categories should live in *separate MCP servers*
+   (mirroring `board_mcp.py`'s existing pattern -- one server per category,
+   e.g. "management" vs "wireframe"), with a gateway in front of all of
+   them enforcing role-based access before a tool call is allowed through.
+   This is a materially different architecture from what's built today (one
+   `create_bundle` tool embedded directly in `project_agent.py`'s own
+   request loop, no separate MCP server, no gateway) -- a real redesign,
+   not a small extension, if adopted as described.
 
 ## 1. What already exists (no work needed here)
 

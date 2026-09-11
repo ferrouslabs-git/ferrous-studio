@@ -124,11 +124,18 @@ def test_permissions_match_the_data_routes_convention():
 def test_the_prompt_tells_the_agent_to_lead_with_the_fact():
     """A soft "mention it somewhere" instruction is easy for a model to bury
     at the end of a long reply. The instruction must say to open with it."""
-    assert "open your reply with that plain fact" in pa.SYSTEM_PROMPT
+    assert "Open your reply with the plain fact" in pa.SYSTEM_PROMPT
 
 
-def test_the_prompt_requires_confirmation_before_adding_to_existing_content():
-    assert "do not create anything until they confirm" in pa.SYSTEM_PROMPT
+def test_the_prompt_regenerates_directly_without_waiting_for_confirmation():
+    """Ali's answer (Slack, 2026-09-11): "Regenerate just generates a new
+    wireframes file... Version is the history" -- don't pause and ask, just
+    create the new one and rely on the existing version-snapshot system to
+    keep the old one recoverable. This replaced an earlier, stricter
+    "wait for their answer before calling create_bundle" instruction."""
+    assert "Do not pause to ask permission" in pa.SYSTEM_PROMPT
+    assert "wait for confirmation before creating it" in pa.SYSTEM_PROMPT
+    assert "do not create anything until they confirm" not in pa.SYSTEM_PROMPT
 
 
 def test_the_prompt_forbids_claiming_unconfirmed_creation():

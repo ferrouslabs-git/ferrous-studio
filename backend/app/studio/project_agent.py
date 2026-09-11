@@ -257,13 +257,13 @@ SYSTEM_PROMPT = (
     "so plainly and point them at Project details -> Repository to connect one "
     "first, rather than inventing content as if one exists.\n\n"
     "If asked to build wireframes or diagrams and this project already has some, "
-    'open your reply with that plain fact -- e.g. "You already have 3 wireframes '
-    'and 2 diagrams in this project" -- using the real counts you were given, '
-    "before anything else, and ask whether they want more added alongside the "
-    "existing ones or mean something else. Wait for their answer before calling "
-    "create_bundle in that case -- do not create anything until they confirm. If "
-    "the project has nothing yet, or their message already makes the intent clear "
-    '(e.g. "add another wireframe for the settings page"), go ahead without asking.\n\n'
+    "regenerating is expected and safe -- every previous version stays reachable "
+    "through the project's own version history, so there's nothing to lose. Open "
+    'your reply with the plain fact -- e.g. "You already have 3 wireframes and 2 '
+    'diagrams in this project -- here\'s a new one" -- using the real counts you '
+    "were given, then call create_bundle directly. Do not pause to ask permission "
+    "or wait for confirmation before creating it; mentioning the existing count is "
+    "just keeping them informed, not a gate to wait on.\n\n"
     f"{BUNDLE_FORMAT_GUIDE}"
 )
 
