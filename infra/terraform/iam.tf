@@ -95,6 +95,30 @@ resource "aws_iam_role_policy" "cognito_admin" {
   })
 }
 
+# Project Agent chatbot: calls Claude through Bedrock rather than a stored
+# Anthropic API key, so this IAM grant *is* the credential -- nothing else
+# to rotate or store. "eu.anthropic.claude-sonnet-5" is an inference-profile
+# id (this model has no direct on-demand invocation), which Bedrock resolves
+# to the underlying foundation model in whichever EU region has capacity --
+# both ARN shapes need to be granted, per AWS's own guidance for
+# cross-region inference profiles.
+resource "aws_iam_role_policy" "bedrock_claude" {
+  name = "project-agent-bedrock"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+      Resource = [
+        "arn:aws:bedrock:${local.region}:${local.shared.account_id}:inference-profile/eu.anthropic.claude-sonnet-5",
+        "arn:aws:bedrock:*:${local.shared.account_id}:foundation-model/anthropic.claude-sonnet-5",
+      ]
+    }]
+  })
+}
+
 # Project documents: the API signs upload/download URLs for the browser and
 # reads objects itself for transcript extraction. Both environments' buckets,
 # since one task role serves both (as with the Cognito pools above).

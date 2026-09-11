@@ -19,21 +19,21 @@ from app.studio import project_agent as pa
 
 @pytest.fixture
 def configured(monkeypatch):
-    def _configure(key: str = "sk-ant-test"):
-        settings = replace(get_settings(), anthropic_api_key=key)
+    def _configure(model: str = "eu.anthropic.claude-sonnet-5"):
+        settings = replace(get_settings(), bedrock_claude_model=model)
         monkeypatch.setattr(pa, "get_settings", lambda: settings)
         return settings
 
     return _configure
 
 
-def test_configured_is_true_once_a_key_is_set(configured):
-    configured("sk-ant-test")
+def test_configured_is_true_once_a_model_is_set(configured):
+    configured()
     assert pa.configured() is True
 
 
-def test_configured_is_false_with_no_key(monkeypatch):
-    settings = replace(get_settings(), anthropic_api_key="")
+def test_configured_is_false_with_no_model(monkeypatch):
+    settings = replace(get_settings(), bedrock_claude_model="")
     monkeypatch.setattr(pa, "get_settings", lambda: settings)
     assert pa.configured() is False
 
@@ -87,7 +87,7 @@ async def test_the_agent_is_told_plainly_when_no_repo_is_connected(configured, m
         captured.update(kwargs)
         return _FakeMessage("noted")
 
-    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
     assert "No repository is connected" in captured["system"]
 
@@ -100,7 +100,7 @@ async def test_the_agent_is_told_the_repo_when_one_is_connected(configured, monk
         captured.update(kwargs)
         return _FakeMessage("noted")
 
-    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(project_name="Test", repo_full_name="acme/website", history=[])
     assert 'A repository is connected: "acme/website"' in captured["system"]
 
@@ -113,7 +113,7 @@ async def test_the_agent_is_told_plainly_when_nothing_exists_yet(configured, mon
         captured.update(kwargs)
         return _FakeMessage("noted")
 
-    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
     assert "no wireframes or diagrams yet" in captured["system"]
 
@@ -129,7 +129,7 @@ async def test_the_agent_is_told_the_real_counts_when_content_already_exists(con
         captured.update(kwargs)
         return _FakeMessage("noted")
 
-    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(project_name="Test", repo_full_name=None, wireframe_count=3, diagram_count=2, history=[])
     assert "already has 3 wireframe(s) and 2 diagram(s)" in captured["system"]
 
@@ -140,8 +140,8 @@ async def test_authentication_error_becomes_a_502(monkeypatch):
             message="bad key", response=_fake_response(401), body=None
         )
 
-    monkeypatch.setattr(pa, "get_settings", lambda: replace(get_settings(), anthropic_api_key="sk-ant-test"))
-    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_raise))
+    monkeypatch.setattr(pa, "get_settings", lambda: replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5"))
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_raise))
 
     with pytest.raises(pa.HTTPException) as excinfo:
         await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])
@@ -152,8 +152,8 @@ async def test_connection_error_becomes_a_502(monkeypatch):
     async def _raise(*args, **kwargs):
         raise anthropic.APIConnectionError(request=_fake_request())
 
-    monkeypatch.setattr(pa, "get_settings", lambda: replace(get_settings(), anthropic_api_key="sk-ant-test"))
-    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_raise))
+    monkeypatch.setattr(pa, "get_settings", lambda: replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5"))
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_raise))
 
     with pytest.raises(pa.HTTPException) as excinfo:
         await pa._ask_claude(project_name="Test", repo_full_name=None, history=[])

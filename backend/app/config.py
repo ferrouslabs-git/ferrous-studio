@@ -59,13 +59,17 @@ class Settings:
 
     # ── Project Agent chatbot (backend session, phase 1 -- see
     # docs/project-agent-implementation-plan.md) ───────────────────────────
-    # Empty key = the Project Agent tab reports "not configured" rather than
+    # Calls Claude through AWS Bedrock, not the Anthropic API directly -- the
+    # ECS task's own IAM role is the credential (see infra/terraform/iam.tf's
+    # bedrock_claude policy), so there is no key to store or rotate. Empty
+    # model id = the Project Agent tab reports "not configured" rather than
     # 500, the same convention as documents/GitHub above. This is the
     # platform's own shared credential (every organisation's chat runs on
     # it for now) -- an org bringing its own key/account is a later, separate
-    # idea, deliberately not designed yet.
-    anthropic_api_key: str
-    anthropic_model: str
+    # idea, deliberately not designed yet. The model id is a Bedrock
+    # *inference profile* id, not the plain Anthropic API model alias --
+    # this model has no direct on-demand invocation.
+    bedrock_claude_model: str
 
     # ── Agent runner (phase 5, deliberately not deployed yet) ──────────────
     # Empty cluster/task definition = an agent run is recorded (queued) but
@@ -131,8 +135,7 @@ def get_settings() -> Settings:
         github_client_id=os.getenv("GITHUB_CLIENT_ID", "").strip(),
         github_client_secret=os.getenv("GITHUB_CLIENT_SECRET", "").strip(),
         github_api_base=os.getenv("GITHUB_API_BASE", "https://api.github.com").strip().rstrip("/"),
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
-        anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5").strip(),
+        bedrock_claude_model=os.getenv("BEDROCK_CLAUDE_MODEL", "eu.anthropic.claude-sonnet-5").strip(),
         agent_ecs_cluster=os.getenv("AGENT_ECS_CLUSTER", "").strip(),
         agent_task_definition=os.getenv("AGENT_TASK_DEFINITION", "").strip(),
         agent_subnets=[s.strip() for s in os.getenv("AGENT_SUBNETS", "").split(",") if s.strip()],

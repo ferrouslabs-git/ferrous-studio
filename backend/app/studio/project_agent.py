@@ -5,12 +5,15 @@ back-and-forth text, no tools. The agent cannot yet do anything to the
 project (create wireframes, touch the board); it can only talk about it.
 Wiring it to real actions is Phase 2, deliberately not built here.
 
-Runs on the platform's own Anthropic key (``ANTHROPIC_API_KEY``), shared by
-every organisation -- there is no per-organisation credential yet, and
-letting an organisation bring its own key/account is a later, separate
-idea (Elliott's own words: "no need to do this now"). An unconfigured
-deployment reports the tab as unavailable rather than 500ing, the same
-convention ``github_client.py`` and the documents section already use.
+Calls Claude through AWS Bedrock, using the ECS task's own IAM role
+(``infra/terraform/iam.tf``'s ``bedrock_claude`` policy) rather than a
+stored Anthropic API key -- there is nothing to generate, store or rotate.
+Shared by every organisation -- there is no per-organisation credential
+yet, and letting an organisation bring its own key/account is a later,
+separate idea (Elliott's own words: "no need to do this now"). An
+unconfigured deployment reports the tab as unavailable rather than
+500ing, the same convention ``github_client.py`` and the documents
+section already use.
 """
 from __future__ import annotations
 
@@ -59,7 +62,7 @@ SYSTEM_PROMPT = (
 
 
 def configured() -> bool:
-    return bool(get_settings().anthropic_api_key)
+    return bool(get_settings().bedrock_claude_model)
 
 
 @router.get("/status", response_model=ProjectAgentStatus)
@@ -106,7 +109,7 @@ async def send_message(
     if not configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Project Agent is not configured on this deployment (ANTHROPIC_API_KEY unset).",
+            detail="Project Agent is not configured on this deployment (BEDROCK_CLAUDE_MODEL unset).",
         )
 
     history_result = await db.execute(
@@ -160,7 +163,7 @@ async def _ask_claude(
     history: list[ProjectAgentMessage],
 ) -> str:
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropicBedrock(aws_region=settings.aws_region)
     messages: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in history]
     repo_fact = (
         f'A repository is connected: "{repo_full_name}".'
@@ -178,7 +181,7 @@ async def _ask_claude(
     )
     try:
         response = await client.messages.create(
-            model=settings.anthropic_model,
+            model=settings.bedrock_claude_model,
             max_tokens=2048,
             system=system,
             messages=messages,
