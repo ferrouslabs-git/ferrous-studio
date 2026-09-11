@@ -106,7 +106,7 @@ function mdToHtml(md: string): string {
   return html;
 }
 
-export function MarkdownWithMermaid({ body, className }: { body: string; className?: string }) {
+export function MarkdownWithMermaid({ body }: { body: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = mdToHtml(body);
   const theme = useThemeAttr();
@@ -144,5 +144,5 @@ export function MarkdownWithMermaid({ body, className }: { body: string; classNa
   if (!body.trim()) return <span className="muted">Empty.</span>;
   // eslint-disable-next-line react/no-danger -- html is built entirely from
   // esc()-escaped input above; nothing here comes back out unescaped.
-  return <div ref={ref} className={className ? `md-body ${className}` : "md-body"} dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div ref={ref} className="md-body" dangerouslySetInnerHTML={{ __html: html }} />;
 }

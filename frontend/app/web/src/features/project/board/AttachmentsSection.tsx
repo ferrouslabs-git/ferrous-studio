@@ -1,7 +1,9 @@
-// The attachments widget mounted on epics, features, requirements and docs:
-// one list/upload/download/preview path for all of them. Ported from the
-// reference app's attachments.js; storage here is S3 via the presign flow
-// in attachmentsApi.ts.
+// The attachments widget mounted on epics (the epic column), features (a
+// group card's fold-out) and requirements (the pane and the drawer): one
+// list/upload/download/preview path for all of them. Docs accept attachments
+// on the API but have no surface for them yet. Ported from the reference
+// app's attachments.js; storage here is S3 via the presign flow in
+// attachmentsApi.ts.
 import { useRef, useState } from "react";
 import { errorMessage } from "../../../core/api";
 import { formatBytes } from "../../../core/format";

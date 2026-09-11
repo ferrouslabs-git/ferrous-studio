@@ -1,6 +1,8 @@
 // A comment thread on one board entity, with a composer. Reads the thread
 // from the shared board (loaded once for the whole board), so it is in step
-// with the comment counts on cards. Only your own comments offer delete.
+// with the comment counts on cards. Delete is offered only on your own human
+// comments, and only to writers: an agent's comment (attributed to whoever
+// minted its token) is never deletable from here.
 import { useState } from "react";
 import { formatDateTime } from "../../../core/format";
 import { useBoard } from "./boardData";

@@ -13,7 +13,6 @@ from __future__ import annotations
 import datetime as dt
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,8 +67,9 @@ async def _next_seq(db: AsyncSession, board: Board, column: str) -> int:
     (app/studio/annotations.py), applied to the board row instead. Flat and
     per-board, unlike SMA's global sequences (store.py's epic_id_seq etc,
     which only work because SMA has exactly one board) or its per-epic
-    regex-MAX feature numbering (store.py:810-815, which SMA's own comments
-    flag as race-fragile against concurrent inserts under the same epic)."""
+    regex-MAX feature numbering (store.py's create_feature, computed under
+    the epic's row lock so a soft-deleted feature's number is never
+    reused)."""
     locked = await _lock_board(db, board)
     value = getattr(locked, column) + 1
     setattr(locked, column, value)
@@ -78,12 +78,11 @@ async def _next_seq(db: AsyncSession, board: Board, column: str) -> int:
 
 # ── Effective epic / release inheritance ─────────────────────────────────
 #
-# SMA has no function named effectiveRelease() or effort.js -- confirmed by
-# exhaustive search of its history. The real logic (sma_mcp.py:93-101,
-# static/js/features.js:22-24) is: a requirement's effective epic is its own
-# epic_id if set, else its feature's epic_id; its effective release is its
-# own release_id if set, else its effective epic's release_id. Kept here as
-# one function instead of duplicated per caller.
+# The two OR-inheritance rules, ported from the reference's
+# static/js/effort.js effectiveEpic()/effectiveRelease(): a requirement's
+# effective epic is its own epic_id if set, else its feature's; its
+# effective release is its own release_id if set, else its effective
+# epic's. Kept here as one function each instead of duplicated per caller.
 
 
 async def _epic_release_map(db: AsyncSession, board_id: UUID) -> dict[UUID, UUID | None]:
@@ -140,11 +139,14 @@ async def annotate_effective(db: AsyncSession, board_id: UUID, requirements: lis
 #
 # Status-weighted score: Done = 1, Review = 0.75, Doing = 0.5, anything else
 # 0 -- the exact weights of the reference's effort.js rollup(), which the
-# front-end ports verbatim, so the server-computed figure on a release card
-# and the client-computed one on a sprint card never disagree. SMA used to
-# reimplement the older two-weight formula in five places (roadmap.js,
-# features.js, sprints.js, milestones.js, sma_mcp.py); effort.js
-# consolidated those client-side, and this is the one server-side twin.
+# front-end (features/project/board/effort.ts) ports verbatim, so the
+# server-computed figure on a release card and the client-computed one on a
+# sprint card never disagree. The same weights apply to hours: ``hours_done``
+# is every existing estimate multiplied by its status weight, not the Done
+# estimates alone. SMA used to reimplement the older two-weight formula in
+# five places (roadmap.js, features.js, sprints.js, milestones.js,
+# sma_mcp.py); effort.js consolidated those client-side, and this is the one
+# server-side twin.
 
 
 STATUS_WEIGHTS = {"Done": 1.0, "Review": 0.75, "Doing": 0.5}
@@ -158,8 +160,10 @@ def progress_rollup(requirements: list[Requirement]) -> dict:
     """The full EpicProgress shape (schemas.py). ``hours`` sums only the
     estimates that exist -- an unestimated requirement adds nothing, which
     is only honest alongside ``unestimated``/``coverage``, so all three
-    ship together. ``coverage`` is 1.0 for an empty set: nothing is
-    missing an estimate."""
+    ship together. ``hours_done`` is those same estimates weighted by
+    status_weight (a 4 h requirement in Review contributes 3 h), exactly as
+    effort.ts's rollup() credits them. ``coverage`` is 1.0 for an empty
+    set: nothing is missing an estimate."""
     total = len(requirements)
     done = sum(1 for r in requirements if r.status == "Done")
     doing = sum(1 for r in requirements if r.status == "Doing")
@@ -167,7 +171,7 @@ def progress_rollup(requirements: list[Requirement]) -> dict:
     score = sum(status_weight(r.status) for r in requirements)
     estimated = [r for r in requirements if r.estimate_hours is not None]
     hours = sum(r.estimate_hours for r in estimated)
-    hours_done = sum(r.estimate_hours for r in estimated if r.status == "Done")
+    hours_done = sum(r.estimate_hours * status_weight(r.status) for r in estimated)
     return {
         "total": total,
         "done": done,
@@ -253,8 +257,8 @@ async def board_summary(db: AsyncSession, board: Board) -> dict:
 # ── Entity existence (for comments/attachments' polymorphic entity_id) ────
 #
 # Not FK-constrained -- validity is an application-level probe, mirroring
-# SMA's own comments.entity_id (store.py:288-294, 583-595: a UNION ALL over
-# every commentable table). A real polymorphic FK would need a constraint
+# SMA's own comments.entity_id (store.py's _entity_exists_tx: a UNION ALL
+# over every commentable table). A real polymorphic FK would need a constraint
 # trigger; SMA never needed one and neither do we.
 
 _ENTITY_TABLES = {
@@ -337,9 +341,10 @@ async def write_event(
 # ── Sprint membership history (burndown input) ───────────────────────────
 #
 # Written on create (initial sprint, even NULL/backlog) and on update only
-# when sprint_id actually changes. Ported invariant -- SMA store.py:878-881,
-# 894-900: a naive "log on transition to non-null" port would silently break
-# the "born in the backlog" case burndown's total_start depends on.
+# when sprint_id actually changes. Ported invariant -- SMA store.py's
+# create_requirement and update_requirement: a naive "log on transition to
+# non-null" port would silently break the "born in the backlog" case
+# burndown's total_start depends on.
 
 
 async def record_sprint_history(db: AsyncSession, board: Board, requirement: Requirement) -> None:
@@ -377,6 +382,7 @@ async def apply_sprint_state_transition(db: AsyncSession, board: Board, sprint: 
                     Requirement.board_id == board.id,
                     Requirement.sprint_id == sprint.id,
                     Requirement.status != "Done",
+                    Requirement.deleted_at.is_(None),
                 )
             )
         ).scalars().all()
@@ -392,7 +398,7 @@ async def apply_sprint_state_transition(db: AsyncSession, board: Board, sprint: 
 
 # ── Claim (atomic SELECT ... FOR UPDATE) ─────────────────────────────────
 #
-# Ported near-as-is from SMA's claim_requirement (store.py:907-936). The
+# Ported near-as-is from SMA's claim_requirement (store.py). The
 # invariant: two concurrent claimants racing the same Todo requirement must
 # not both believe they won. FOR UPDATE serialises them on the row; the
 # status check happens AFTER the lock, so the second caller (which blocked)
@@ -443,9 +449,10 @@ async def claim_requirement(
 # Ported near-as-is from SMA's get_sprint_burndown (store.py). Membership is
 # reconstructed from board_requirement_sprint_history and status from
 # requirement.updated events, not from current state. Known limitation
-# carried over deliberately (SMA store.py:332-338): a requirement whose
-# sprint-history predates this table's existence has only one synthetic
-# row, so burndown for very old sprints assumes constant membership since
+# carried over deliberately (the requirement_sprint_history backfill in SMA
+# store.py's _SCHEMA): a requirement whose sprint-history predates this
+# table's existence has only one synthetic row, so burndown for very old
+# sprints assumes constant membership since
 # creation -- real historical membership can't be recovered, and "fixing"
 # this silently would misrepresent old sprints as more precisely tracked
 # than they are. One more honest caveat from the reference: estimates are

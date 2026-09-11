@@ -17,9 +17,6 @@ export interface BoardComment {
 
 const base = (projectId: string) => `/studio/projects/${projectId}/board/comments`;
 
-export const listBoardComments = (projectId: string, entityType: BoardEntityType, entityId: string) =>
-  apiGet<BoardComment[]>(`${base(projectId)}?entity_type=${entityType}&entity_id=${entityId}`);
-
 // Every live comment on the board, for the comment counts on cards and rows
 // -- one request rather than one per entity.
 export const listAllBoardComments = (projectId: string) => apiGet<BoardComment[]>(base(projectId));

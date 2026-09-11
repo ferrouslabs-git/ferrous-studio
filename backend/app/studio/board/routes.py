@@ -10,7 +10,6 @@ it doesn't, since the board keys on (account_id, lineage_id), not
 project_id, so nothing about it is in what versioning copies.
 """
 import datetime as dt
-from datetime import timedelta
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -268,7 +267,7 @@ async def update_release(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> ReleaseRead:
-    """Shipping is a human judgment call, never computed -- a release can go
+    """Shipping is a human judgement call, never computed -- a release can go
     out with known gaps. ``shipped`` only sets/clears shipped_at and is
     logged as its own event on an actual transition, distinct from a plain
     field edit (ported from software-management's update_release)."""
@@ -814,7 +813,11 @@ async def delete_sprint(
     now = utc_now()
     requirements = (
         await db.execute(
-            select(Requirement).where(Requirement.board_id == board.id, Requirement.sprint_id == sprint.id)
+            select(Requirement).where(
+                Requirement.board_id == board.id,
+                Requirement.sprint_id == sprint.id,
+                Requirement.deleted_at.is_(None),
+            )
         )
     ).scalars().all()
     for r in requirements:
@@ -1331,9 +1334,27 @@ async def delete_comment(
     ).scalar_one_or_none()
     if comment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
-    # Own comments only, as in software-management -- board:write says you
-    # may write to the board, not that you may unsay what a colleague said.
-    if comment.author_id != ctx.user_id:
+    # Deletable only by the identity that wrote it, as in software-management
+    # (its author is free text, so an agent's comment is the agent's, not its
+    # operator's). Here a board-token request is attributed to the token's
+    # creator, so author_id alone would let an agent and the person who
+    # minted its token delete each other's comments: resolve the acting
+    # agent exactly as create_comment does and match on that instead. A
+    # human request -- or a human-minted token, which has no agent row --
+    # owns only its own agent-less comments. board:write says you may write
+    # to the board, not that you may unsay what a colleague said.
+    acting_agent_id = None
+    if ctx.board_token_id is not None:
+        acting_agent_id = (
+            await db.execute(
+                select(Agent.id).where(Agent.board_id == board.id, Agent.board_token_id == ctx.board_token_id)
+            )
+        ).scalar_one_or_none()
+    if acting_agent_id is not None:
+        is_author = comment.agent_id == acting_agent_id
+    else:
+        is_author = comment.author_id == ctx.user_id and comment.agent_id is None
+    if not is_author:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own comments")
     comment.deleted_at = utc_now()
     await service.write_event(

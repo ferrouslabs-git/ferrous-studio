@@ -5,7 +5,6 @@
 export interface EpicPageQuery {
   req?: string | null;
   doc?: string | null;
-  edit?: boolean;
 }
 
 export interface BoardPaths {
@@ -16,11 +15,11 @@ export interface BoardPaths {
   epic: (epicId: string, query?: EpicPageQuery) => string;
 }
 
-function withQuery(path: string, params: Record<string, string | null | undefined | boolean>): string {
+function withQuery(path: string, params: Record<string, string | null | undefined>): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v === null || v === undefined || v === false) continue;
-    q.set(k, v === true ? "1" : v);
+    if (v === null || v === undefined) continue;
+    q.set(k, v);
   }
   const s = q.toString();
   return s ? `${path}?${s}` : path;
@@ -33,6 +32,6 @@ export function boardPaths(orgId: string, projectId: string): BoardPaths {
     release: (releaseId) => `${base}/roadmap/${releaseId}`,
     sprint: (sprintId, query = {}) => withQuery(`${base}/roadmap/sprints/${sprintId}`, { req: query.req }),
     epics: `${base}/epics`,
-    epic: (epicId, query = {}) => withQuery(`${base}/epics/${epicId}`, { req: query.req, doc: query.doc, edit: query.edit }),
+    epic: (epicId, query = {}) => withQuery(`${base}/epics/${epicId}`, { req: query.req, doc: query.doc }),
   };
 }

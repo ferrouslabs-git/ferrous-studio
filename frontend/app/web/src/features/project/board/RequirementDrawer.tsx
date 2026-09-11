@@ -1,14 +1,14 @@
 // The requirement drawer: opened from a sprint-board card, a backlog or
 // sprint row, or "+ Requirement" on the epic page. Every field, saved
 // together with Save (unlike the epic page's pane, which patches as you
-// go); comments and attachments once the requirement exists. Ported from
-// the reference app's #drawer (static/js/requirements.js).
+// go); comments and attachments once the requirement exists. A blank title
+// saves as "Untitled". Ported from the reference app's #drawer
+// (static/js/requirements.js).
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Drawer, Field } from "../../../components/Drawer";
 import { formatDateTime } from "../../../core/format";
 import { AttachmentsSection } from "./AttachmentsSection";
 import { useBoard } from "./boardData";
-import { sortSprints } from "./boardModel";
 import { useBoardMutations } from "./boardMutations";
 import { CommentsList } from "./CommentsList";
 import { ST_ICON } from "./constants";
@@ -26,9 +26,6 @@ import {
 export interface RequirementPreset {
   epicId?: string | null;
   featureId?: string | null;
-  sprintId?: string | null;
-  releaseId?: string | null;
-  status?: RequirementStatus;
 }
 
 interface RequirementDrawerProps {
@@ -36,7 +33,9 @@ interface RequirementDrawerProps {
   /** The requirement to edit, or null for a new one. */
   requirement: Requirement | null;
   preset?: RequirementPreset;
+  /** Escape, Cancel and the backdrop all land here with unsaved edits dropped; a dialog or lightbox raised over the drawer takes Escape first. */
   onClose: () => void;
+  /** Called with the saved row after Save; onClose follows immediately after, so close-side work runs on every exit. */
   onSaved?: (requirement: Requirement) => void;
 }
 
@@ -105,11 +104,11 @@ function DrawerBody({
           body: "",
           epic_id: preset.epicId ?? null,
           feature_id: shownFeature(preset.epicId ?? null, preset.featureId ?? null),
-          status: preset.status ?? "Todo",
+          status: "Todo",
           priority: "Medium",
           assignee_id: null,
-          release_id: preset.releaseId ?? null,
-          sprint_id: preset.sprintId ?? null,
+          release_id: null,
+          sprint_id: null,
           estimate_hours: null,
         },
   );
@@ -117,10 +116,12 @@ function DrawerBody({
   const patch = (p: Partial<FormState>) => setForm((f) => ({ ...f, ...p }));
 
   // Escape closes the drawer whichever field holds focus -- a capture-phase
-  // listener, as the reference's (static/js/requirements.js), so a field
-  // that stops keydown propagating (the comment box, the estimate box)
-  // cannot keep the key from it. Only an open dialog or lightbox pre-empts
-  // it: closeOnEscape is false while one is up, and the key is left to it.
+  // listener, as the reference's (static/js/requirements.js), so it runs
+  // ahead of every field's own keydown handler and of the Drawer's
+  // bubble-phase listener, which is switched off below with
+  // closeOnEscape={false} so the two never disagree.
+  // Only an open dialog or lightbox pre-empts it: closeOnEscape is false
+  // while one is up, and the key is left to it.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const closeOnEscapeRef = useRef(closeOnEscape);
@@ -139,9 +140,7 @@ function DrawerBody({
   const features = form.epic_id ? index.featuresOf(form.epic_id) : [];
   // A done sprint is never offered, but stays listed while it is this
   // requirement's own -- otherwise the select would silently read "backlog".
-  const sprints = sortSprints(index.releases.length || index.sprintById.size ? [...index.sprintById.values()] : []).filter(
-    (s) => s.state !== "done" || s.id === form.sprint_id,
-  );
+  const sprints = index.sprints.filter((s) => s.state !== "done" || s.id === form.sprint_id);
   const inheritedRelease = epic ? (epic.release_id ? index.releaseById.get(epic.release_id) : null) : undefined;
 
   const save = async (e: FormEvent) => {
@@ -263,7 +262,7 @@ function DrawerBody({
         <div>
           <label>Feature</label>
           <select className="select" value={form.feature_id ?? ""} disabled={!canWrite || !form.epic_id} onChange={(e) => patch({ feature_id: e.target.value || null })}>
-            <option value="">— none —</option>
+            <option value="">{form.epic_id ? "— none —" : "— no epic —"}</option>
             {features.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.human_id} · {f.title}

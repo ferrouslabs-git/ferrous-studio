@@ -41,13 +41,16 @@ def test_rollup_weights_match_effort_js():
 
 
 def test_rollup_hours_sum_only_existing_estimates():
-    rows = [_req("Done", 4.0), _req("Review", 2.5), _req("Todo", None)]
+    """``hours_done`` credits every estimate by its status weight -- the
+    same arithmetic as effort.ts's rollup(), so a Review or Doing
+    requirement counts for part of its estimate rather than nothing."""
+    rows = [_req("Done", 4.0), _req("Review", 2.5), _req("Doing", 2.0), _req("Blocked", 1.0), _req("Todo", None)]
     out = service.progress_rollup(rows)
-    assert out["hours"] == 6.5
-    assert out["hours_done"] == 4.0
-    assert out["estimated"] == 2
+    assert out["hours"] == 9.5
+    assert out["hours_done"] == pytest.approx(4.0 + 2.5 * 0.75 + 2.0 * 0.5)
+    assert out["estimated"] == 4
     assert out["unestimated"] == 1
-    assert out["coverage"] == pytest.approx(2 / 3)
+    assert out["coverage"] == pytest.approx(4 / 5)
 
 
 def test_rollup_of_nothing_has_full_coverage():
@@ -174,10 +177,15 @@ def test_sprint_update_keeps_clear_release_for_the_route_to_refuse():
     assert "release_id" in SprintUpdate.model_fields
 
 
-def test_queue_position_rejects_booleans_and_accepts_null_and_ints():
+def test_queue_position_rejects_booleans_and_out_of_range_ints():
     with pytest.raises(ValidationError):
         RequirementUpdate(queue_position=True)
+    with pytest.raises(ValidationError):
+        RequirementUpdate(queue_position=-1)
+    with pytest.raises(ValidationError):
+        RequirementUpdate(queue_position=2_147_483_648)
     assert RequirementUpdate(queue_position=None).queue_position is None
+    assert RequirementUpdate(queue_position=0).queue_position == 0
     assert RequirementUpdate(queue_position=3).queue_position == 3
 
 
@@ -207,7 +215,14 @@ def test_completing_a_sprint_clears_queue_positions():
 
 
 def test_only_the_author_deletes_a_comment():
-    assert "comment.author_id != ctx.user_id" in inspect.getsource(routes.delete_comment)
+    """An agent's comment belongs to the agent, not to whoever minted its
+    token: an agent request matches on agent_id, a human one on author_id
+    plus no agent at all -- so neither can delete the other's."""
+    source = inspect.getsource(routes.delete_comment)
+    assert "Agent.board_token_id == ctx.board_token_id" in source
+    assert "comment.agent_id == acting_agent_id" in source
+    assert "comment.author_id == ctx.user_id and comment.agent_id is None" in source
+    assert "You can only delete your own comments" in source
 
 
 def test_requirement_events_keep_status_and_drop_blocked_from():

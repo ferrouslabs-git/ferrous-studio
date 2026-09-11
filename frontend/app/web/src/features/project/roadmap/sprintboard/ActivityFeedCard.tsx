@@ -13,7 +13,7 @@ export function ActivityFeedCard({ live }: { live: SprintActivity | null }) {
         ) : live.events.length === 0 ? (
           <div className="sb-card-empty">Nothing yet.</div>
         ) : (
-          live.events.slice(0, 40).map((e) => <EventRow key={e.id} event={e} compact />)
+          live.events.slice(0, 40).map((e) => <EventRow key={e.id} event={e} />)
         )}
       </div>
     </div>

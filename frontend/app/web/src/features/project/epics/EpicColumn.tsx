@@ -85,7 +85,7 @@ export function EpicColumn({
           status={epic.status}
           onAdvance={canWrite ? () => void mutations.advanceEpicStatus(epic).catch(() => undefined) : undefined}
         />
-        <span style={{ marginLeft: "auto" }} />
+        <span className="spacer" />
         <CommentButton
           count={index.commentCount(epic.id)}
           onClick={() => onOpenComments({ type: "epic", id: epic.id, label: `${epic.human_id} · ${epic.title}` })}

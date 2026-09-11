@@ -8,7 +8,7 @@ import { boardPaths } from "./paths";
 export function PlanRedirect() {
   const { orgId = "", projectId = "", releaseId = "" } = useParams();
   const paths = boardPaths(orgId, projectId);
-  return <Navigate to={releaseId && releaseId !== "unscheduled" ? paths.release(releaseId) : paths.roadmap} replace />;
+  return <Navigate to={releaseId ? paths.release(releaseId) : paths.roadmap} replace />;
 }
 
 export function UnscheduledRedirect() {

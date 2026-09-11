@@ -1,6 +1,7 @@
 // Jump to any board entity from a feed link or a comment: a release opens
-// its page, a sprint its board, an epic its page; a requirement opens on its
-// sprint's board with the drawer up, or on its epic's page with the pane up,
+// its page, a sprint its board, an epic its page, a feature its epic's page;
+// a requirement opens on its sprint's board with the drawer up, or on its
+// epic's page with the pane up,
 // or -- with neither -- on the roadmap with the drawer up; a doc opens on its
 // epic's page, and an unfiled doc asks which epic to file it under first.
 // Ported from the reference app's goTo() (static/js/activity.js).

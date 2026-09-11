@@ -189,7 +189,7 @@ function AgentRow({ agent: a, canManage, stopping, onStart, onStop, onRename, on
           title={canManage ? "double-click to rename" : undefined}
         />
         <AgentChip agent={a} />
-        <span style={{ marginLeft: "auto" }} />
+        <span className="spacer" />
         {canManage &&
           (running ? (
             <button type="button" className="btn mini-x" disabled={stopping} onClick={() => onStop(a)}>

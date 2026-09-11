@@ -226,6 +226,6 @@ export function nextSprintDefaults(releaseSprints: Sprint[], today: Date = new D
   return { start: isoLocal(start), end: isoLocal(end) };
 }
 
-// A requirement whose release is not its sprint's is still in the sprint but
-// says so, rather than silently blending in.
+// Reference equality that treats undefined and null as the same "no
+// reference" -- the API sends null, the UI often holds undefined.
 export const sameRef = (a: string | null | undefined, b: string | null | undefined) => (a ?? null) === (b ?? null);

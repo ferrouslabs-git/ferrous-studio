@@ -7,6 +7,11 @@ import { createContext, ReactNode, useCallback, useContext, useMemo, useRef, use
 
 export interface ToastOptions {
   type?: "err";
+  /**
+   * Runs when Undo is pressed, after this toast is removed; it may toast
+   * again (an undo that offers its own Undo), which is how boardMutations and
+   * the sprint board make an undo reversible.
+   */
   undo?: () => void;
   /** Milliseconds on screen; defaults to 3.5 s, or 7 s when there is an Undo. */
   ttl?: number;

@@ -97,7 +97,7 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
         <SegBar done={p.done} partial={p.doing + p.review} total={p.total} />
         <ProgressFigure rollup={p} />
         <EffortFigure rollup={p} />
-        <span style={{ marginLeft: "auto" }} />
+        <span className="spacer" />
         <CommentButton
           count={index.commentCount(epic.id)}
           onClick={() => onComments({ type: "epic", id: epic.id, label: `${epic.human_id} · ${epic.title}` })}

@@ -36,9 +36,9 @@ const shortDate = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateStrin
 // purpose: sprint ids are unique across projects, and a reload starts folded.
 const bdOpen = new Set<string>();
 
-export function BurndownDetails({ sprintId, defaultOpen = false }: { sprintId: string; defaultOpen?: boolean }) {
+export function BurndownDetails({ sprintId }: { sprintId: string }) {
   const { projectId } = useBoard();
-  const [open, setOpen] = useState(() => defaultOpen || bdOpen.has(sprintId));
+  const [open, setOpen] = useState(() => bdOpen.has(sprintId));
   const [data, setData] = useState<BurndownData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode | null>(null);
@@ -85,7 +85,7 @@ export function BurndownDetails({ sprintId, defaultOpen = false }: { sprintId: s
   );
 }
 
-export function BurndownChart({ data, mode, onMode }: { data: BurndownData; mode: Mode; onMode: (m: Mode) => void }) {
+function BurndownChart({ data, mode, onMode }: { data: BurndownData; mode: Mode; onMode: (m: Mode) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const theme = useThemeAttr();
   const [libError, setLibError] = useState(false);

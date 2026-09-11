@@ -61,7 +61,7 @@ export function FeatureGroupCard({ epic, feature: f, rows, selectedReq, onSelect
           </span>
         )}
         <EffortFigure rollup={p} />
-        <span style={{ marginLeft: "auto" }} />
+        <span className="spacer" />
         {canWrite && (
           <button
             type="button"

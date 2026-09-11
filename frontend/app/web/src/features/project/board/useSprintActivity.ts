@@ -1,15 +1,17 @@
 // The sprint board's live column: one GET every ten seconds while the board
-// is open, folded into the shared board (the sprint, its requirements, its
-// agents) plus the events and agent questions kept here. A poll never
-// redraws over something you are doing -- the caller says when to hold off
-// (a drag in flight, a focused answer box) and the result waits for the
-// next tick. A failed poll goes quiet; a 404 means the sprint is gone.
+// is open and the tab is visible -- a hidden tab skips ticks and catches up
+// once when it is shown again. Each result is folded into the shared board
+// (the sprint, its requirements, its agents) plus the events and agent
+// questions kept here. A poll never redraws over something you are doing --
+// the caller says when to hold off (a drag in flight, a focused answer box)
+// and the result waits for the next tick. A failed poll goes quiet; a 404
+// means the sprint is gone.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../../core/api";
 import { useBoard } from "./boardData";
 import { getSprintActivity, SprintActivity } from "./sprintsApi";
 
-export const SPRINT_POLL_MS = 10000;
+const SPRINT_POLL_MS = 10000;
 
 export interface SprintLive {
   live: SprintActivity | null;

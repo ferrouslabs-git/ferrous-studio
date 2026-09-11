@@ -16,9 +16,8 @@ interface DrawerProps {
   /** Extra class on the panel, for callers that need to restyle the body. */
   className?: string;
   /**
-   * Whether Escape closes this drawer. A drawer that has opened a dialog over
-   * itself (a confirmation, a picker) passes false while that dialog is up,
-   * so one Escape closes the dialog rather than both.
+   * Whether this drawer closes itself on Escape. A caller that handles Escape
+   * itself passes false.
    */
   closeOnEscape?: boolean;
 }

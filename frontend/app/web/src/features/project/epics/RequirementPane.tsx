@@ -7,7 +7,6 @@
 import { formatDateTime } from "../../../core/format";
 import { AttachmentsSection } from "../board/AttachmentsSection";
 import { useBoard } from "../board/boardData";
-import { sortSprints } from "../board/boardModel";
 import { useBoardMutations } from "../board/boardMutations";
 import { IdChip, StatusChip } from "../board/chips";
 import { CommentsList } from "../board/CommentsList";
@@ -46,7 +45,7 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
   const features = r.epic_id ? index.featuresOf(r.epic_id) : [];
   // A done sprint is never offered, but stays listed while it is this
   // requirement's own -- otherwise the select would silently read "backlog".
-  const sprints = sortSprints([...index.sprintById.values()]).filter((s) => s.state !== "done" || s.id === r.sprint_id);
+  const sprints = index.sprints.filter((s) => s.state !== "done" || s.id === r.sprint_id);
 
   const remove = async () => {
     const ok = await dialogs.confirm({
@@ -78,7 +77,7 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
             was {r.blocked_from}
           </span>
         )}
-        <span style={{ marginLeft: "auto" }} />
+        <span className="spacer" />
         <button type="button" className="btn mini-x" title="close" onClick={onClose}>
           ✕
         </button>
@@ -90,7 +89,7 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
         className="rqp-sum"
         multiline
         value={r.body}
-        placeholder="(no description yet — double-click to add one)"
+        placeholder="(no description yet)"
         disabled={disabled}
         onSave={(v) => patch({ body: v })}
       />
@@ -149,14 +148,13 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
                 void patch(v ? { feature_id: v } : { clear_feature: true });
               }}
             >
-              <option value="">— none —</option>
+              <option value="">{r.epic_id ? "— none —" : "— no epic —"}</option>
               {features.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.human_id} · {f.title}
                 </option>
               ))}
             </select>
-            {!r.epic_id && <span className="rqp-note">pick an epic first</span>}
           </div>
           <div>
             <label>Assignee</label>

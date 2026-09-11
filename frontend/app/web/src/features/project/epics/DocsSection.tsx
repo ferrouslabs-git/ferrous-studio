@@ -1,5 +1,5 @@
-// The Docs section on the epic page: this epic's markdown docs, newest
-// first, each row opening the doc in the pane beside the epic. "+ Doc"
+// The Docs section on the epic page: this epic's markdown docs, most recently
+// updated first, each row opening the doc in the pane beside the epic. "+ Doc"
 // creates an empty one and opens it straight into the editor -- there is
 // no form, the doc IS the form. Ported from renderDocsSection() in the
 // reference app's static/js/docs.js.

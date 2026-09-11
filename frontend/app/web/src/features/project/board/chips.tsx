@@ -5,28 +5,19 @@
 import { ReactNode } from "react";
 import type { Agent } from "./agentsApi";
 import type { DueStatus } from "./boardModel";
-import { EPIC_STATUS_LABEL, nextEpicStatus, ST_ICON } from "./constants";
+import { EPIC_STATUS_LABEL, nextEpicStatus } from "./constants";
 import { effortSummary, type Rollup } from "./effort";
 import type { EpicStatus } from "./epicsApi";
 import { Icon } from "./icons";
 import type { RequirementStatus } from "./requirementsApi";
 import type { SprintState } from "./sprintsApi";
 
-export function IdChip({ children, title }: { children: ReactNode; title?: string }) {
-  return (
-    <span className="bchip k" title={title}>
-      {children}
-    </span>
-  );
+export function IdChip({ children }: { children: ReactNode }) {
+  return <span className="bchip k">{children}</span>;
 }
 
-export function StatusChip({ status, icon = false }: { status: RequirementStatus; icon?: boolean }) {
-  return (
-    <span className={`bchip st st-${status}`}>
-      {icon ? `${ST_ICON[status]} ` : ""}
-      {status}
-    </span>
-  );
+export function StatusChip({ status }: { status: RequirementStatus }) {
+  return <span className={`bchip st st-${status}`}>{status}</span>;
 }
 
 // The epic lifecycle chip is a CONTROL when onAdvance is given: clicking it
@@ -54,22 +45,18 @@ export function SprintStateChip({ state }: { state: SprintState }) {
   return <span className={`bchip sp-${state}`}>{state}</span>;
 }
 
-export function AgentChip({ agent, compact = false }: { agent: Agent; compact?: boolean }) {
+export function AgentChip({ agent }: { agent: Agent }) {
   const title = `${agent.name} · ${agent.status}${agent.current_requirement_id ? " · working" : ""}`;
-  return compact ? (
-    <i className={`tl-agent ag-${agent.status}`} title={title}>
-      {agent.name}
-    </i>
-  ) : (
+  return (
     <span className={`bchip ag-${agent.status}`} title={title}>
       {agent.status}
     </span>
   );
 }
 
-export function DueChip({ due, title }: { due: DueStatus; title?: string }) {
+export function DueChip({ due }: { due: DueStatus }) {
   return (
-    <span className={`due ${due.cls}`} title={title ?? due.label}>
+    <span className={`due ${due.cls}`} title={due.label}>
       {due.label}
     </span>
   );
@@ -116,20 +103,12 @@ export function ProgressBar({ pct, over = false, title, className }: { pct: numb
 
 // The comments button on a card or row. A zero count hides until the card is
 // hovered (board.css .cmt-zero); an unknown count shows the icon alone.
-export function CommentButton({
-  count,
-  onClick,
-  className,
-}: {
-  count?: number | null;
-  onClick: () => void;
-  className?: string;
-}) {
+export function CommentButton({ count, onClick }: { count?: number | null; onClick: () => void }) {
   const n = count ?? 0;
   return (
     <button
       type="button"
-      className={`btn mini-x cmt-btn${n ? "" : " cmt-zero"}${className ? ` ${className}` : ""}`}
+      className={`btn mini-x${n ? "" : " cmt-zero"}`}
       title="comments"
       onClick={(e) => {
         e.stopPropagation();

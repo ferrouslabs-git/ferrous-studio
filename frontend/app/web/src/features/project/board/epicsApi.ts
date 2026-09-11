@@ -20,14 +20,12 @@ export interface Epic {
   updated_at: string;
 }
 
-export interface EpicCreateInput {
+export interface EpicInput {
   title: string;
   summary: string;
   status?: EpicStatus;
   release_id: string | null;
 }
-
-export type EpicInput = EpicCreateInput;
 
 export interface EpicPatch {
   title?: string;

@@ -148,7 +148,7 @@ export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, on
         <SprintStateChip state={sprint.state} />
         <InlineText className="ms-ttl" value={sprint.name} disabled={!canWrite} onSave={(v) => patch({ name: v })} />
         {!done && due && <DueChip due={due} />}
-        <span style={{ marginLeft: "auto" }} />
+        <span className="spacer" />
         <Link className="btn mini-x sp-board" to={paths.sprint(sprint.id)} title="open this sprint's board">
           board ↗
         </Link>

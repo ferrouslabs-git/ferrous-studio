@@ -6,7 +6,7 @@ import { EV_GLYPH, eventVerb, evSummary, relTime } from "./events";
 import type { BoardEvent } from "./eventsApi";
 import { useGoTo } from "./useGoTo";
 
-export function EventRow({ event, compact = false }: { event: BoardEvent; compact?: boolean }) {
+export function EventRow({ event }: { event: BoardEvent }) {
   const { index } = useBoard();
   const goTo = useGoTo();
   const label = index.humanIdOf(event.entity_type, event.entity_id) ?? event.entity_type;
@@ -29,7 +29,7 @@ export function EventRow({ event, compact = false }: { event: BoardEvent; compac
     }
   };
   return (
-    <div className={`ev${compact ? " compact" : ""}`}>
+    <div className="ev">
       <span className="ev-ico">{EV_GLYPH[eventVerb(event.action)]}</span>
       <span className="who">{index.memberName(event.actor_id)}</span>
       <button type="button" className="lnk" onClick={() => goTo(event.entity_type, event.entity_id)}>

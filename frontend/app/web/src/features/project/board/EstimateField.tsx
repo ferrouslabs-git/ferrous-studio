@@ -31,6 +31,7 @@ export function EstimateField({ value, onChange, disabled = false }: EstimateFie
     setText(next == null ? "" : String(next));
     onChange(next);
   };
+  const over = value != null && value > EST_SPLIT_HINT_HOURS;
 
   return (
     <div className="estfield">
@@ -46,14 +47,15 @@ export function EstimateField({ value, onChange, disabled = false }: EstimateFie
           onChange={(e) => setText(e.target.value)}
           onBlur={commitText}
           onKeyDown={(e) => {
-            e.stopPropagation();
             if (e.key === "Enter") {
               e.preventDefault();
               commitText();
             }
           }}
         />
-        <span className={`est-read${value == null ? " est-none" : ""}`}>{value == null ? "not estimated" : fmtEffort(value)}</span>
+        <span className={`est-read${value == null ? " est-none" : over ? " est-warn" : ""}`}>
+          {value == null ? "not estimated" : over ? `${fmtEffort(value)} · over a week` : fmtEffort(value)}
+        </span>
       </div>
       <div className="est-chips">
         {EST_PRESETS.map((h) => (
@@ -77,7 +79,6 @@ export function EstimateField({ value, onChange, disabled = false }: EstimateFie
           —
         </button>
       </div>
-      {value != null && value > EST_SPLIT_HINT_HOURS && <div className="est-hint">Over a week — worth splitting into smaller requirements.</div>}
     </div>
   );
 }

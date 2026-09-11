@@ -17,7 +17,7 @@ export interface ConfirmOptions {
   danger?: boolean;
 }
 
-export type FormFieldType = "text" | "textarea" | "select" | "date" | "number";
+export type FormFieldType = "text" | "textarea" | "select" | "date";
 
 export interface FormField {
   key: string;
@@ -35,7 +35,6 @@ export interface FormOptions {
   message?: ReactNode;
   ok?: string;
   fields: FormField[];
-  width?: number;
 }
 
 export interface PickItem {
@@ -186,7 +185,7 @@ function FormDrawer({
       title={opts.title}
       onClose={onCancel}
       onSubmit={submit}
-      width={opts.width ?? 440}
+      width={440}
       className="board-drawer"
       footer={
         <>

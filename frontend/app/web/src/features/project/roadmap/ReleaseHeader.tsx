@@ -121,7 +121,7 @@ export function ReleaseHeader({ release, sprints, onComments }: ReleaseHeaderPro
           </span>
         )}
         <DueChip due={due} />
-        <span style={{ marginLeft: "auto" }} />
+        <span className="spacer" />
         {canWrite &&
           (shipped ? (
             <button type="button" className="btn mini-x" title="mark as not shipped after all" onClick={() => void unship()}>

@@ -10,7 +10,6 @@ counter columns on ``boards`` under a row lock -- the same pattern
 wireframes.note_seq/task_seq already uses -- and are never stored on the
 entity rows themselves, only the raw ``seq`` int; the API layer formats it.
 """
-from datetime import datetime, UTC, date
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -95,7 +94,7 @@ class Release(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
     # Set when a human marks the release shipped; NULL = still in flight.
-    # Shipping is a judgment call, never computed -- a release can go out
+    # Shipping is a judgement call, never computed -- a release can go out
     # with known gaps, so nothing here blocks or auto-sets it.
     shipped_at = Column(DateTime, nullable=True)
 

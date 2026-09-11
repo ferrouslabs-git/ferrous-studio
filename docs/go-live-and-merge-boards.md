@@ -120,8 +120,10 @@ design sections:
 | Epics | `features/project/epics/` — list plus a detail page carrying features, requirements, comments, attachments and docs with Mermaid rendering |
 | Feedback | `features/project/feedback/` |
 
-The Plan page (`features/project/plan/PlanPage.tsx`) holds releases, sprints
-and requirements. As designed, the board's own left rail became a sub-navigation
+The release page (`features/project/roadmap/ReleasePage.tsx`) holds a release's
+sprints and requirements; the former Plan page is gone, and `PlanRedirect`
+(`features/project/board/redirects.tsx`) keeps its old links alive by sending
+them to the release page. As designed, the board's own left rail became a sub-navigation
 inside the project rather than competing with the project menu, and no board
 canvas was ported.
 

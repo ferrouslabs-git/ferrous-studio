@@ -26,6 +26,13 @@ function startsOnControl(input: { clientX: number; clientY: number }): boolean {
   return !!el?.closest("button, input, select, textarea, a, [contenteditable='true']");
 }
 
+/**
+ * Makes ref's element draggable while data is non-null. data is read through
+ * a ref (an inline object is fine), but the element must exist when the hook
+ * is first enabled -- the subscription keys on the ref object, not the node.
+ * A drag that starts on a control inside the element is refused. Returns true
+ * while this element is being dragged.
+ */
 export function useDraggable(ref: RefObject<HTMLElement | null>, data: DragData | null): boolean {
   const [dragging, setDragging] = useState(false);
   const dataRef = useRef(data);
@@ -53,6 +60,16 @@ export interface DropTargetOptions {
   disabled?: boolean;
 }
 
+/**
+ * Makes ref's element a drop target unless opts.disabled. accepts says whether
+ * the dragged data may land here -- a refused drag never counts as over this
+ * target and never reaches onDrop; onDrop then runs with that data when an
+ * accepted drag is released on the element. Both are read through a ref
+ * (inline closures are fine), but the element must exist when the hook is
+ * first enabled -- the subscription keys on the ref object, not the node.
+ * When targets nest, only the innermost accepting target under the pointer
+ * acts. Returns true while an accepted drag is over this element.
+ */
 export function useDropTarget(ref: RefObject<HTMLElement | null>, opts: DropTargetOptions): boolean {
   const [over, setOver] = useState(false);
   const optsRef = useRef(opts);

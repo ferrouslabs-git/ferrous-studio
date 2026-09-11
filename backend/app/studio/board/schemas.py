@@ -34,8 +34,13 @@ EstimateHours = Annotated[
 
 #: Position in a sprint's work order. ``None`` means "not ordered" (sorts
 #: last). Same bool guard as EstimateHours: ``True`` must not read as
-#: position 1.
-QueuePosition = Annotated[int | None, BeforeValidator(_not_a_bool)]
+#: position 1. Non-negative and within int4 (the column is an Integer), so a
+#: negative or oversized position is a 422 rather than a database error; the
+#: bounds sit on the ``int`` member for the same reason EstimateHours's do.
+QueuePosition = Annotated[
+    Annotated[int, Field(ge=0, le=2_147_483_647)] | None,
+    BeforeValidator(_not_a_bool),
+]
 
 EntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc"]
 AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc", "feedback"]
@@ -122,7 +127,8 @@ class EpicProgress(BaseModel):
     Counts a requirement wherever it sits on the board: for an epic, every
     requirement whose *effective* epic is this one (its own epic_id, or its
     feature's), not just those attached directly. ``hours`` sums only the
-    estimates that exist (``hours_done`` those on Done requirements);
+    estimates that exist; ``hours_done`` is those same estimates weighted by
+    the status weights above (a 4 h requirement in Review contributes 3 h);
     ``estimated``/``unestimated`` say how many carry one, and ``coverage``
     is their share of ``total`` -- 1.0 when there is nothing to estimate.
     """
@@ -222,7 +228,7 @@ class SprintUpdateResult(BaseModel):
     sprint: SprintRead
     # Populated only on a planned/active -> done transition: how many
     # non-Done requirements were returned to the backlog (ported side effect,
-    # SMA store.py:1090-1095).
+    # SMA store.py's update_sprint).
     returned_to_backlog: int = 0
 
 
@@ -584,6 +590,7 @@ class AgentRunQueued(BaseModel):
 # software-management's agents table.
 
 AgentDesiredState = Literal["running", "stopped"]
+#: The Agent model's STATUSES, which its CHECK constraint enforces.
 AgentStatus = Literal["running", "stopped", "error"]
 
 
@@ -610,7 +617,7 @@ class AgentRead(BaseModel):
     name: str
     sprint_id: UUID | None
     desired_state: str
-    status: str
+    status: AgentStatus
     last_error: str | None
     current_requirement_id: UUID | None
     last_heartbeat: datetime | None

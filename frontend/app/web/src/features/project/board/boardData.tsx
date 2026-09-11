@@ -44,10 +44,10 @@ const OPTIONAL: Set<BoardKind> = new Set(["agents", "comments"]);
 const LOADERS: { [K in BoardKind]: (projectId: string) => Promise<BoardData[K]> } = {
   releases: listReleases,
   epics: listEpics,
-  features: (p) => listFeatures(p),
+  features: listFeatures,
   sprints: listSprints,
-  requirements: (p) => listRequirements(p),
-  docs: (p) => listBoardDocs(p),
+  requirements: listRequirements,
+  docs: listBoardDocs,
   agents: listAgents,
   comments: listAllBoardComments,
 };
@@ -77,6 +77,7 @@ export interface BoardIndex {
   /** Every requirement whose effective release is this one; null = in no release. */
   releaseBacklog: (releaseId: string | null) => Requirement[];
   sprintRequirements: (sprintId: string) => Requirement[];
+  /** This epic's docs, most recently updated first (updated_at desc). */
   epicDocs: (epicId: string) => BoardDoc[];
   effectiveEpicId: (r: Requirement) => string | null;
   effectiveReleaseId: (r: Requirement) => string | null;
@@ -90,10 +91,8 @@ export interface BoardIndex {
 
 export interface BoardContextValue {
   projectId: string;
-  orgId: string;
   paths: BoardPaths;
   data: BoardData | null;
-  loading: boolean;
   error: string | null;
   members: TenantUser[];
   currentUserId: string | null;
@@ -101,14 +100,19 @@ export interface BoardContextValue {
   canWrite: boolean;
   /** Creating, starting, stopping, renaming and deleting agents (board:tokens). */
   canManageAgents: boolean;
+  /** Refetch these kinds (default: all). Rejects on a required kind's failure; agents/comments fall back to []. */
   reload: (kinds?: BoardKind[]) => Promise<void>;
+  /** Upsert by id (appends a row not yet on the board). */
   replace: <K extends BoardKind>(kind: K, item: BoardData[K][number]) => void;
+  /** Drop the row with this id from that kind. */
   remove: (kind: BoardKind, id: string) => void;
+  /** Lookups over data; built over an empty board until the first load lands, so data === null is the loading check. */
   index: BoardIndex;
 }
 
 const BoardContext = createContext<BoardContextValue | null>(null);
 
+/** The project's shared board -- rows, lookups and the write hooks' host -- for any page beneath BoardProvider. */
 export function useBoard(): BoardContextValue {
   const ctx = useContext(BoardContext);
   if (!ctx) throw new Error("useBoard must be used inside BoardProvider");
@@ -217,7 +221,6 @@ export function BoardProvider({ children }: { children?: ReactNode }) {
 
   const [data, setData] = useState<BoardData | null>(null);
   const [members, setMembers] = useState<TenantUser[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // A project switch while a load is in flight must not land the old
   // project's rows in the new one's state.
@@ -250,15 +253,10 @@ export function BoardProvider({ children }: { children?: ReactNode }) {
     generation.current += 1;
     const gen = generation.current;
     setData(null);
-    setLoading(true);
     setError(null);
-    reload()
-      .catch((err: unknown) => {
-        if (gen === generation.current) setError(err instanceof Error ? err.message : "Could not load the board.");
-      })
-      .finally(() => {
-        if (gen === generation.current) setLoading(false);
-      });
+    reload().catch((err: unknown) => {
+      if (gen === generation.current) setError(err instanceof Error ? err.message : "Could not load the board.");
+    });
     getTenantUsers(orgId, "active")
       .then((list) => {
         if (gen === generation.current) setMembers(list);
@@ -282,10 +280,8 @@ export function BoardProvider({ children }: { children?: ReactNode }) {
   const value = useMemo<BoardContextValue>(
     () => ({
       projectId,
-      orgId,
       paths,
       data,
-      loading,
       error,
       members,
       currentUserId: user?.id ?? null,
@@ -296,7 +292,7 @@ export function BoardProvider({ children }: { children?: ReactNode }) {
       remove,
       index,
     }),
-    [projectId, orgId, paths, data, loading, error, members, user?.id, canWriteBoard, canManageBoardTokens, reload, replace, remove, index],
+    [projectId, paths, data, error, members, user?.id, canWriteBoard, canManageBoardTokens, reload, replace, remove, index],
   );
 
   return (

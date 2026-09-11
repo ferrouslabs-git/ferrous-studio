@@ -83,7 +83,7 @@ export function DocPane({ doc: d, editing, onEditing, onClose, onOpenComments }:
       <div className="rqphead">
         <IdChip>{d.human_id}</IdChip>
         <span className="bchip">doc</span>
-        <span style={{ marginLeft: "auto" }} />
+        <span className="spacer" />
         {canWrite && (
           <button type="button" className="btn mini-x" onClick={() => void toggleMode()}>
             {isEditing ? "✓ Done" : "✎ Edit"}

@@ -37,10 +37,12 @@ export function useBoardMutations() {
     };
 
     // ── requirements ──────────────────────────────────────────────────────
-    // opts.undo: a status change is toasted with an Undo (the pane's and the
-    // board's inline patches). opts.saved: "<id> saved" is toasted -- the
-    // drawer's whole-form Save, as the reference's #dSave does; a
-    // field-by-field patch stays silent.
+    // opts.undo: a status change is toasted with an Undo -- the epic page's
+    // pane (RequirementPane). The sprint board deliberately leaves it off and
+    // toasts its own in sbPatch, so that its Undo also forces the activity
+    // poll. opts.saved: "<id> saved" is toasted -- the drawer's whole-form
+    // Save, as the reference's #dSave does; a field-by-field patch stays
+    // silent.
     async function patchRequirement(id: string, patch: RequirementPatch, opts: { undo?: boolean; saved?: boolean } = {}): Promise<Requirement> {
       const before = b().index.requirementById.get(id);
       try {

@@ -14,6 +14,10 @@ import { CommentsList } from "./CommentsList";
 import { EventRow } from "./EventRow";
 import { listEvents } from "./eventsApi";
 
+/**
+ * Pass a fresh object per open: identity, not contents, is what re-opens the
+ * panel (same entity again resets to the Comments tab with an empty composer).
+ */
 export interface CommentsTarget {
   type: BoardEntityType;
   id: string;
@@ -26,8 +30,12 @@ export interface CommentsTarget {
 // main column while body.board-cpanel-open is set, so nothing sits under it.
 const BODY_OPEN_CLASS = "board-cpanel-open";
 
+/**
+ * Docked, non-modal thread + history for one entity. onClose fires from ✕ and
+ * from any pushed navigation (a replace, e.g. ?req=, keeps it open); the
+ * parent must drop its target there.
+ */
 export function CommentsPanel({ target, onClose }: { target: CommentsTarget | null; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const open = target !== null;
@@ -66,7 +74,7 @@ export function CommentsPanel({ target, onClose }: { target: CommentsTarget | nu
 
   if (!target) return null;
   return (
-    <div ref={ref} className="board-drawer cpanel" role="complementary" aria-label={target.label}>
+    <div className="board-drawer cpanel" role="complementary" aria-label={target.label}>
       <div className="cphead">
         <b>{target.label}</b>
         <button type="button" className="btn mini-x" onClick={onClose} aria-label="Close" title="Close">
@@ -111,7 +119,7 @@ function History({ target }: { target: CommentsTarget }) {
   return (
     <div>
       {rows.map((e) => (
-        <EventRow key={e.id} event={e} compact />
+        <EventRow key={e.id} event={e} />
       ))}
     </div>
   );
