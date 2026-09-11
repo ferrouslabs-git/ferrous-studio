@@ -97,11 +97,18 @@ resource "aws_iam_role_policy" "cognito_admin" {
 
 # Project Agent chatbot: calls Claude through Bedrock rather than a stored
 # Anthropic API key, so this IAM grant *is* the credential -- nothing else
-# to rotate or store. "eu.anthropic.claude-sonnet-5" is an inference-profile
-# id (this model has no direct on-demand invocation), which Bedrock resolves
-# to the underlying foundation model in whichever EU region has capacity --
-# both ARN shapes need to be granted, per AWS's own guidance for
+# to rotate or store. Each model id here is an inference-profile id (these
+# models have no direct on-demand invocation), which Bedrock resolves to the
+# underlying foundation model in whichever EU region has capacity -- both ARN
+# shapes need to be granted per model, per AWS's own guidance for
 # cross-region inference profiles.
+#
+# claude-sonnet-4-5 is the one actually in use right now (see
+# app/config.py's bedrock_claude_model default) -- this account's Bedrock
+# model-access terms for Sonnet 5 itself have not been accepted yet
+# (confirmed live 2026-09-11, a business decision in the Bedrock console,
+# not a Terraform one). Sonnet 5 is granted here too so switching the app's
+# default back needs no second `terraform apply`.
 resource "aws_iam_role_policy" "bedrock_claude" {
   name = "project-agent-bedrock"
   role = aws_iam_role.task.id
@@ -114,6 +121,8 @@ resource "aws_iam_role_policy" "bedrock_claude" {
       Resource = [
         "arn:aws:bedrock:${local.region}:${local.shared.account_id}:inference-profile/eu.anthropic.claude-sonnet-5",
         "arn:aws:bedrock:*:${local.shared.account_id}:foundation-model/anthropic.claude-sonnet-5",
+        "arn:aws:bedrock:${local.region}:${local.shared.account_id}:inference-profile/eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "arn:aws:bedrock:*:${local.shared.account_id}:foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
       ]
     }]
   })

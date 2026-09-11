@@ -69,6 +69,14 @@ class Settings:
     # idea, deliberately not designed yet. The model id is a Bedrock
     # *inference profile* id, not the plain Anthropic API model alias --
     # this model has no direct on-demand invocation.
+    #
+    # TEMPORARY: defaults to Sonnet 4.5, not Sonnet 5. Confirmed live against
+    # the real account (2026-09-11) that Sonnet 5 (and Sonnet 4, which is
+    # legacy) 403/404 -- Anthropic's Bedrock model-access terms have not been
+    # accepted for it yet (AWS Console -> Bedrock -> Model access; a business
+    # decision, not something to grant from code). Sonnet 4.5 and Opus 4.5
+    # both work today. Switch this back once Sonnet 5 access is granted --
+    # infra/terraform/iam.tf's bedrock_claude policy already grants both.
     bedrock_claude_model: str
 
     # ── Agent runner (phase 5, deliberately not deployed yet) ──────────────
@@ -135,7 +143,7 @@ def get_settings() -> Settings:
         github_client_id=os.getenv("GITHUB_CLIENT_ID", "").strip(),
         github_client_secret=os.getenv("GITHUB_CLIENT_SECRET", "").strip(),
         github_api_base=os.getenv("GITHUB_API_BASE", "https://api.github.com").strip().rstrip("/"),
-        bedrock_claude_model=os.getenv("BEDROCK_CLAUDE_MODEL", "eu.anthropic.claude-sonnet-5").strip(),
+        bedrock_claude_model=os.getenv("BEDROCK_CLAUDE_MODEL", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0").strip(),
         agent_ecs_cluster=os.getenv("AGENT_ECS_CLUSTER", "").strip(),
         agent_task_definition=os.getenv("AGENT_TASK_DEFINITION", "").strip(),
         agent_subnets=[s.strip() for s in os.getenv("AGENT_SUBNETS", "").split(",") if s.strip()],
