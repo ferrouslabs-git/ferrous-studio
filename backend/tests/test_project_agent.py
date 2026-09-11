@@ -26,6 +26,25 @@ from app.studio.importing import BundleError, validate_bundle, wrap_bare_envelop
 FAKE_PROJECT = SimpleNamespace(name="Test", id="proj-1", account_id="acct-1", repo_full_name=None)
 
 
+class _FakeCtx:
+    """Mirrors ScopeContext.has_permission's real semantics (just the one
+    method _tools_for/_run_tool actually call) without needing a real,
+    resolved ScopeContext -- matches an account_member (data:write only) or
+    account_admin (data:write + board:write), per auth_config.yaml."""
+
+    def __init__(self, permissions: set[str], scope_id: str = "acct-1", user_id: str = "user-1"):
+        self._permissions = permissions
+        self.scope_id = scope_id
+        self.user_id = user_id
+
+    def has_permission(self, perm: str) -> bool:
+        return perm in self._permissions
+
+
+FAKE_CTX_MEMBER = _FakeCtx({"data:write"})
+FAKE_CTX_ADMIN = _FakeCtx({"data:write", "board:write"})
+
+
 @pytest.fixture
 def configured(monkeypatch):
     def _configure(model: str = "eu.anthropic.claude-sonnet-5"):
@@ -139,7 +158,7 @@ def test_the_prompt_regenerates_directly_without_waiting_for_confirmation():
 
 
 def test_the_prompt_forbids_claiming_unconfirmed_creation():
-    assert "never say you built something you didn't call the tool for" in pa.SYSTEM_PROMPT
+    assert "never say you built something you didn't call a tool for" in pa.SYSTEM_PROMPT
 
 
 def test_send_message_looks_up_existing_content_before_asking():
@@ -187,6 +206,163 @@ def test_create_bundle_tool_only_exposes_wireframes_and_diagrams():
     assert set(props) == {"wireframes", "diagrams"}
 
 
+def test_a_member_without_board_write_only_gets_create_bundle():
+    """account_member has data:write but not board:write (auth_config.yaml)
+    -- the board tools must not even be offered, not offered-then-refused."""
+    tools = pa._tools_for(FAKE_CTX_MEMBER)
+    assert tools == [pa.CREATE_BUNDLE_TOOL]
+
+
+def test_an_admin_with_board_write_gets_all_three_tools():
+    tools = pa._tools_for(FAKE_CTX_ADMIN)
+    assert tools == [pa.CREATE_BUNDLE_TOOL, pa.CREATE_EPIC_TOOL, pa.CREATE_REQUIREMENT_TOOL]
+
+
+async def test_the_prompt_tells_a_member_board_tools_are_unavailable(configured, monkeypatch):
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage(text="noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
+    assert "do NOT have create_epic or create_requirement" in captured["system"]
+    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL]
+
+
+async def test_the_prompt_tells_an_admin_board_tools_are_available(configured, monkeypatch):
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage(text="noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_ADMIN, repo_full_name=None, history=[])
+    assert "also have create_epic and create_requirement" in captured["system"]
+    assert pa.CREATE_EPIC_TOOL in captured["tools"]
+    assert pa.CREATE_REQUIREMENT_TOOL in captured["tools"]
+
+
+async def test_create_epic_tool_call_succeeds_for_an_admin(monkeypatch):
+    async def _fake_create_epic_content(db, project, ctx, payload):
+        assert payload.title == "Login flow"
+        return SimpleNamespace(id="epic-1", title="Login flow", status="Readiness")
+
+    monkeypatch.setattr(pa, "create_epic_content", _fake_create_epic_content)
+    tool_use = SimpleNamespace(name="create_epic", input={"title": "Login flow"})
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is False
+    assert json.loads(content) == {"id": "epic-1", "title": "Login flow", "status": "Readiness"}
+
+
+async def test_create_epic_tool_call_is_refused_for_a_member_even_if_somehow_invoked():
+    """Belt and braces: _tools_for already keeps this tool off a member's
+    list, but _run_tool must independently refuse to execute it too, in
+    case a stale/replayed tool_use ever reached here for a ctx that never
+    had board:write."""
+    tool_use = SimpleNamespace(name="create_epic", input={"title": "Login flow"})
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+    assert is_error is True
+    assert "Unknown tool" in content
+
+
+async def test_create_epic_tool_call_with_bad_input_is_a_catchable_error(monkeypatch):
+    """title is required (EpicCreate) -- a missing one must come back as a
+    normal tool_result error the model can fix and retry, not an uncaught
+    pydantic ValidationError crashing the whole request."""
+    tool_use = SimpleNamespace(name="create_epic", input={})
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+    assert is_error is True
+    assert "errors" in json.loads(content)
+
+
+async def test_create_requirement_tool_call_succeeds_for_an_admin(monkeypatch):
+    async def _fake_create_requirement_content(db, project, ctx, payload):
+        assert payload.title == "Add login form"
+        return SimpleNamespace(), SimpleNamespace(id="req-1", title="Add login form", status="Todo")
+
+    monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
+    tool_use = SimpleNamespace(name="create_requirement", input={"title": "Add login form"})
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is False
+    assert json.loads(content) == {"id": "req-1", "title": "Add login form", "status": "Todo"}
+
+
+async def test_create_requirement_with_a_bad_epic_id_is_a_catchable_error(monkeypatch):
+    """A hallucinated epic_id must not reach the database as a raw foreign-key
+    violation -- checked against the real board first, and reported back as
+    an ordinary tool_result error the model can retry without it."""
+
+    async def _fake_get_or_create_board(db, project):
+        return SimpleNamespace(id="board-1")
+
+    async def _fake_get_epic(db, board, epic_id):
+        raise pa.HTTPException(status_code=404, detail="Epic not found")
+
+    monkeypatch.setattr(pa, "get_or_create_board", _fake_get_or_create_board)
+    monkeypatch.setattr(pa, "_get_epic", _fake_get_epic)
+    tool_use = SimpleNamespace(
+        name="create_requirement", input={"title": "Add login form", "epic_id": "11111111-1111-1111-1111-111111111111"}
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is True
+    assert "epic_id" in json.loads(content)["errors"][0]["field"]
+
+
+async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monkeypatch):
+    """The realistic two-step flow the tool description promises: create the
+    epic, get its real id back in the tool result, then reference that
+    exact id (never an invented one) when creating the requirement."""
+    configured_settings = replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5")
+    calls = []
+
+    async def _create(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _FakeMessage(tool_use=("call-1", "create_epic", {"title": "Login flow"}))
+        if len(calls) == 2:
+            return _FakeMessage(
+                tool_use=("call-2", "create_requirement", {"title": "Add login form", "epic_id": "11111111-1111-1111-1111-111111111111"})
+            )
+        return _FakeMessage(text="Created the Login flow epic and one requirement under it.")
+
+    async def _fake_create_epic_content(db, project, ctx, payload):
+        return SimpleNamespace(id="11111111-1111-1111-1111-111111111111", title=payload.title, status="Readiness")
+
+    async def _fake_get_or_create_board(db, project):
+        return SimpleNamespace(id="board-1")
+
+    async def _fake_get_epic(db, board, epic_id):
+        assert str(epic_id) == "11111111-1111-1111-1111-111111111111"
+        return SimpleNamespace(id=epic_id)
+
+    async def _fake_create_requirement_content(db, project, ctx, payload):
+        assert str(payload.epic_id) == "11111111-1111-1111-1111-111111111111"
+        return SimpleNamespace(), SimpleNamespace(id="req-real-id", title=payload.title, status="Todo")
+
+    monkeypatch.setattr(pa, "get_settings", lambda: configured_settings)
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    monkeypatch.setattr(pa, "create_epic_content", _fake_create_epic_content)
+    monkeypatch.setattr(pa, "get_or_create_board", _fake_get_or_create_board)
+    monkeypatch.setattr(pa, "_get_epic", _fake_get_epic)
+    monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
+
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_ADMIN, repo_full_name=None, history=[])
+
+    assert reply == "Created the Login flow epic and one requirement under it."
+    assert len(calls) == 3
+
+
 async def test_a_text_only_reply_needs_no_tool_call(configured, monkeypatch):
     configured()
     captured: dict = {}
@@ -196,7 +372,7 @@ async def test_a_text_only_reply_needs_no_tool_call(configured, monkeypatch):
         return _FakeMessage(text="noted")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert reply == "noted"
     assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL]
 
@@ -214,7 +390,7 @@ async def test_the_agent_is_told_plainly_when_no_repo_is_connected(configured, m
         return _FakeMessage(text="noted")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert "No repository is connected" in captured["system"]
 
 
@@ -227,7 +403,7 @@ async def test_the_agent_is_told_the_repo_when_one_is_connected(configured, monk
         return _FakeMessage(text="noted")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name="acme/website", history=[])
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name="acme/website", history=[])
     assert 'A repository is connected: "acme/website"' in captured["system"]
 
 
@@ -240,7 +416,7 @@ async def test_the_agent_is_told_plainly_when_nothing_exists_yet(configured, mon
         return _FakeMessage(text="noted")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert "no wireframes or diagrams yet" in captured["system"]
 
 
@@ -257,7 +433,7 @@ async def test_the_agent_is_told_the_real_counts_when_content_already_exists(con
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(
-        db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, wireframe_count=3, diagram_count=2, history=[]
+        db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, wireframe_count=3, diagram_count=2, history=[]
     )
     assert "already has 3 wireframe(s) and 2 diagram(s)" in captured["system"]
 
@@ -282,7 +458,7 @@ async def test_a_successful_tool_call_creates_content_and_the_model_narrates(con
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
 
-    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
 
     assert reply == "Done -- I created a wireframe called Login."
     assert len(calls) == 2
@@ -313,7 +489,7 @@ async def test_a_validation_failure_is_fed_back_as_an_error_tool_result(configur
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
 
-    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
 
     tool_result = calls[1]["messages"][-1]["content"][0]
     assert tool_result["is_error"] is True
@@ -334,7 +510,7 @@ async def test_an_unknown_tool_name_is_reported_as_an_error_without_crashing(con
         return _FakeMessage(text="I can't do that.")
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
-    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
 
     assert reply == "I can't do that."
     tool_result = calls[1]["messages"][-1]["content"][0]
@@ -359,7 +535,7 @@ async def test_the_loop_asks_for_one_final_honest_summary_after_max_rounds(confi
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
 
-    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
 
     # MAX_TOOL_ROUNDS tool-bearing calls, plus one final call without tools.
     assert len(calls) == pa.MAX_TOOL_ROUNDS + 1
@@ -401,7 +577,7 @@ async def test_a_partial_success_is_not_reported_as_a_full_failure(configured, m
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     monkeypatch.setattr(pa, "create_bundle_content", _fake_create_bundle_content)
 
-    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+    reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
 
     assert "I created a Login wireframe" in reply
     assert "wasn't able to finish" not in reply
@@ -436,8 +612,8 @@ async def test_two_projects_conversations_never_cross_talk_under_real_concurrenc
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
 
     reply_a, reply_b = await asyncio.gather(
-        pa._ask_claude(db=None, project=project_a, ctx=None, repo_full_name=None, history=[]),
-        pa._ask_claude(db=None, project=project_b, ctx=None, repo_full_name="acme/bravo", history=[]),
+        pa._ask_claude(db=None, project=project_a, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[]),
+        pa._ask_claude(db=None, project=project_b, ctx=FAKE_CTX_MEMBER, repo_full_name="acme/bravo", history=[]),
     )
 
     assert reply_a == "Reply for Alpha"
@@ -454,7 +630,7 @@ async def test_authentication_error_becomes_a_502(monkeypatch):
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_raise))
 
     with pytest.raises(pa.HTTPException) as excinfo:
-        await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+        await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert excinfo.value.status_code == 502
 
 
@@ -468,7 +644,7 @@ async def test_connection_error_becomes_a_502(monkeypatch):
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_raise))
 
     with pytest.raises(pa.HTTPException) as excinfo:
-        await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=None, repo_full_name=None, history=[])
+        await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert excinfo.value.status_code == 502
 
 

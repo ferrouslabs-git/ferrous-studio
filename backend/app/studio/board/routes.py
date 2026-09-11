@@ -325,14 +325,11 @@ async def get_board_summary(
     )
 
 
-@router.post("/projects/{project_id}/board/epics", response_model=EpicRead, status_code=status.HTTP_201_CREATED)
-async def create_epic(
-    project_id: UUID,
-    payload: EpicCreate,
-    ctx: ScopeContext = Depends(require_permission("board:write")),
-    db: AsyncSession = Depends(get_db),
-) -> Epic:
-    project = await get_project(db, project_id, ctx)
+async def create_epic_content(db: AsyncSession, project: Project, ctx: ScopeContext, payload: EpicCreate) -> Epic:
+    """Everything create_epic's route does, minus commit -- shared with the
+    Project Agent chatbot's create_epic tool (project_agent.py), which
+    needs this to land in the same transaction as the rest of a chat turn
+    rather than committing on its own partway through."""
     board = await _board(db, project, ctx)
     if payload.release_id is not None:
         await _get_release(db, board, payload.release_id)
@@ -341,6 +338,18 @@ async def create_epic(
     db.add(epic)
     await db.flush()
     await service.write_event(db, board, ctx.user_id, "epic.created", "epic", epic.id, {})
+    return epic
+
+
+@router.post("/projects/{project_id}/board/epics", response_model=EpicRead, status_code=status.HTTP_201_CREATED)
+async def create_epic(
+    project_id: UUID,
+    payload: EpicCreate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> Epic:
+    project = await get_project(db, project_id, ctx)
+    epic = await create_epic_content(db, project, ctx, payload)
     await db.commit()
     await db.refresh(epic)
     return epic
@@ -785,16 +794,14 @@ async def list_requirements(
     ]
 
 
-@router.post(
-    "/projects/{project_id}/board/requirements", response_model=RequirementRead, status_code=status.HTTP_201_CREATED
-)
-async def create_requirement(
-    project_id: UUID,
-    payload: RequirementCreate,
-    ctx: ScopeContext = Depends(require_permission("board:write")),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    project = await get_project(db, project_id, ctx)
+async def create_requirement_content(
+    db: AsyncSession, project: Project, ctx: ScopeContext, payload: RequirementCreate
+) -> tuple[Board, Requirement]:
+    """Everything create_requirement's route does, minus commit -- shared
+    with the Project Agent chatbot's create_requirement tool
+    (project_agent.py), for the same one-transaction-per-chat-turn reason
+    as create_epic_content above. Returns the board too since the route
+    needs it again for _requirement_read after commit."""
     board = await _board(db, project, ctx)
     seq = await service._next_seq(db, board, "requirement_seq")
     requirement = Requirement(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
@@ -805,6 +812,20 @@ async def create_requirement(
     await service.write_event(db, board, ctx.user_id, "requirement.created", "requirement", requirement.id, {})
     if requirement.sprint_id is not None:
         await maybe_wake_agent(db, board, requirement.sprint_id)
+    return board, requirement
+
+
+@router.post(
+    "/projects/{project_id}/board/requirements", response_model=RequirementRead, status_code=status.HTTP_201_CREATED
+)
+async def create_requirement(
+    project_id: UUID,
+    payload: RequirementCreate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    project = await get_project(db, project_id, ctx)
+    board, requirement = await create_requirement_content(db, project, ctx, payload)
     await db.commit()
     await db.refresh(requirement)
     return await _requirement_read(db, board, requirement)

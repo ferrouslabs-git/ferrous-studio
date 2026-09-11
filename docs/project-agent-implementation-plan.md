@@ -16,9 +16,18 @@ throwaway work.
    2026-09-11):** everyone with access to the project, but *"a user asking
    for anything doesn't mean a user gets everything"* — access must be
    gated per tool category (wireframe tools vs. management/board tools),
-   not one blanket check. **Not built yet** -- today's `send_message` only
-   checks the same blanket `data:write` every other write route uses; there
-   is no per-tool-category permission split.
+   not one blanket check. **Built:** `create_bundle` needs `data:write`
+   (already required to reach `send_message` at all); `create_epic` /
+   `create_requirement` additionally need `board:write`, a real, stricter
+   permission an `account_member` role does not have (only
+   `account_admin` does — `auth_config.yaml`). The board tools are only
+   ever added to the list Claude is offered when
+   `ctx.has_permission("board:write")` is true, and `_run_tool` refuses to
+   execute them even if somehow invoked without it — a member isn't told
+   "no", the capability simply doesn't exist for that request. This is
+   *not* Ali's separate-MCP-servers-plus-gateway proposal (§0.7 below,
+   still not built) — it reuses the app's own existing permission system
+   directly, which already drew this exact boundary.
 2. ~~Does a project's chat remember previous conversations?~~ **Answered
    in code:** yes, persists indefinitely, one thread per project.
 3. ~~What happens if wireframes/diagrams already exist and the chatbot is
@@ -26,17 +35,25 @@ throwaway work.
    *"Regenerate just generates a new wireframes file... Version is the
    history"* -- don't try to merge/update, just create a new one every
    time and rely on the existing version-snapshot system to keep the old
-   one recoverable. **Not built to match yet** -- the chatbot currently
-   pauses and asks for confirmation before creating more when content
-   already exists, rather than just creating a new one outright.
+   one recoverable. **Built and verified live:** the chatbot now mentions
+   the existing count, then creates directly in the same reply, no pause.
 4. ~~Is the "agent connection" org-level or platform-level for v1?~~
    **Answered and built:** platform-level (AWS Bedrock, the ECS task's own
    IAM role) -- see §7. Org-level bring-your-own-key stays deferred (§6).
 5. ~~Confirm scope: reverse-engineering only, or also planning
    (epics/features/requirements)?~~ **Answered by Ali (Slack,
    2026-09-11):** *"On the first one yes"* -- the chatbot should
-   eventually do both. **Not built yet** -- only the `create_bundle`
-   (wireframes/diagrams) tool exists; no board/planning tool.
+   eventually do both. **Built and verified live:** `create_epic` and
+   `create_requirement` tools exist (board:write-gated, see §0.1), reusing
+   `board/routes.py`'s own creation logic (`create_epic_content` /
+   `create_requirement_content`, extracted the same way
+   `create_bundle_content` was) so a chat-created epic is held to the
+   identical bar as one made by clicking the real "New epic" button.
+   Verified with a real two-step flow: create an epic, then a requirement
+   correctly filed under its real id in the same reply -- confirmed in the
+   database, not just the chat reply. Feature-level board actions
+   (releases, sprints, comments, attachments) are not built -- only
+   create_epic/create_requirement, the two Niral's own question named.
 6. **NEW, unresolved -- do not build yet:** Ali separately floated a
    *different* shape entirely: a dedicated "Reverse Engineer This Repo"
    button tied to its own one-off chat thread, which disappears once
