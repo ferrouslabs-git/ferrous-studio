@@ -1,0 +1,108 @@
+"""The Project Agent chatbot's pure pieces.
+
+The routes themselves need a database and a real (or mocked) Anthropic
+call -- exercised live via run-local, not here, matching every other
+route-level test in this suite (test_bundle_import.py's own docstring
+states the same reasoning). What's tested here is what can be: the
+configured() gate, which permission/lock each route asks for, and how a
+failed Anthropic call is translated into an HTTP response.
+"""
+import inspect
+from dataclasses import replace
+
+import anthropic
+import pytest
+
+from app.config import get_settings
+from app.studio import project_agent as pa
+
+
+@pytest.fixture
+def configured(monkeypatch):
+    def _configure(key: str = "sk-ant-test"):
+        settings = replace(get_settings(), anthropic_api_key=key)
+        monkeypatch.setattr(pa, "get_settings", lambda: settings)
+        return settings
+
+    return _configure
+
+
+def test_configured_is_true_once_a_key_is_set(configured):
+    configured("sk-ant-test")
+    assert pa.configured() is True
+
+
+def test_configured_is_false_with_no_key(monkeypatch):
+    settings = replace(get_settings(), anthropic_api_key="")
+    monkeypatch.setattr(pa, "get_settings", lambda: settings)
+    assert pa.configured() is False
+
+
+def test_list_messages_works_on_a_locked_version():
+    """Reading history must not require get_writable_project -- a locked
+    version's Project Agent tab should still show what was said, the same
+    way GitHub connection reads work on a frozen version."""
+    source = inspect.getsource(pa.list_messages)
+    assert "get_project(" in source
+    assert "get_writable_project(" not in source
+
+
+def test_send_message_takes_the_project_lock():
+    """A locked version is a frozen record; Phase 2 will let this route
+    change project content, so it takes the lock now rather than later."""
+    assert "get_writable_project(" in inspect.getsource(pa.send_message)
+
+
+def test_permissions_match_the_data_routes_convention():
+    read_source = inspect.getsource(pa.list_messages)
+    write_source = inspect.getsource(pa.send_message)
+    assert 'require_permission("data:read")' in read_source
+    assert 'require_permission("data:write")' in write_source
+
+
+async def test_authentication_error_becomes_a_502(monkeypatch):
+    async def _raise(*args, **kwargs):
+        raise anthropic.AuthenticationError(
+            message="bad key", response=_fake_response(401), body=None
+        )
+
+    monkeypatch.setattr(pa, "get_settings", lambda: replace(get_settings(), anthropic_api_key="sk-ant-test"))
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_raise))
+
+    with pytest.raises(pa.HTTPException) as excinfo:
+        await pa._ask_claude(project_name="Test", history=[])
+    assert excinfo.value.status_code == 502
+
+
+async def test_connection_error_becomes_a_502(monkeypatch):
+    async def _raise(*args, **kwargs):
+        raise anthropic.APIConnectionError(request=_fake_request())
+
+    monkeypatch.setattr(pa, "get_settings", lambda: replace(get_settings(), anthropic_api_key="sk-ant-test"))
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(_raise))
+
+    with pytest.raises(pa.HTTPException) as excinfo:
+        await pa._ask_claude(project_name="Test", history=[])
+    assert excinfo.value.status_code == 502
+
+
+class _FakeMessages:
+    def __init__(self, create):
+        self.create = create
+
+
+class _FakeClient:
+    def __init__(self, create):
+        self.messages = _FakeMessages(create)
+
+
+def _fake_request():
+    import httpx2
+
+    return httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+
+
+def _fake_response(status_code: int):
+    import httpx2
+
+    return httpx2.Response(status_code, request=_fake_request(), json={"error": {"message": "bad key"}})

@@ -67,7 +67,13 @@ COPIED_TABLES = frozenset(
 )
 
 #: History and request bookkeeping, which belong to the version that made them.
-SKIPPED_TABLES = frozenset({"project_versions", "wireframe_audit_log", "project_op_batches"})
+#: project_agent_messages joins this group rather than COPIED_TABLES for the
+#: same reason as wireframe_audit_log: a conversation is a record of what was
+#: said about *this* version, not content to carry forward -- a new version
+#: starts its Project Agent tab with a clean history.
+SKIPPED_TABLES = frozenset(
+    {"project_versions", "wireframe_audit_log", "project_op_batches", "project_agent_messages"}
+)
 
 
 async def _rows(db: AsyncSession, model: Any, project: Project, order: Any = None) -> list[Any]:

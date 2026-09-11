@@ -18,6 +18,7 @@ from .documents import router as documents_router
 from .github import project_router as github_project_router
 from .github import router as github_router
 from .importing import router as importing_router
+from .project_agent import router as project_agent_router
 from .personas import router as personas_router
 from .projects import router as projects_router
 from .use_cases import router as use_cases_router
@@ -34,6 +35,7 @@ router.include_router(documents_router)
 router.include_router(use_cases_router)
 router.include_router(datasets_router)
 router.include_router(importing_router)
+router.include_router(project_agent_router)
 router.include_router(github_router)
 # Repository links hang off a project, so they carry no /github prefix.
 router.include_router(github_project_router)

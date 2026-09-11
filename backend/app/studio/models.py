@@ -486,6 +486,32 @@ class ProjectDiagram(Base):
     __table_args__ = (Index("ix_project_diagrams_account_project", "account_id", "project_id"),)
 
 
+# ── Project Agent chatbot ───────────────────────────────────────────────────
+
+
+class ProjectAgentMessage(Base):
+    """One turn in a project's Project Agent conversation.
+
+    Every project has exactly one ongoing conversation -- there is no
+    separate session row, since nothing so far calls for more than one
+    thread per project. History persists indefinitely; nothing prunes it.
+    """
+
+    __tablename__ = "project_agent_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    role = Column(String(16), nullable=False)  # user | assistant
+    content = Column(Text, nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_project_agent_messages_account_project", "account_id", "project_id", "created_at"),
+    )
+
+
 # ── Documents ───────────────────────────────────────────────────────────────
 
 

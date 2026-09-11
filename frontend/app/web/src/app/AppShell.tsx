@@ -225,6 +225,7 @@ function ProjectNav({
       </div>
       <NavGroup>
         <NavItem to={`${base}/details`} icon="info" label="Project details" />
+        <NavItem to={`${base}/agent`} icon="agent" label="Project Agent" />
       </NavGroup>
       <NavGroup title="Scope">
         <NavItem to={`${base}/use-cases`} icon="usecase" label="Use case diagram" />
@@ -339,6 +340,7 @@ type IconName =
   | "feedback"
   | "github"
   | "audit"
+  | "agent"
   | "arrowLeft";
 
 const PATHS: Record<IconName, ReactNode> = {
@@ -438,6 +440,12 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M3 12a9 9 0 1 0 3-6.7" />
       <path d="M3 4v4h4" />
       <path d="M12 8v4l3 2" />
+    </>
+  ),
+  agent: (
+    <>
+      <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+      <path d="M8 10h8M8 13h5" />
     </>
   ),
   arrowLeft: <path d="M19 12H5M11 6l-6 6 6 6" />,

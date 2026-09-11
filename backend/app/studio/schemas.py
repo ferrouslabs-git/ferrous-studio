@@ -716,3 +716,27 @@ class ProjectRepositoryRead(BaseModel):
     latest_commit: RepositoryCommit | None = None
     #: Plain sentence for the page to show when ``state`` is not "ok".
     message: str | None = None
+
+
+# ── Project Agent ─────────────────────────────────────────────────────────
+
+
+class ProjectAgentMessageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
+
+
+class ProjectAgentSend(BaseModel):
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class ProjectAgentStatus(BaseModel):
+    """Whether this deployment has an Anthropic key at all -- same
+    configured/connected split as GitHub, but there is nothing to "connect":
+    the platform's own key powers every organisation's chat for now."""
+
+    configured: bool

@@ -23,6 +23,7 @@ import { EpicsPage } from "./features/project/epics/EpicsPage";
 import { FeedbackPage } from "./features/project/feedback/FeedbackPage";
 import { PersonasPage } from "./features/project/personas/PersonasPage";
 import { PlanPage } from "./features/project/plan/PlanPage";
+import { ProjectAgentPage } from "./features/project/agent/ProjectAgentPage";
 import { LegacyProjectRedirect, ProjectLayout } from "./features/project/ProjectLayout";
 import { ProjectDetailsPage } from "./features/project/ProjectDetailsPage";
 import { RoadmapPage } from "./features/project/roadmap/RoadmapPage";
@@ -73,6 +74,7 @@ export function App() {
             <Route path="/orgs/:orgId/projects/:projectId" element={<ProjectLayout />}>
               <Route index element={<Navigate to="details" replace />} />
               <Route path="details" element={<ProjectDetailsPage />} />
+              <Route path="agent" element={<ProjectAgentPage />} />
               <Route path="use-cases" element={<UseCaseDiagramPage />} />
               <Route path="personas" element={<PersonasPage />} />
               <Route path="diagrams" element={<DiagramsPage />} />
