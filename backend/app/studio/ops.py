@@ -34,6 +34,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from collections.abc import Iterator
 from typing import Any
+from uuid import uuid4
 
 from .positions import key_after
 
@@ -319,9 +320,22 @@ def import_page(data: dict[str, Any]) -> dict[str, Any]:
 
     def unembed(node: dict[str, Any]) -> dict[str, Any]:
         if node.get("kind") == "split":
+            # A bundle's split node is never required to carry an id -- the
+            # validator only requires one on a region (_validate_layout_tree)
+            # -- but the frontend's SplitNode type does require a real
+            # string id. A null id here isn't just cosmetic: the editor's own
+            # isLayoutNode() shape check rejects the whole document as
+            # "legacy" and silently replaces it with a blank page, discarding
+            # every region's components on first open. Mint one if the
+            # bundle omitted it, in the same "s-<12 hex>" shape the frontend's
+            # own uid("s") produces, so a generated id is indistinguishable
+            # from an interactively-created one.
+            split_id = node.get("id")
+            if not isinstance(split_id, str) or not split_id:
+                split_id = f"s-{uuid4().hex[:12]}"
             return {
                 "kind": "split",
-                "id": node.get("id"),
+                "id": split_id,
                 "dir": node.get("dir"),
                 "size": node.get("size"),
                 "children": [unembed(c) for c in node.get("children") or [] if isinstance(c, dict)],

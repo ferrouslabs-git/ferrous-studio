@@ -390,3 +390,55 @@ def test_import_page_resets_malformed_layout_to_blank():
     assert root["kind"] == "region"
     assert imported["document"]["regions"] == {root["id"]: []}
     assert imported["placement"] is None
+
+
+def test_import_page_mints_a_split_id_the_bundle_left_out():
+    """A real bug, found live: the bundle format never requires a split node
+    to carry an id (validate_bundle only checks region ids), but the
+    frontend's SplitNode type does -- a null id makes isLayoutNode() reject
+    the whole document as "legacy" and silently blank it, discarding both
+    regions' components the first time anyone opens the page. A generated
+    id must be a real non-empty string, and must not disturb the split's
+    other fields or its children's own regions/components.
+    """
+    imported = import_page({
+        "id": "p1",
+        "name": "Dashboard",
+        "layout": {
+            "kind": "split",
+            "dir": "row",
+            "size": {"fr": 1},
+            "children": [
+                {"kind": "region", "id": "r-sidebar", "size": 240, "components": [{"id": "c-nav", "type": "navbar"}]},
+                {"kind": "region", "id": "r-main", "size": {"fr": 1}, "components": [{"id": "c-stats", "type": "graph"}]},
+            ],
+        },
+    })
+    root = imported["document"]["root"]
+    assert root["kind"] == "split"
+    assert isinstance(root["id"], str) and root["id"]
+    assert root["dir"] == "row"
+    assert root["size"] == {"fr": 1}
+    assert [c["id"] for c in root["children"]] == ["r-sidebar", "r-main"]
+    regions = imported["document"]["regions"]
+    assert [c["id"] for c in regions["r-sidebar"]] == ["c-nav"]
+    assert [c["id"] for c in regions["r-main"]] == ["c-stats"]
+
+
+def test_import_page_leaves_an_existing_split_id_alone():
+    """The common case -- copying a version, or re-importing something that
+    already round-tripped through export -- must not mint a new id over a
+    real one; that would make every copy's split ids diverge from the
+    original for no reason."""
+    imported = import_page({
+        "id": "p1",
+        "name": "Dashboard",
+        "layout": {
+            "kind": "split", "id": "s-original", "dir": "row", "size": {"fr": 1},
+            "children": [
+                {"kind": "region", "id": "r-a", "size": 240, "components": []},
+                {"kind": "region", "id": "r-b", "size": {"fr": 1}, "components": []},
+            ],
+        },
+    })
+    assert imported["document"]["root"]["id"] == "s-original"
