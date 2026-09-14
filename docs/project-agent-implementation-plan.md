@@ -1,10 +1,29 @@
 # Project Agent — phased implementation plan
 
-Status: **draft, not confirmed by the client.** This turns the Slack
-discussion with Ali and Elliott (see `project-agent-notes.md` for the
-plain-language recap) into an actual build order. Nothing described here
-should be treated as final scope until the open questions in §0 are
-answered.
+Status: **superseded direction, work paused here (2026-09-14).** Client note
+(unsigned, left before stepping into a meeting): to ship Ferrous Studio v1,
+the plan is to **remove the in-app chatbot entirely** and rely only on a
+**local agent connected over MCP** (e.g. Claude Code, via the board-token
+`.mcp.json` config already built) -- no chat box inside the product. Niral
+confirmed: *"we will build this later"* -- not urgent, and everything below
+stays parked exactly as it is on the `project-agent-chatbot` branch (never
+merged into `main`) rather than being deleted or reworked now.
+
+**What "later" needs, per the client's note, before the MCP-only approach
+can actually replace this:**
+1. Reverse-engineering a repo into wireframes/diagrams needs to be
+   triggerable from a local agent, not only from inside the app.
+2. MCP (`board_mcp.py`) needs to cover everything this chatbot can do, not
+   just board data. Today MCP has no wireframe/diagram tools at all --
+   `create_bundle` and `update_wireframe` only exist as in-app chatbot
+   tools (§4 below). Reaching parity means adding MCP equivalents of both,
+   plus everything §0's items 1/3/5/8/9 already cover for epics/features/
+   requirements (MCP already has create/update for those).
+
+Everything below this point describes the in-app chatbot as originally
+scoped and built -- kept as a record of what exists and how it works, not
+as live direction. Do not resume building against this plan without a
+fresh confirmation first.
 
 ## 0. Open questions — get these confirmed before building past Phase 1
 
