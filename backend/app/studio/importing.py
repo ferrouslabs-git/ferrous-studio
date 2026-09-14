@@ -21,26 +21,26 @@ from dataclasses import dataclass
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Body, Depends, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
-from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
 
 from .audit import record_event
-from .catalog import Catalog, get_catalog
-from .common import get_writable_project, next_pos
+from .catalog import BUNDLE_FORMAT_GUIDE, Catalog, get_catalog
+from .common import get_wireframe, get_writable_project, next_pos, require_studio_permission
 from .models import Dataset, Persona, Project, ProjectDiagram, UseCase, UseCaseActor, Wireframe, utc_now
 from .ops import BACK_PAGE_ID, remap_dataset_ids
 from .schemas import DiagramKind, InterfaceType
-# _set_actors/_set_personas/_snapshot/insert_pages are wireframes.py's own
-# "create a whole wireframe's worth of state at once" helpers -- exactly what
-# copy_version_to_wireframe already does from a snapshot, generalised here to
-# do it from a bundle instead. Reused rather than copied a third time.
-from .wireframes import _set_actors, _set_personas, _snapshot, insert_pages
+# _set_actors/_set_personas/_snapshot/insert_pages/wireframe_pages are
+# wireframes.py's own "create/replace a whole wireframe's worth of state at
+# once" helpers -- exactly what copy_version_to_wireframe and restore_version
+# already do, generalised here to do it from a bundle instead. Reused rather
+# than copied a third time.
+from .wireframes import _set_actors, _set_personas, _snapshot, insert_pages, wireframe_pages
 
 #: Matches the request-body cap the import route will enforce; checked here
 #: too so the skill's local validate.py catches an oversized bundle before
@@ -533,7 +533,7 @@ async def _resolve_actors(
         )
         db.add(row)
         await db.flush()
-        by_name[key] = row
+        by_name[name.casefold()] = row
         created += 1
     return by_name, created, matched
 
@@ -615,11 +615,53 @@ async def _resolve_datasets(
             )
             db.add(row)
             await db.flush()
-            by_name[key] = row
+            by_name[name.casefold()] = row
             created += 1
         if isinstance(bundle_id, str):
             id_map[bundle_id] = str(row.id)
     return id_map, created, matched
+
+
+async def _apply_actors_and_personas(
+    db: AsyncSession,
+    project: Project,
+    wireframe: Wireframe,
+    wireframe_data: dict[str, Any],
+    actors_by_name: dict[str, UseCaseActor],
+    warnings: list[str],
+) -> None:
+    """Set a wireframe's linked user types/personas from bundle-shaped data.
+
+    Shared by a fresh import and an in-place update -- both replace whatever
+    links the wireframe had (there is nothing "existing" to preserve for a
+    brand-new wireframe, and an update's whole point is that its content,
+    links included, now matches what was just supplied).
+    """
+    actor_ids = [
+        resolve_by_name(name, actors_by_name).id
+        for name in wireframe_data.get("userTypes") or []
+        if isinstance(name, str) and resolve_by_name(name, actors_by_name) is not None
+    ]
+    await _set_actors(db, project, wireframe, actor_ids)
+
+    persona_names = [n for n in wireframe_data.get("personas") or [] if isinstance(n, str)]
+    if not persona_names:
+        return
+    existing_personas = (
+        (await db.execute(select(Persona).where(Persona.project_id == project.id, Persona.account_id == project.account_id)))
+        .scalars()
+        .all()
+    )
+    personas_by_name = {p.name.casefold(): p for p in existing_personas}
+    persona_ids = []
+    for name in persona_names:
+        row = resolve_by_name(name, personas_by_name)
+        if row is None:
+            warnings.append(f'The persona "{name}" did not match an existing persona and was skipped.')
+        else:
+            persona_ids.append(row.id)
+    if persona_ids:
+        await _set_personas(db, project, wireframe, persona_ids)
 
 
 async def _import_wireframe(
@@ -646,30 +688,7 @@ async def _import_wireframe(
     db.add(wireframe)
     await db.flush()
 
-    actor_ids = [
-        resolve_by_name(name, actors_by_name).id
-        for name in wireframe_data.get("userTypes") or []
-        if isinstance(name, str) and resolve_by_name(name, actors_by_name) is not None
-    ]
-    await _set_actors(db, project, wireframe, actor_ids)
-
-    persona_names = [n for n in wireframe_data.get("personas") or [] if isinstance(n, str)]
-    if persona_names:
-        existing_personas = (
-            (await db.execute(select(Persona).where(Persona.project_id == project.id, Persona.account_id == project.account_id)))
-            .scalars()
-            .all()
-        )
-        personas_by_name = {p.name.casefold(): p for p in existing_personas}
-        persona_ids = []
-        for name in persona_names:
-            row = resolve_by_name(name, personas_by_name)
-            if row is None:
-                warnings.append(f'The persona "{name}" did not match an existing persona and was skipped.')
-            else:
-                persona_ids.append(row.id)
-        if persona_ids:
-            await _set_personas(db, project, wireframe, persona_ids)
+    await _apply_actors_and_personas(db, project, wireframe, wireframe_data, actors_by_name, warnings)
 
     mapping = {str(p.get("id")): str(uuid4()) for p in pages_data if isinstance(p, dict)}
     await insert_pages(db, project, wireframe, pages_data, mapping)
@@ -684,6 +703,59 @@ async def _import_wireframe(
         wireframe=wireframe,
         user_id=ctx.user_id,
         event="imported",
+        detail={"source": source, "page_count": len(pages_data)},
+    )
+    return {"id": str(wireframe.id), "name": wireframe.name, "pages": len(pages_data)}
+
+
+async def _update_wireframe(
+    db: AsyncSession,
+    project: Project,
+    ctx: ScopeContext,
+    wireframe: Wireframe,
+    wireframe_data: dict[str, Any],
+    actors_by_name: dict[str, UseCaseActor],
+    dataset_id_map: dict[str, str],
+    source: dict[str, Any],
+    warnings: list[str],
+) -> dict[str, Any]:
+    """Replace an EXISTING wireframe's pages with fresh, bundle-shaped
+    content -- the update counterpart to ``_import_wireframe``, which always
+    creates a new row. Follows exactly the same shape ``restore_version``
+    already uses to replace a wireframe's pages from a snapshot: snapshot the
+    current state first (so this is always undoable), delete the old pages,
+    insert the new ones. Pages get fresh ids rather than keeping old ones --
+    unlike a restore, this content did not come from one of the wireframe's
+    own past snapshots, so there are no existing element links/placements
+    that depend on the old page ids surviving.
+    """
+    pages_data = wireframe_data.get("pages") or []
+    remap_dataset_ids(pages_data, dataset_id_map)
+
+    await _snapshot(db, project, wireframe, reason="before_agent_update", user_id=ctx.user_id)
+
+    wireframe.name = wireframe_data.get("name") or wireframe.name
+    wireframe.interface_type = wireframe_data.get("interfaceType") or wireframe.interface_type
+
+    await _apply_actors_and_personas(db, project, wireframe, wireframe_data, actors_by_name, warnings)
+
+    for page in await wireframe_pages(db, wireframe):
+        await db.delete(page)
+    await db.flush()  # deletes must land before pages with the same ids are re-inserted
+
+    mapping = {str(p.get("id")): str(uuid4()) for p in pages_data if isinstance(p, dict)}
+    await insert_pages(db, project, wireframe, pages_data, mapping)
+
+    landing = mapping.get(str(wireframe_data.get("landingPageId")))
+    wireframe.landing_page_id = UUID(landing) if landing else None
+    wireframe.updated_at = utc_now()
+
+    await record_event(
+        db,
+        project=project,
+        wireframe=wireframe,
+        user_id=ctx.user_id,
+        event="updated",
         detail={"source": source, "page_count": len(pages_data)},
     )
     return {"id": str(wireframe.id), "name": wireframe.name, "pages": len(pages_data)}
@@ -777,11 +849,106 @@ async def create_bundle_content(
     }, []
 
 
+async def update_wireframe_content(
+    db: AsyncSession, project: Project, ctx: ScopeContext, wireframe_id: UUID, payload: dict[str, Any]
+) -> tuple[dict[str, Any], list[BundleError]]:
+    """Validate fresh content for an EXISTING wireframe and replace its
+    pages with it -- ``create_bundle_content``'s update counterpart.
+
+    ``payload`` is one wireframe's worth of content (name/interfaceType/
+    landingPageId/pages, the same shape as one entry of a bundle's
+    "wireframes" list), wrapped here as a one-item bundle so it goes through
+    the exact same validator as a create -- an update is held to the
+    identical bar, not a second, looser copy of the rules. No human-facing
+    route calls this yet (editing by hand goes through Studio's own
+    op-batch endpoint, which this does not replace); today it exists solely
+    for the Project Agent chatbot's ``update_wireframe`` tool.
+
+    Returns ``(result, [])`` on success or ``({}, errors)`` -- including a
+    "not found" BundleError if ``wireframe_id`` doesn't name a wireframe in
+    this project -- with nothing changed in the error case. Flushes but
+    never commits, like ``create_bundle_content``.
+    """
+    try:
+        wireframe = await get_wireframe(db, project, wireframe_id)
+    except HTTPException:
+        return {}, [BundleError("wireframe_id", "No wireframe with that id in this project.")]
+
+    catalog = get_catalog()
+    bundle = wrap_bare_envelope({"wireframes": [payload]})
+    errors = validate_bundle(bundle, catalog)
+    if errors:
+        return {}, errors
+
+    warnings: list[str] = []
+    source = bundle.get("source") or {}
+    wireframe_data = (bundle.get("wireframes") or [{}])[0]
+
+    actors_by_name, _actors_created, _actors_matched = await _resolve_actors(db, project, ctx, bundle)
+    await _resolve_use_cases(db, project, ctx, bundle, actors_by_name)
+    dataset_id_map, _datasets_created, _datasets_matched = await _resolve_datasets(db, project, ctx, bundle)
+
+    result = await _update_wireframe(
+        db, project, ctx, wireframe, wireframe_data, actors_by_name, dataset_id_map, source, warnings
+    )
+    project.updated_at = utc_now()
+    return {**result, "warnings": warnings}, []
+
+
+@router.post("/projects/{project_id}/wireframes/{wireframe_id}/import")
+async def import_into_wireframe(
+    project_id: UUID,
+    wireframe_id: UUID,
+    payload: dict[str, Any] = Body(...),
+    ctx: ScopeContext = Depends(require_studio_permission("data:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Replace an EXISTING wireframe's pages with fresh, bundle-shaped
+    content -- update_wireframe_content's own route, the REST counterpart
+    to what the Project Agent chatbot's update_wireframe tool already does
+    in-process. Same one-item-bundle payload shape as POST .../import
+    (name/interfaceType/landingPageId/pages), just targeted at a specific
+    wireframe instead of always creating a new one.
+
+    Reachable by a board token as well as a human login (see
+    require_studio_permission) -- the main reason this route exists at
+    all: an MCP-connected local agent has no in-process path to
+    update_wireframe_content the way the chatbot does, only HTTP.
+    """
+    project = await get_writable_project(db, project_id, ctx)
+    result, errors = await update_wireframe_content(db, project, ctx, wireframe_id, payload)
+    if errors:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"errors": [e.as_dict() for e in errors]}
+        )
+    await db.commit()
+    return result
+
+
+@router.get("/projects/{project_id}/import/format-guide")
+async def get_bundle_format_guide(
+    project_id: UUID,
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """The exact prose Project Agent's own system prompt uses to teach the
+    bundle format (catalog.py's BUNDLE_FORMAT_GUIDE) -- not project-specific
+    content, just served per-project so board_mcp.py's tools (an MCP client
+    has no Python import access to catalog.py, see that module's docstring)
+    can reach it through the same per-project URL shape every other tool
+    call already uses, rather than a special case. project_id/ctx exist
+    only to require the caller to be a legitimate token/login for *some*
+    project -- get_project is deliberately not called, since the response
+    is identical for every project.
+    """
+    return {"guide": BUNDLE_FORMAT_GUIDE}
+
+
 @router.post("/projects/{project_id}/import")
 async def import_bundle(
     project_id: UUID,
     payload: dict[str, Any] = Body(...),
-    ctx: ScopeContext = Depends(require_permission("data:write")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Import a project bundle: the inverse of ``GET /projects/{id}/export``.

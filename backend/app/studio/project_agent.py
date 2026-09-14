@@ -1,15 +1,18 @@
 """The Project Agent chatbot: a per-project conversation with Claude that can
 create wireframes, diagrams, epics and requirements via tool use.
 
-Calls Claude through AWS Bedrock, using the ECS task's own IAM role
-(``infra/terraform/iam.tf``'s ``bedrock_claude`` policy) rather than a
+Calls Claude through AWS Bedrock by default, using the ECS task's own IAM
+role (``infra/terraform/iam.tf``'s ``bedrock_claude`` policy) rather than a
 stored Anthropic API key -- there is nothing to generate, store or rotate.
-Shared by every organisation -- there is no per-organisation credential
-yet, and letting an organisation bring its own key/account is a later,
-separate idea (Elliott's own words: "no need to do this now"). An
-unconfigured deployment reports the tab as unavailable rather than
-500ing, the same convention ``github_client.py`` and the documents
-section already use.
+``_client_and_model`` switches to a direct Anthropic API key the moment
+``settings.anthropic_api_key`` is set (config.py), prepared ahead of time so
+that giving Project Agent a real key later is a config change, not a code
+change -- see that function. Shared by every organisation -- there is no
+per-organisation credential yet, and letting an organisation bring its own
+key/account is a later, separate idea (Elliott's own words: "no need to do
+this now"). An unconfigured deployment reports the tab as unavailable
+rather than 500ing, the same convention ``github_client.py`` and the
+documents section already use.
 
 Every tool is validated and created by exactly the same code its own
 human-facing route uses (``importing.create_bundle_content`` for
@@ -38,6 +41,7 @@ every other organisation sharing this one platform-wide Bedrock capacity.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -54,12 +58,11 @@ from app.auth.services.rate_limiter_service import create_rate_limiter
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 
-from .board.routes import _get_epic, create_epic_content, create_requirement_content
-from .board.schemas import EpicCreate, RequirementCreate
-from .board.service import get_or_create_board
-from .catalog import get_catalog
+from .board.routes import create_epic_content, create_feature_content, create_requirement_content
+from .board.schemas import EpicCreate, FeatureCreate, RequirementCreate
+from .catalog import BUNDLE_FORMAT_GUIDE, get_catalog
 from .common import get_project, get_writable_project
-from .importing import create_bundle_content
+from .importing import create_bundle_content, update_wireframe_content
 from .models import Project, ProjectAgentMessage, ProjectDiagram, Wireframe
 from .projects import _count
 from .schemas import ProjectAgentMessageRead, ProjectAgentSend, ProjectAgentStatus
@@ -96,137 +99,6 @@ MAX_HISTORY_MESSAGES = 40
 #: bundle that keeps failing validation rather than looping indefinitely.
 MAX_TOOL_ROUNDS = 4
 
-#: Short, per-component usage hints. Not safety-critical -- a wrong hint
-#: makes a worse suggestion, never an invalid bundle, since validate_bundle
-#: (via create_bundle_content) is the real gate regardless of what the
-#: model does with this text.
-_COMPONENT_HINTS = {
-    "navbar": "primary nav, a sidebar, a top tab strip, a breadcrumb trail",
-    "list": "a data table, card grid, settings list, activity feed -- shape: table + column elements is the default for tabular data",
-    "form": "a create/edit form, settings page, login form, multi-step wizard (shape: wizard + step elements)",
-    "graph": "any chart, or KPI tiles (shape: stats + one stat element per tile)",
-    "calendar": "a scheduler or booking calendar -- rare; most date-oriented needs are actually a list with a date column",
-    "canvas": "anything else: a hero, a detail panel of labelled values (label+text pairs), a dashboard's free-form section, prose -- when nothing else fits, it's a canvas",
-}
-
-
-def _catalogue_reference() -> str:
-    """The bundle format's component vocabulary, generated from the real
-    catalogue rather than hand-copied into the prompt -- this can never
-    drift out of sync with what create_bundle_content actually accepts."""
-    catalog = get_catalog()
-    lines = ["Only six component types exist in a page's layout -- nothing else is valid:"]
-    for name, hint in _COMPONENT_HINTS.items():
-        component = catalog.component(name)
-        if component is None:
-            continue
-        shapes = ", ".join(sorted(component.shapes))
-        layouts = ", ".join(sorted(component.layouts))
-        elements = ", ".join(sorted(component.elements))
-        lines.append(f"- {name} -- shapes: {shapes}. layouts: {layouts}. elements: {elements}. Use for: {hint}.")
-    lines.append("")
-    lines.append(f'Column element data.kind: {", ".join(sorted(catalog.data_kinds))}.')
-    lines.append(f'Text-input element data.kind (a smaller, different list): {", ".join(sorted(catalog.input_kinds))}.')
-    lines.append(
-        f'A page that opens as an overlay instead of navigating sets "presentation" to one of: '
-        f'{", ".join(sorted(catalog.presentations))}.'
-    )
-    lines.append("")
-    lines.append(f'Diagram node types (model.nodes[].type): {", ".join(sorted(catalog.uml_node_types))}.')
-    lines.append(f'Diagram edge types (model.edges[].type): {", ".join(sorted(catalog.uml_edge_types))}.')
-    return "\n".join(lines)
-
-
-#: A minimal but complete, valid example -- shown verbatim because prose
-#: description alone was not enough in practice: a live run asked to
-#: reverse-engineer a plausible app put every element's label under
-#: data.label/data.text instead of as a top-level field, invented fields
-#: like "icon" that don't exist, and omitted "size" on the root layout node.
-#: An example anchors the exact shape in a way a list of field names doesn't.
-_WORKED_EXAMPLE = """
-{
-  "wireframes": [{
-    "name": "Example app", "interfaceType": "desktop", "landingPageId": "page-dashboard",
-    "pages": [
-      {
-        "id": "page-dashboard", "name": "Dashboard",
-        "layout": {
-          "kind": "split", "dir": "row", "size": {"fr": 1},
-          "children": [
-            {"kind": "region", "id": "r-nav", "size": 220, "components": [
-              {"id": "c-nav", "type": "navbar", "shape": "plain", "layout": "vertical", "elements": [
-                {"id": "e-brand", "type": "brand", "label": "Example app"},
-                {"id": "e-home", "type": "nav-item", "label": "Dashboard", "props": {"links": {"e-home": {"pageId": "page-dashboard"}}}},
-                {"id": "e-settings", "type": "nav-item", "label": "Settings", "props": {"links": {"e-settings": {"pageId": "page-settings"}}}}
-              ]}
-            ]},
-            {"kind": "region", "id": "r-content", "size": {"fr": 1}, "components": [
-              {"id": "c-stats", "type": "graph", "shape": "stats", "layout": "horizontal", "elements": [
-                {"id": "e-stat1", "type": "stat", "label": "Active users", "data": {"value": "128"}}
-              ]}
-            ]}
-          ]
-        }
-      },
-      {
-        "id": "page-settings", "name": "Settings", "route": "/settings",
-        "placement": {"page_id": "page-dashboard", "region_id": "r-content"},
-        "layout": {"kind": "region", "id": "r-root", "size": {"fr": 1}, "components": [
-          {"id": "c-form", "type": "form", "shape": "simple", "layout": "one-column", "elements": [
-            {"id": "e-header", "type": "header", "label": "Account settings"},
-            {"id": "e-name", "type": "text-input", "label": "Name", "data": {"kind": "text"}},
-            {"id": "e-submit", "type": "button", "label": "Save"}
-          ]}
-        ]}
-      }
-    ]
-  }],
-  "diagrams": [{
-    "name": "Data model", "kind": "class",
-    "model": {
-      "nodes": [
-        {"id": "n-user", "type": "entity", "label": "User", "text": "id\\nname\\nemail", "x": 0, "y": 0, "w": 180, "h": 100}
-      ],
-      "edges": []
-    }
-  }]
-}
-""".strip()
-
-BUNDLE_FORMAT_GUIDE = (
-    "wireframes: a list of {name, interfaceType (desktop/tablet/mobile), landingPageId, "
-    "pages}. Each page: {id (any short readable string, e.g. \"page-dashboard\"), name, "
-    "route (optional), layout, placement (optional, {page_id, region_id} for a page that "
-    "renders inside another page's shell)}. A layout is a nested tree, and EVERY node in it "
-    '-- including the outermost/root one -- needs its own "size": {"kind": "region", "id", '
-    '"size" ({"fr": 1}, a positive integer, or "auto"), "components": [...]} or {"kind": '
-    '"split", "dir": "row"/"col", "size", "children": [<region or split>, ...]}. A component: '
-    "{id, type (one of the six below), shape, layout, elements}. An element: {id, type, "
-    '"label" (a plain string, directly on the element -- see the common mistakes below), '
-    '"data" (optional, only the specific fields that element type actually takes -- e.g. '
-    '"kind"/"samples"/"placeholder"/"value", never invented ones), "props": {"links": '
-    '{<element id>: {"pageId": <page id or "@back">}}} only on elements that navigate}. '
-    "Write shell/nav pages after every page they link to, so every nav-item's link resolves "
-    "to a page id that's actually in the SAME wireframe's pages list. Sample data "
-    "(data.samples) is invented, never a real person's data.\n\n"
-    "Common mistakes to avoid (all seen in real runs):\n"
-    '- An element\'s label is a TOP-LEVEL field: {"type": "nav-item", "label": "Dashboard"} '
-    '-- never {"data": {"label": ...}} or {"data": {"text": ...}}.\n'
-    "- Only use fields a given element type actually has. Don't add fields like \"icon\" or "
-    '"title" that aren\'t in its list just because they seem plausible.\n'
-    '- The root layout node needs a "size" too, not just its children.\n\n'
-    f"{_catalogue_reference()}\n\n"
-    "diagrams: a list of {name, kind (class/freeform/usecase/activity/sequence/state), model: "
-    "{nodes, edges}}. A node: {id, type, label, text (optional multi-line detail), x, y, w, h "
-    "(position may be omitted and will be grid-placed, but lay nodes out yourself in a simple "
-    "grid, roughly 240px pitch, for a readable result)}. An edge: {id, type, label (optional), "
-    "source, target}. For a data-model diagram (kind: class): one entity node per table, "
-    '"text" listing its fields one per line; association edges labelled with cardinality '
-    "(1..*, 0..1, etc).\n\n"
-    "A complete, valid example (follow this shape exactly):\n"
-    f"{_WORKED_EXAMPLE}"
-)
-
 CREATE_BUNDLE_TOOL: dict[str, Any] = {
     "name": "create_bundle",
     "description": (
@@ -252,6 +124,32 @@ CREATE_BUNDLE_TOOL: dict[str, Any] = {
     },
 }
 
+UPDATE_WIREFRAME_TOOL: dict[str, Any] = {
+    "name": "update_wireframe",
+    "description": (
+        "Replace an EXISTING wireframe's pages with new content -- use this instead of "
+        "create_bundle when the request clearly refers to one of this project's existing "
+        "wireframes (named below), e.g. \"update the Login wireframe\" or regenerating one "
+        "after reverse-engineering an updated repository. wireframe_id must be a real id "
+        "from the list you were given -- never invent one. The wireframe's current pages "
+        "are automatically saved to its own version history first, so this is always "
+        "undoable. name/interfaceType/landingPageId/pages use the exact same format as "
+        "create_bundle's wireframes -- everything is replaced, not merged, so pass the "
+        "complete new content, not just what changed."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "wireframe_id": {"type": "string", "description": "The id of the existing wireframe to update."},
+            "name": {"type": "string", "description": "Optional -- omit to keep the current name."},
+            "interfaceType": {"type": "string", "enum": ["desktop", "tablet", "mobile"]},
+            "landingPageId": {"type": "string"},
+            "pages": {"type": "array", "items": {"type": "object"}},
+        },
+        "required": ["wireframe_id", "pages"],
+    },
+}
+
 #: Board tools -- only ever offered to Claude when the caller actually has
 #: board:write (see _tools_for). A member with only data:write can still
 #: use create_bundle; these two simply don't exist for that request.
@@ -272,13 +170,33 @@ CREATE_EPIC_TOOL: dict[str, Any] = {
     },
 }
 
+CREATE_FEATURE_TOOL: dict[str, Any] = {
+    "name": "create_feature",
+    "description": (
+        "Create a feature under an epic, for grouping related requirements together -- "
+        "e.g. \"Password reset\" under a \"User onboarding\" epic. epic_id must be a real "
+        "id (from a create_epic result earlier in this conversation, or one the user "
+        "names) -- a feature cannot exist without an epic. Returns the created feature's "
+        "id, which you can pass as feature_id to create_requirement."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "epic_id": {"type": "string", "description": "UUID of the epic this feature belongs to."},
+            "title": {"type": "string", "description": "Short feature title."},
+        },
+        "required": ["epic_id", "title"],
+    },
+}
+
 CREATE_REQUIREMENT_TOOL: dict[str, Any] = {
     "name": "create_requirement",
     "description": (
         "Create a requirement on this project's delivery board. Starts at status "
         "\"Todo\". Pass epic_id (from a create_epic result earlier in this conversation, "
-        "or one the user names) to file it under a specific epic, or omit it to leave "
-        "the requirement unfiled."
+        "or one the user names) to file it directly under an epic, or feature_id (from a "
+        "create_feature result) to file it under a feature instead -- pass at most one of "
+        "the two. Omit both to leave the requirement unfiled."
     ),
     "input_schema": {
         "type": "object",
@@ -291,6 +209,7 @@ CREATE_REQUIREMENT_TOOL: dict[str, Any] = {
                 "description": "Defaults to Medium if omitted.",
             },
             "epic_id": {"type": "string", "description": "UUID of an epic to file this requirement under, if any."},
+            "feature_id": {"type": "string", "description": "UUID of a feature to file this requirement under, if any."},
         },
         "required": ["title"],
     },
@@ -317,28 +236,53 @@ SYSTEM_PROMPT = (
     "so plainly and point them at Project details -> Repository to connect one "
     "first, rather than inventing content as if one exists.\n\n"
     "If asked to build wireframes or diagrams and this project already has some, "
-    "regenerating is expected and safe -- every previous version stays reachable "
-    "through the project's own version history, so there's nothing to lose. Open "
-    'your reply with the plain fact -- e.g. "You already have 3 wireframes and 2 '
-    'diagrams in this project -- here\'s a new one" -- using the real counts you '
-    "were given, then call create_bundle directly. Do not pause to ask permission "
-    "or wait for confirmation before creating it; mentioning the existing count is "
+    "creating another is expected and safe -- every version stays reachable through "
+    "the project's own version history, so there's nothing to lose. If the request "
+    "clearly means one of the existing wireframes named below -- by name, or an "
+    "obvious regenerate/refresh of it, e.g. after reverse-engineering an updated "
+    "repository -- call update_wireframe with its real id instead of creating a "
+    "duplicate; otherwise call create_bundle. If you genuinely can't tell which the "
+    "user means, ask rather than guessing which one to touch. Open your reply with "
+    'the plain fact -- e.g. "You already have 3 wireframes and 2 diagrams in this '
+    'project -- here\'s a new one" or "Updating your existing Login wireframe" -- '
+    "then call the right tool directly. Do not pause to ask permission or wait for "
+    "confirmation before creating or updating; mentioning what already exists is "
     "just keeping them informed, not a gate to wait on.\n\n"
-    "If you have create_epic/create_requirement available: new epics start at "
-    'status "Readiness", new requirements at "Todo". Create an epic before its '
-    "requirements when both are wanted, so you can pass the epic's real id (from "
-    "that tool's own result) as epic_id -- never invent an id.\n\n"
-    "If you do NOT have create_epic/create_requirement available and are asked to "
-    "create, update or manage an epic or requirement: say plainly that you don't "
-    "have permission to manage this project's board, rather than trying another "
-    "tool instead or implying it can't be done at all -- someone with the right "
-    "role can.\n\n"
+    "If you have create_epic/create_feature/create_requirement available: new "
+    'epics start at status "Readiness", new requirements at "Todo". Create an '
+    "epic before its features or requirements when more than one is wanted, so "
+    "you can pass the epic's real id (from that tool's own result) as epic_id -- "
+    "never invent an id. A feature always needs a real epic_id too. A "
+    "requirement can go straight under an epic (epic_id) or under a feature "
+    "within one (feature_id) -- use a feature when the user is grouping several "
+    "related requirements together (e.g. \"password reset\" under \"onboarding\"), "
+    "epic_id directly otherwise; pass at most one of the two.\n\n"
+    "If you do NOT have create_epic/create_feature/create_requirement available "
+    "and are asked to create, update or manage an epic, feature or requirement: "
+    "say plainly that you don't have permission to manage this project's board, "
+    "rather than trying another tool instead or implying it can't be done at "
+    "all -- someone with the right role can.\n\n"
     f"{BUNDLE_FORMAT_GUIDE}"
 )
 
 
 def configured() -> bool:
-    return bool(get_settings().bedrock_claude_model)
+    settings = get_settings()
+    return bool(settings.bedrock_claude_model or settings.anthropic_api_key)
+
+
+def _client_and_model(settings: Any) -> tuple[anthropic.AsyncAnthropic | anthropic.AsyncAnthropicBedrock, str]:
+    """Which Claude credential this call runs on.
+
+    A direct API key (once one is set, see config.py's anthropic_api_key)
+    always wins over Bedrock -- that is the whole point of preparing this
+    switch ahead of time: giving us a key is a config change, not a code
+    change. Until then, anthropic_api_key is empty and every call keeps
+    going through Bedrock exactly as it does today.
+    """
+    if settings.anthropic_api_key:
+        return anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=BEDROCK_CALL_TIMEOUT_SECONDS), settings.anthropic_model
+    return anthropic.AsyncAnthropicBedrock(aws_region=settings.aws_region, timeout=BEDROCK_CALL_TIMEOUT_SECONDS), settings.bedrock_claude_model
 
 
 @router.get("/status", response_model=ProjectAgentStatus)
@@ -406,7 +350,7 @@ async def send_message(
     if not configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Project Agent is not configured on this deployment (BEDROCK_CLAUDE_MODEL unset).",
+            detail="Project Agent is not configured on this deployment (BEDROCK_CLAUDE_MODEL and ANTHROPIC_API_KEY both unset).",
         )
 
     history_result = await db.execute(
@@ -417,7 +361,15 @@ async def send_message(
     )
     history = list(reversed(history_result.scalars().all()))
 
-    wireframe_count = await _count(db, Wireframe, project)
+    # Names and real ids, not just a count -- update_wireframe needs a real id
+    # to target, and the id has to come from us; the model is never trusted to
+    # invent one.
+    wireframes_result = await db.execute(
+        select(Wireframe.id, Wireframe.name)
+        .where(Wireframe.project_id == project.id, Wireframe.account_id == project.account_id)
+        .order_by(Wireframe.pos)
+    )
+    wireframes = wireframes_result.all()
     diagram_count = await _count(db, ProjectDiagram, project)
 
     user_message = ProjectAgentMessage(
@@ -435,7 +387,7 @@ async def send_message(
         project=project,
         ctx=ctx,
         repo_full_name=project.repo_full_name,
-        wireframe_count=wireframe_count,
+        wireframes=wireframes,
         diagram_count=diagram_count,
         history=[*history, user_message],
     )
@@ -456,17 +408,18 @@ async def send_message(
 def _tools_for(ctx: ScopeContext) -> list[dict[str, Any]]:
     """Which tools this request's caller actually gets to see.
 
-    create_bundle is always included: reaching this function at all already
-    required data:write (send_message's own permission). The board tools
+    create_bundle and update_wireframe are always included: reaching this
+    function at all already required data:write (send_message's own
+    permission). The board tools
     are only added when the caller separately has board:write -- an
     account_member has data:write but not board:write (auth_config.yaml),
     so a member can chat their way to new wireframes but never sees
-    create_epic/create_requirement exist, the same way they'd never see an
-    "Add epic" button rendered in a UI they can't use.
+    create_epic/create_feature/create_requirement exist, the same way
+    they'd never see an "Add epic" button rendered in a UI they can't use.
     """
-    tools = [CREATE_BUNDLE_TOOL]
+    tools = [CREATE_BUNDLE_TOOL, UPDATE_WIREFRAME_TOOL]
     if ctx.has_permission("board:write"):
-        tools += [CREATE_EPIC_TOOL, CREATE_REQUIREMENT_TOOL]
+        tools += [CREATE_EPIC_TOOL, CREATE_FEATURE_TOOL, CREATE_REQUIREMENT_TOOL]
     return tools
 
 
@@ -484,6 +437,18 @@ async def _run_tool(db: AsyncSession, project: Project, ctx: ScopeContext, tool_
             return json.dumps({"errors": [e.as_dict() for e in errors]}), True
         return json.dumps(result), False
 
+    if tool_use.name == "update_wireframe":
+        tool_input = dict(tool_use.input)
+        raw_id = tool_input.pop("wireframe_id", None)
+        try:
+            wireframe_id = UUID(str(raw_id))
+        except (ValueError, TypeError):
+            return json.dumps({"errors": [{"path": "wireframe_id", "message": "wireframe_id must be a valid id."}]}), True
+        result, errors = await update_wireframe_content(db, project, ctx, wireframe_id, tool_input)
+        if errors:
+            return json.dumps({"errors": [e.as_dict() for e in errors]}), True
+        return json.dumps(result), False
+
     if tool_use.name == "create_epic" and ctx.has_permission("board:write"):
         try:
             payload = EpicCreate(**tool_use.input)
@@ -492,18 +457,32 @@ async def _run_tool(db: AsyncSession, project: Project, ctx: ScopeContext, tool_
         epic = await create_epic_content(db, project, ctx, payload)
         return json.dumps({"id": str(epic.id), "title": epic.title, "status": epic.status}), False
 
+    if tool_use.name == "create_feature" and ctx.has_permission("board:write"):
+        try:
+            payload = FeatureCreate(**tool_use.input)
+        except ValidationError as exc:
+            return json.dumps({"errors": exc.errors()}), True
+        try:
+            feature = await create_feature_content(db, project, ctx, payload)
+        except HTTPException:
+            return json.dumps({"errors": [{"field": "epic_id", "message": "No epic with that id here."}]}), True
+        return json.dumps({"id": str(feature.id), "title": feature.title, "epic_id": str(feature.epic_id)}), False
+
     if tool_use.name == "create_requirement" and ctx.has_permission("board:write"):
         try:
             payload = RequirementCreate(**tool_use.input)
         except ValidationError as exc:
             return json.dumps({"errors": exc.errors()}), True
-        if payload.epic_id is not None:
-            board = await get_or_create_board(db, project)
-            try:
-                await _get_epic(db, board, payload.epic_id)
-            except HTTPException:
-                return json.dumps({"errors": [{"field": "epic_id", "message": "No epic with that id here."}]}), True
-        _board, requirement = await create_requirement_content(db, project, ctx, payload)
+        # create_requirement_content validates epic_id/feature_id/release_id/
+        # sprint_id/assignee_id against the real board itself now (including
+        # a hallucinated one, or epic_id/feature_id naming inconsistent
+        # epics) -- caught here rather than left to propagate, or a bad id
+        # would fail the whole chat turn with a raw 404/422 instead of a
+        # tool_result the model can read and retry from.
+        try:
+            _board, requirement = await create_requirement_content(db, project, ctx, payload)
+        except HTTPException as exc:
+            return json.dumps({"errors": [{"message": exc.detail}]}), True
         return json.dumps({"id": str(requirement.id), "title": requirement.title, "status": requirement.status}), False
 
     return f'Unknown tool "{tool_use.name}".', True
@@ -515,12 +494,12 @@ async def _ask_claude(
     project: Project,
     ctx: ScopeContext,
     repo_full_name: str | None,
-    wireframe_count: int = 0,
+    wireframes: Sequence[tuple[UUID, str]] = (),
     diagram_count: int = 0,
     history: list[ProjectAgentMessage],
 ) -> str:
     settings = get_settings()
-    client = anthropic.AsyncAnthropicBedrock(aws_region=settings.aws_region, timeout=BEDROCK_CALL_TIMEOUT_SECONDS)
+    client, model = _client_and_model(settings)
     messages: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in history]
     tools = _tools_for(ctx)
     repo_fact = (
@@ -528,11 +507,14 @@ async def _ask_claude(
         if repo_full_name
         else "No repository is connected to this project yet."
     )
-    content_fact = (
-        f"This project already has {wireframe_count} wireframe(s) and {diagram_count} diagram(s)."
-        if wireframe_count or diagram_count
-        else "This project has no wireframes or diagrams yet."
-    )
+    if wireframes:
+        wireframe_list = "; ".join(f'"{name}" (id {wireframe_id})' for wireframe_id, name in wireframes)
+        content_fact = (
+            f"This project already has these wireframe(s): {wireframe_list}. And {diagram_count} diagram(s). "
+            "To update one of them, use its real id from this list -- never invent one."
+        )
+    else:
+        content_fact = f"This project has no wireframes yet, and {diagram_count} diagram(s)."
     board_fact = (
         "You also have create_epic and create_requirement available for this project's delivery board."
         if ctx.has_permission("board:write")
@@ -544,7 +526,7 @@ async def _ask_claude(
     )
 
     for _round in range(MAX_TOOL_ROUNDS):
-        response = await _call_claude(client, settings.bedrock_claude_model, system, messages, tools=tools)
+        response = await _call_claude(client, model, system, messages, tools=tools)
 
         tool_uses = [block for block in response.content if block.type == "tool_use"]
         if not tool_uses:
@@ -573,7 +555,7 @@ async def _ask_claude(
     # final call with no tools forces a text reply, and the model has every
     # prior tool_result (successes and failures both) in its own context to
     # summarise honestly from.
-    response = await _call_claude(client, settings.bedrock_claude_model, system, messages, tools=None)
+    response = await _call_claude(client, model, system, messages, tools=None)
     text_blocks = [block.text for block in response.content if block.type == "text"]
     return (
         "".join(text_blocks).strip()
@@ -582,7 +564,7 @@ async def _ask_claude(
 
 
 async def _call_claude(
-    client: anthropic.AsyncAnthropicBedrock,
+    client: anthropic.AsyncAnthropic | anthropic.AsyncAnthropicBedrock,
     model: str,
     system: str,
     messages: list[dict[str, Any]],

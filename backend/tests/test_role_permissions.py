@@ -220,9 +220,16 @@ def write_routes():
 
 
 def required_permissions(endpoint) -> set[str]:
-    """Permission names named by the endpoint's guard dependency."""
+    """Permission names named by the endpoint's guard dependency.
+
+    Matches require_permission/require_any_permission/require_all_permission
+    (app/auth/security) and require_studio_permission (app/studio/common.py
+    -- the board-token-or-Cognito dual-auth guard, also used by board routes
+    under its require_permission alias), so this backstop still catches a
+    route wired to either.
+    """
     source = inspect.getsource(endpoint)
-    guard = re.search(r"require_(?:any_|all_)?permissions?\((.*?)\)\)", source, re.S)
+    guard = re.search(r"require_(?:studio_|any_|all_)?permissions?\((.*?)\)\)", source, re.S)
     return set(re.findall(r"[\"']([a-z_]+:[a-z_]+)[\"']", guard.group(1))) if guard else set()
 
 

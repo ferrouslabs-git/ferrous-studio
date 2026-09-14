@@ -1,10 +1,48 @@
 # Project Agent — phased implementation plan
 
-Status: **draft, not confirmed by the client.** This turns the Slack
-discussion with Ali and Elliott (see `project-agent-notes.md` for the
-plain-language recap) into an actual build order. Nothing described here
-should be treated as final scope until the open questions in §0 are
-answered.
+Status: **superseded direction; the in-app chat is hidden, MCP is being
+built out to replace it (2026-09-14).** Client note (unsigned, left before
+stepping into a meeting): to ship Ferrous Studio v1, the plan is to
+**remove the in-app chatbot entirely** and rely only on a **local agent
+connected over MCP** (e.g. Claude Code, via the board-token `.mcp.json`
+config already built) -- no chat box inside the product.
+
+**Done:**
+- The "Project Agent" tab is hidden from the sidebar and its route
+  redirects to Project details (`main`, commit `8c85e5c`) -- code kept, not
+  deleted, so this is reversible in one line if the direction changes
+  again.
+- A board token now reaches `data:read`/`data:write` as well as
+  `board:read`/`board:write` (`main`, commit `66f1837`), confined to the
+  one project it was minted for -- `get_project` checks the token's
+  `board_id` against the resolved project, verified live that a token
+  minted for Project A is refused with 403 against Project B in the same
+  account.
+- `board_mcp.py` gained `wireframe_format_guide`, `list_wireframes`,
+  `get_wireframe`, `create_wireframes_and_diagrams`, `update_wireframe`,
+  `list_diagrams`, `get_diagram` (`project-agent-chatbot`, commit
+  `4bd3d78`) -- MCP parity with what the in-app chatbot could do for
+  wireframes/diagrams, on top of the epic/feature/requirement parity it
+  already had. Verified against a real running server in the same
+  isolated `uv run --with mcp` environment a real agent gets.
+- `reverse-engineer-repo` (the skill) now imports its finished bundle
+  directly via `create_wireframes_and_diagrams` when an MCP connection is
+  available, instead of always stopping to hand off to a signed-in person
+  through the UI (`project-agent-chatbot`, commit `1a7fe00`) -- the whole
+  run, source code to imported project, needs no app UI at any point.
+  `create_wireframes_and_diagrams` gained a `source` parameter it was
+  missing (repo/commit provenance, otherwise silently dropped on an MCP
+  import); verified live that the audit log records the exact source
+  passed in.
+
+**Both of the client's two named needs are now built.** Not yet done:
+merging `project-agent-chatbot` into `main` and deploying any of this --
+still sitting on the branch, nothing above is live anywhere yet.
+
+Everything below this point describes the in-app chatbot as originally
+scoped and built -- kept as a record of what exists and how it works
+(and, now, as the source the MCP tools above were built to match), not as
+live direction for further in-app chatbot work.
 
 ## 0. Open questions — get these confirmed before building past Phase 1
 
@@ -54,25 +92,67 @@ throwaway work.
    database, not just the chat reply. Feature-level board actions
    (releases, sprints, comments, attachments) are not built -- only
    create_epic/create_requirement, the two Niral's own question named.
-6. **NEW, unresolved -- do not build yet:** Ali separately floated a
-   *different* shape entirely: a dedicated "Reverse Engineer This Repo"
-   button tied to its own one-off chat thread, which disappears once
-   reverse-engineering finishes. This directly contradicts the
-   always-available "Project Agent" tab that's already built and shipped
-   (§7-9) -- a chat can't both be a permanent, ongoing assistant and a
-   wizard that vanishes after one use. Elliott read it and said *"Not sure
-   I understand. Jump on this call with Dustin and let's discuss"* --
-   i.e. unresolved even inside the client's own team. **Do not implement
-   either direction until that call happens and the team picks one.**
-7. **Ali's proposed architecture for §0.1's access control** (Slack,
-   2026-09-11): tool categories should live in *separate MCP servers*
-   (mirroring `board_mcp.py`'s existing pattern -- one server per category,
-   e.g. "management" vs "wireframe"), with a gateway in front of all of
-   them enforcing role-based access before a tool call is allowed through.
-   This is a materially different architecture from what's built today (one
-   `create_bundle` tool embedded directly in `project_agent.py`'s own
-   request loop, no separate MCP server, no gateway) -- a real redesign,
-   not a small extension, if adopted as described.
+6. ~~Ali separately floated a *different* shape entirely: a dedicated
+   "Reverse Engineer This Repo" button tied to its own one-off chat
+   thread, which disappears once reverse-engineering finishes.~~
+   **Decided by Niral (2026-09-14): not building this.** Elliott had
+   already flagged it as unresolved even inside the client's own team
+   ("Jump on this call with Dustin and let's discuss"), and rather than
+   wait on that call, the team is keeping the one always-available
+   "Project Agent" tab as the only interface. No further action here.
+7. ~~Ali's proposed architecture for §0.1's access control: tool
+   categories in *separate MCP servers* with a gateway enforcing
+   role-based access in front of them.~~ **Clarified by Niral
+   (2026-09-14): Ali hasn't given a reason for that specific shape; what
+   he actually wants is one chatbot that can create everything, gated so
+   that a project member can only do what their role allows.** That
+   behavioural requirement is already fully met by what's built (§0.1) --
+   one chatbot, one set of tools, gated per-request by
+   `ctx.has_permission(...)`. The separate-MCP-servers-plus-gateway shape
+   was one possible *implementation* of that requirement, not the
+   requirement itself, and isn't needed unless a future need emerges for
+   something other than this chatbot to call the same tools
+   independently (the way `board_mcp.py` already lets external tools
+   reach board data directly). Not building it.
+8. ~~If an epic/requirement the chatbot is asked to create already
+   exists, do we update it or create a new one?~~ **Decided by Niral
+   (2026-09-14): create a new one, same as wireframes/diagrams (§0.3).**
+   No code change needed -- `create_epic`/`create_requirement` never had
+   duplicate-checking logic, so this was already the actual behaviour.
+9. **Elliott (Slack, 2026-09-14):** *"Not just requirements, it'll also be
+   able to create Epics, features and requirements from the scope data.
+   And we can ask it to create or update wireframes based on the attached
+   repo."* Two parts:
+   - **Update wireframes -- built and verified live (2026-09-14).** A new
+     `update_wireframe` tool replaces an existing wireframe's pages with
+     fresh content, chosen by the model over `create_bundle` when the
+     request clearly names or implies one of the project's existing
+     wireframes (the system prompt now lists their real names/ids so the
+     model never invents one). Reuses the exact same validator as create,
+     and snapshots the wireframe's current state first -- exactly like
+     `restore_version` already does -- so an agent-driven update is always
+     undoable. See `update_wireframe_content`/`_update_wireframe` in
+     `importing.py`. Verified against a real local database: same
+     wireframe id retained (no duplicate), old pages replaced with fresh
+     ids, and the automatic snapshot correctly captured the pre-update
+     content.
+   - **Features -- built and verified live (2026-09-14).** A new
+     `create_feature` tool, same shape as `create_epic`/`create_requirement`
+     (`create_feature_content` in `board/routes.py`, extracted the same
+     "everything the route does, minus commit" way). Requires a real
+     `epic_id` -- a feature cannot exist without one, same rule the human
+     "New feature" form already enforces. `create_requirement` now also
+     accepts `feature_id` as an alternative to `epic_id` (file a requirement
+     under a feature instead of directly under an epic), validated against
+     the real board first exactly like `epic_id` already was, closing the
+     validation gap flagged earlier for this exact field. Verified against
+     a real local database: epic -> feature -> requirement created in one
+     chain, and the requirement's `effective_epic_id` correctly inherits
+     through the feature to the epic.
+   - **"From the scope data" -- still NOT understood.** Unclear whether
+     Elliott means a specific uploaded document the chatbot should read, or
+     just "whatever the user describes in chat." Needs a direct follow-up
+     question -- nothing to build until that's answered.
 
 ## 1. What already exists (no work needed here)
 

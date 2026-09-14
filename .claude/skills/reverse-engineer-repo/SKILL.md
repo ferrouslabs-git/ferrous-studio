@@ -8,9 +8,10 @@ description: Turn an existing application's source code into a Ferrous Studio im
 You read an existing application's source code and describe its screens
 and data model as one JSON **bundle** that Ferrous Studio can import.
 **Wireframes and diagrams only** -- no actors, use cases or datasets; see
-§5. You never touch Studio directly -- Import is a signed-in person's
-action, done afterwards through the app (Project details or the
-Wireframes list → **Import…**).
+§5. Import happens at the very end (§8): directly, via an MCP board-token
+connection if one is available, or otherwise handed off to a signed-in
+person through the app (Project details or the Wireframes list →
+**Import…**). Everything before §8 is the same either way.
 
 Read `references/bundle.md`, `references/catalogue.md`,
 `references/mapping-rules.md` and `references/diagrams.md` before starting
@@ -118,18 +119,40 @@ approximated, and what was skipped and why (from step 2's feature-flag/
 dynamic-import notes). This is what whoever reviews the imported project
 reads alongside it.
 
-## 8. Hand over
+## 8. Import
 
-You're done. Import happens through the Studio UI, by a signed-in person,
-on `out/<repo-name>.bundle.json`:
+**If you have an MCP connection to this project's board** (a
+`create_wireframes_and_diagrams` tool is available -- board_mcp.py,
+connected via a board token in `.mcp.json`), call it directly to finish
+the run:
+
+```
+create_wireframes_and_diagrams(
+  wireframes=<the merged bundle's "wireframes">,
+  diagrams=<the merged bundle's "diagrams">,
+  source=<the merged bundle's "source">,
+)
+```
+
+Read the values out of `out/<repo-name>.bundle.json` itself (already
+merged and validated in step 6) rather than reassembling them from the
+`out/` files a second time. If it returns validation errors, they name
+the exact same paths `validate.py` would have -- fix the page file at
+that path and call the tool again, the same way you'd fix a
+`validate.py` failure. Report what was created (wireframe/page/diagram
+counts, the ids the tool returned) alongside `REPORT.md`.
+
+**If no MCP connection is available**, hand off instead -- import happens
+through the Studio UI, by a signed-in person, on
+`out/<repo-name>.bundle.json`:
 
 **Project details** or **Wireframes → Import…** → pick the file → check the
 summary (wireframe/page/diagram counts, source repo and commit) →
 **Import**.
 
-You never need a bearer token or API access to finish this -- if you find
-yourself about to call the import endpoint directly, stop; that's the
-signed-in person's step, not this skill's.
+Either way, you never construct or call the raw HTTP import endpoint
+yourself outside of `create_wireframes_and_diagrams` -- that tool (or the
+signed-in person's UI action) is the only sanctioned way in.
 
 ## Rules, stated plainly
 

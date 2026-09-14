@@ -24,7 +24,6 @@ import { EpicDetailPage } from "./features/project/epics/EpicDetailPage";
 import { EpicsPage } from "./features/project/epics/EpicsPage";
 import { FeedbackPage } from "./features/project/feedback/FeedbackPage";
 import { PersonasPage } from "./features/project/personas/PersonasPage";
-import { ProjectAgentPage } from "./features/project/agent/ProjectAgentPage";
 import { LegacyProjectRedirect, ProjectLayout } from "./features/project/ProjectLayout";
 import { ProjectDetailsPage } from "./features/project/ProjectDetailsPage";
 import { ReleasePage } from "./features/project/roadmap/ReleasePage";
@@ -77,7 +76,12 @@ export function App() {
             <Route path="/orgs/:orgId/projects/:projectId" element={<ProjectLayout />}>
               <Route index element={<Navigate to="details" replace />} />
               <Route path="details" element={<ProjectDetailsPage />} />
-              <Route path="agent" element={<ProjectAgentPage />} />
+              {/* Project Agent (the in-app chat tab): paused per the client's
+                  v1 direction (2026-09-14, docs/project-agent-implementation-plan.md)
+                  in favour of MCP + a local agent. Code kept, not deleted --
+                  redirect rather than a broken link for anyone with an old
+                  bookmark. */}
+              <Route path="agent" element={<Navigate to="../details" replace />} />
               <Route path="use-cases" element={<UseCaseDiagramPage />} />
               <Route path="personas" element={<PersonasPage />} />
               <Route path="diagrams" element={<DiagramsPage />} />

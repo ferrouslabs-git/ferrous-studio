@@ -14,6 +14,7 @@ import datetime as dt
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Project
@@ -40,7 +41,19 @@ from .models import (
 async def get_or_create_board(db: AsyncSession, project: Project) -> Board:
     """One board per (account_id, lineage_id) -- not per project row, since a
     project row is one version and versioning deep-copies it (see the
-    migration's docstring). Created lazily on first access."""
+    migration's docstring). Created lazily on first access.
+
+    A project's first visit fires several board panels' requests in
+    parallel (epics, releases, docs, sprints, ...), each reaching here with
+    no board yet -- so the plain select-then-insert below is a real race,
+    not a hypothetical one: two requests can both see "none" and both try
+    to insert, and the loser hits ``uq_boards_account_lineage`` and 500s
+    (seen live on staging, project's board panels all failing at once on
+    first load). The insert runs inside a savepoint so only it rolls back
+    on conflict -- the request's own transaction, and anything already done
+    in it, is untouched -- and the loser then just re-selects the winner's
+    row instead of raising.
+    """
     board = (
         await db.execute(
             select(Board).where(Board.account_id == project.account_id, Board.lineage_id == project.lineage_id)
@@ -49,9 +62,17 @@ async def get_or_create_board(db: AsyncSession, project: Project) -> Board:
     if board is not None:
         return board
 
-    board = Board(account_id=project.account_id, lineage_id=project.lineage_id)
-    db.add(board)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            board = Board(account_id=project.account_id, lineage_id=project.lineage_id)
+            db.add(board)
+            await db.flush()
+    except IntegrityError:
+        board = (
+            await db.execute(
+                select(Board).where(Board.account_id == project.account_id, Board.lineage_id == project.lineage_id)
+            )
+        ).scalar_one()
     return board
 
 

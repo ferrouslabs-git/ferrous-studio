@@ -17,15 +17,15 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
+from app.auth.models.membership import Membership
 from app.auth.models.user import User
 from app.auth.security import require_any_permission
 from .agents import maybe_wake_agent, sync_agent_status
-from .auth import require_board_permission as require_permission
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
 from .. import storage
-from ..common import get_project
+from ..common import get_project, require_studio_permission as require_permission
 from ..documents import ALLOWED_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
 from . import service
@@ -570,14 +570,10 @@ async def list_features(
     return list(result.scalars().all())
 
 
-@router.post("/projects/{project_id}/board/features", response_model=FeatureRead, status_code=status.HTTP_201_CREATED)
-async def create_feature(
-    project_id: UUID,
-    payload: FeatureCreate,
-    ctx: ScopeContext = Depends(require_permission("board:write")),
-    db: AsyncSession = Depends(get_db),
-) -> Feature:
-    project = await get_project(db, project_id, ctx)
+async def create_feature_content(db: AsyncSession, project: Project, ctx: ScopeContext, payload: FeatureCreate) -> Feature:
+    """Everything create_feature's route does, minus commit -- same shape as
+    create_epic_content/create_requirement_content, shared with the Project
+    Agent chatbot's create_feature tool."""
     board = await _board(db, project, ctx)
     await _get_epic(db, board, payload.epic_id)
     seq = await service._next_seq(db, board, "feature_seq")
@@ -587,6 +583,18 @@ async def create_feature(
     await service.write_event(
         db, board, ctx.user_id, "feature.created", "feature", feature.id, {"title": feature.title}
     )
+    return feature
+
+
+@router.post("/projects/{project_id}/board/features", response_model=FeatureRead, status_code=status.HTTP_201_CREATED)
+async def create_feature(
+    project_id: UUID,
+    payload: FeatureCreate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> Feature:
+    project = await get_project(db, project_id, ctx)
+    feature = await create_feature_content(db, project, ctx, payload)
     await db.commit()
     await db.refresh(feature)
     return feature
@@ -907,6 +915,58 @@ async def _get_requirement(db: AsyncSession, board: Board, requirement_id: UUID)
     return r
 
 
+async def _validate_requirement_refs(
+    db: AsyncSession,
+    board: Board,
+    *,
+    epic_id: UUID | None = None,
+    feature_id: UUID | None = None,
+    release_id: UUID | None = None,
+    sprint_id: UUID | None = None,
+    assignee_id: UUID | None = None,
+) -> None:
+    """A requirement's epic/feature/release/sprint/assignee must all belong
+    to THIS board/organisation -- the columns themselves only constrain "a
+    row exists somewhere in that table", not "in this project" or "in this
+    account" (unlike create_epic_content's release_id check and
+    create_feature_content's epic_id check, both already routed through
+    _get_release/_get_epic). Without this, a requirement could silently
+    link to another project's release/sprint/feature, or be assigned to a
+    user with no membership in this organisation at all -- and a bad id
+    would surface as a raw FK IntegrityError (500) rather than a clean
+    404/422 the caller can act on. create_requirement_content and
+    update_requirement both call this before writing anything.
+    """
+    feature = await _get_feature(db, board, feature_id) if feature_id is not None else None
+    if epic_id is not None:
+        await _get_epic(db, board, epic_id)
+        if feature is not None and feature.epic_id != epic_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="epic_id does not match feature_id's own epic",
+            )
+    if release_id is not None:
+        await _get_release(db, board, release_id)
+    if sprint_id is not None:
+        await _get_sprint(db, board, sprint_id)
+    if assignee_id is not None:
+        member = (
+            await db.execute(
+                select(Membership).where(
+                    Membership.user_id == assignee_id,
+                    Membership.scope_type == "account",
+                    Membership.scope_id == board.account_id,
+                    Membership.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if member is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="assignee_id is not a member of this organisation",
+            )
+
+
 @router.get("/projects/{project_id}/board/requirements", response_model=list[RequirementRead])
 async def list_requirements(
     project_id: UUID,
@@ -964,6 +1024,11 @@ async def create_requirement_content(
     as create_epic_content above. Returns the board too since the route
     needs it again for _requirement_read after commit."""
     board = await _board(db, project, ctx)
+    await _validate_requirement_refs(
+        db, board,
+        epic_id=payload.epic_id, feature_id=payload.feature_id,
+        release_id=payload.release_id, sprint_id=payload.sprint_id, assignee_id=payload.assignee_id,
+    )
     seq = await service._next_seq(db, board, "requirement_seq")
     requirement = Requirement(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(requirement)
@@ -1028,6 +1093,26 @@ async def update_requirement(
         if data.pop(clear_field, False):
             setattr(requirement, target, None)
             data.pop(target, None)
+
+    # Validate against the real board before anything is applied -- must
+    # run after the clear_ loop above, so requirement.epic_id/feature_id
+    # already reflect this PATCH's clears when computing the resulting
+    # epic/feature combination below.
+    epic_or_feature_changing = "epic_id" in data or "feature_id" in data
+    await _validate_requirement_refs(
+        db, board,
+        epic_id=(
+            (data["epic_id"] if data.get("epic_id") is not None else requirement.epic_id)
+            if epic_or_feature_changing else None
+        ),
+        feature_id=(
+            (data["feature_id"] if data.get("feature_id") is not None else requirement.feature_id)
+            if epic_or_feature_changing else None
+        ),
+        release_id=data.get("release_id"),
+        sprint_id=data.get("sprint_id"),
+        assignee_id=data.get("assignee_id"),
+    )
 
     # Entering a sprint resets a stale Doing/Review/Blocked back to Todo --
     # ported invariant, software-management's update_requirement: the sprint

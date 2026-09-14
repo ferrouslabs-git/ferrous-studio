@@ -14,6 +14,7 @@ import inspect
 import json
 from dataclasses import replace
 from types import SimpleNamespace
+from uuid import UUID
 
 import anthropic
 import pytest
@@ -61,9 +62,39 @@ def test_configured_is_true_once_a_model_is_set(configured):
 
 
 def test_configured_is_false_with_no_model(monkeypatch):
-    settings = replace(get_settings(), bedrock_claude_model="")
+    settings = replace(get_settings(), bedrock_claude_model="", anthropic_api_key="")
     monkeypatch.setattr(pa, "get_settings", lambda: settings)
     assert pa.configured() is False
+
+
+def test_configured_is_true_with_only_a_direct_api_key(monkeypatch):
+    """Bring-your-own-key, prepared ahead of time (§0.4/Phase 5): a deployment
+    can be configured via ANTHROPIC_API_KEY alone, with no Bedrock model set."""
+    settings = replace(get_settings(), bedrock_claude_model="", anthropic_api_key="sk-ant-fake")
+    monkeypatch.setattr(pa, "get_settings", lambda: settings)
+    assert pa.configured() is True
+
+
+def test_client_and_model_uses_bedrock_by_default():
+    settings = replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5", anthropic_api_key="")
+    client, model = pa._client_and_model(settings)
+    assert isinstance(client, anthropic.AsyncAnthropicBedrock)
+    assert model == "eu.anthropic.claude-sonnet-5"
+
+
+def test_client_and_model_prefers_a_direct_api_key_once_set():
+    """The whole point of preparing this switch ahead of time: giving
+    Project Agent a real key later is a config change, not a code change."""
+    settings = replace(
+        get_settings(),
+        bedrock_claude_model="eu.anthropic.claude-sonnet-5",
+        anthropic_api_key="sk-ant-fake",
+        anthropic_model="claude-sonnet-5",
+    )
+    client, model = pa._client_and_model(settings)
+    assert isinstance(client, anthropic.AsyncAnthropic)
+    assert not isinstance(client, anthropic.AsyncAnthropicBedrock)
+    assert model == "claude-sonnet-5"
 
 
 def test_list_messages_works_on_a_locked_version():
@@ -130,7 +161,8 @@ def test_bedrock_calls_carry_an_explicit_timeout():
     long as it likes, tying up a worker and an open DB transaction the
     whole time -- its own way of starving other organisations even though
     the rate limiter above never saw the request."""
-    assert "timeout=BEDROCK_CALL_TIMEOUT_SECONDS" in inspect.getsource(pa._ask_claude)
+    source = inspect.getsource(pa._client_and_model)
+    assert source.count("timeout=BEDROCK_CALL_TIMEOUT_SECONDS") == 2  # both the Bedrock and direct-API clients
 
 
 def test_permissions_match_the_data_routes_convention():
@@ -153,7 +185,7 @@ def test_the_prompt_regenerates_directly_without_waiting_for_confirmation():
     keep the old one recoverable. This replaced an earlier, stricter
     "wait for their answer before calling create_bundle" instruction."""
     assert "Do not pause to ask permission" in pa.SYSTEM_PROMPT
-    assert "wait for confirmation before creating it" in pa.SYSTEM_PROMPT
+    assert "wait for confirmation before creating or updating" in pa.SYSTEM_PROMPT
     assert "do not create anything until they confirm" not in pa.SYSTEM_PROMPT
 
 
@@ -162,39 +194,18 @@ def test_the_prompt_forbids_claiming_unconfirmed_creation():
 
 
 def test_send_message_looks_up_existing_content_before_asking():
-    """Both counts must actually be queried, not just accepted as parameters
-    -- otherwise _ask_claude's defaults (0, 0) silently claim every project
-    is empty."""
+    """The wireframe list and diagram count must actually be queried, not
+    just accepted as parameters -- otherwise _ask_claude's defaults (empty,
+    0) silently claim every project is empty, and update_wireframe would
+    have no real ids to work with."""
     source = inspect.getsource(pa.send_message)
-    assert "_count(db, Wireframe, project)" in source
+    assert "select(Wireframe.id, Wireframe.name)" in source
     assert "_count(db, ProjectDiagram, project)" in source
 
 
-def test_catalogue_reference_is_generated_not_hand_written():
-    """Proves the reference text actually reflects the real catalogue --
-    a hand-written copy could silently drift from what validate_bundle
-    accepts; this can't, since it's built from get_catalog() itself."""
-    ref = pa._catalogue_reference()
-    assert "navbar" in ref
-    assert "list" in ref
-    assert "canvas" in ref
-
-
-def test_the_worked_example_in_the_prompt_is_actually_valid():
-    """A live run against a real project showed the model needs a concrete
-    example to get the shape right -- an element's label is a top-level
-    field, not data.label/data.text, among other things (see
-    pa._WORKED_EXAMPLE's own comment for the exact failure). If this example
-    were ever wrong, it would be actively teaching the model the wrong
-    shape, so it must validate cleanly, always."""
-    bundle = json.loads(pa._WORKED_EXAMPLE)
-    errors = validate_bundle(wrap_bare_envelope(bundle), get_catalog())
-    assert errors == []
-
-
-def test_the_prompt_warns_about_the_mistakes_actually_seen_live():
-    assert "TOP-LEVEL field" in pa.BUNDLE_FORMAT_GUIDE
-    assert "root layout node needs" in pa.BUNDLE_FORMAT_GUIDE
+#: Generation/content of the guide itself is tested in test_catalog.py now
+#: (catalogue_reference/WORKED_EXAMPLE/BUNDLE_FORMAT_GUIDE all moved to
+#: catalog.py); pa.BUNDLE_FORMAT_GUIDE is that same text, imported.
 
 
 def test_create_bundle_tool_only_exposes_wireframes_and_diagrams():
@@ -206,16 +217,22 @@ def test_create_bundle_tool_only_exposes_wireframes_and_diagrams():
     assert set(props) == {"wireframes", "diagrams"}
 
 
-def test_a_member_without_board_write_only_gets_create_bundle():
+def test_a_member_without_board_write_only_gets_wireframe_tools():
     """account_member has data:write but not board:write (auth_config.yaml)
     -- the board tools must not even be offered, not offered-then-refused."""
     tools = pa._tools_for(FAKE_CTX_MEMBER)
-    assert tools == [pa.CREATE_BUNDLE_TOOL]
+    assert tools == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL]
 
 
-def test_an_admin_with_board_write_gets_all_three_tools():
+def test_an_admin_with_board_write_gets_all_five_tools():
     tools = pa._tools_for(FAKE_CTX_ADMIN)
-    assert tools == [pa.CREATE_BUNDLE_TOOL, pa.CREATE_EPIC_TOOL, pa.CREATE_REQUIREMENT_TOOL]
+    assert tools == [
+        pa.CREATE_BUNDLE_TOOL,
+        pa.UPDATE_WIREFRAME_TOOL,
+        pa.CREATE_EPIC_TOOL,
+        pa.CREATE_FEATURE_TOOL,
+        pa.CREATE_REQUIREMENT_TOOL,
+    ]
 
 
 async def test_the_prompt_tells_a_member_board_tools_are_unavailable(configured, monkeypatch):
@@ -229,7 +246,7 @@ async def test_the_prompt_tells_a_member_board_tools_are_unavailable(configured,
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert "do NOT have create_epic or create_requirement" in captured["system"]
-    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL]
+    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL]
 
 
 async def test_the_prompt_tells_an_admin_board_tools_are_available(configured, monkeypatch):
@@ -245,6 +262,56 @@ async def test_the_prompt_tells_an_admin_board_tools_are_available(configured, m
     assert "also have create_epic and create_requirement" in captured["system"]
     assert pa.CREATE_EPIC_TOOL in captured["tools"]
     assert pa.CREATE_REQUIREMENT_TOOL in captured["tools"]
+
+
+async def test_update_wireframe_tool_call_succeeds(monkeypatch):
+    """wireframe_id is stripped out of the tool input before it reaches
+    update_wireframe_content as the payload -- it must not pollute the
+    wireframe content dict passed to the validator."""
+
+    async def _fake_update_wireframe_content(db, project, ctx, wireframe_id, payload):
+        assert str(wireframe_id) == "11111111-1111-1111-1111-111111111111"
+        assert "wireframe_id" not in payload
+        assert payload == {"name": "Login", "pages": [{"id": "p1"}]}
+        return {"id": str(wireframe_id), "name": "Login", "pages": 1}, []
+
+    monkeypatch.setattr(pa, "update_wireframe_content", _fake_update_wireframe_content)
+    tool_use = SimpleNamespace(
+        name="update_wireframe",
+        input={"wireframe_id": "11111111-1111-1111-1111-111111111111", "name": "Login", "pages": [{"id": "p1"}]},
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+
+    assert is_error is False
+    assert json.loads(content)["name"] == "Login"
+
+
+async def test_update_wireframe_tool_call_with_an_unknown_id_is_a_catchable_error(monkeypatch):
+    async def _fake_update_wireframe_content(db, project, ctx, wireframe_id, payload):
+        return {}, [BundleError(path="wireframe_id", message="No wireframe with that id in this project.")]
+
+    monkeypatch.setattr(pa, "update_wireframe_content", _fake_update_wireframe_content)
+    tool_use = SimpleNamespace(
+        name="update_wireframe",
+        input={"wireframe_id": "11111111-1111-1111-1111-111111111111", "pages": [{"id": "p1"}]},
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+
+    assert is_error is True
+    assert "No wireframe with that id" in content
+
+
+async def test_update_wireframe_tool_call_with_a_malformed_id_is_a_catchable_error():
+    """A hallucinated, non-UUID wireframe_id must not reach the database as a
+    raw error -- caught before update_wireframe_content is even called."""
+    tool_use = SimpleNamespace(name="update_wireframe", input={"wireframe_id": "not-a-real-id", "pages": []})
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+
+    assert is_error is True
+    assert "wireframe_id must be a valid id" in content
 
 
 async def test_create_epic_tool_call_succeeds_for_an_admin(monkeypatch):
@@ -282,6 +349,65 @@ async def test_create_epic_tool_call_with_bad_input_is_a_catchable_error(monkeyp
     assert "errors" in json.loads(content)
 
 
+async def test_create_feature_tool_call_succeeds_for_an_admin(monkeypatch):
+    async def _fake_create_feature_content(db, project, ctx, payload):
+        assert payload.title == "Password reset"
+        assert str(payload.epic_id) == "11111111-1111-1111-1111-111111111111"
+        return SimpleNamespace(id="feature-1", title="Password reset", epic_id=payload.epic_id)
+
+    monkeypatch.setattr(pa, "create_feature_content", _fake_create_feature_content)
+    tool_use = SimpleNamespace(
+        name="create_feature",
+        input={"epic_id": "11111111-1111-1111-1111-111111111111", "title": "Password reset"},
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is False
+    assert json.loads(content) == {
+        "id": "feature-1",
+        "title": "Password reset",
+        "epic_id": "11111111-1111-1111-1111-111111111111",
+    }
+
+
+async def test_create_feature_tool_call_is_refused_for_a_member_even_if_somehow_invoked():
+    tool_use = SimpleNamespace(
+        name="create_feature", input={"epic_id": "11111111-1111-1111-1111-111111111111", "title": "Password reset"}
+    )
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+    assert is_error is True
+    assert "Unknown tool" in content
+
+
+async def test_create_feature_tool_call_with_bad_input_is_a_catchable_error():
+    """Both epic_id and title are required -- a feature cannot exist without
+    an epic."""
+    tool_use = SimpleNamespace(name="create_feature", input={"title": "Password reset"})
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+    assert is_error is True
+    assert "errors" in json.loads(content)
+
+
+async def test_create_feature_with_a_bad_epic_id_is_a_catchable_error(monkeypatch):
+    """A hallucinated epic_id must not reach the database as a raw 404 --
+    create_feature_content's own _get_epic check is caught and reported as
+    an ordinary tool_result error the model can retry without it."""
+
+    async def _fake_create_feature_content(db, project, ctx, payload):
+        raise pa.HTTPException(status_code=404, detail="Epic not found")
+
+    monkeypatch.setattr(pa, "create_feature_content", _fake_create_feature_content)
+    tool_use = SimpleNamespace(
+        name="create_feature", input={"epic_id": "11111111-1111-1111-1111-111111111111", "title": "Password reset"}
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is True
+    assert "epic_id" in json.loads(content)["errors"][0]["field"]
+
+
 async def test_create_requirement_tool_call_succeeds_for_an_admin(monkeypatch):
     async def _fake_create_requirement_content(db, project, ctx, payload):
         assert payload.title == "Add login form"
@@ -297,18 +423,16 @@ async def test_create_requirement_tool_call_succeeds_for_an_admin(monkeypatch):
 
 
 async def test_create_requirement_with_a_bad_epic_id_is_a_catchable_error(monkeypatch):
-    """A hallucinated epic_id must not reach the database as a raw foreign-key
-    violation -- checked against the real board first, and reported back as
-    an ordinary tool_result error the model can retry without it."""
+    """A hallucinated epic_id must not fail the whole chat turn with a raw
+    404 -- create_requirement_content itself validates it against the real
+    board now (board/routes.py's _validate_requirement_refs), and _run_tool
+    catches whatever it raises, reporting back an ordinary tool_result
+    error the model can retry without it."""
 
-    async def _fake_get_or_create_board(db, project):
-        return SimpleNamespace(id="board-1")
-
-    async def _fake_get_epic(db, board, epic_id):
+    async def _fake_create_requirement_content(db, project, ctx, payload):
         raise pa.HTTPException(status_code=404, detail="Epic not found")
 
-    monkeypatch.setattr(pa, "get_or_create_board", _fake_get_or_create_board)
-    monkeypatch.setattr(pa, "_get_epic", _fake_get_epic)
+    monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
     tool_use = SimpleNamespace(
         name="create_requirement", input={"title": "Add login form", "epic_id": "11111111-1111-1111-1111-111111111111"}
     )
@@ -316,7 +440,27 @@ async def test_create_requirement_with_a_bad_epic_id_is_a_catchable_error(monkey
     content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
 
     assert is_error is True
-    assert "epic_id" in json.loads(content)["errors"][0]["field"]
+    assert "Epic not found" in json.loads(content)["errors"][0]["message"]
+
+
+async def test_create_requirement_with_a_bad_feature_id_is_a_catchable_error(monkeypatch):
+    """Same shape as the epic_id check -- a hallucinated feature_id is
+    validated against the real board inside create_requirement_content
+    itself, not left to a raw foreign-key violation."""
+
+    async def _fake_create_requirement_content(db, project, ctx, payload):
+        raise pa.HTTPException(status_code=404, detail="Feature not found")
+
+    monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
+    tool_use = SimpleNamespace(
+        name="create_requirement",
+        input={"title": "Add reset link", "feature_id": "22222222-2222-2222-2222-222222222222"},
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is True
+    assert "Feature not found" in json.loads(content)["errors"][0]["message"]
 
 
 async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monkeypatch):
@@ -339,13 +483,6 @@ async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monk
     async def _fake_create_epic_content(db, project, ctx, payload):
         return SimpleNamespace(id="11111111-1111-1111-1111-111111111111", title=payload.title, status="Readiness")
 
-    async def _fake_get_or_create_board(db, project):
-        return SimpleNamespace(id="board-1")
-
-    async def _fake_get_epic(db, board, epic_id):
-        assert str(epic_id) == "11111111-1111-1111-1111-111111111111"
-        return SimpleNamespace(id=epic_id)
-
     async def _fake_create_requirement_content(db, project, ctx, payload):
         assert str(payload.epic_id) == "11111111-1111-1111-1111-111111111111"
         return SimpleNamespace(), SimpleNamespace(id="req-real-id", title=payload.title, status="Todo")
@@ -353,8 +490,6 @@ async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monk
     monkeypatch.setattr(pa, "get_settings", lambda: configured_settings)
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     monkeypatch.setattr(pa, "create_epic_content", _fake_create_epic_content)
-    monkeypatch.setattr(pa, "get_or_create_board", _fake_get_or_create_board)
-    monkeypatch.setattr(pa, "_get_epic", _fake_get_epic)
     monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
 
     reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_ADMIN, repo_full_name=None, history=[])
@@ -374,7 +509,7 @@ async def test_a_text_only_reply_needs_no_tool_call(configured, monkeypatch):
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert reply == "noted"
-    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL]
+    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL]
 
 
 async def test_the_agent_is_told_plainly_when_no_repo_is_connected(configured, monkeypatch):
@@ -417,13 +552,13 @@ async def test_the_agent_is_told_plainly_when_nothing_exists_yet(configured, mon
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
-    assert "no wireframes or diagrams yet" in captured["system"]
+    assert "no wireframes yet, and 0 diagram(s)" in captured["system"]
 
 
 async def test_the_agent_is_told_the_real_counts_when_content_already_exists(configured, monkeypatch):
     """Without this, asking the agent to "build wireframes" on a project that
     already has some would get a reply that ignores what's already there,
-    instead of surfacing the actual counts and asking whether to add more."""
+    instead of surfacing what exists and asking whether to add more."""
     configured()
     captured: dict = {}
 
@@ -433,9 +568,40 @@ async def test_the_agent_is_told_the_real_counts_when_content_already_exists(con
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(
-        db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, wireframe_count=3, diagram_count=2, history=[]
+        db=None,
+        project=FAKE_PROJECT,
+        ctx=FAKE_CTX_MEMBER,
+        repo_full_name=None,
+        wireframes=[(UUID(int=1), "Login Page"), (UUID(int=2), "Dashboard")],
+        diagram_count=2,
+        history=[],
     )
-    assert "already has 3 wireframe(s) and 2 diagram(s)" in captured["system"]
+    assert 'already has these wireframe(s): "Login Page"' in captured["system"]
+    assert "Dashboard" in captured["system"]
+    assert f"id {UUID(int=1)}" in captured["system"]
+    assert "2 diagram(s)" in captured["system"]
+
+
+async def test_the_agent_is_told_to_use_the_real_id_when_updating(configured, monkeypatch):
+    """The model must never invent a wireframe id -- it only ever has the
+    ones this prompt actually names."""
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage(text="noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    await pa._ask_claude(
+        db=None,
+        project=FAKE_PROJECT,
+        ctx=FAKE_CTX_MEMBER,
+        repo_full_name=None,
+        wireframes=[(UUID(int=1), "Login Page")],
+        history=[],
+    )
+    assert "never invent one" in captured["system"]
 
 
 async def test_a_successful_tool_call_creates_content_and_the_model_narrates(configured, monkeypatch):
