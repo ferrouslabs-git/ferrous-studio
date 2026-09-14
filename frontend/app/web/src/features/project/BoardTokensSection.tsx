@@ -20,6 +20,22 @@ import { useLoad } from "../../core/useLoad";
 import { BoardToken, BoardTokenIssued, createBoardToken, listBoardTokens, revokeBoardToken } from "./boardTokensApi";
 import { useProject } from "./ProjectLayout";
 
+/** The environment variable a project's board token is read from.
+ *
+ *  Per project, deliberately. A board token is bound to one board at mint
+ *  time, so anyone working two boards from two editor windows has two live
+ *  tokens and one shared name cannot satisfy both -- the second window gets
+ *  the first's token and a 403 that reads like a permissions bug. The name
+ *  must be a valid shell identifier: /^[A-Za-z_][A-Za-z0-9_]*$/.
+ *
+ *  Note this is only the name on the *host* side. The env key handed to the
+ *  MCP server stays FERROUS_BOARD_TOKEN, which is what board_mcp.py reads. */
+function tokenEnvVar(project: { id: string; name: string }): string {
+  // TODO: derive a per-project name. Returning the old shared name for now,
+  // which preserves today's behaviour (and today's collision).
+  return "FERROUS_BOARD_TOKEN";
+}
+
 export function BoardTokensSection() {
   const { project } = useProject();
   const { canManageBoardTokens } = useSession();
@@ -97,7 +113,7 @@ export function BoardTokensSection() {
             env: {
               FERROUS_STUDIO_URL: window.location.origin,
               FERROUS_STUDIO_PROJECT: project.id,
-              FERROUS_BOARD_TOKEN: "${FERROUS_BOARD_TOKEN}",
+              FERROUS_BOARD_TOKEN: "${" + tokenEnvVar(project) + "}",
             },
           },
         },
@@ -188,7 +204,7 @@ export function BoardTokensSection() {
               Copy this now. It is stored only as a hash and cannot be shown again — if you lose it, revoke it and
               create another.
             </div>
-            <Field label="Token — set this as FERROUS_BOARD_TOKEN in your shell">
+            <Field label={`Token — set this as ${tokenEnvVar(project)} in your shell`}>
               <input className="input" readOnly value={issued.token} onFocus={(e) => e.currentTarget.select()} />
             </Field>
             <button type="button" className="btn small ghost" onClick={() => void copy(issued.token, "token")}>
