@@ -27,12 +27,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.database import get_db
-from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
 
 from .audit import record_event
 from .catalog import Catalog, get_catalog
-from .common import get_wireframe, get_writable_project, next_pos
+from .common import get_wireframe, get_writable_project, next_pos, require_studio_permission
 from .models import Dataset, Persona, Project, ProjectDiagram, UseCase, UseCaseActor, Wireframe, utc_now
 from .ops import BACK_PAGE_ID, remap_dataset_ids
 from .schemas import DiagramKind, InterfaceType
@@ -896,11 +895,41 @@ async def update_wireframe_content(
     return {**result, "warnings": warnings}, []
 
 
+@router.post("/projects/{project_id}/wireframes/{wireframe_id}/import")
+async def import_into_wireframe(
+    project_id: UUID,
+    wireframe_id: UUID,
+    payload: dict[str, Any] = Body(...),
+    ctx: ScopeContext = Depends(require_studio_permission("data:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Replace an EXISTING wireframe's pages with fresh, bundle-shaped
+    content -- update_wireframe_content's own route, the REST counterpart
+    to what the Project Agent chatbot's update_wireframe tool already does
+    in-process. Same one-item-bundle payload shape as POST .../import
+    (name/interfaceType/landingPageId/pages), just targeted at a specific
+    wireframe instead of always creating a new one.
+
+    Reachable by a board token as well as a human login (see
+    require_studio_permission) -- the main reason this route exists at
+    all: an MCP-connected local agent has no in-process path to
+    update_wireframe_content the way the chatbot does, only HTTP.
+    """
+    project = await get_writable_project(db, project_id, ctx)
+    result, errors = await update_wireframe_content(db, project, ctx, wireframe_id, payload)
+    if errors:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"errors": [e.as_dict() for e in errors]}
+        )
+    await db.commit()
+    return result
+
+
 @router.post("/projects/{project_id}/import")
 async def import_bundle(
     project_id: UUID,
     payload: dict[str, Any] = Body(...),
-    ctx: ScopeContext = Depends(require_permission("data:write")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Import a project bundle: the inverse of ``GET /projects/{id}/export``.

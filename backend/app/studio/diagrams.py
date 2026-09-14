@@ -13,7 +13,7 @@ from app.auth.database import get_db
 from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
 
-from .common import get_project, get_writable_project
+from .common import get_project, get_writable_project, require_studio_permission
 from .models import Project, ProjectDiagram, utc_now
 from .schemas import DiagramCreate, DiagramRead, DiagramSave, DiagramSummary, DiagramUpdate
 
@@ -37,7 +37,7 @@ async def _diagram(db: AsyncSession, project: Project, diagram_id: UUID) -> Proj
 @router.get("/projects/{project_id}/diagrams", response_model=list[DiagramSummary])
 async def list_diagrams(
     project_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("data:read")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[ProjectDiagram]:
     project = await get_project(db, project_id, ctx)
@@ -78,7 +78,7 @@ async def create_diagram(
 async def get_diagram(
     project_id: UUID,
     diagram_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("data:read")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectDiagram:
     project = await get_project(db, project_id, ctx)
