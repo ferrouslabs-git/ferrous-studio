@@ -56,10 +56,15 @@ async def revoke_board_token(db: AsyncSession, token: BoardToken) -> None:
 # ── Resolving a token into a scope (agent-side auth) ─────────────────────
 #
 # A separate path from get_current_user/get_scope_context: an agent is not a
-# Cognito user, so it never goes through JWT verification. Deliberately
-# narrow -- board:read/board:write only, is_super_admin always False, unlike
-# the platform bypass. Only the two agent-reporting routes (heartbeat,
-# finish) use this; everything else (minting, queueing) is human/Cognito.
+# Cognito user, so it never goes through JWT verification. Grants the same
+# board:read/board:write/data:read/data:write set an account_admin already
+# has (only that role can mint a token in the first place -- board:tokens,
+# auth_config.yaml), so a token an admin hands to their own local agent can
+# reach board data and wireframes/diagrams, matching what the in-app
+# chatbot could already do for that role. is_super_admin always False,
+# unlike the platform bypass. get_project's own board_id check (common.py)
+# is what actually confines a token to the one project it was minted for --
+# not this permission set, which is otherwise identical for every token.
 
 
 async def _set_rls_vars_for_account(db: AsyncSession, account_id: UUID) -> None:
@@ -111,7 +116,7 @@ async def require_board_token(
         scope_type="account",
         scope_id=token.account_id,
         active_roles=["agent"],
-        resolved_permissions={"board:read", "board:write"},
+        resolved_permissions={"board:read", "board:write", "data:read", "data:write"},
         is_super_admin=False,
     )
     return ctx, token

@@ -20,12 +20,11 @@ from app.auth.database import get_db
 from app.auth.models.user import User
 from app.auth.security import require_any_permission
 from .agents import maybe_wake_agent, sync_agent_status
-from .auth import require_board_permission as require_permission
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
 from .. import storage
-from ..common import get_project
+from ..common import get_project, require_studio_permission as require_permission
 from ..documents import ALLOWED_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
 from . import service

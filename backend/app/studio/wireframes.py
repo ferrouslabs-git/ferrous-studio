@@ -27,6 +27,7 @@ from .common import (
     get_writable_project,
     next_pos,
 )
+from .common import require_studio_permission
 from .datasets import merged_dataset_reads
 from .models import (
     Persona,
@@ -300,7 +301,7 @@ async def _set_actors(db: AsyncSession, project: Project, wireframe: Wireframe, 
 @router.get("/projects/{project_id}/wireframes", response_model=list[WireframeRead])
 async def list_wireframes(
     project_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("data:read")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(db, project_id, ctx)
@@ -351,7 +352,7 @@ async def create_wireframe(
 async def get_wireframe_detail(
     project_id: UUID,
     wireframe_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("data:read")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(db, project_id, ctx)

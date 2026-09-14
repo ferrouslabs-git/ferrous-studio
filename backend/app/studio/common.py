@@ -6,15 +6,20 @@ guarded by ``data:read`` / ``data:write``. Every query filters by
 policies keyed on the same value -- two layers, always.
 """
 import secrets
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.database import get_db
+from app.auth.security.dependencies import get_current_user, get_scope_context
 from app.auth.security.scope_context import ScopeContext
 
+from .board.agents import TOKEN_PREFIX, require_board_token
+from .board.models import Board
 from .models import Project, ProjectPage, Wireframe
 from .positions import FIRST_KEY, key_after
 
@@ -47,6 +52,20 @@ async def get_project(db: AsyncSession, project_id: UUID, ctx: ScopeContext) -> 
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    if ctx.board_id is not None:
+        # A board token is scoped to exactly one project's board at mint
+        # time (ctx.board_id, set only on that path -- see board/agents.py).
+        # Without this, the account_id-only filter above would let the same
+        # token reach every other project in the account too -- board
+        # routes already confine themselves via board/routes.py's _board(),
+        # but every route resolving a project through here needs the same
+        # confinement now that a board token can reach beyond board
+        # endpoints (require_studio_permission, below).
+        board = (await db.execute(select(Board).where(Board.id == ctx.board_id))).scalar_one_or_none()
+        if board is None or board.lineage_id != project.lineage_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Board token is not valid for this project"
+            )
     return project
 
 
@@ -137,6 +156,56 @@ async def adopt_account_scope(db: AsyncSession, account_id: UUID) -> None:
         # Backward compat: older policies read these names (see _set_rls_vars).
         await db.execute(text("SELECT set_config('app.current_tenant_id', :tid, true)"), {"tid": str(account_id)})
         await db.execute(text("SELECT set_config('app.is_platform_admin', 'false', true)"))
+
+
+def require_studio_permission(permission: str) -> Callable:
+    """Accept EITHER a human Cognito login OR a board token, resolving to the
+    same narrowly-permissioned ScopeContext either way -- board tokens exist
+    specifically for a non-browser client (an MCP server, an agent) that
+    will never have a Cognito session. Originally board-route-only
+    (board/auth.py's require_board_permission); moved here once a board
+    token needed to reach wireframe/diagram routes too, not just board
+    ones -- get_project's own board_id check above is what actually keeps a
+    token confined to the one project it was minted for.
+    """
+
+    async def checker(
+        request: Request,
+        authorization: str | None = Header(None),
+        db: AsyncSession = Depends(get_db),
+    ) -> ScopeContext:
+        raw = ""
+        if authorization and authorization.lower().startswith("bearer "):
+            raw = authorization.split(None, 1)[1].strip()
+
+        if raw.startswith(TOKEN_PREFIX):
+            ctx, token = await require_board_token(authorization=authorization, db=db)
+            if not ctx.has_permission(permission):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Access denied. Required permission: {permission}",
+                )
+            ctx.board_id = token.board_id
+            ctx.board_token_id = token.id
+            return ctx
+
+        # Human path: the same two steps get_current_user/get_scope_context
+        # normally run as, called directly rather than through Depends() so
+        # this one dependency can choose between the two auth schemes --
+        # FastAPI resolves a route's dependency tree once, before the route
+        # body runs, so there's no way to make oauth2_scheme itself
+        # conditional on what the header looks like.
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=raw) if raw else None
+        current_user = await get_current_user(credentials=credentials, db=db)
+        ctx = await get_scope_context(request=request, current_user=current_user, db=db)
+        if not ctx.has_permission(permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied. Required permission: {permission}",
+            )
+        return ctx
+
+    return checker
 
 
 async def next_pos(db: AsyncSession, model: Any, *filters: Any) -> str:
