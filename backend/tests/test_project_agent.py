@@ -423,18 +423,16 @@ async def test_create_requirement_tool_call_succeeds_for_an_admin(monkeypatch):
 
 
 async def test_create_requirement_with_a_bad_epic_id_is_a_catchable_error(monkeypatch):
-    """A hallucinated epic_id must not reach the database as a raw foreign-key
-    violation -- checked against the real board first, and reported back as
-    an ordinary tool_result error the model can retry without it."""
+    """A hallucinated epic_id must not fail the whole chat turn with a raw
+    404 -- create_requirement_content itself validates it against the real
+    board now (board/routes.py's _validate_requirement_refs), and _run_tool
+    catches whatever it raises, reporting back an ordinary tool_result
+    error the model can retry without it."""
 
-    async def _fake_get_or_create_board(db, project):
-        return SimpleNamespace(id="board-1")
-
-    async def _fake_get_epic(db, board, epic_id):
+    async def _fake_create_requirement_content(db, project, ctx, payload):
         raise pa.HTTPException(status_code=404, detail="Epic not found")
 
-    monkeypatch.setattr(pa, "get_or_create_board", _fake_get_or_create_board)
-    monkeypatch.setattr(pa, "_get_epic", _fake_get_epic)
+    monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
     tool_use = SimpleNamespace(
         name="create_requirement", input={"title": "Add login form", "epic_id": "11111111-1111-1111-1111-111111111111"}
     )
@@ -442,22 +440,18 @@ async def test_create_requirement_with_a_bad_epic_id_is_a_catchable_error(monkey
     content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
 
     assert is_error is True
-    assert "epic_id" in json.loads(content)["errors"][0]["field"]
+    assert "Epic not found" in json.loads(content)["errors"][0]["message"]
 
 
 async def test_create_requirement_with_a_bad_feature_id_is_a_catchable_error(monkeypatch):
     """Same shape as the epic_id check -- a hallucinated feature_id is
-    validated against the real board before create_requirement_content ever
-    runs, not left to a raw foreign-key violation."""
+    validated against the real board inside create_requirement_content
+    itself, not left to a raw foreign-key violation."""
 
-    async def _fake_get_or_create_board(db, project):
-        return SimpleNamespace(id="board-1")
-
-    async def _fake_get_feature(db, board, feature_id):
+    async def _fake_create_requirement_content(db, project, ctx, payload):
         raise pa.HTTPException(status_code=404, detail="Feature not found")
 
-    monkeypatch.setattr(pa, "get_or_create_board", _fake_get_or_create_board)
-    monkeypatch.setattr(pa, "_get_feature", _fake_get_feature)
+    monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
     tool_use = SimpleNamespace(
         name="create_requirement",
         input={"title": "Add reset link", "feature_id": "22222222-2222-2222-2222-222222222222"},
@@ -466,7 +460,7 @@ async def test_create_requirement_with_a_bad_feature_id_is_a_catchable_error(mon
     content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
 
     assert is_error is True
-    assert "feature_id" in json.loads(content)["errors"][0]["field"]
+    assert "Feature not found" in json.loads(content)["errors"][0]["message"]
 
 
 async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monkeypatch):
@@ -489,13 +483,6 @@ async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monk
     async def _fake_create_epic_content(db, project, ctx, payload):
         return SimpleNamespace(id="11111111-1111-1111-1111-111111111111", title=payload.title, status="Readiness")
 
-    async def _fake_get_or_create_board(db, project):
-        return SimpleNamespace(id="board-1")
-
-    async def _fake_get_epic(db, board, epic_id):
-        assert str(epic_id) == "11111111-1111-1111-1111-111111111111"
-        return SimpleNamespace(id=epic_id)
-
     async def _fake_create_requirement_content(db, project, ctx, payload):
         assert str(payload.epic_id) == "11111111-1111-1111-1111-111111111111"
         return SimpleNamespace(), SimpleNamespace(id="req-real-id", title=payload.title, status="Todo")
@@ -503,8 +490,6 @@ async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monk
     monkeypatch.setattr(pa, "get_settings", lambda: configured_settings)
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     monkeypatch.setattr(pa, "create_epic_content", _fake_create_epic_content)
-    monkeypatch.setattr(pa, "get_or_create_board", _fake_get_or_create_board)
-    monkeypatch.setattr(pa, "_get_epic", _fake_get_epic)
     monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
 
     reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_ADMIN, repo_full_name=None, history=[])

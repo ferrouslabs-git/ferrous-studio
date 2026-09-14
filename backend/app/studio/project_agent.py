@@ -58,9 +58,8 @@ from app.auth.services.rate_limiter_service import create_rate_limiter
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 
-from .board.routes import _get_epic, _get_feature, create_epic_content, create_feature_content, create_requirement_content
+from .board.routes import create_epic_content, create_feature_content, create_requirement_content
 from .board.schemas import EpicCreate, FeatureCreate, RequirementCreate
-from .board.service import get_or_create_board
 from .catalog import BUNDLE_FORMAT_GUIDE, get_catalog
 from .common import get_project, get_writable_project
 from .importing import create_bundle_content, update_wireframe_content
@@ -474,19 +473,16 @@ async def _run_tool(db: AsyncSession, project: Project, ctx: ScopeContext, tool_
             payload = RequirementCreate(**tool_use.input)
         except ValidationError as exc:
             return json.dumps({"errors": exc.errors()}), True
-        if payload.epic_id is not None:
-            board = await get_or_create_board(db, project)
-            try:
-                await _get_epic(db, board, payload.epic_id)
-            except HTTPException:
-                return json.dumps({"errors": [{"field": "epic_id", "message": "No epic with that id here."}]}), True
-        if payload.feature_id is not None:
-            board = await get_or_create_board(db, project)
-            try:
-                await _get_feature(db, board, payload.feature_id)
-            except HTTPException:
-                return json.dumps({"errors": [{"field": "feature_id", "message": "No feature with that id here."}]}), True
-        _board, requirement = await create_requirement_content(db, project, ctx, payload)
+        # create_requirement_content validates epic_id/feature_id/release_id/
+        # sprint_id/assignee_id against the real board itself now (including
+        # a hallucinated one, or epic_id/feature_id naming inconsistent
+        # epics) -- caught here rather than left to propagate, or a bad id
+        # would fail the whole chat turn with a raw 404/422 instead of a
+        # tool_result the model can read and retry from.
+        try:
+            _board, requirement = await create_requirement_content(db, project, ctx, payload)
+        except HTTPException as exc:
+            return json.dumps({"errors": [{"message": exc.detail}]}), True
         return json.dumps({"id": str(requirement.id), "title": requirement.title, "status": requirement.status}), False
 
     return f'Unknown tool "{tool_use.name}".', True
