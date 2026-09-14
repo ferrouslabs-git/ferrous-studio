@@ -98,14 +98,23 @@ throwaway work.
      wireframe id retained (no duplicate), old pages replaced with fresh
      ids, and the automatic snapshot correctly captured the pre-update
      content.
-   - **"Features," and "from the scope data" -- NOT built, unclear.**
-     Features are an easy, well-scoped follow-up (the app already has a
-     full `Feature` board entity, same shape as Epic -- it just has no
-     chatbot tool yet, same gap `create_epic` closed for epics). "From the
-     scope data" is not understood yet -- unclear whether Elliott means a
-     specific uploaded document the chatbot should read, or just "whatever
-     the user describes in chat." Needs a direct follow-up question before
-     building either piece.
+   - **Features -- built and verified live (2026-09-14).** A new
+     `create_feature` tool, same shape as `create_epic`/`create_requirement`
+     (`create_feature_content` in `board/routes.py`, extracted the same
+     "everything the route does, minus commit" way). Requires a real
+     `epic_id` -- a feature cannot exist without one, same rule the human
+     "New feature" form already enforces. `create_requirement` now also
+     accepts `feature_id` as an alternative to `epic_id` (file a requirement
+     under a feature instead of directly under an epic), validated against
+     the real board first exactly like `epic_id` already was, closing the
+     validation gap flagged earlier for this exact field. Verified against
+     a real local database: epic -> feature -> requirement created in one
+     chain, and the requirement's `effective_epic_id` correctly inherits
+     through the feature to the epic.
+   - **"From the scope data" -- still NOT understood.** Unclear whether
+     Elliott means a specific uploaded document the chatbot should read, or
+     just "whatever the user describes in chat." Needs a direct follow-up
+     question -- nothing to build until that's answered.
 
 ## 1. What already exists (no work needed here)
 

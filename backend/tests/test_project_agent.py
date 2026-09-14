@@ -246,9 +246,15 @@ def test_a_member_without_board_write_only_gets_wireframe_tools():
     assert tools == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL]
 
 
-def test_an_admin_with_board_write_gets_all_four_tools():
+def test_an_admin_with_board_write_gets_all_five_tools():
     tools = pa._tools_for(FAKE_CTX_ADMIN)
-    assert tools == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL, pa.CREATE_EPIC_TOOL, pa.CREATE_REQUIREMENT_TOOL]
+    assert tools == [
+        pa.CREATE_BUNDLE_TOOL,
+        pa.UPDATE_WIREFRAME_TOOL,
+        pa.CREATE_EPIC_TOOL,
+        pa.CREATE_FEATURE_TOOL,
+        pa.CREATE_REQUIREMENT_TOOL,
+    ]
 
 
 async def test_the_prompt_tells_a_member_board_tools_are_unavailable(configured, monkeypatch):
@@ -365,6 +371,65 @@ async def test_create_epic_tool_call_with_bad_input_is_a_catchable_error(monkeyp
     assert "errors" in json.loads(content)
 
 
+async def test_create_feature_tool_call_succeeds_for_an_admin(monkeypatch):
+    async def _fake_create_feature_content(db, project, ctx, payload):
+        assert payload.title == "Password reset"
+        assert str(payload.epic_id) == "11111111-1111-1111-1111-111111111111"
+        return SimpleNamespace(id="feature-1", title="Password reset", epic_id=payload.epic_id)
+
+    monkeypatch.setattr(pa, "create_feature_content", _fake_create_feature_content)
+    tool_use = SimpleNamespace(
+        name="create_feature",
+        input={"epic_id": "11111111-1111-1111-1111-111111111111", "title": "Password reset"},
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is False
+    assert json.loads(content) == {
+        "id": "feature-1",
+        "title": "Password reset",
+        "epic_id": "11111111-1111-1111-1111-111111111111",
+    }
+
+
+async def test_create_feature_tool_call_is_refused_for_a_member_even_if_somehow_invoked():
+    tool_use = SimpleNamespace(
+        name="create_feature", input={"epic_id": "11111111-1111-1111-1111-111111111111", "title": "Password reset"}
+    )
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+    assert is_error is True
+    assert "Unknown tool" in content
+
+
+async def test_create_feature_tool_call_with_bad_input_is_a_catchable_error():
+    """Both epic_id and title are required -- a feature cannot exist without
+    an epic."""
+    tool_use = SimpleNamespace(name="create_feature", input={"title": "Password reset"})
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+    assert is_error is True
+    assert "errors" in json.loads(content)
+
+
+async def test_create_feature_with_a_bad_epic_id_is_a_catchable_error(monkeypatch):
+    """A hallucinated epic_id must not reach the database as a raw 404 --
+    create_feature_content's own _get_epic check is caught and reported as
+    an ordinary tool_result error the model can retry without it."""
+
+    async def _fake_create_feature_content(db, project, ctx, payload):
+        raise pa.HTTPException(status_code=404, detail="Epic not found")
+
+    monkeypatch.setattr(pa, "create_feature_content", _fake_create_feature_content)
+    tool_use = SimpleNamespace(
+        name="create_feature", input={"epic_id": "11111111-1111-1111-1111-111111111111", "title": "Password reset"}
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is True
+    assert "epic_id" in json.loads(content)["errors"][0]["field"]
+
+
 async def test_create_requirement_tool_call_succeeds_for_an_admin(monkeypatch):
     async def _fake_create_requirement_content(db, project, ctx, payload):
         assert payload.title == "Add login form"
@@ -400,6 +465,30 @@ async def test_create_requirement_with_a_bad_epic_id_is_a_catchable_error(monkey
 
     assert is_error is True
     assert "epic_id" in json.loads(content)["errors"][0]["field"]
+
+
+async def test_create_requirement_with_a_bad_feature_id_is_a_catchable_error(monkeypatch):
+    """Same shape as the epic_id check -- a hallucinated feature_id is
+    validated against the real board before create_requirement_content ever
+    runs, not left to a raw foreign-key violation."""
+
+    async def _fake_get_or_create_board(db, project):
+        return SimpleNamespace(id="board-1")
+
+    async def _fake_get_feature(db, board, feature_id):
+        raise pa.HTTPException(status_code=404, detail="Feature not found")
+
+    monkeypatch.setattr(pa, "get_or_create_board", _fake_get_or_create_board)
+    monkeypatch.setattr(pa, "_get_feature", _fake_get_feature)
+    tool_use = SimpleNamespace(
+        name="create_requirement",
+        input={"title": "Add reset link", "feature_id": "22222222-2222-2222-2222-222222222222"},
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
+
+    assert is_error is True
+    assert "feature_id" in json.loads(content)["errors"][0]["field"]
 
 
 async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monkeypatch):

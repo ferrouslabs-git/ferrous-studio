@@ -58,8 +58,8 @@ from app.auth.services.rate_limiter_service import create_rate_limiter
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 
-from .board.routes import _get_epic, create_epic_content, create_requirement_content
-from .board.schemas import EpicCreate, RequirementCreate
+from .board.routes import _get_epic, _get_feature, create_epic_content, create_feature_content, create_requirement_content
+from .board.schemas import EpicCreate, FeatureCreate, RequirementCreate
 from .board.service import get_or_create_board
 from .catalog import get_catalog
 from .common import get_project, get_writable_project
@@ -302,13 +302,33 @@ CREATE_EPIC_TOOL: dict[str, Any] = {
     },
 }
 
+CREATE_FEATURE_TOOL: dict[str, Any] = {
+    "name": "create_feature",
+    "description": (
+        "Create a feature under an epic, for grouping related requirements together -- "
+        "e.g. \"Password reset\" under a \"User onboarding\" epic. epic_id must be a real "
+        "id (from a create_epic result earlier in this conversation, or one the user "
+        "names) -- a feature cannot exist without an epic. Returns the created feature's "
+        "id, which you can pass as feature_id to create_requirement."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "epic_id": {"type": "string", "description": "UUID of the epic this feature belongs to."},
+            "title": {"type": "string", "description": "Short feature title."},
+        },
+        "required": ["epic_id", "title"],
+    },
+}
+
 CREATE_REQUIREMENT_TOOL: dict[str, Any] = {
     "name": "create_requirement",
     "description": (
         "Create a requirement on this project's delivery board. Starts at status "
         "\"Todo\". Pass epic_id (from a create_epic result earlier in this conversation, "
-        "or one the user names) to file it under a specific epic, or omit it to leave "
-        "the requirement unfiled."
+        "or one the user names) to file it directly under an epic, or feature_id (from a "
+        "create_feature result) to file it under a feature instead -- pass at most one of "
+        "the two. Omit both to leave the requirement unfiled."
     ),
     "input_schema": {
         "type": "object",
@@ -321,6 +341,7 @@ CREATE_REQUIREMENT_TOOL: dict[str, Any] = {
                 "description": "Defaults to Medium if omitted.",
             },
             "epic_id": {"type": "string", "description": "UUID of an epic to file this requirement under, if any."},
+            "feature_id": {"type": "string", "description": "UUID of a feature to file this requirement under, if any."},
         },
         "required": ["title"],
     },
@@ -359,15 +380,20 @@ SYSTEM_PROMPT = (
     "then call the right tool directly. Do not pause to ask permission or wait for "
     "confirmation before creating or updating; mentioning what already exists is "
     "just keeping them informed, not a gate to wait on.\n\n"
-    "If you have create_epic/create_requirement available: new epics start at "
-    'status "Readiness", new requirements at "Todo". Create an epic before its '
-    "requirements when both are wanted, so you can pass the epic's real id (from "
-    "that tool's own result) as epic_id -- never invent an id.\n\n"
-    "If you do NOT have create_epic/create_requirement available and are asked to "
-    "create, update or manage an epic or requirement: say plainly that you don't "
-    "have permission to manage this project's board, rather than trying another "
-    "tool instead or implying it can't be done at all -- someone with the right "
-    "role can.\n\n"
+    "If you have create_epic/create_feature/create_requirement available: new "
+    'epics start at status "Readiness", new requirements at "Todo". Create an '
+    "epic before its features or requirements when more than one is wanted, so "
+    "you can pass the epic's real id (from that tool's own result) as epic_id -- "
+    "never invent an id. A feature always needs a real epic_id too. A "
+    "requirement can go straight under an epic (epic_id) or under a feature "
+    "within one (feature_id) -- use a feature when the user is grouping several "
+    "related requirements together (e.g. \"password reset\" under \"onboarding\"), "
+    "epic_id directly otherwise; pass at most one of the two.\n\n"
+    "If you do NOT have create_epic/create_feature/create_requirement available "
+    "and are asked to create, update or manage an epic, feature or requirement: "
+    "say plainly that you don't have permission to manage this project's board, "
+    "rather than trying another tool instead or implying it can't be done at "
+    "all -- someone with the right role can.\n\n"
     f"{BUNDLE_FORMAT_GUIDE}"
 )
 
@@ -520,12 +546,12 @@ def _tools_for(ctx: ScopeContext) -> list[dict[str, Any]]:
     are only added when the caller separately has board:write -- an
     account_member has data:write but not board:write (auth_config.yaml),
     so a member can chat their way to new wireframes but never sees
-    create_epic/create_requirement exist, the same way they'd never see an
-    "Add epic" button rendered in a UI they can't use.
+    create_epic/create_feature/create_requirement exist, the same way
+    they'd never see an "Add epic" button rendered in a UI they can't use.
     """
     tools = [CREATE_BUNDLE_TOOL, UPDATE_WIREFRAME_TOOL]
     if ctx.has_permission("board:write"):
-        tools += [CREATE_EPIC_TOOL, CREATE_REQUIREMENT_TOOL]
+        tools += [CREATE_EPIC_TOOL, CREATE_FEATURE_TOOL, CREATE_REQUIREMENT_TOOL]
     return tools
 
 
@@ -563,6 +589,17 @@ async def _run_tool(db: AsyncSession, project: Project, ctx: ScopeContext, tool_
         epic = await create_epic_content(db, project, ctx, payload)
         return json.dumps({"id": str(epic.id), "title": epic.title, "status": epic.status}), False
 
+    if tool_use.name == "create_feature" and ctx.has_permission("board:write"):
+        try:
+            payload = FeatureCreate(**tool_use.input)
+        except ValidationError as exc:
+            return json.dumps({"errors": exc.errors()}), True
+        try:
+            feature = await create_feature_content(db, project, ctx, payload)
+        except HTTPException:
+            return json.dumps({"errors": [{"field": "epic_id", "message": "No epic with that id here."}]}), True
+        return json.dumps({"id": str(feature.id), "title": feature.title, "epic_id": str(feature.epic_id)}), False
+
     if tool_use.name == "create_requirement" and ctx.has_permission("board:write"):
         try:
             payload = RequirementCreate(**tool_use.input)
@@ -574,6 +611,12 @@ async def _run_tool(db: AsyncSession, project: Project, ctx: ScopeContext, tool_
                 await _get_epic(db, board, payload.epic_id)
             except HTTPException:
                 return json.dumps({"errors": [{"field": "epic_id", "message": "No epic with that id here."}]}), True
+        if payload.feature_id is not None:
+            board = await get_or_create_board(db, project)
+            try:
+                await _get_feature(db, board, payload.feature_id)
+            except HTTPException:
+                return json.dumps({"errors": [{"field": "feature_id", "message": "No feature with that id here."}]}), True
         _board, requirement = await create_requirement_content(db, project, ctx, payload)
         return json.dumps({"id": str(requirement.id), "title": requirement.title, "status": requirement.status}), False
 

@@ -570,14 +570,10 @@ async def list_features(
     return list(result.scalars().all())
 
 
-@router.post("/projects/{project_id}/board/features", response_model=FeatureRead, status_code=status.HTTP_201_CREATED)
-async def create_feature(
-    project_id: UUID,
-    payload: FeatureCreate,
-    ctx: ScopeContext = Depends(require_permission("board:write")),
-    db: AsyncSession = Depends(get_db),
-) -> Feature:
-    project = await get_project(db, project_id, ctx)
+async def create_feature_content(db: AsyncSession, project: Project, ctx: ScopeContext, payload: FeatureCreate) -> Feature:
+    """Everything create_feature's route does, minus commit -- same shape as
+    create_epic_content/create_requirement_content, shared with the Project
+    Agent chatbot's create_feature tool."""
     board = await _board(db, project, ctx)
     await _get_epic(db, board, payload.epic_id)
     seq = await service._next_seq(db, board, "feature_seq")
@@ -587,6 +583,18 @@ async def create_feature(
     await service.write_event(
         db, board, ctx.user_id, "feature.created", "feature", feature.id, {"title": feature.title}
     )
+    return feature
+
+
+@router.post("/projects/{project_id}/board/features", response_model=FeatureRead, status_code=status.HTTP_201_CREATED)
+async def create_feature(
+    project_id: UUID,
+    payload: FeatureCreate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> Feature:
+    project = await get_project(db, project_id, ctx)
+    feature = await create_feature_content(db, project, ctx, payload)
     await db.commit()
     await db.refresh(feature)
     return feature
