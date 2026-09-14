@@ -225,7 +225,6 @@ function ProjectNav({
       </div>
       <NavGroup>
         <NavItem to={`${base}/details`} icon="info" label="Project details" />
-        <NavItem to={`${base}/agent`} icon="agent" label="Project Agent" />
       </NavGroup>
       <NavGroup title="Scope">
         <NavItem to={`${base}/use-cases`} icon="usecase" label="Use case diagram" />
