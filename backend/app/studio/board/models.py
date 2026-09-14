@@ -502,8 +502,9 @@ class Attachment(Base):
 
 class BoardToken(Base):
     """A credential for a non-browser client (an agent) -- shown once at
-    creation, stored only as a hash. Resolves to board:read/board:write on
-    this one board only, never the platform bypass's full-permission
+    creation, stored only as a hash. Resolves to board:read/board:write/
+    data:read/data:write, confined to this one project (board_id, checked
+    in common.py's get_project), never the platform bypass's full-permission
     shortcut. See app/studio/board/agents.py."""
 
     __tablename__ = "board_tokens"
