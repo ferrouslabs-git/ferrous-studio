@@ -12,7 +12,12 @@ touch what FastAPI/pydantic/starlette versions the server itself runs:
 
 Env:
   FERROUS_STUDIO_URL     base URL, e.g. https://studio.ferrouslabs.co.uk
-  FERROUS_STUDIO_PROJECT the project's UUID (from its URL in the app)
+  FERROUS_STUDIO_PROJECT the project's UUID (from its URL in the app) --
+                         optional; if left unset, it's resolved once via
+                         the whoami() tool the first time it's needed and
+                         cached from then on (only works for a token
+                         minted after this existed -- see BoardToken's
+                         own docstring in app/studio/board/models.py)
   FERROUS_BOARD_TOKEN    a board token minted via
                          POST /api/studio/projects/{project_id}/board/tokens
                          (account_admin only) -- shown once at creation
@@ -52,17 +57,20 @@ except ImportError:                             # mcp SDK 1.x
     from mcp.server.fastmcp import FastMCP
 
 BASE = os.environ.get("FERROUS_STUDIO_URL", "").rstrip("/")
-PROJECT_ID = os.environ.get("FERROUS_STUDIO_PROJECT", "")
+#: May be empty -- resolved lazily via whoami() the first time a project-
+#: scoped call actually needs it, and cached here for the rest of this
+#: process's run. FERROUS_STUDIO_PROJECT still wins when it is set (no
+#: network round trip needed); this only covers a token whose .mcp.json
+#: never had it filled in, or lost it.
+_PROJECT_ID = os.environ.get("FERROUS_STUDIO_PROJECT", "")
 TOKEN = os.environ.get("FERROUS_BOARD_TOKEN", "")
 
 mcp = FastMCP("ferrous-studio-board")
 
 
 def _request(method: str, url: str, body: dict | None = None):
-    if not BASE or not PROJECT_ID or not TOKEN:
-        raise RuntimeError(
-            "FERROUS_STUDIO_URL, FERROUS_STUDIO_PROJECT and FERROUS_BOARD_TOKEN must all be set"
-        )
+    if not BASE or not TOKEN:
+        raise RuntimeError("FERROUS_STUDIO_URL and FERROUS_BOARD_TOKEN must both be set")
     req = urllib.request.Request(url, method=method)
     req.add_header("Authorization", "Bearer " + TOKEN)
     req.add_header("Content-Type", "application/json")
@@ -76,16 +84,27 @@ def _request(method: str, url: str, body: dict | None = None):
     return json.loads(payload) if payload else None
 
 
+def _project_id() -> str:
+    """FERROUS_STUDIO_PROJECT if it was set; otherwise resolved once via
+    GET /board/whoami (the one endpoint that needs no project id of its
+    own) and cached for every call after. Raises the same RuntimeError
+    whoami() itself would if the token has no known project."""
+    global _PROJECT_ID
+    if not _PROJECT_ID:
+        _PROJECT_ID = _request("GET", f"{BASE}/api/studio/board/whoami")["project_id"]
+    return _PROJECT_ID
+
+
 def _call(method: str, path: str, body: dict | None = None):
-    """A board endpoint: .../projects/{PROJECT_ID}/board<path>."""
-    return _request(method, f"{BASE}/api/studio/projects/{PROJECT_ID}/board{path}", body)
+    """A board endpoint: .../projects/{project_id}/board<path>."""
+    return _request(method, f"{BASE}/api/studio/projects/{_project_id()}/board{path}", body)
 
 
 def _studio_call(method: str, path: str, body: dict | None = None):
     """A non-board studio endpoint (wireframes, diagrams, import):
-    .../projects/{PROJECT_ID}<path> -- no /board segment, since these
+    .../projects/{project_id}<path> -- no /board segment, since these
     predate the board feature and were never nested under it."""
-    return _request(method, f"{BASE}/api/studio/projects/{PROJECT_ID}{path}", body)
+    return _request(method, f"{BASE}/api/studio/projects/{_project_id()}{path}", body)
 
 
 def _patch_of(**kwargs) -> dict:
@@ -93,6 +112,16 @@ def _patch_of(**kwargs) -> dict:
 
 
 # ── Overview ──────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def whoami() -> dict:
+    """Which project this board token is for -- {project_id, project_name}.
+    Only needed to check explicitly if FERROUS_STUDIO_PROJECT was never
+    set in this connection's config: every other tool already resolves and
+    caches this automatically the first time it's needed. Fails if the
+    token predates this feature (no project recorded at mint time)."""
+    return _request("GET", f"{BASE}/api/studio/board/whoami")
 
 
 @mcp.tool()

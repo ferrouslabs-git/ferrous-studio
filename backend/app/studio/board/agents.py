@@ -39,11 +39,18 @@ def _hash(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode()).hexdigest()
 
 
-async def mint_board_token(db: AsyncSession, board: Board, label: str, created_by: UUID) -> tuple[BoardToken, str]:
+async def mint_board_token(
+    db: AsyncSession, board: Board, label: str, created_by: UUID, project_id: UUID | None = None
+) -> tuple[BoardToken, str]:
     """Returns the row and the raw token -- the raw value is never stored and
-    this is the only time it is ever available."""
+    this is the only time it is ever available. project_id is the exact
+    project row the caller minted this for (see BoardToken's own docstring
+    for why it's recorded -- the "whoami" lookup, board/agent_routes.py)."""
     raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
-    row = BoardToken(board_id=board.id, account_id=board.account_id, label=label, token_hash=_hash(raw), created_by=created_by)
+    row = BoardToken(
+        board_id=board.id, project_id=project_id, account_id=board.account_id,
+        label=label, token_hash=_hash(raw), created_by=created_by,
+    )
     db.add(row)
     await db.flush()
     return row, raw
@@ -225,12 +232,12 @@ async def report_finished(db: AsyncSession, run: AgentRun, success: bool, error:
 # agent_security_group docstring.
 
 
-async def create_agent(db: AsyncSession, board: Board, name: str, created_by: UUID) -> Agent:
+async def create_agent(db: AsyncSession, board: Board, name: str, created_by: UUID, project_id: UUID | None = None) -> Agent:
     """Every agent gets its own real board_tokens row (mint_board_token) --
     same credential a human-facing MCP client would use, just kept in the
     clear here (Agent.board_token) because the launched container has no
     human present to hand it a fresh one when it needs to re-authenticate."""
-    token_row, raw = await mint_board_token(db, board, f"agent: {name}", created_by)
+    token_row, raw = await mint_board_token(db, board, f"agent: {name}", created_by, project_id)
     agent = Agent(
         board_id=board.id, account_id=board.account_id, name=name,
         board_token_id=token_row.id, board_token=raw,

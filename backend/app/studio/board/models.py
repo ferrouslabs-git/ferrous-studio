@@ -505,12 +505,21 @@ class BoardToken(Base):
     creation, stored only as a hash. Resolves to board:read/board:write/
     data:read/data:write, confined to this one project (board_id, checked
     in common.py's get_project), never the platform bypass's full-permission
-    shortcut. See app/studio/board/agents.py."""
+    shortcut. See app/studio/board/agents.py.
+
+    project_id is the exact project row minting saw (not derivable from
+    board_id alone -- a board's lineage_id can match more than one project
+    row across versions), recorded purely so a caller holding only the raw
+    token can ask "whoami" (agent_routes.py) and learn what to put in
+    FERROUS_STUDIO_PROJECT, instead of needing the id handed to it
+    separately every time. Nullable: tokens minted before this existed have
+    no way to backfill it retroactively."""
 
     __tablename__ = "board_tokens"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     board_id = Column(UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
     account_id = Column(UUID(as_uuid=True), nullable=False)
     label = Column(String(255), nullable=False)
     token_hash = Column(String(64), nullable=False, unique=True)
