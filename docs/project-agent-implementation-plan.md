@@ -54,25 +54,58 @@ throwaway work.
    database, not just the chat reply. Feature-level board actions
    (releases, sprints, comments, attachments) are not built -- only
    create_epic/create_requirement, the two Niral's own question named.
-6. **NEW, unresolved -- do not build yet:** Ali separately floated a
-   *different* shape entirely: a dedicated "Reverse Engineer This Repo"
-   button tied to its own one-off chat thread, which disappears once
-   reverse-engineering finishes. This directly contradicts the
-   always-available "Project Agent" tab that's already built and shipped
-   (§7-9) -- a chat can't both be a permanent, ongoing assistant and a
-   wizard that vanishes after one use. Elliott read it and said *"Not sure
-   I understand. Jump on this call with Dustin and let's discuss"* --
-   i.e. unresolved even inside the client's own team. **Do not implement
-   either direction until that call happens and the team picks one.**
-7. **Ali's proposed architecture for §0.1's access control** (Slack,
-   2026-09-11): tool categories should live in *separate MCP servers*
-   (mirroring `board_mcp.py`'s existing pattern -- one server per category,
-   e.g. "management" vs "wireframe"), with a gateway in front of all of
-   them enforcing role-based access before a tool call is allowed through.
-   This is a materially different architecture from what's built today (one
-   `create_bundle` tool embedded directly in `project_agent.py`'s own
-   request loop, no separate MCP server, no gateway) -- a real redesign,
-   not a small extension, if adopted as described.
+6. ~~Ali separately floated a *different* shape entirely: a dedicated
+   "Reverse Engineer This Repo" button tied to its own one-off chat
+   thread, which disappears once reverse-engineering finishes.~~
+   **Decided by Niral (2026-09-14): not building this.** Elliott had
+   already flagged it as unresolved even inside the client's own team
+   ("Jump on this call with Dustin and let's discuss"), and rather than
+   wait on that call, the team is keeping the one always-available
+   "Project Agent" tab as the only interface. No further action here.
+7. ~~Ali's proposed architecture for §0.1's access control: tool
+   categories in *separate MCP servers* with a gateway enforcing
+   role-based access in front of them.~~ **Clarified by Niral
+   (2026-09-14): Ali hasn't given a reason for that specific shape; what
+   he actually wants is one chatbot that can create everything, gated so
+   that a project member can only do what their role allows.** That
+   behavioural requirement is already fully met by what's built (§0.1) --
+   one chatbot, one set of tools, gated per-request by
+   `ctx.has_permission(...)`. The separate-MCP-servers-plus-gateway shape
+   was one possible *implementation* of that requirement, not the
+   requirement itself, and isn't needed unless a future need emerges for
+   something other than this chatbot to call the same tools
+   independently (the way `board_mcp.py` already lets external tools
+   reach board data directly). Not building it.
+8. ~~If an epic/requirement the chatbot is asked to create already
+   exists, do we update it or create a new one?~~ **Decided by Niral
+   (2026-09-14): create a new one, same as wireframes/diagrams (§0.3).**
+   No code change needed -- `create_epic`/`create_requirement` never had
+   duplicate-checking logic, so this was already the actual behaviour.
+9. **Elliott (Slack, 2026-09-14):** *"Not just requirements, it'll also be
+   able to create Epics, features and requirements from the scope data.
+   And we can ask it to create or update wireframes based on the attached
+   repo."* Two parts:
+   - **Update wireframes -- built and verified live (2026-09-14).** A new
+     `update_wireframe` tool replaces an existing wireframe's pages with
+     fresh content, chosen by the model over `create_bundle` when the
+     request clearly names or implies one of the project's existing
+     wireframes (the system prompt now lists their real names/ids so the
+     model never invents one). Reuses the exact same validator as create,
+     and snapshots the wireframe's current state first -- exactly like
+     `restore_version` already does -- so an agent-driven update is always
+     undoable. See `update_wireframe_content`/`_update_wireframe` in
+     `importing.py`. Verified against a real local database: same
+     wireframe id retained (no duplicate), old pages replaced with fresh
+     ids, and the automatic snapshot correctly captured the pre-update
+     content.
+   - **"Features," and "from the scope data" -- NOT built, unclear.**
+     Features are an easy, well-scoped follow-up (the app already has a
+     full `Feature` board entity, same shape as Epic -- it just has no
+     chatbot tool yet, same gap `create_epic` closed for epics). "From the
+     scope data" is not understood yet -- unclear whether Elliott means a
+     specific uploaded document the chatbot should read, or just "whatever
+     the user describes in chat." Needs a direct follow-up question before
+     building either piece.
 
 ## 1. What already exists (no work needed here)
 

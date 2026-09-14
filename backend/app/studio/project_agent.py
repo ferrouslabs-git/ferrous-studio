@@ -41,6 +41,7 @@ every other organisation sharing this one platform-wide Bedrock capacity.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -62,7 +63,7 @@ from .board.schemas import EpicCreate, RequirementCreate
 from .board.service import get_or_create_board
 from .catalog import get_catalog
 from .common import get_project, get_writable_project
-from .importing import create_bundle_content
+from .importing import create_bundle_content, update_wireframe_content
 from .models import Project, ProjectAgentMessage, ProjectDiagram, Wireframe
 from .projects import _count
 from .schemas import ProjectAgentMessageRead, ProjectAgentSend, ProjectAgentStatus
@@ -255,6 +256,32 @@ CREATE_BUNDLE_TOOL: dict[str, Any] = {
     },
 }
 
+UPDATE_WIREFRAME_TOOL: dict[str, Any] = {
+    "name": "update_wireframe",
+    "description": (
+        "Replace an EXISTING wireframe's pages with new content -- use this instead of "
+        "create_bundle when the request clearly refers to one of this project's existing "
+        "wireframes (named below), e.g. \"update the Login wireframe\" or regenerating one "
+        "after reverse-engineering an updated repository. wireframe_id must be a real id "
+        "from the list you were given -- never invent one. The wireframe's current pages "
+        "are automatically saved to its own version history first, so this is always "
+        "undoable. name/interfaceType/landingPageId/pages use the exact same format as "
+        "create_bundle's wireframes -- everything is replaced, not merged, so pass the "
+        "complete new content, not just what changed."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "wireframe_id": {"type": "string", "description": "The id of the existing wireframe to update."},
+            "name": {"type": "string", "description": "Optional -- omit to keep the current name."},
+            "interfaceType": {"type": "string", "enum": ["desktop", "tablet", "mobile"]},
+            "landingPageId": {"type": "string"},
+            "pages": {"type": "array", "items": {"type": "object"}},
+        },
+        "required": ["wireframe_id", "pages"],
+    },
+}
+
 #: Board tools -- only ever offered to Claude when the caller actually has
 #: board:write (see _tools_for). A member with only data:write can still
 #: use create_bundle; these two simply don't exist for that request.
@@ -320,12 +347,17 @@ SYSTEM_PROMPT = (
     "so plainly and point them at Project details -> Repository to connect one "
     "first, rather than inventing content as if one exists.\n\n"
     "If asked to build wireframes or diagrams and this project already has some, "
-    "regenerating is expected and safe -- every previous version stays reachable "
-    "through the project's own version history, so there's nothing to lose. Open "
-    'your reply with the plain fact -- e.g. "You already have 3 wireframes and 2 '
-    'diagrams in this project -- here\'s a new one" -- using the real counts you '
-    "were given, then call create_bundle directly. Do not pause to ask permission "
-    "or wait for confirmation before creating it; mentioning the existing count is "
+    "creating another is expected and safe -- every version stays reachable through "
+    "the project's own version history, so there's nothing to lose. If the request "
+    "clearly means one of the existing wireframes named below -- by name, or an "
+    "obvious regenerate/refresh of it, e.g. after reverse-engineering an updated "
+    "repository -- call update_wireframe with its real id instead of creating a "
+    "duplicate; otherwise call create_bundle. If you genuinely can't tell which the "
+    "user means, ask rather than guessing which one to touch. Open your reply with "
+    'the plain fact -- e.g. "You already have 3 wireframes and 2 diagrams in this '
+    'project -- here\'s a new one" or "Updating your existing Login wireframe" -- '
+    "then call the right tool directly. Do not pause to ask permission or wait for "
+    "confirmation before creating or updating; mentioning what already exists is "
     "just keeping them informed, not a gate to wait on.\n\n"
     "If you have create_epic/create_requirement available: new epics start at "
     'status "Readiness", new requirements at "Todo". Create an epic before its '
@@ -435,7 +467,15 @@ async def send_message(
     )
     history = list(reversed(history_result.scalars().all()))
 
-    wireframe_count = await _count(db, Wireframe, project)
+    # Names and real ids, not just a count -- update_wireframe needs a real id
+    # to target, and the id has to come from us; the model is never trusted to
+    # invent one.
+    wireframes_result = await db.execute(
+        select(Wireframe.id, Wireframe.name)
+        .where(Wireframe.project_id == project.id, Wireframe.account_id == project.account_id)
+        .order_by(Wireframe.pos)
+    )
+    wireframes = wireframes_result.all()
     diagram_count = await _count(db, ProjectDiagram, project)
 
     user_message = ProjectAgentMessage(
@@ -453,7 +493,7 @@ async def send_message(
         project=project,
         ctx=ctx,
         repo_full_name=project.repo_full_name,
-        wireframe_count=wireframe_count,
+        wireframes=wireframes,
         diagram_count=diagram_count,
         history=[*history, user_message],
     )
@@ -474,15 +514,16 @@ async def send_message(
 def _tools_for(ctx: ScopeContext) -> list[dict[str, Any]]:
     """Which tools this request's caller actually gets to see.
 
-    create_bundle is always included: reaching this function at all already
-    required data:write (send_message's own permission). The board tools
+    create_bundle and update_wireframe are always included: reaching this
+    function at all already required data:write (send_message's own
+    permission). The board tools
     are only added when the caller separately has board:write -- an
     account_member has data:write but not board:write (auth_config.yaml),
     so a member can chat their way to new wireframes but never sees
     create_epic/create_requirement exist, the same way they'd never see an
     "Add epic" button rendered in a UI they can't use.
     """
-    tools = [CREATE_BUNDLE_TOOL]
+    tools = [CREATE_BUNDLE_TOOL, UPDATE_WIREFRAME_TOOL]
     if ctx.has_permission("board:write"):
         tools += [CREATE_EPIC_TOOL, CREATE_REQUIREMENT_TOOL]
     return tools
@@ -498,6 +539,18 @@ async def _run_tool(db: AsyncSession, project: Project, ctx: ScopeContext, tool_
     """
     if tool_use.name == "create_bundle":
         result, errors = await create_bundle_content(db, project, ctx, tool_use.input)
+        if errors:
+            return json.dumps({"errors": [e.as_dict() for e in errors]}), True
+        return json.dumps(result), False
+
+    if tool_use.name == "update_wireframe":
+        tool_input = dict(tool_use.input)
+        raw_id = tool_input.pop("wireframe_id", None)
+        try:
+            wireframe_id = UUID(str(raw_id))
+        except (ValueError, TypeError):
+            return json.dumps({"errors": [{"path": "wireframe_id", "message": "wireframe_id must be a valid id."}]}), True
+        result, errors = await update_wireframe_content(db, project, ctx, wireframe_id, tool_input)
         if errors:
             return json.dumps({"errors": [e.as_dict() for e in errors]}), True
         return json.dumps(result), False
@@ -533,7 +586,7 @@ async def _ask_claude(
     project: Project,
     ctx: ScopeContext,
     repo_full_name: str | None,
-    wireframe_count: int = 0,
+    wireframes: Sequence[tuple[UUID, str]] = (),
     diagram_count: int = 0,
     history: list[ProjectAgentMessage],
 ) -> str:
@@ -546,11 +599,14 @@ async def _ask_claude(
         if repo_full_name
         else "No repository is connected to this project yet."
     )
-    content_fact = (
-        f"This project already has {wireframe_count} wireframe(s) and {diagram_count} diagram(s)."
-        if wireframe_count or diagram_count
-        else "This project has no wireframes or diagrams yet."
-    )
+    if wireframes:
+        wireframe_list = "; ".join(f'"{name}" (id {wireframe_id})' for wireframe_id, name in wireframes)
+        content_fact = (
+            f"This project already has these wireframe(s): {wireframe_list}. And {diagram_count} diagram(s). "
+            "To update one of them, use its real id from this list -- never invent one."
+        )
+    else:
+        content_fact = f"This project has no wireframes yet, and {diagram_count} diagram(s)."
     board_fact = (
         "You also have create_epic and create_requirement available for this project's delivery board."
         if ctx.has_permission("board:write")

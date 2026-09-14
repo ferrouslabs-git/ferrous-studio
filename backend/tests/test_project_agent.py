@@ -14,6 +14,7 @@ import inspect
 import json
 from dataclasses import replace
 from types import SimpleNamespace
+from uuid import UUID
 
 import anthropic
 import pytest
@@ -184,7 +185,7 @@ def test_the_prompt_regenerates_directly_without_waiting_for_confirmation():
     keep the old one recoverable. This replaced an earlier, stricter
     "wait for their answer before calling create_bundle" instruction."""
     assert "Do not pause to ask permission" in pa.SYSTEM_PROMPT
-    assert "wait for confirmation before creating it" in pa.SYSTEM_PROMPT
+    assert "wait for confirmation before creating or updating" in pa.SYSTEM_PROMPT
     assert "do not create anything until they confirm" not in pa.SYSTEM_PROMPT
 
 
@@ -193,11 +194,12 @@ def test_the_prompt_forbids_claiming_unconfirmed_creation():
 
 
 def test_send_message_looks_up_existing_content_before_asking():
-    """Both counts must actually be queried, not just accepted as parameters
-    -- otherwise _ask_claude's defaults (0, 0) silently claim every project
-    is empty."""
+    """The wireframe list and diagram count must actually be queried, not
+    just accepted as parameters -- otherwise _ask_claude's defaults (empty,
+    0) silently claim every project is empty, and update_wireframe would
+    have no real ids to work with."""
     source = inspect.getsource(pa.send_message)
-    assert "_count(db, Wireframe, project)" in source
+    assert "select(Wireframe.id, Wireframe.name)" in source
     assert "_count(db, ProjectDiagram, project)" in source
 
 
@@ -237,16 +239,16 @@ def test_create_bundle_tool_only_exposes_wireframes_and_diagrams():
     assert set(props) == {"wireframes", "diagrams"}
 
 
-def test_a_member_without_board_write_only_gets_create_bundle():
+def test_a_member_without_board_write_only_gets_wireframe_tools():
     """account_member has data:write but not board:write (auth_config.yaml)
     -- the board tools must not even be offered, not offered-then-refused."""
     tools = pa._tools_for(FAKE_CTX_MEMBER)
-    assert tools == [pa.CREATE_BUNDLE_TOOL]
+    assert tools == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL]
 
 
-def test_an_admin_with_board_write_gets_all_three_tools():
+def test_an_admin_with_board_write_gets_all_four_tools():
     tools = pa._tools_for(FAKE_CTX_ADMIN)
-    assert tools == [pa.CREATE_BUNDLE_TOOL, pa.CREATE_EPIC_TOOL, pa.CREATE_REQUIREMENT_TOOL]
+    assert tools == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL, pa.CREATE_EPIC_TOOL, pa.CREATE_REQUIREMENT_TOOL]
 
 
 async def test_the_prompt_tells_a_member_board_tools_are_unavailable(configured, monkeypatch):
@@ -260,7 +262,7 @@ async def test_the_prompt_tells_a_member_board_tools_are_unavailable(configured,
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert "do NOT have create_epic or create_requirement" in captured["system"]
-    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL]
+    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL]
 
 
 async def test_the_prompt_tells_an_admin_board_tools_are_available(configured, monkeypatch):
@@ -276,6 +278,56 @@ async def test_the_prompt_tells_an_admin_board_tools_are_available(configured, m
     assert "also have create_epic and create_requirement" in captured["system"]
     assert pa.CREATE_EPIC_TOOL in captured["tools"]
     assert pa.CREATE_REQUIREMENT_TOOL in captured["tools"]
+
+
+async def test_update_wireframe_tool_call_succeeds(monkeypatch):
+    """wireframe_id is stripped out of the tool input before it reaches
+    update_wireframe_content as the payload -- it must not pollute the
+    wireframe content dict passed to the validator."""
+
+    async def _fake_update_wireframe_content(db, project, ctx, wireframe_id, payload):
+        assert str(wireframe_id) == "11111111-1111-1111-1111-111111111111"
+        assert "wireframe_id" not in payload
+        assert payload == {"name": "Login", "pages": [{"id": "p1"}]}
+        return {"id": str(wireframe_id), "name": "Login", "pages": 1}, []
+
+    monkeypatch.setattr(pa, "update_wireframe_content", _fake_update_wireframe_content)
+    tool_use = SimpleNamespace(
+        name="update_wireframe",
+        input={"wireframe_id": "11111111-1111-1111-1111-111111111111", "name": "Login", "pages": [{"id": "p1"}]},
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+
+    assert is_error is False
+    assert json.loads(content)["name"] == "Login"
+
+
+async def test_update_wireframe_tool_call_with_an_unknown_id_is_a_catchable_error(monkeypatch):
+    async def _fake_update_wireframe_content(db, project, ctx, wireframe_id, payload):
+        return {}, [BundleError(path="wireframe_id", message="No wireframe with that id in this project.")]
+
+    monkeypatch.setattr(pa, "update_wireframe_content", _fake_update_wireframe_content)
+    tool_use = SimpleNamespace(
+        name="update_wireframe",
+        input={"wireframe_id": "11111111-1111-1111-1111-111111111111", "pages": [{"id": "p1"}]},
+    )
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+
+    assert is_error is True
+    assert "No wireframe with that id" in content
+
+
+async def test_update_wireframe_tool_call_with_a_malformed_id_is_a_catchable_error():
+    """A hallucinated, non-UUID wireframe_id must not reach the database as a
+    raw error -- caught before update_wireframe_content is even called."""
+    tool_use = SimpleNamespace(name="update_wireframe", input={"wireframe_id": "not-a-real-id", "pages": []})
+
+    content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_MEMBER, tool_use)
+
+    assert is_error is True
+    assert "wireframe_id must be a valid id" in content
 
 
 async def test_create_epic_tool_call_succeeds_for_an_admin(monkeypatch):
@@ -405,7 +457,7 @@ async def test_a_text_only_reply_needs_no_tool_call(configured, monkeypatch):
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     reply = await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
     assert reply == "noted"
-    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL]
+    assert captured["tools"] == [pa.CREATE_BUNDLE_TOOL, pa.UPDATE_WIREFRAME_TOOL]
 
 
 async def test_the_agent_is_told_plainly_when_no_repo_is_connected(configured, monkeypatch):
@@ -448,13 +500,13 @@ async def test_the_agent_is_told_plainly_when_nothing_exists_yet(configured, mon
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, history=[])
-    assert "no wireframes or diagrams yet" in captured["system"]
+    assert "no wireframes yet, and 0 diagram(s)" in captured["system"]
 
 
 async def test_the_agent_is_told_the_real_counts_when_content_already_exists(configured, monkeypatch):
     """Without this, asking the agent to "build wireframes" on a project that
     already has some would get a reply that ignores what's already there,
-    instead of surfacing the actual counts and asking whether to add more."""
+    instead of surfacing what exists and asking whether to add more."""
     configured()
     captured: dict = {}
 
@@ -464,9 +516,40 @@ async def test_the_agent_is_told_the_real_counts_when_content_already_exists(con
 
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
     await pa._ask_claude(
-        db=None, project=FAKE_PROJECT, ctx=FAKE_CTX_MEMBER, repo_full_name=None, wireframe_count=3, diagram_count=2, history=[]
+        db=None,
+        project=FAKE_PROJECT,
+        ctx=FAKE_CTX_MEMBER,
+        repo_full_name=None,
+        wireframes=[(UUID(int=1), "Login Page"), (UUID(int=2), "Dashboard")],
+        diagram_count=2,
+        history=[],
     )
-    assert "already has 3 wireframe(s) and 2 diagram(s)" in captured["system"]
+    assert 'already has these wireframe(s): "Login Page"' in captured["system"]
+    assert "Dashboard" in captured["system"]
+    assert f"id {UUID(int=1)}" in captured["system"]
+    assert "2 diagram(s)" in captured["system"]
+
+
+async def test_the_agent_is_told_to_use_the_real_id_when_updating(configured, monkeypatch):
+    """The model must never invent a wireframe id -- it only ever has the
+    ones this prompt actually names."""
+    configured()
+    captured: dict = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        return _FakeMessage(text="noted")
+
+    monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))
+    await pa._ask_claude(
+        db=None,
+        project=FAKE_PROJECT,
+        ctx=FAKE_CTX_MEMBER,
+        repo_full_name=None,
+        wireframes=[(UUID(int=1), "Login Page")],
+        history=[],
+    )
+    assert "never invent one" in captured["system"]
 
 
 async def test_a_successful_tool_call_creates_content_and_the_model_narrates(configured, monkeypatch):
