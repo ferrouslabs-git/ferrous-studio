@@ -61,6 +61,31 @@ def app_root():
     return JSONResponse({"message": "frontend build not found", "hint": "build frontend/app/web"})
 
 
+# The board's MCP server, served so an agent can run it straight from the URL:
+#
+#   uv run --with mcp https://<host>/board_mcp.py
+#
+# without cloning this repository. That is the whole point -- the people who
+# connect an agent to a board work in their own product's repository, not in
+# this one, and an absolute path to a local checkout is portable to nobody.
+# The token drawer (BoardTokensSection.tsx) hands out a .mcp.json built around
+# this URL.
+#
+# Deliberately unauthenticated: uv fetches it with no credentials, and the
+# file is a REST client with nothing secret in it -- the credential is the
+# board token the caller supplies through the environment. It must be declared
+# before the SPA catch-all below, which would otherwise answer it with
+# index.html and hand `uv` a page of HTML to execute.
+_BOARD_MCP = Path(__file__).resolve().parents[2] / "board_mcp.py"
+
+
+@app.get("/board_mcp.py", include_in_schema=False)
+def board_mcp_script():
+    if _BOARD_MCP.is_file():
+        return FileResponse(_BOARD_MCP, media_type="text/x-python")
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+
 @app.get("/{path:path}", include_in_schema=False)
 def spa_fallback(path: str):
     if path.startswith("api/"):
