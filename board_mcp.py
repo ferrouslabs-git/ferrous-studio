@@ -1,7 +1,7 @@
-"""Ferrous Studio board MCP server -- lets an AI coding agent read and
-update one project's board (releases, epics, features, sprints,
-requirements, docs, comments) over the real REST API, authenticated as a
-board token rather than a human login.
+"""Ferrous Studio MCP server -- lets an AI coding agent read and update one
+project's board (releases, epics, features, sprints, requirements, docs,
+comments) AND its wireframes/diagrams, over the real REST API,
+authenticated as a board token rather than a human login.
 
 Runs over stdio; add it to a project's .mcp.json. Deliberately isolated
 from the main app's dependencies -- `mcp` is not a backend/requirements.txt
@@ -25,12 +25,19 @@ in the app -- Ferrous Studio's REST routes take the UUID, the human_id is
 display-only. Every list/get result carries both, so map from one to the
 other by reading a list first rather than guessing.
 
-Ported from software-management's sma_mcp.py, trimmed to what a board
-token can actually reach (board:read/board:write -- see
-app/studio/board/auth.py) and adapted to Ferrous Studio's REST shapes: a
-requirement's inherited epic/release already comes back pre-computed as
-effective_epic_id/effective_release_id (app/studio/board/service.py), so
-these tools don't recompute that inheritance client-side the way SMA's do.
+Board tools ported from software-management's sma_mcp.py, adapted to
+Ferrous Studio's REST shapes: a requirement's inherited epic/release
+already comes back pre-computed as effective_epic_id/effective_release_id
+(app/studio/board/service.py), so these tools don't recompute that
+inheritance client-side the way SMA's do.
+
+Wireframe/diagram tools (below the board ones) exist because a board token
+now reaches data:read/data:write too, not just board:read/board:write --
+see app/studio/board/agents.py and app/studio/common.py's
+require_studio_permission -- added specifically so this server can do
+everything the in-app "Project Agent" chat could (docs/project-agent-
+implementation-plan.md's 2026-09-14 pivot: remove that chat, rely on this
+instead).
 """
 from __future__ import annotations
 
@@ -51,12 +58,11 @@ TOKEN = os.environ.get("FERROUS_BOARD_TOKEN", "")
 mcp = FastMCP("ferrous-studio-board")
 
 
-def _call(method: str, path: str, body: dict | None = None):
+def _request(method: str, url: str, body: dict | None = None):
     if not BASE or not PROJECT_ID or not TOKEN:
         raise RuntimeError(
             "FERROUS_STUDIO_URL, FERROUS_STUDIO_PROJECT and FERROUS_BOARD_TOKEN must all be set"
         )
-    url = f"{BASE}/api/studio/projects/{PROJECT_ID}/board{path}"
     req = urllib.request.Request(url, method=method)
     req.add_header("Authorization", "Bearer " + TOKEN)
     req.add_header("Content-Type", "application/json")
@@ -66,8 +72,20 @@ def _call(method: str, path: str, body: dict | None = None):
             payload = r.read()
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="replace")[:300]
-        raise RuntimeError(f"{method} {path} -> HTTP {e.code}: {detail}") from None
+        raise RuntimeError(f"{method} {url} -> HTTP {e.code}: {detail}") from None
     return json.loads(payload) if payload else None
+
+
+def _call(method: str, path: str, body: dict | None = None):
+    """A board endpoint: .../projects/{PROJECT_ID}/board<path>."""
+    return _request(method, f"{BASE}/api/studio/projects/{PROJECT_ID}/board{path}", body)
+
+
+def _studio_call(method: str, path: str, body: dict | None = None):
+    """A non-board studio endpoint (wireframes, diagrams, import):
+    .../projects/{PROJECT_ID}<path> -- no /board segment, since these
+    predate the board feature and were never nested under it."""
+    return _request(method, f"{BASE}/api/studio/projects/{PROJECT_ID}{path}", body)
 
 
 def _patch_of(**kwargs) -> dict:
@@ -312,6 +330,91 @@ def list_comments(entity_type: str, entity_id: str) -> dict:
 @mcp.tool()
 def create_comment(entity_type: str, entity_id: str, body: str) -> dict:
     return _call("POST", "/comments", {"entity_type": entity_type, "entity_id": entity_id, "body": body})
+
+
+# ── Wireframes & diagrams ───────────────────────────────────────────────────
+#
+# The client's v1 direction (2026-09-14) is to remove the in-app "Project
+# Agent" chat and rely on a local agent connected here instead -- so this
+# section exists to match what that chat could already do: create/update
+# wireframes and diagrams, not just board data. wireframe_format_guide()
+# fetches the exact same prose Project Agent's own system prompt used to
+# teach the bundle format (catalog.py's BUNDLE_FORMAT_GUIDE, served over
+# HTTP since this script has no Python import access to that module -- see
+# both modules' docstrings). Call it once before create_wireframes_and_
+# diagrams/update_wireframe, the same way that chat always had it in
+# context -- the shape is intricate enough that guessing at it from field
+# names alone is how a live run once put labels under data.label instead of
+# as a top-level field.
+
+
+@mcp.tool()
+def wireframe_format_guide() -> str:
+    """The exact bundle format wireframes/diagrams/pages/layout/components
+    must be shaped as for create_wireframes_and_diagrams and
+    update_wireframe -- component vocabulary, a worked example, and the
+    mistakes real runs have actually made. Call this once before either of
+    those tools; do not guess the shape from their parameter names alone."""
+    return _studio_call("GET", "/import/format-guide")["guide"]
+
+
+@mcp.tool()
+def list_wireframes() -> dict:
+    """Every wireframe in this project -- id, name, page count. Start here
+    before update_wireframe, to find the real id of the one meant."""
+    return {"wireframes": _studio_call("GET", "/wireframes")}
+
+
+@mcp.tool()
+def get_wireframe(wireframe_id: str) -> dict:
+    """One wireframe's full detail, pages included -- what update_wireframe
+    would be replacing, if it's about to be called."""
+    return _studio_call("GET", f"/wireframes/{wireframe_id}")
+
+
+@mcp.tool()
+def create_wireframes_and_diagrams(wireframes: list[dict] | None = None, diagrams: list[dict] | None = None) -> dict:
+    """Create new wireframes and/or diagrams in this project -- see
+    wireframe_format_guide() for the exact shape both must be in. Creates
+    exactly what validation accepts; nothing is created if any part fails,
+    and the precise errors come back so this can be called again with them
+    fixed. Always makes new wireframes, never touches an existing one --
+    use update_wireframe for that instead."""
+    return _studio_call("POST", "/import", {"wireframes": wireframes or [], "diagrams": diagrams or []})
+
+
+@mcp.tool()
+def update_wireframe(
+    wireframe_id: str,
+    pages: list[dict],
+    name: str | None = None,
+    interfaceType: str | None = None,
+    landingPageId: str | None = None,
+) -> dict:
+    """Replace an EXISTING wireframe's pages with new content -- see
+    wireframe_format_guide() for the exact shape. Use this instead of
+    create_wireframes_and_diagrams when the request clearly means one of
+    the wireframes list_wireframes already showed -- by name, or an
+    obvious regenerate/refresh of it (e.g. after reverse-engineering an
+    updated repository) -- rather than creating a duplicate. The
+    wireframe's current pages are saved to its own version history first
+    (Studio's existing Snapshots panel), so this is always undoable.
+    Everything is replaced, not merged -- pass the complete new content,
+    not just what changed. name/interfaceType/landingPageId are optional;
+    omit to keep the current value."""
+    payload = _patch_of(name=name, interfaceType=interfaceType, landingPageId=landingPageId)
+    payload["pages"] = pages
+    return _studio_call("POST", f"/wireframes/{wireframe_id}/import", payload)
+
+
+@mcp.tool()
+def list_diagrams() -> dict:
+    return {"diagrams": _studio_call("GET", "/diagrams")}
+
+
+@mcp.tool()
+def get_diagram(diagram_id: str) -> dict:
+    return _studio_call("GET", f"/diagrams/{diagram_id}")
 
 
 if __name__ == "__main__":

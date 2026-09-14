@@ -30,7 +30,7 @@ from app.auth.database import get_db
 from app.auth.security.scope_context import ScopeContext
 
 from .audit import record_event
-from .catalog import Catalog, get_catalog
+from .catalog import BUNDLE_FORMAT_GUIDE, Catalog, get_catalog
 from .common import get_wireframe, get_writable_project, next_pos, require_studio_permission
 from .models import Dataset, Persona, Project, ProjectDiagram, UseCase, UseCaseActor, Wireframe, utc_now
 from .ops import BACK_PAGE_ID, remap_dataset_ids
@@ -923,6 +923,25 @@ async def import_into_wireframe(
         )
     await db.commit()
     return result
+
+
+@router.get("/projects/{project_id}/import/format-guide")
+async def get_bundle_format_guide(
+    project_id: UUID,
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """The exact prose Project Agent's own system prompt uses to teach the
+    bundle format (catalog.py's BUNDLE_FORMAT_GUIDE) -- not project-specific
+    content, just served per-project so board_mcp.py's tools (an MCP client
+    has no Python import access to catalog.py, see that module's docstring)
+    can reach it through the same per-project URL shape every other tool
+    call already uses, rather than a special case. project_id/ctx exist
+    only to require the caller to be a legitimate token/login for *some*
+    project -- get_project is deliberately not called, since the response
+    is identical for every project.
+    """
+    return {"guide": BUNDLE_FORMAT_GUIDE}
 
 
 @router.post("/projects/{project_id}/import")

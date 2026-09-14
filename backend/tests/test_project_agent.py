@@ -203,31 +203,9 @@ def test_send_message_looks_up_existing_content_before_asking():
     assert "_count(db, ProjectDiagram, project)" in source
 
 
-def test_catalogue_reference_is_generated_not_hand_written():
-    """Proves the reference text actually reflects the real catalogue --
-    a hand-written copy could silently drift from what validate_bundle
-    accepts; this can't, since it's built from get_catalog() itself."""
-    ref = pa._catalogue_reference()
-    assert "navbar" in ref
-    assert "list" in ref
-    assert "canvas" in ref
-
-
-def test_the_worked_example_in_the_prompt_is_actually_valid():
-    """A live run against a real project showed the model needs a concrete
-    example to get the shape right -- an element's label is a top-level
-    field, not data.label/data.text, among other things (see
-    pa._WORKED_EXAMPLE's own comment for the exact failure). If this example
-    were ever wrong, it would be actively teaching the model the wrong
-    shape, so it must validate cleanly, always."""
-    bundle = json.loads(pa._WORKED_EXAMPLE)
-    errors = validate_bundle(wrap_bare_envelope(bundle), get_catalog())
-    assert errors == []
-
-
-def test_the_prompt_warns_about_the_mistakes_actually_seen_live():
-    assert "TOP-LEVEL field" in pa.BUNDLE_FORMAT_GUIDE
-    assert "root layout node needs" in pa.BUNDLE_FORMAT_GUIDE
+#: Generation/content of the guide itself is tested in test_catalog.py now
+#: (catalogue_reference/WORKED_EXAMPLE/BUNDLE_FORMAT_GUIDE all moved to
+#: catalog.py); pa.BUNDLE_FORMAT_GUIDE is that same text, imported.
 
 
 def test_create_bundle_tool_only_exposes_wireframes_and_diagrams():
