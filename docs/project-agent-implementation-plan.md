@@ -25,11 +25,19 @@ config already built) -- no chat box inside the product.
   wireframes/diagrams, on top of the epic/feature/requirement parity it
   already had. Verified against a real running server in the same
   isolated `uv run --with mcp` environment a real agent gets.
+- `reverse-engineer-repo` (the skill) now imports its finished bundle
+  directly via `create_wireframes_and_diagrams` when an MCP connection is
+  available, instead of always stopping to hand off to a signed-in person
+  through the UI (`project-agent-chatbot`, commit `1a7fe00`) -- the whole
+  run, source code to imported project, needs no app UI at any point.
+  `create_wireframes_and_diagrams` gained a `source` parameter it was
+  missing (repo/commit provenance, otherwise silently dropped on an MCP
+  import); verified live that the audit log records the exact source
+  passed in.
 
-**Still open, per the client's note:**
-1. Reverse-engineering a repo into wireframes/diagrams needs to be
-   triggerable from a local agent, not only from inside the app -- not
-   started.
+**Both of the client's two named needs are now built.** Not yet done:
+merging `project-agent-chatbot` into `main` and deploying any of this --
+still sitting on the branch, nothing above is live anywhere yet.
 
 Everything below this point describes the in-app chatbot as originally
 scoped and built -- kept as a record of what exists and how it works
