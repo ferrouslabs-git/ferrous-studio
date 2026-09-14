@@ -25,6 +25,11 @@ export interface Requirement {
   assignee_id: string | null;
   release_id: string | null;
   sprint_id: string | null;
+  // Hours; null means "not estimated", which is distinct from zero.
+  estimate_hours: number | null;
+  // The agent work order within its sprint: null = not ordered, lower = earlier.
+  // Positions repeat across sprints and are cleared when a requirement leaves one.
+  queue_position: number | null;
   effective_epic_id: string | null;
   effective_release_id: string | null;
   created_at: string;
@@ -41,6 +46,7 @@ export interface RequirementInput {
   assignee_id: string | null;
   release_id: string | null;
   sprint_id: string | null;
+  estimate_hours?: number | null;
 }
 
 export interface RequirementPatch extends Partial<RequirementInput> {
@@ -49,6 +55,9 @@ export interface RequirementPatch extends Partial<RequirementInput> {
   clear_assignee?: boolean;
   clear_release?: boolean;
   clear_sprint?: boolean;
+  // Null is meaningful for both: it clears the value, so neither needs a clear_ flag.
+  estimate_hours?: number | null;
+  queue_position?: number | null;
 }
 
 const base = (projectId: string) => `/studio/projects/${projectId}/board/requirements`;
@@ -60,6 +69,8 @@ export const listRequirements = (
   const params = new URLSearchParams(filters as Record<string, string>).toString();
   return apiGet<Requirement[]>(params ? `${base(projectId)}?${params}` : base(projectId));
 };
+export const getRequirement = (projectId: string, requirementId: string) =>
+  apiGet<Requirement>(`${base(projectId)}/${requirementId}`);
 export const createRequirement = (projectId: string, input: RequirementInput) =>
   apiPost<Requirement>(base(projectId), input);
 export const updateRequirement = (projectId: string, requirementId: string, patch: RequirementPatch) =>

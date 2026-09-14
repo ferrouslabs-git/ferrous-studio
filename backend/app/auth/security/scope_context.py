@@ -15,6 +15,11 @@ class ScopeContext:
     # token is scoped to exactly one board, and every board route must
     # refuse it against any other. None for a normal human request.
     board_id: UUID | None = None
+    # The board token itself, set only on that same path. A token request
+    # is attributed to the token's creator (user_id), so this is what lets
+    # create_comment record the agent that owns the token as the comment's
+    # author (board_comments.agent_id). None for a normal human request.
+    board_token_id: UUID | None = None
 
     def has_permission(self, perm: str) -> bool:
         if self.is_super_admin:

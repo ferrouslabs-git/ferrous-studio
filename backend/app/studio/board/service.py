@@ -13,13 +13,15 @@ from __future__ import annotations
 import datetime as dt
 from uuid import UUID
 
-from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Project
 from .models import (
+    Agent,
     Board,
+    Comment,
     Doc,
     Epic,
     Event,
@@ -39,7 +41,19 @@ from .models import (
 async def get_or_create_board(db: AsyncSession, project: Project) -> Board:
     """One board per (account_id, lineage_id) -- not per project row, since a
     project row is one version and versioning deep-copies it (see the
-    migration's docstring). Created lazily on first access."""
+    migration's docstring). Created lazily on first access.
+
+    A project's first visit fires several board panels' requests in
+    parallel (epics, releases, docs, sprints, ...), each reaching here with
+    no board yet -- so the plain select-then-insert below is a real race,
+    not a hypothetical one: two requests can both see "none" and both try
+    to insert, and the loser hits ``uq_boards_account_lineage`` and 500s
+    (seen live on staging, project's board panels all failing at once on
+    first load). The insert runs inside a savepoint so only it rolls back
+    on conflict -- the request's own transaction, and anything already done
+    in it, is untouched -- and the loser then just re-selects the winner's
+    row instead of raising.
+    """
     board = (
         await db.execute(
             select(Board).where(Board.account_id == project.account_id, Board.lineage_id == project.lineage_id)
@@ -48,9 +62,17 @@ async def get_or_create_board(db: AsyncSession, project: Project) -> Board:
     if board is not None:
         return board
 
-    board = Board(account_id=project.account_id, lineage_id=project.lineage_id)
-    db.add(board)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            board = Board(account_id=project.account_id, lineage_id=project.lineage_id)
+            db.add(board)
+            await db.flush()
+    except IntegrityError:
+        board = (
+            await db.execute(
+                select(Board).where(Board.account_id == project.account_id, Board.lineage_id == project.lineage_id)
+            )
+        ).scalar_one()
     return board
 
 
@@ -66,8 +88,9 @@ async def _next_seq(db: AsyncSession, board: Board, column: str) -> int:
     (app/studio/annotations.py), applied to the board row instead. Flat and
     per-board, unlike SMA's global sequences (store.py's epic_id_seq etc,
     which only work because SMA has exactly one board) or its per-epic
-    regex-MAX feature numbering (store.py:810-815, which SMA's own comments
-    flag as race-fragile against concurrent inserts under the same epic)."""
+    regex-MAX feature numbering (store.py's create_feature, computed under
+    the epic's row lock so a soft-deleted feature's number is never
+    reused)."""
     locked = await _lock_board(db, board)
     value = getattr(locked, column) + 1
     setattr(locked, column, value)
@@ -76,12 +99,11 @@ async def _next_seq(db: AsyncSession, board: Board, column: str) -> int:
 
 # ── Effective epic / release inheritance ─────────────────────────────────
 #
-# SMA has no function named effectiveRelease() or effort.js -- confirmed by
-# exhaustive search of its history. The real logic (sma_mcp.py:93-101,
-# static/js/features.js:22-24) is: a requirement's effective epic is its own
-# epic_id if set, else its feature's epic_id; its effective release is its
-# own release_id if set, else its effective epic's release_id. Kept here as
-# one function instead of duplicated per caller.
+# The two OR-inheritance rules, ported from the reference's
+# static/js/effort.js effectiveEpic()/effectiveRelease(): a requirement's
+# effective epic is its own epic_id if set, else its feature's; its
+# effective release is its own release_id if set, else its effective
+# epic's. Kept here as one function each instead of duplicated per caller.
 
 
 async def _epic_release_map(db: AsyncSession, board_id: UUID) -> dict[UUID, UUID | None]:
@@ -136,20 +158,53 @@ async def annotate_effective(db: AsyncSession, board_id: UUID, requirements: lis
 
 # ── Progress rollup ───────────────────────────────────────────────────────
 #
-# Status-weighted score: 1.0 per Done, 0.5 per Doing, 0 per Todo. SMA
-# reimplements this formula independently at roadmap.js:11-23 (epic),
-# features.js:124-128 (feature, inline), sprints.js:11-18 (sprint),
-# milestones.js:7-24 (release, as a rollup-of-rollups over epics), and again
-# in sma_mcp.py's list_milestones(). One implementation here.
+# Status-weighted score: Done = 1, Review = 0.75, Doing = 0.5, anything else
+# 0 -- the exact weights of the reference's effort.js rollup(), which the
+# front-end (features/project/board/effort.ts) ports verbatim, so the
+# server-computed figure on a release card and the client-computed one on a
+# sprint card never disagree. The same weights apply to hours: ``hours_done``
+# is every existing estimate multiplied by its status weight, not the Done
+# estimates alone. SMA used to reimplement the older two-weight formula in
+# five places (roadmap.js, features.js, sprints.js, milestones.js,
+# sma_mcp.py); effort.js consolidated those client-side, and this is the one
+# server-side twin.
+
+
+STATUS_WEIGHTS = {"Done": 1.0, "Review": 0.75, "Doing": 0.5}
+
+
+def status_weight(status: str) -> float:
+    return STATUS_WEIGHTS.get(status, 0.0)
 
 
 def progress_rollup(requirements: list[Requirement]) -> dict:
+    """The full EpicProgress shape (schemas.py). ``hours`` sums only the
+    estimates that exist -- an unestimated requirement adds nothing, which
+    is only honest alongside ``unestimated``/``coverage``, so all three
+    ship together. ``hours_done`` is those same estimates weighted by
+    status_weight (a 4 h requirement in Review contributes 3 h), exactly as
+    effort.ts's rollup() credits them. ``coverage`` is 1.0 for an empty
+    set: nothing is missing an estimate."""
     total = len(requirements)
     done = sum(1 for r in requirements if r.status == "Done")
     doing = sum(1 for r in requirements if r.status == "Doing")
-    score = done + doing * 0.5
-    pct = round(100 * score / total) if total else 0
-    return {"done": done, "doing": doing, "total": total, "pct": pct}
+    review = sum(1 for r in requirements if r.status == "Review")
+    score = sum(status_weight(r.status) for r in requirements)
+    estimated = [r for r in requirements if r.estimate_hours is not None]
+    hours = sum(r.estimate_hours for r in estimated)
+    hours_done = sum(r.estimate_hours * status_weight(r.status) for r in estimated)
+    return {
+        "total": total,
+        "done": done,
+        "doing": doing,
+        "review": review,
+        "pct": round(100 * score / total) if total else 0,
+        "hours": hours,
+        "hours_done": hours_done,
+        "estimated": len(estimated),
+        "unestimated": total - len(estimated),
+        "coverage": len(estimated) / total if total else 1.0,
+    }
 
 
 async def release_dates_map(db: AsyncSession, board_id: UUID) -> dict[UUID, dt.date | None]:
@@ -223,8 +278,8 @@ async def board_summary(db: AsyncSession, board: Board) -> dict:
 # ── Entity existence (for comments/attachments' polymorphic entity_id) ────
 #
 # Not FK-constrained -- validity is an application-level probe, mirroring
-# SMA's own comments.entity_id (store.py:288-294, 583-595: a UNION ALL over
-# every commentable table). A real polymorphic FK would need a constraint
+# SMA's own comments.entity_id (store.py's _entity_exists_tx: a UNION ALL
+# over every commentable table). A real polymorphic FK would need a constraint
 # trigger; SMA never needed one and neither do we.
 
 _ENTITY_TABLES = {
@@ -307,9 +362,10 @@ async def write_event(
 # ── Sprint membership history (burndown input) ───────────────────────────
 #
 # Written on create (initial sprint, even NULL/backlog) and on update only
-# when sprint_id actually changes. Ported invariant -- SMA store.py:878-881,
-# 894-900: a naive "log on transition to non-null" port would silently break
-# the "born in the backlog" case burndown's total_start depends on.
+# when sprint_id actually changes. Ported invariant -- SMA store.py's
+# create_requirement and update_requirement: a naive "log on transition to
+# non-null" port would silently break the "born in the backlog" case
+# burndown's total_start depends on.
 
 
 async def record_sprint_history(db: AsyncSession, board: Board, requirement: Requirement) -> None:
@@ -323,26 +379,22 @@ async def record_sprint_history(db: AsyncSession, board: Board, requirement: Req
 
 # ── Sprint state transition side effects ─────────────────────────────────
 #
-# Ported near-as-is from SMA's update_sprint (store.py:1071-1113): (1) only
-# one active sprint per board at a time -- promoting one demotes any other
-# active sprint; (2) completing a sprint (-> 'done', only on that exact
-# transition) returns every non-Done requirement in it to the backlog
-# (sprint_id = NULL), Done ones keep their sprint tag. Enforced here in
-# Python rather than a DB constraint, matching SMA's own choice.
+# Ported from SMA's update_sprint (store.py). Several sprints may be active
+# at once (SMA, 2026-09-04): starting one used to demote every other active
+# sprint back to 'planned', but agents are assigned per sprint, so a single
+# live sprint would make every agent work the same one -- that rule is
+# gone, here as there. What remains: completing a sprint (-> 'done', only
+# on that exact transition) returns every non-Done requirement in it to the
+# backlog (sprint_id = NULL) and clears its queue_position -- a position is
+# scoped to the sprint, and a requirement back in the backlog must not
+# still carry "3rd in a sprint that no longer holds it". Done ones keep
+# their sprint tag. Enforced in Python rather than a DB constraint,
+# matching SMA's own choice.
 
 
 async def apply_sprint_state_transition(db: AsyncSession, board: Board, sprint: Sprint, new_state: str) -> int:
     """Call BEFORE setting sprint.state = new_state. Returns the count of
     requirements returned to the backlog (0 unless this is a ->'done' move)."""
-    if new_state == "active" and sprint.state != "active":
-        others = (
-            await db.execute(
-                select(Sprint).where(Sprint.board_id == board.id, Sprint.id != sprint.id, Sprint.state == "active")
-            )
-        ).scalars().all()
-        for other in others:
-            other.state = "planned"
-
     returned_to_backlog = 0
     if new_state == "done" and sprint.state != "done":
         requirements = (
@@ -351,11 +403,13 @@ async def apply_sprint_state_transition(db: AsyncSession, board: Board, sprint: 
                     Requirement.board_id == board.id,
                     Requirement.sprint_id == sprint.id,
                     Requirement.status != "Done",
+                    Requirement.deleted_at.is_(None),
                 )
             )
         ).scalars().all()
         for r in requirements:
             r.sprint_id = None
+            r.queue_position = None
             r.updated_at = utc_now()
             await record_sprint_history(db, board, r)
         returned_to_backlog = len(requirements)
@@ -365,7 +419,7 @@ async def apply_sprint_state_transition(db: AsyncSession, board: Board, sprint: 
 
 # ── Claim (atomic SELECT ... FOR UPDATE) ─────────────────────────────────
 #
-# Ported near-as-is from SMA's claim_requirement (store.py:907-936). The
+# Ported near-as-is from SMA's claim_requirement (store.py). The
 # invariant: two concurrent claimants racing the same Todo requirement must
 # not both believe they won. FOR UPDATE serialises them on the row; the
 # status check happens AFTER the lock, so the second caller (which blocked)
@@ -401,44 +455,163 @@ async def claim_requirement(
 
     row.status = "Doing"
     row.updated_at = utc_now()
-    await write_event(db, board, actor_id, "requirement.claimed", "requirement", row.id, {"status": {"to": "Doing"}})
+    # The same event a PATCH would write, not a bespoke "claimed" action:
+    # sprint_burndown reconstructs status history from requirement.updated
+    # rows, and the activity feed renders one shape for a status move.
+    await write_event(
+        db, board, actor_id, "requirement.updated", "requirement", row.id,
+        {"status": {"from": "Todo", "to": "Doing"}},
+    )
     return row
 
 
 # ── Sprint burndown ───────────────────────────────────────────────────────
 #
-# Ported near-as-is from SMA's get_sprint_burndown (store.py:1193-1273).
-# Known limitation carried over deliberately (SMA store.py:332-338): a
-# requirement whose sprint-history predates this table's existence has only
-# one synthetic row, so burndown for very old sprints assumes constant
-# membership since creation -- real historical membership can't be
-# recovered, and "fixing" this silently would misrepresent old sprints as
-# more precisely tracked than they are.
+# Ported near-as-is from SMA's get_sprint_burndown (store.py). Membership is
+# reconstructed from board_requirement_sprint_history and status from
+# requirement.updated events, not from current state. Known limitation
+# carried over deliberately (the requirement_sprint_history backfill in SMA
+# store.py's _SCHEMA): a requirement whose sprint-history predates this
+# table's existence has only one synthetic row, so burndown for very old
+# sprints assumes constant membership since
+# creation -- real historical membership can't be recovered, and "fixing"
+# this silently would misrepresent old sprints as more precisely tracked
+# than they are. One more honest caveat from the reference: estimates are
+# CURRENT-state values while the rest is history, so editing an estimate
+# mid-sprint retroactively rewrites every earlier day of the hours series.
+
+#: Every early return spreads this, so the client reads every key
+#: unconditionally instead of guarding each one.
+_EMPTY_BURNDOWN = {
+    "dates": [], "remaining": [], "ideal": [], "total": 0,
+    "remaining_hours": [], "ideal_hours": [], "total_hours": 0.0,
+    "scope": [], "scope_hours": [],
+    "estimated_count": 0, "unestimated_count": 0,
+}
+
+
+def burndown_series(
+    sprint_id: UUID,
+    days: list[dt.date],
+    requirement_ids: list[UUID],
+    membership_by_req: dict[UUID, list[tuple[dt.date, UUID | None]]],
+    status_by_req: dict[UUID, list[tuple[dt.date, str]]],
+    estimates: dict[UUID, float | None],
+    today: dt.date,
+) -> dict:
+    """The arithmetic, separated from the queries so it can be tested
+    without a database. ``membership_by_req`` holds (day, sprint_id) rows
+    per requirement, ``status_by_req`` (day, status) rows; on any day the
+    latest row dated on or before it applies.
+
+    Returns BOTH series: ``remaining``/``total`` count requirements,
+    ``remaining_hours``/``total_hours`` sum estimates. ``scope``/
+    ``scope_hours`` are the sprint's whole membership on each day, done or
+    not -- a rising scope line is work added after the sprint started.
+    Actual series stop at ``today`` (None after it); the ideal lines run
+    the whole sprint. ``estimated_count``/``unestimated_count`` are over
+    the sprint's CURRENT membership -- the set a reader is looking at --
+    not everything that ever passed through, so the client can fall back
+    from hours to counts when coverage is incomplete."""
+
+    def membership_on(rid: UUID, day: dt.date) -> UUID | None:
+        applicable = [sid for d, sid in membership_by_req.get(rid, []) if d <= day]
+        return applicable[-1] if applicable else None
+
+    def done_on(rid: UUID, day: dt.date) -> bool:
+        applicable = [s for d, s in status_by_req.get(rid, []) if d <= day]
+        return bool(applicable) and applicable[-1] == "Done"
+
+    # An unestimated requirement contributes 0 to the hours series -- only
+    # honest alongside unestimated_count, which is why both ship.
+    def hours(rid: UUID) -> float:
+        return estimates.get(rid) or 0.0
+
+    start, end = days[0], days[-1]
+    n = len(days)
+    in_at_start = [rid for rid in requirement_ids if membership_on(rid, start) == sprint_id]
+    total = len(in_at_start)
+    total_hours = sum(hours(rid) for rid in in_at_start)
+
+    current = [rid for rid in requirement_ids if membership_on(rid, min(today, end)) == sprint_id]
+    estimated_count = sum(1 for rid in current if estimates.get(rid) is not None)
+
+    remaining: list[int | None] = []
+    remaining_hours: list[float | None] = []
+    scope: list[int | None] = []
+    scope_hours: list[float | None] = []
+    ideal: list[float] = []
+    ideal_hours: list[float] = []
+    for i, day in enumerate(days):
+        if day > today:
+            remaining.append(None)
+            remaining_hours.append(None)
+            scope.append(None)
+            scope_hours.append(None)
+        else:
+            members = [rid for rid in requirement_ids if membership_on(rid, day) == sprint_id]
+            open_ = [rid for rid in members if not done_on(rid, day)]
+            remaining.append(len(open_))
+            remaining_hours.append(round(sum(hours(rid) for rid in open_), 2))
+            scope.append(len(members))
+            scope_hours.append(round(sum(hours(rid) for rid in members), 2))
+        f = (1 - i / (n - 1)) if n > 1 else 0
+        ideal.append(round(total * f, 1))
+        ideal_hours.append(round(total_hours * f, 1))
+
+    return {
+        "sprint_id": sprint_id,
+        "note": None,
+        "dates": list(days),
+        "remaining": remaining,
+        "ideal": ideal,
+        "total": total,
+        "remaining_hours": remaining_hours,
+        "ideal_hours": ideal_hours,
+        "total_hours": round(total_hours, 2),
+        "scope": scope,
+        "scope_hours": scope_hours,
+        "estimated_count": estimated_count,
+        "unestimated_count": len(current) - estimated_count,
+    }
 
 
 async def sprint_burndown(db: AsyncSession, board: Board, sprint: Sprint) -> dict:
     if sprint.start_date is None or sprint.end_date is None:
         return {
+            **_EMPTY_BURNDOWN,
             "sprint_id": sprint.id,
-            "note": "Set both a start and end date to see a burndown chart.",
-            "total_start": 0,
-            "points": [],
+            "note": "Set both a start and end date on this sprint to see a burndown.",
         }
 
     start, end = sprint.start_date, sprint.end_date
+    if end < start:
+        start, end = end, start
     days = [start + dt.timedelta(days=i) for i in range((end - start).days + 1)]
 
-    requirement_ids = (
-        await db.execute(
-            select(RequirementSprintHistory.requirement_id)
-            .where(RequirementSprintHistory.sprint_id == sprint.id)
-            .distinct()
-        )
-    ).scalars().all()
+    requirement_ids = list(
+        (
+            await db.execute(
+                select(RequirementSprintHistory.requirement_id)
+                .where(RequirementSprintHistory.sprint_id == sprint.id)
+                .distinct()
+            )
+        ).scalars().all()
+    )
     if not requirement_ids:
-        return {"sprint_id": sprint.id, "note": None, "total_start": 0, "points": [
-            {"day": d, "remaining": 0, "ideal": 0.0} for d in days
-        ]}
+        n = len(days)
+        return {
+            **_EMPTY_BURNDOWN,
+            "sprint_id": sprint.id,
+            "note": None,
+            "dates": days,
+            "remaining": [0] * n,
+            "ideal": [0.0] * n,
+            "remaining_hours": [0.0] * n,
+            "ideal_hours": [0.0] * n,
+            "scope": [0] * n,
+            "scope_hours": [0.0] * n,
+        }
 
     membership_rows = (
         await db.execute(
@@ -465,51 +638,128 @@ async def sprint_burndown(db: AsyncSession, board: Board, sprint: Sprint) -> dic
         )
     ).all()
 
-    membership_by_req: dict[UUID, list[tuple[dt.datetime, UUID | None]]] = {}
-    for rid, sid, started_at in membership_rows:
-        membership_by_req.setdefault(rid, []).append((started_at, sid))
+    estimate_rows = (
+        await db.execute(
+            select(Requirement.id, Requirement.estimate_hours).where(Requirement.id.in_(requirement_ids))
+        )
+    ).all()
 
-    status_by_req: dict[UUID, list[tuple[dt.datetime, bool]]] = {}
+    membership_by_req: dict[UUID, list[tuple[dt.date, UUID | None]]] = {}
+    for rid, sid, started_at in membership_rows:
+        membership_by_req.setdefault(rid, []).append((started_at.date(), sid))
+
+    status_by_req: dict[UUID, list[tuple[dt.date, str]]] = {}
     for rid, detail, created_at in status_rows:
         status_change = (detail or {}).get("status")
         if not status_change:
             continue
-        status_by_req.setdefault(rid, []).append((created_at, status_change.get("to") == "Done"))
+        status_by_req.setdefault(rid, []).append((created_at.date(), status_change.get("to")))
 
-    def membership_on(rid: UUID, day: dt.date) -> UUID | None:
-        latest = None
-        for started_at, sid in membership_by_req.get(rid, []):
-            if started_at.date() <= day:
-                latest = sid
-            else:
-                break
-        return latest
+    estimates = {rid: estimate for rid, estimate in estimate_rows}
 
-    def done_on(rid: UUID, day: dt.date) -> bool:
-        latest = False
-        for created_at, is_done in status_by_req.get(rid, []):
-            if created_at.date() <= day:
-                latest = is_done
-            else:
-                break
-        return latest
+    return burndown_series(
+        sprint.id, days, requirement_ids, membership_by_req, status_by_req, estimates, utc_now().date()
+    )
 
-    total_start = sum(1 for rid in requirement_ids if membership_on(rid, start) == sprint.id)
-    today = utc_now().date()
-    n = len(days)
 
-    points = []
-    for i, day in enumerate(days):
-        # The ideal line is the planned trajectory for the whole sprint,
-        # drawn regardless of today; only the actual "remaining" series
-        # stops at today (nothing to report for days that haven't happened).
-        ideal = round(total_start * (1 - i / (n - 1)), 1) if n > 1 else float(total_start)
-        if day > today:
-            points.append({"day": day, "remaining": None, "ideal": ideal})
+# ── Sprint activity (the sprint board's poll) ────────────────────────────
+#
+# Ported from SMA's get_sprint_activity (store.py). A question is not a
+# table -- it is the convention the pick-and-code skill follows: the agent
+# posts a comment starting "Question:" and sets the requirement Blocked. So
+# a question here is "a Blocked requirement in this sprint whose latest
+# live comment came from one of this sprint's agents, or reads like a
+# question". Answering is likewise convention: a comment plus a flip back
+# to Todo, which the board does and which wakes the agent through
+# routes.py's update_requirement.
+
+
+def detect_questions(
+    requirements: list[Requirement],
+    latest_comment_by_requirement: dict[UUID, Comment],
+    agent_ids: list[UUID],
+) -> list[tuple[Requirement, Comment]]:
+    """Pure, so the rule is testable without a database. SMA matches the
+    comment's free-text author against the agent ids; here that is the
+    Comment.agent_id column (see its docstring)."""
+    agents = set(agent_ids)
+    out: list[tuple[Requirement, Comment]] = []
+    for r in requirements:
+        if r.status != "Blocked":
             continue
-        remaining = sum(
-            1 for rid in requirement_ids if membership_on(rid, day) == sprint.id and not done_on(rid, day)
-        )
-        points.append({"day": day, "remaining": remaining, "ideal": ideal})
+        c = latest_comment_by_requirement.get(r.id)
+        if c is None:
+            continue
+        if (c.agent_id is not None and c.agent_id in agents) or c.body.lstrip().lower().startswith("question"):
+            out.append((r, c))
+    return out
 
-    return {"sprint_id": sprint.id, "note": None, "total_start": total_start, "points": points}
+
+async def sprint_activity(db: AsyncSession, board: Board, sprint: Sprint, limit: int = 100) -> dict:
+    """The sprint, its live requirements in queue order (unordered ones
+    last, then by number), the agents assigned to it, the newest events
+    touching the sprint, those requirements or those agents, and the open
+    questions (detect_questions). One read per poll rather than five."""
+    requirements = list(
+        (
+            await db.execute(
+                select(Requirement)
+                .where(
+                    Requirement.board_id == board.id,
+                    Requirement.sprint_id == sprint.id,
+                    Requirement.deleted_at.is_(None),
+                )
+                .order_by(Requirement.queue_position.asc().nulls_last(), Requirement.seq)
+            )
+        ).scalars().all()
+    )
+    agents = list(
+        (
+            await db.execute(
+                select(Agent)
+                .where(Agent.board_id == board.id, Agent.sprint_id == sprint.id)
+                .order_by(Agent.created_at)
+            )
+        ).scalars().all()
+    )
+    rids = [r.id for r in requirements]
+    aids = [a.id for a in agents]
+    events = list(
+        (
+            await db.execute(
+                select(Event)
+                .where(
+                    Event.board_id == board.id,
+                    or_(Event.entity_id == sprint.id, Event.entity_id.in_(rids), Event.entity_id.in_(aids)),
+                )
+                .order_by(Event.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+    )
+
+    blocked = [r for r in requirements if r.status == "Blocked"]
+    latest: dict[UUID, Comment] = {}
+    if blocked:
+        rows = (
+            await db.execute(
+                select(Comment)
+                .where(
+                    Comment.board_id == board.id,
+                    Comment.entity_type == "requirement",
+                    Comment.entity_id.in_([r.id for r in blocked]),
+                    Comment.deleted_at.is_(None),
+                )
+                .order_by(Comment.created_at.asc())
+            )
+        ).scalars().all()
+        for c in rows:
+            latest[c.entity_id] = c  # ascending order, so the last write wins
+
+    return {
+        "sprint": sprint,
+        "requirements": requirements,
+        "agents": agents,
+        "events": events,
+        "questions": detect_questions(blocked, latest, aids),
+    }

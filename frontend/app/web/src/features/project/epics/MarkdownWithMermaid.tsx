@@ -8,6 +8,7 @@
 // the first time a doc actually has a mermaid fence in it, not on every page
 // load -- same lazy-load intent as the reference app's loadScriptOnce.
 import { useEffect, useRef } from "react";
+import { useThemeAttr } from "../board/useThemeAttr";
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -108,17 +109,28 @@ function mdToHtml(md: string): string {
 export function MarkdownWithMermaid({ body }: { body: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = mdToHtml(body);
+  const theme = useThemeAttr();
 
   useEffect(() => {
     const container = ref.current;
     const nodes = [...(container?.querySelectorAll<HTMLElement>(".mermaid") ?? [])];
     if (!nodes.length) return;
+    // Mermaid bakes the theme's colours into the SVG it draws and then marks
+    // the node processed, so a theme toggle has to put the source back and
+    // draw again -- the source is kept on the node the first time through.
+    for (const n of nodes) {
+      if (n.dataset.source === undefined) n.dataset.source = n.textContent ?? "";
+      else if (n.dataset.processed !== undefined) {
+        n.removeAttribute("data-processed");
+        n.textContent = n.dataset.source;
+      }
+    }
     let cancelled = false;
     import("mermaid").then(({ default: mermaid }) => {
       if (cancelled) return;
       mermaid.initialize({
         startOnLoad: false,
-        theme: document.documentElement.dataset.theme === "dark" ? "dark" : "default",
+        theme: theme === "dark" ? "dark" : "default",
       });
       return mermaid.run({ nodes });
     }).catch(() => {
@@ -127,7 +139,7 @@ export function MarkdownWithMermaid({ body }: { body: string }) {
     return () => {
       cancelled = true;
     };
-  }, [html]);
+  }, [html, theme]);
 
   if (!body.trim()) return <span className="muted">Empty.</span>;
   // eslint-disable-next-line react/no-danger -- html is built entirely from

@@ -12,8 +12,7 @@ export interface Feature {
 
 const base = (projectId: string) => `/studio/projects/${projectId}/board/features`;
 
-export const listFeatures = (projectId: string, epicId?: string) =>
-  apiGet<Feature[]>(epicId ? `${base(projectId)}?epic_id=${epicId}` : base(projectId));
+export const listFeatures = (projectId: string) => apiGet<Feature[]>(base(projectId));
 export const createFeature = (projectId: string, epicId: string, title: string) =>
   apiPost<Feature>(base(projectId), { epic_id: epicId, title });
 export const updateFeature = (projectId: string, featureId: string, title: string) =>

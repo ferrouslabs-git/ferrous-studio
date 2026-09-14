@@ -40,3 +40,6 @@ Thumbs.db
 
 # Playwright MCP output (screenshots, snapshots)
 .playwright-mcp/
+
+# Reference copy of the software management app (read-only, never committed)
+Software management app/

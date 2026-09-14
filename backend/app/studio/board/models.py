@@ -10,7 +10,6 @@ counter columns on ``boards`` under a row lock -- the same pattern
 wireframes.note_seq/task_seq already uses -- and are never stored on the
 entity rows themselves, only the raw ``seq`` int; the API layer formats it.
 """
-from datetime import datetime, UTC, date
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -25,6 +24,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
@@ -94,7 +94,7 @@ class Release(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
     # Set when a human marks the release shipped; NULL = still in flight.
-    # Shipping is a judgment call, never computed -- a release can go out
+    # Shipping is a judgement call, never computed -- a release can go out
     # with known gaps, so nothing here blocks or auto-sets it.
     shipped_at = Column(DateTime, nullable=True)
 
@@ -168,6 +168,17 @@ class Feature(Base):
 
 
 class Sprint(Base):
+    """Several sprints may be active at once (software-management,
+    2026-09-04): starting one used to demote every other active sprint back
+    to 'planned', but agents are assigned per sprint, so a single live
+    sprint would make every agent work the same one. The Scrum constraint
+    that actually matters survives -- an agent has a scalar sprint_id, so
+    no single worker is ever split across concurrent sprints.
+
+    ``capacity_hours`` stays nullable: NULL means "not set", and the UI
+    shows its own default (``?? 80``) rather than the database inventing
+    one."""
+
     STATES = ("planned", "active", "done")
 
     __tablename__ = "board_sprints"
@@ -241,6 +252,12 @@ class Requirement(Base):
     # surfaces it yet -- it exists so estimates survive the import rather than
     # being silently dropped.
     estimate_hours = Column(Float, nullable=True)
+    # Work order within the requirement's sprint -- what an agent picks Todo
+    # work by, and the sprint board's row order. NULL = not ordered (sorts
+    # last). Scoped to a sprint, so it is cleared whenever the requirement
+    # leaves one (routes.py's update_requirement/delete_sprint and
+    # service.apply_sprint_state_transition). Ported from software-management.
+    queue_position = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
@@ -252,6 +269,12 @@ class Requirement(Base):
         Index("ix_board_requirements_sprint", "sprint_id"),
         Index("ix_board_requirements_release", "release_id"),
         Index("ix_board_requirements_status", "status"),
+        Index(
+            "ix_board_requirements_queue",
+            "sprint_id",
+            "queue_position",
+            postgresql_where=text("queue_position IS NOT NULL"),
+        ),
     )
 
     @property
@@ -397,7 +420,16 @@ class Doc(Base):
 
 class Comment(Base):
     """entity_id is deliberately not FK'd -- see service.py's entity-existence
-    check (a UNION ALL probe, mirroring SMA's own comments.entity_id)."""
+    check (a UNION ALL probe, mirroring SMA's own comments.entity_id).
+
+    ``agent_id`` records that an agent, not a person, wrote the comment.
+    SMA stores the agent's id as the comment's free-text author and its
+    sprint board's "Questions from the agent" reads that; here ``author_id``
+    is a users FK and a board-token request is attributed to the token's
+    creator, so agent authorship has to be recorded explicitly. Set in
+    routes.py's create_comment from the board token the request carried;
+    NULL for every human comment. ON DELETE SET NULL, so a question stays
+    readable after the agent that asked it is deleted."""
 
     ENTITY_TYPES = ("release", "epic", "feature", "requirement", "sprint", "doc")
 
@@ -409,6 +441,7 @@ class Comment(Base):
     entity_type = Column(String(20), nullable=False)
     entity_id = Column(UUID(as_uuid=True), nullable=False)
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("board_agents.id", ondelete="SET NULL"), nullable=True)
     body = Column(Text, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)

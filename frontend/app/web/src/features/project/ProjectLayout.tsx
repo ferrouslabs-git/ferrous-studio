@@ -38,6 +38,14 @@ export interface ProjectContextValue {
    * version says, so freezing v1 must not silence the people testing it.
    */
   canRaiseFeedback: boolean;
+  /**
+   * Whether the delivery board (releases, epics, sprints, requirements) may
+   * be edited. The organisation role alone: the lock does NOT narrow it,
+   * because the board is live operational state keyed on the project
+   * lineage, not part of the frozen design record, and every board route is
+   * exempt from the lock on the backend for that reason.
+   */
+  canWriteBoard: boolean;
   /** Re-fetch after an edit; the sidebar title follows. */
   reload: () => Promise<void>;
 }
@@ -107,6 +115,7 @@ export function ProjectLayout() {
         canWrite: canWrite && !locked,
         canAddTasks,
         canRaiseFeedback,
+        canWriteBoard: canWrite,
         reload: load.reload,
       }}
     >

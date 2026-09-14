@@ -9,7 +9,7 @@ it). ``copy_project`` (versioning.py) must never learn the board exists --
 it doesn't, since the board keys on (account_id, lineage_id), not
 project_id, so nothing about it is in what versioning copies.
 """
-from datetime import timedelta
+import datetime as dt
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.database import get_db
 from app.auth.models.user import User
 from app.auth.security import require_any_permission
-from .agents import maybe_wake_agent
+from .agents import maybe_wake_agent, sync_agent_status
 from .auth import require_board_permission as require_permission
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
@@ -30,6 +30,7 @@ from ..documents import ALLOWED_TYPES, MAGIC_BYTES, _not_configured, sanitise_fi
 from ..models import Project, utc_now
 from . import service
 from .models import (
+    Agent,
     Attachment,
     Board,
     Comment,
@@ -44,6 +45,7 @@ from .models import (
     Sprint,
 )
 from .schemas import (
+    AgentRead,
     AttachmentDownload,
     AttachmentEntityType,
     AttachmentRead,
@@ -79,7 +81,10 @@ from .schemas import (
     RequirementCreate,
     RequirementRead,
     RequirementUpdate,
+    SprintActivityRead,
     SprintCreate,
+    SprintQuestion,
+    SprintQuestionRequirement,
     SprintRead,
     SprintUpdate,
     SprintUpdateResult,
@@ -101,16 +106,57 @@ async def _board(db: AsyncSession, project: Project, ctx: ScopeContext) -> Board
     return board
 
 
+# ── Event detail helpers ─────────────────────────────────────────────────
+#
+# Ported from software-management's _clip/_diff (store.py): every update
+# route snapshots the fields worth a feed entry before and after, and writes
+# ``<kind>.updated`` with ``{field: {"from", "to"}}`` for whatever changed.
+# Values are clipped to 80 characters so a rewritten description does not
+# store two copies of itself in the feed.
+
+
 def _jsonable(value):
-    return str(value) if isinstance(value, UUID) else value
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, dt.date):  # datetime is a date too
+        return value.isoformat()
+    return value
+
+
+def _clip(value):
+    """Scalars pass through untouched (None stays null, numbers stay
+    numbers -- a client reads them back as such); anything else is
+    stringified and clipped with an ellipsis."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = str(value)
+    return text[:80] + "…" if len(text) > 80 else text
 
 
 def _diff(before: dict, after: dict, fields: tuple[str, ...]) -> dict:
     out = {}
     for f in fields:
         if before.get(f) != after.get(f):
-            out[f] = {"from": _jsonable(before.get(f)), "to": _jsonable(after.get(f))}
+            out[f] = {"from": _clip(_jsonable(before.get(f))), "to": _clip(_jsonable(after.get(f)))}
     return out
+
+
+def _snapshot(obj, fields: tuple[str, ...]) -> dict:
+    return {f: getattr(obj, f) for f in fields}
+
+
+_RELEASE_EVENT_FIELDS = ("title", "description")
+_EPIC_EVENT_FIELDS = ("title", "summary", "status", "release_id")
+_FEATURE_EVENT_FIELDS = ("title",)
+_SPRINT_EVENT_FIELDS = ("name", "goal", "start_date", "end_date", "state", "release_id", "capacity_hours")
+# blocked_from is bookkeeping (derived from the status transition) and
+# excluded, as SMA excludes it. "status" must stay: service.sprint_burndown
+# reconstructs status history from detail["status"]["to"].
+_REQUIREMENT_EVENT_FIELDS = (
+    "title", "body", "epic_id", "feature_id", "status", "priority", "assignee_id",
+    "release_id", "sprint_id", "queue_position", "estimate_hours",
+)
+_DOC_EVENT_FIELDS = ("title", "body", "tags", "epic_id")
 
 
 async def _requirement_read(db: AsyncSession, board: Board, r: Requirement) -> RequirementRead:
@@ -118,7 +164,7 @@ async def _requirement_read(db: AsyncSession, board: Board, r: Requirement) -> R
     return RequirementRead.model_validate({**RequirementRead.model_validate(r).model_dump(), **extra})
 
 
-_EMPTY_PROGRESS = {"done": 0, "doing": 0, "total": 0, "pct": 0}
+_EMPTY_PROGRESS = service.progress_rollup([])
 
 
 async def _release_reads(db: AsyncSession, board: Board, releases: list[Release]) -> list[ReleaseRead]:
@@ -179,7 +225,9 @@ async def create_release(
     release = Release(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(release)
     await db.flush()
-    await service.write_event(db, board, ctx.user_id, "release.created", "release", release.id, {})
+    await service.write_event(
+        db, board, ctx.user_id, "release.created", "release", release.id, {"title": release.title}
+    )
     await db.commit()
     await db.refresh(release)
     return await _release_read(db, board, release)
@@ -219,7 +267,7 @@ async def update_release(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> ReleaseRead:
-    """Shipping is a human judgment call, never computed -- a release can go
+    """Shipping is a human judgement call, never computed -- a release can go
     out with known gaps. ``shipped`` only sets/clears shipped_at and is
     logged as its own event on an actual transition, distinct from a plain
     field edit (ported from software-management's update_release)."""
@@ -228,17 +276,24 @@ async def update_release(
     release = await _get_release(db, board, release_id)
     data = payload.model_dump(exclude_unset=True)
     shipped = data.pop("shipped", None)
+    before = _snapshot(release, _RELEASE_EVENT_FIELDS)
     for field, value in data.items():
         setattr(release, field, value)
+    changes = _diff(before, _snapshot(release, _RELEASE_EVENT_FIELDS), _RELEASE_EVENT_FIELDS)
+    if changes:
+        await service.write_event(db, board, ctx.user_id, "release.updated", "release", release.id, changes)
     if shipped is True and release.shipped_at is None:
         release.shipped_at = utc_now()
         await service.write_event(
             db, board, ctx.user_id, "release.shipped", "release", release.id,
-            {"shipped_at": release.shipped_at.isoformat()},
+            {"title": release.title, "shipped_at": release.shipped_at.isoformat()},
         )
     elif shipped is False and release.shipped_at is not None:
         release.shipped_at = None
-        await service.write_event(db, board, ctx.user_id, "release.unshipped", "release", release.id, {})
+        await service.write_event(
+            db, board, ctx.user_id, "release.unshipped", "release", release.id,
+            {"title": release.title, "shipped_at": None},
+        )
     release.updated_at = utc_now()
     await db.commit()
     await db.refresh(release)
@@ -279,6 +334,9 @@ async def delete_release(
         .values(deleted_at=now)
     )
     release.deleted_at = now
+    await service.write_event(
+        db, board, ctx.user_id, "release.deleted", "release", release.id, {"title": release.title}
+    )
     await db.commit()
 
 
@@ -337,7 +395,7 @@ async def create_epic_content(db: AsyncSession, project: Project, ctx: ScopeCont
     epic = Epic(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(epic)
     await db.flush()
-    await service.write_event(db, board, ctx.user_id, "epic.created", "epic", epic.id, {})
+    await service.write_event(db, board, ctx.user_id, "epic.created", "epic", epic.id, {"title": epic.title})
     return epic
 
 
@@ -386,6 +444,7 @@ async def update_epic(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"{len(unresolved)} requirement(s) under this epic are not yet Done",
             )
+    before = _snapshot(epic, _EPIC_EVENT_FIELDS)
     clear_release = data.pop("clear_release", False)
     if clear_release:
         epic.release_id = None
@@ -396,6 +455,9 @@ async def update_epic(
             continue
         setattr(epic, field, value)
     epic.updated_at = utc_now()
+    changes = _diff(before, _snapshot(epic, _EPIC_EVENT_FIELDS), _EPIC_EVENT_FIELDS)
+    if changes:
+        await service.write_event(db, board, ctx.user_id, "epic.updated", "epic", epic.id, changes)
     await db.commit()
     await db.refresh(epic)
     return epic
@@ -442,7 +504,7 @@ async def delete_epic(
     # Docs are content a human could regret losing, so they follow the
     # requirements rule (unfile, never delete) rather than cascading like
     # features -- they become "unfiled" and show on the Overview.
-    await db.execute(
+    unfiled = await db.execute(
         Doc.__table__.update()
         .where(Doc.board_id == board.id, Doc.epic_id == epic.id, Doc.deleted_at.is_(None))
         .values(epic_id=None, updated_at=now)
@@ -464,6 +526,15 @@ async def delete_epic(
             Feature.__table__.update().where(Feature.id.in_(feature_ids)).values(deleted_at=now)
         )
     epic.deleted_at = now
+    await service.write_event(
+        db, board, ctx.user_id, "epic.deleted", "epic", epic.id,
+        {
+            "title": epic.title,
+            "features": len(feature_ids),
+            "unlinked_requirements": len(requirements),
+            "unfiled_docs": unfiled.rowcount,
+        },
+    )
     await db.commit()
 
 
@@ -513,7 +584,9 @@ async def create_feature(
     feature = Feature(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(feature)
     await db.flush()
-    await service.write_event(db, board, ctx.user_id, "feature.created", "feature", feature.id, {})
+    await service.write_event(
+        db, board, ctx.user_id, "feature.created", "feature", feature.id, {"title": feature.title}
+    )
     await db.commit()
     await db.refresh(feature)
     return feature
@@ -542,8 +615,12 @@ async def update_feature(
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     feature = await _get_feature(db, board, feature_id)
+    before = _snapshot(feature, _FEATURE_EVENT_FIELDS)
     feature.title = payload.title
     feature.updated_at = utc_now()
+    changes = _diff(before, _snapshot(feature, _FEATURE_EVENT_FIELDS), _FEATURE_EVENT_FIELDS)
+    if changes:
+        await service.write_event(db, board, ctx.user_id, "feature.updated", "feature", feature.id, changes)
     await db.commit()
     await db.refresh(feature)
     return feature
@@ -583,10 +660,28 @@ async def delete_feature(
         .values(deleted_at=now)
     )
     feature.deleted_at = now
+    await service.write_event(
+        db, board, ctx.user_id, "feature.deleted", "feature", feature.id,
+        {"title": feature.title, "unlinked_requirements": len(requirements)},
+    )
     await db.commit()
 
 
 # ── Sprints ──────────────────────────────────────────────────────────────
+
+
+async def _sprint_release(db: AsyncSession, board: Board, release_id: UUID) -> Release:
+    """A sprint's release is part of the request body, so an unknown one is
+    a 422 (the payload is wrong), not the 404 _get_release raises for a
+    release addressed in the URL."""
+    try:
+        return await _get_release(db, board, release_id)
+    except HTTPException as e:
+        if e.status_code != status.HTTP_404_NOT_FOUND:
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"release {release_id} not found"
+        )
 
 
 async def _get_sprint(db: AsyncSession, board: Board, sprint_id: UUID) -> Sprint:
@@ -623,15 +718,16 @@ async def create_sprint(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> Sprint:
+    """A sprint must belong to a release -- SprintCreate refuses a payload
+    without one (422), and the release itself has to exist on this board."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    if payload.release_id is not None:
-        await _get_release(db, board, payload.release_id)
+    await _sprint_release(db, board, payload.release_id)
     seq = await service._next_seq(db, board, "sprint_seq")
     sprint = Sprint(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(sprint)
     await db.flush()
-    await service.write_event(db, board, ctx.user_id, "sprint.created", "sprint", sprint.id, {})
+    await service.write_event(db, board, ctx.user_id, "sprint.created", "sprint", sprint.id, {"name": sprint.name})
     await db.commit()
     await db.refresh(sprint)
     return sprint
@@ -657,25 +753,37 @@ async def update_sprint(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> SprintUpdateResult:
+    """A sprint may move between releases but never leave one: clearing the
+    release (``clear_release`` or an explicit null ``release_id``) is a 422.
+    Several sprints may be active at once -- starting one no longer demotes
+    any other (service.apply_sprint_state_transition). Completing one
+    returns its unfinished work to the backlog, and the ``sprint.updated``
+    event carries that count as ``returned_to_backlog`` (ported from
+    software-management's update_sprint)."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     sprint = await _get_sprint(db, board, sprint_id)
     data = payload.model_dump(exclude_unset=True)
+    if data.pop("clear_release", False) or ("release_id" in data and data["release_id"] is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="a sprint must belong to a release"
+        )
+    if data.get("release_id") is not None:
+        await _sprint_release(db, board, data["release_id"])
+    before = _snapshot(sprint, _SPRINT_EVENT_FIELDS)
     new_state = data.get("state")
     returned = 0
     activating = new_state == "active" and new_state != sprint.state
     if new_state is not None and new_state != sprint.state:
         returned = await service.apply_sprint_state_transition(db, board, sprint, new_state)
-    clear_release = data.pop("clear_release", False)
-    if clear_release:
-        sprint.release_id = None
-    elif data.get("release_id") is not None:
-        await _get_release(db, board, data["release_id"])
     for field, value in data.items():
-        if field == "release_id" and value is None:
-            continue
         setattr(sprint, field, value)
     sprint.updated_at = utc_now()
+    changes = _diff(before, _snapshot(sprint, _SPRINT_EVENT_FIELDS), _SPRINT_EVENT_FIELDS)
+    if changes:
+        if returned > 0:
+            changes["returned_to_backlog"] = returned
+        await service.write_event(db, board, ctx.user_id, "sprint.updated", "sprint", sprint.id, changes)
     if activating:
         # Starting a sprint is what releases its work to agents -- an
         # agent assigned to a planned sprint deliberately stays idle.
@@ -692,20 +800,43 @@ async def delete_sprint(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Only unlinks its requirements (sprint_id -> NULL, back to backlog),
-    same deletion principle as releases/epics/features: a sprint is filing,
-    requirements carry the real content."""
+    """Soft delete. Every requirement in the sprint -- done or not, unlike
+    completing it -- goes back to the backlog (sprint_id and queue_position
+    -> NULL), same deletion principle as releases/epics/features: a sprint
+    is filing, requirements carry the real content. Agents assigned to it
+    are unassigned too, or they would sit idle forever pointing at a sprint
+    nobody can see. Its own comments cascade to soft-deleted. Ported
+    deletion semantics, software-management store.py's delete_sprint."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     sprint = await _get_sprint(db, board, sprint_id)
+    now = utc_now()
     requirements = (
-        await db.execute(select(Requirement).where(Requirement.sprint_id == sprint.id))
+        await db.execute(
+            select(Requirement).where(
+                Requirement.board_id == board.id,
+                Requirement.sprint_id == sprint.id,
+                Requirement.deleted_at.is_(None),
+            )
+        )
     ).scalars().all()
     for r in requirements:
         r.sprint_id = None
-        r.updated_at = utc_now()
+        r.queue_position = None
+        r.updated_at = now
         await service.record_sprint_history(db, board, r)
-    sprint.deleted_at = utc_now()
+    await db.execute(
+        Agent.__table__.update()
+        .where(Agent.board_id == board.id, Agent.sprint_id == sprint.id)
+        .values(sprint_id=None, updated_at=now)
+    )
+    await db.execute(
+        Comment.__table__.update()
+        .where(Comment.board_id == board.id, Comment.entity_id == sprint.id)
+        .values(deleted_at=now)
+    )
+    sprint.deleted_at = now
+    await service.write_event(db, board, ctx.user_id, "sprint.deleted", "sprint", sprint.id, {"name": sprint.name})
     await db.commit()
 
 
@@ -720,11 +851,41 @@ async def get_sprint_burndown(
     board = await _board(db, project, ctx)
     sprint = await _get_sprint(db, board, sprint_id)
     data = await service.sprint_burndown(db, board, sprint)
-    return BurndownRead(
-        sprint_id=data["sprint_id"],
-        note=data["note"],
-        total_start=data["total_start"],
-        points=[{"day": p["day"], "remaining": p["remaining"], "ideal": p["ideal"]} for p in data["points"]],
+    return BurndownRead(**data)
+
+
+@router.get("/projects/{project_id}/board/sprints/{sprint_id}/activity", response_model=SprintActivityRead)
+async def get_sprint_activity(
+    project_id: UUID,
+    sprint_id: UUID,
+    limit: int = Query(100, ge=1, le=500),
+    ctx: ScopeContext = Depends(require_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> SprintActivityRead:
+    """One read for the sprint board's poll -- see service.sprint_activity.
+    Agents get the same lazy ECS status sync list_agents does, committed on
+    this session (the RLS after_begin listener re-applies the scope
+    variables, so the reads that follow stay scoped)."""
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    sprint = await _get_sprint(db, board, sprint_id)
+    data = await service.sprint_activity(db, board, sprint, limit)
+    for a in data["agents"]:
+        await sync_agent_status(a)
+    await db.commit()
+    extras = await service.annotate_effective(db, board.id, data["requirements"])
+    return SprintActivityRead(
+        sprint=SprintRead.model_validate(data["sprint"]),
+        requirements=[
+            {**RequirementRead.model_validate(r).model_dump(), **extra}
+            for r, extra in zip(data["requirements"], extras)
+        ],
+        agents=[AgentRead.model_validate(a) for a in data["agents"]],
+        events=[EventRead.model_validate(e) for e in data["events"]],
+        questions=[
+            SprintQuestion(requirement=SprintQuestionRequirement.model_validate(r), comment=CommentRead.model_validate(c))
+            for r, c in data["questions"]
+        ],
     )
 
 
@@ -809,7 +970,9 @@ async def create_requirement_content(
     await db.flush()
     # Initial sprint membership, even NULL/backlog -- see service.record_sprint_history.
     await service.record_sprint_history(db, board, requirement)
-    await service.write_event(db, board, ctx.user_id, "requirement.created", "requirement", requirement.id, {})
+    await service.write_event(
+        db, board, ctx.user_id, "requirement.created", "requirement", requirement.id, {"title": requirement.title}
+    )
     if requirement.sprint_id is not None:
         await maybe_wake_agent(db, board, requirement.sprint_id)
     return board, requirement
@@ -856,7 +1019,7 @@ async def update_requirement(
     board = await _board(db, project, ctx)
     requirement = await _get_requirement(db, board, requirement_id)
 
-    before = {"status": requirement.status, "sprint_id": requirement.sprint_id}
+    before = _snapshot(requirement, _REQUIREMENT_EVENT_FIELDS)
     data = payload.model_dump(exclude_unset=True)
     for clear_field, target in (
         ("clear_epic", "epic_id"), ("clear_feature", "feature_id"),
@@ -875,10 +1038,18 @@ async def update_requirement(
     if entering_sprint and before["status"] != "Done" and data.get("status", before["status"]) != "Done":
         data["status"] = "Todo"
 
+    # Null is meaningful for estimate_hours and queue_position ("not
+    # estimated", "not ordered"), so only the id fields skip it -- those
+    # have clear_ flags.
     for field, value in data.items():
         if value is None and field in ("epic_id", "feature_id", "assignee_id", "release_id", "sprint_id"):
             continue
         setattr(requirement, field, value)
+
+    # A queue position is scoped to a sprint: leaving one (or changing
+    # sprint) drops it unless the same PATCH ranks the requirement anew.
+    if requirement.sprint_id != before["sprint_id"] and "queue_position" not in data:
+        requirement.queue_position = None
 
     # blocked_from bookkeeping -- the stage to return to when unblocked,
     # computed from the transition, never sent directly by the client
@@ -889,19 +1060,24 @@ async def update_requirement(
 
     requirement.updated_at = utc_now()
 
-    after = {"status": requirement.status, "sprint_id": requirement.sprint_id}
+    after = _snapshot(requirement, _REQUIREMENT_EVENT_FIELDS)
     if before["sprint_id"] != after["sprint_id"]:
         # Logged only on an actual change, not every PATCH -- ported invariant,
         # see service.record_sprint_history's docstring.
         await service.record_sprint_history(db, board, requirement)
-    changes = _diff(before, after, ("status", "sprint_id"))
+    changes = _diff(before, after, _REQUIREMENT_EVENT_FIELDS)
     if changes:
         await service.write_event(db, board, ctx.user_id, "requirement.updated", "requirement", requirement.id, changes)
 
-    if before["sprint_id"] != after["sprint_id"] and after["sprint_id"] is not None:
-        # New Todo work just landed in a sprint -- wake whatever agent is
-        # assigned to it, if the sprint is active and none is already running.
-        await maybe_wake_agent(db, board, after["sprint_id"])
+    # Wake the sprint's agent when Todo work lands in (or is re-ranked
+    # within) a sprint, and when a Blocked requirement is answered back to
+    # Todo inside one -- answer-and-unblock is how a question gets picked up
+    # again. maybe_wake_agent only acts on an active sprint with an idle agent.
+    if (
+        (("sprint_id" in changes or "queue_position" in changes) and requirement.status == "Todo")
+        or (before["status"] != "Todo" and requirement.status == "Todo" and requirement.sprint_id is not None)
+    ):
+        await maybe_wake_agent(db, board, requirement.sprint_id)
 
     await db.commit()
     await db.refresh(requirement)
@@ -933,6 +1109,9 @@ async def delete_requirement(
         .values(deleted_at=now)
     )
     requirement.deleted_at = now
+    await service.write_event(
+        db, board, ctx.user_id, "requirement.deleted", "requirement", requirement.id, {"title": requirement.title}
+    )
     await db.commit()
 
 
@@ -1000,7 +1179,7 @@ async def create_doc(
     doc = Doc(board_id=board.id, account_id=board.account_id, seq=seq, created_by=ctx.user_id, **payload.model_dump())
     db.add(doc)
     await db.flush()
-    await service.write_event(db, board, ctx.user_id, "doc.created", "doc", doc.id, {})
+    await service.write_event(db, board, ctx.user_id, "doc.created", "doc", doc.id, {"title": doc.title})
     await db.commit()
     await db.refresh(doc)
     return doc
@@ -1030,6 +1209,7 @@ async def update_doc(
     board = await _board(db, project, ctx)
     doc = await _get_doc(db, board, doc_id)
     data = payload.model_dump(exclude_unset=True)
+    before = _snapshot(doc, _DOC_EVENT_FIELDS)
     clear_epic = data.pop("clear_epic", False)
     if clear_epic:
         doc.epic_id = None
@@ -1040,6 +1220,9 @@ async def update_doc(
             continue
         setattr(doc, field, value)
     doc.updated_at = utc_now()
+    changes = _diff(before, _snapshot(doc, _DOC_EVENT_FIELDS), _DOC_EVENT_FIELDS)
+    if changes:
+        await service.write_event(db, board, ctx.user_id, "doc.updated", "doc", doc.id, changes)
     await db.commit()
     await db.refresh(doc)
     return doc
@@ -1067,6 +1250,7 @@ async def delete_doc(
         .values(deleted_at=now)
     )
     doc.deleted_at = now
+    await service.write_event(db, board, ctx.user_id, "doc.deleted", "doc", doc.id, {"title": doc.title})
     await db.commit()
 
 
@@ -1076,23 +1260,22 @@ async def delete_doc(
 @router.get("/projects/{project_id}/board/comments", response_model=list[CommentRead])
 async def list_comments(
     project_id: UUID,
-    entity_type: EntityType = Query(...),
-    entity_id: UUID = Query(...),
+    entity_type: EntityType | None = Query(None),
+    entity_id: UUID | None = Query(None),
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Comment]:
+    """One entity's thread when filtered; every live comment on the board
+    when not -- the board pages load the lot once for the comment counts on
+    their cards and rows, rather than one request per entity."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    result = await db.execute(
-        select(Comment)
-        .where(
-            Comment.board_id == board.id,
-            Comment.entity_type == entity_type,
-            Comment.entity_id == entity_id,
-            Comment.deleted_at.is_(None),
-        )
-        .order_by(Comment.created_at)
-    )
+    stmt = select(Comment).where(Comment.board_id == board.id, Comment.deleted_at.is_(None))
+    if entity_type is not None:
+        stmt = stmt.where(Comment.entity_type == entity_type)
+    if entity_id is not None:
+        stmt = stmt.where(Comment.entity_id == entity_id)
+    result = await db.execute(stmt.order_by(Comment.created_at))
     return list(result.scalars().all())
 
 
@@ -1107,11 +1290,26 @@ async def create_comment(
     board = await _board(db, project, ctx)
     if not await service.entity_exists(db, board.id, payload.entity_type, payload.entity_id):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Comment target does not exist")
-    comment = Comment(board_id=board.id, account_id=board.account_id, author_id=ctx.user_id, **payload.model_dump())
+    # A board-token request is attributed to the token's creator (author_id
+    # is a users FK), so record the agent that owns the token explicitly --
+    # it is what makes "Questions from the agent" on the sprint board work.
+    # See the Comment model's docstring. A human-minted token (no agent row)
+    # leaves it NULL, same as a human comment.
+    agent_id = None
+    if ctx.board_token_id is not None:
+        agent_id = (
+            await db.execute(
+                select(Agent.id).where(Agent.board_id == board.id, Agent.board_token_id == ctx.board_token_id)
+            )
+        ).scalar_one_or_none()
+    comment = Comment(
+        board_id=board.id, account_id=board.account_id, author_id=ctx.user_id, agent_id=agent_id, **payload.model_dump()
+    )
     db.add(comment)
     await db.flush()
     await service.write_event(
-        db, board, ctx.user_id, "comment.created", payload.entity_type, payload.entity_id, {"comment_id": str(comment.id)}
+        db, board, ctx.user_id, "comment.created", payload.entity_type, payload.entity_id,
+        {"comment_id": str(comment.id), "excerpt": _clip(comment.body)},
     )
     await db.commit()
     await db.refresh(comment)
@@ -1136,7 +1334,33 @@ async def delete_comment(
     ).scalar_one_or_none()
     if comment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+    # Deletable only by the identity that wrote it, as in software-management
+    # (its author is free text, so an agent's comment is the agent's, not its
+    # operator's). Here a board-token request is attributed to the token's
+    # creator, so author_id alone would let an agent and the person who
+    # minted its token delete each other's comments: resolve the acting
+    # agent exactly as create_comment does and match on that instead. A
+    # human request -- or a human-minted token, which has no agent row --
+    # owns only its own agent-less comments. board:write says you may write
+    # to the board, not that you may unsay what a colleague said.
+    acting_agent_id = None
+    if ctx.board_token_id is not None:
+        acting_agent_id = (
+            await db.execute(
+                select(Agent.id).where(Agent.board_id == board.id, Agent.board_token_id == ctx.board_token_id)
+            )
+        ).scalar_one_or_none()
+    if acting_agent_id is not None:
+        is_author = comment.agent_id == acting_agent_id
+    else:
+        is_author = comment.author_id == ctx.user_id and comment.agent_id is None
+    if not is_author:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own comments")
     comment.deleted_at = utc_now()
+    await service.write_event(
+        db, board, ctx.user_id, "comment.deleted", comment.entity_type, comment.entity_id,
+        {"excerpt": _clip(comment.body)},
+    )
     await db.commit()
 
 
@@ -1379,7 +1603,7 @@ async def delete_feedback(
 @router.get("/projects/{project_id}/board/events", response_model=list[EventRead])
 async def list_events(
     project_id: UUID,
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(100, ge=1, le=500),
     entity_type: str | None = Query(None),
     entity_id: UUID | None = Query(None),
     ctx: ScopeContext = Depends(require_permission("board:read")),
@@ -1647,4 +1871,8 @@ async def delete_attachment(
     attachment = await _get_attachment(db, board, attachment_id)
     await storage.delete_object(attachment.s3_key)
     attachment.deleted_at = utc_now()
+    await service.write_event(
+        db, board, ctx.user_id, "attachment.deleted", attachment.entity_type, attachment.entity_id,
+        {"attachment_id": str(attachment.id), "filename": attachment.filename},
+    )
     await db.commit()

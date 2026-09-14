@@ -28,7 +28,6 @@ from .agents import (
     delete_agent as delete_agent_row,
     launch_agent,
     launch_agent_task,
-    maybe_wake_agent,
     mint_board_token,
     QueueResult,
     queue_agent_run,

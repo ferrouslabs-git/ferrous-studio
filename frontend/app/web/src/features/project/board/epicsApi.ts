@@ -1,11 +1,10 @@
 // Client for a project's board epics (backend app/studio/board/routes.py).
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
+import type { Rollup } from "./effort";
 
 // Where the epic itself sits in the agreed Definition-of-Done lifecycle --
 // distinct from the live done/doing progress rolled up from its
-// requirements. Replaces the old Now/Next/Later phase, which "never
-// represented real planning" (ported from software-management's own
-// change). The route refuses a transition into "Done" unless every
+// requirements. The route refuses a transition into "Done" unless every
 // requirement under the epic is itself Done.
 export type EpicStatus = "Readiness" | "Implementation" | "ReleasedToUAT" | "HumanValidation" | "Done";
 export const EPIC_STATUSES: EpicStatus[] = ["Readiness", "Implementation", "ReleasedToUAT", "HumanValidation", "Done"];
@@ -21,23 +20,23 @@ export interface Epic {
   updated_at: string;
 }
 
-export interface EpicCreateInput {
+export interface EpicInput {
   title: string;
   summary: string;
+  status?: EpicStatus;
   release_id: string | null;
 }
 
-export type EpicInput = EpicCreateInput;
-
-export interface EpicProgress {
-  done: number;
-  doing: number;
-  total: number;
-  pct: number;
+export interface EpicPatch {
+  title?: string;
+  summary?: string;
+  status?: EpicStatus;
+  release_id?: string | null;
+  clear_release?: boolean;
 }
 
 export interface BoardSummary {
-  epics: { epic: Epic; progress: EpicProgress }[];
+  epics: { epic: Epic; progress: Rollup }[];
   status_counts: Record<string, number>;
 }
 
@@ -46,11 +45,8 @@ const base = (projectId: string) => `/studio/projects/${projectId}/board/epics`;
 export const listEpics = (projectId: string) => apiGet<Epic[]>(base(projectId));
 export const getEpic = (projectId: string, epicId: string) => apiGet<Epic>(`${base(projectId)}/${epicId}`);
 export const createEpic = (projectId: string, input: EpicInput) => apiPost<Epic>(base(projectId), input);
-export const updateEpic = (
-  projectId: string,
-  epicId: string,
-  patch: Partial<EpicInput> & { status?: EpicStatus; clear_release?: boolean },
-) => apiPatch<Epic>(`${base(projectId)}/${epicId}`, patch);
+export const updateEpic = (projectId: string, epicId: string, patch: EpicPatch) =>
+  apiPatch<Epic>(`${base(projectId)}/${epicId}`, patch);
 export const deleteEpic = (projectId: string, epicId: string) => apiDelete(`${base(projectId)}/${epicId}`);
 
 export const getBoardSummary = (projectId: string) =>
