@@ -1,29 +1,40 @@
 # Project Agent — phased implementation plan
 
-Status: **superseded direction, work paused here (2026-09-14).** Client note
-(unsigned, left before stepping into a meeting): to ship Ferrous Studio v1,
-the plan is to **remove the in-app chatbot entirely** and rely only on a
-**local agent connected over MCP** (e.g. Claude Code, via the board-token
-`.mcp.json` config already built) -- no chat box inside the product. Niral
-confirmed: *"we will build this later"* -- not urgent, and everything below
-stays parked exactly as it is on the `project-agent-chatbot` branch (never
-merged into `main`) rather than being deleted or reworked now.
+Status: **superseded direction; the in-app chat is hidden, MCP is being
+built out to replace it (2026-09-14).** Client note (unsigned, left before
+stepping into a meeting): to ship Ferrous Studio v1, the plan is to
+**remove the in-app chatbot entirely** and rely only on a **local agent
+connected over MCP** (e.g. Claude Code, via the board-token `.mcp.json`
+config already built) -- no chat box inside the product.
 
-**What "later" needs, per the client's note, before the MCP-only approach
-can actually replace this:**
+**Done:**
+- The "Project Agent" tab is hidden from the sidebar and its route
+  redirects to Project details (`main`, commit `8c85e5c`) -- code kept, not
+  deleted, so this is reversible in one line if the direction changes
+  again.
+- A board token now reaches `data:read`/`data:write` as well as
+  `board:read`/`board:write` (`main`, commit `66f1837`), confined to the
+  one project it was minted for -- `get_project` checks the token's
+  `board_id` against the resolved project, verified live that a token
+  minted for Project A is refused with 403 against Project B in the same
+  account.
+- `board_mcp.py` gained `wireframe_format_guide`, `list_wireframes`,
+  `get_wireframe`, `create_wireframes_and_diagrams`, `update_wireframe`,
+  `list_diagrams`, `get_diagram` (`project-agent-chatbot`, commit
+  `4bd3d78`) -- MCP parity with what the in-app chatbot could do for
+  wireframes/diagrams, on top of the epic/feature/requirement parity it
+  already had. Verified against a real running server in the same
+  isolated `uv run --with mcp` environment a real agent gets.
+
+**Still open, per the client's note:**
 1. Reverse-engineering a repo into wireframes/diagrams needs to be
-   triggerable from a local agent, not only from inside the app.
-2. MCP (`board_mcp.py`) needs to cover everything this chatbot can do, not
-   just board data. Today MCP has no wireframe/diagram tools at all --
-   `create_bundle` and `update_wireframe` only exist as in-app chatbot
-   tools (§4 below). Reaching parity means adding MCP equivalents of both,
-   plus everything §0's items 1/3/5/8/9 already cover for epics/features/
-   requirements (MCP already has create/update for those).
+   triggerable from a local agent, not only from inside the app -- not
+   started.
 
 Everything below this point describes the in-app chatbot as originally
-scoped and built -- kept as a record of what exists and how it works, not
-as live direction. Do not resume building against this plan without a
-fresh confirmation first.
+scoped and built -- kept as a record of what exists and how it works
+(and, now, as the source the MCP tools above were built to match), not as
+live direction for further in-app chatbot work.
 
 ## 0. Open questions — get these confirmed before building past Phase 1
 
