@@ -533,7 +533,7 @@ async def _resolve_actors(
         )
         db.add(row)
         await db.flush()
-        by_name[key] = row
+        by_name[name.casefold()] = row
         created += 1
     return by_name, created, matched
 
@@ -615,7 +615,7 @@ async def _resolve_datasets(
             )
             db.add(row)
             await db.flush()
-            by_name[key] = row
+            by_name[name.casefold()] = row
             created += 1
         if isinstance(bundle_id, str):
             id_map[bundle_id] = str(row.id)
