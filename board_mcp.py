@@ -373,14 +373,26 @@ def get_wireframe(wireframe_id: str) -> dict:
 
 
 @mcp.tool()
-def create_wireframes_and_diagrams(wireframes: list[dict] | None = None, diagrams: list[dict] | None = None) -> dict:
+def create_wireframes_and_diagrams(
+    wireframes: list[dict] | None = None, diagrams: list[dict] | None = None, source: dict | None = None
+) -> dict:
     """Create new wireframes and/or diagrams in this project -- see
     wireframe_format_guide() for the exact shape both must be in. Creates
     exactly what validation accepts; nothing is created if any part fails,
     and the precise errors come back so this can be called again with them
     fixed. Always makes new wireframes, never touches an existing one --
-    use update_wireframe for that instead."""
-    return _studio_call("POST", "/import", {"wireframes": wireframes or [], "diagrams": diagrams or []})
+    use update_wireframe for that instead.
+
+    source: optional {repo_full_name, commit_sha, generated_at, generator}
+    -- pass the reverse-engineer-repo skill's out/source.json verbatim when
+    importing its bundle, so the created content's audit history and the
+    "generated from a different repo than this project's own" check both
+    see the real provenance, the same as importing through the app's UI
+    would."""
+    body: dict = {"wireframes": wireframes or [], "diagrams": diagrams or []}
+    if source:
+        body["source"] = source
+    return _studio_call("POST", "/import", body)
 
 
 @mcp.tool()
