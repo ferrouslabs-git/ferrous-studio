@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "ferrous-board": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "mcp",
+        "https://studio.ferrouslabs.co.uk/board_mcp.py"
+      ],
+      "env": {
+        "FERROUS_STUDIO_URL": "https://studio.ferrouslabs.co.uk",
+        "FERROUS_STUDIO_PROJECT": "f04d55e2-6a45-47bc-b6f9-2501617b566f",
+        "FERROUS_BOARD_TOKEN": "${FERROUS_BOARD_TOKEN_STUDIO}"
+      }
+    }
+  }
+}
