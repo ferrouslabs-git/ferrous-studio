@@ -137,18 +137,47 @@ async def read_connection(
     if installation is None:
         return GitHubConnectionRead(configured=True, connected=False)
 
+    # The account/repository-selection fields are only ever written at
+    # connect time (see install_callback below); a user who later narrows
+    # access on GitHub's own settings page would otherwise see the stale
+    # "All repositories" forever. Re-check with GitHub on every read and
+    # persist the fresh values, so this page is never more than one request
+    # behind. Best-effort: if GitHub is unreachable or the installation was
+    # revoked, fall back to the last-known values rather than failing the page.
+    account_login = installation.account_login
+    account_type = installation.account_type
+    repository_selection = installation.repository_selection
+    try:
+        live = await gh.get_installation(installation.installation_id)
+    except gh.GitHubError:
+        live = None
+    if live is not None:
+        account = live.get("account") or {}
+        account_login = account.get("login") or account_login
+        account_type = account.get("type") or account_type
+        repository_selection = live.get("repository_selection") or repository_selection
+        if (
+            account_login != installation.account_login
+            or account_type != installation.account_type
+            or repository_selection != installation.repository_selection
+        ):
+            installation.account_login = account_login
+            installation.account_type = account_type
+            installation.repository_selection = repository_selection
+            await db.commit()
+
     return GitHubConnectionRead(
         configured=True,
         connected=True,
         installation_id=installation.installation_id,
-        account_login=installation.account_login,
-        account_type=installation.account_type,
-        repository_selection=installation.repository_selection,
+        account_login=account_login,
+        account_type=account_type,
+        repository_selection=repository_selection,
         connected_at=installation.created_at,
         connected_by=installation.connected_by,
         manage_url=gh.settings_url(
             installation.installation_id,
-            installation.account_login if installation.account_type == "Organization" else None,
+            account_login if account_type == "Organization" else None,
         ),
     )
 

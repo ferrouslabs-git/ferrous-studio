@@ -16,6 +16,9 @@ COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 COPY backend ./backend
+# Served at /board_mcp.py (see app/main.py) so an agent can run the board's MCP
+# server straight from the URL without cloning this repository.
+COPY board_mcp.py ./board_mcp.py
 COPY --from=frontend-build /workspace/frontend/app/web/dist ./frontend/app/web/dist
 
 ENV APP_ENV=production

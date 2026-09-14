@@ -77,21 +77,27 @@ export function BoardTokensSection() {
     }
   };
 
-  /** The three variables board_mcp.py reads, as a ready .mcp.json block.
-   *  Assembled here because this drawer is the only place all three exist at
-   *  once -- the token is never retrievable again, and pairing it with the
-   *  project UUID is otherwise a manual dig through the address bar. */
-  const mcpConfig = (token: string) =>
+  /** A ready .mcp.json block for this project, safe to commit.
+   *
+   *  Two deliberate choices. It runs the MCP server from this server's own
+   *  /board_mcp.py rather than a local path, so the config works in whatever
+   *  repository the reader actually writes code in -- they have no checkout of
+   *  Ferrous Studio, and an absolute path to one is portable to nobody. And it
+   *  references FERROUS_BOARD_TOKEN from the environment rather than inlining
+   *  the token, because .mcp.json is normally committed and a board token does
+   *  not expire: pasting the literal value would commit a credential that is
+   *  live until somebody notices and revokes it. */
+  const mcpConfig = () =>
     JSON.stringify(
       {
         mcpServers: {
           "ferrous-board": {
             command: "uv",
-            args: ["run", "--with", "mcp", "python", "board_mcp.py"],
+            args: ["run", "--with", "mcp", `${window.location.origin}/board_mcp.py`],
             env: {
               FERROUS_STUDIO_URL: window.location.origin,
               FERROUS_STUDIO_PROJECT: project.id,
-              FERROUS_BOARD_TOKEN: token,
+              FERROUS_BOARD_TOKEN: "${FERROUS_BOARD_TOKEN}",
             },
           },
         },
@@ -182,7 +188,7 @@ export function BoardTokensSection() {
               Copy this now. It is stored only as a hash and cannot be shown again — if you lose it, revoke it and
               create another.
             </div>
-            <Field label="Token">
+            <Field label="Token — set this as FERROUS_BOARD_TOKEN in your shell">
               <input className="input" readOnly value={issued.token} onFocus={(e) => e.currentTarget.select()} />
             </Field>
             <button type="button" className="btn small ghost" onClick={() => void copy(issued.token, "token")}>
@@ -194,14 +200,14 @@ export function BoardTokensSection() {
                 className="input"
                 readOnly
                 rows={16}
-                value={mcpConfig(issued.token)}
+                value={mcpConfig()}
                 onFocus={(e) => e.currentTarget.select()}
               />
             </Field>
             <button
               type="button"
               className="btn small ghost"
-              onClick={() => void copy(mcpConfig(issued.token), "config")}
+              onClick={() => void copy(mcpConfig(), "config")}
             >
               {copied === "config" ? "Copied" : "Copy .mcp.json"}
             </button>
