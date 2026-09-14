@@ -79,6 +79,18 @@ class Settings:
     # infra/terraform/iam.tf's bedrock_claude policy already grants both.
     bedrock_claude_model: str
 
+    # An org-level/platform-level direct Anthropic API key, for when one is
+    # provided (Phase 5, "bring-your-own-key" -- deliberately not built as a
+    # settings page yet, Elliott: "no need to do this now"). Empty = keep
+    # using Bedrock above; this is purely a config switch prepared ahead of
+    # time so that adding the key later needs no code change: set
+    # ANTHROPIC_API_KEY (from Secrets Manager, not plaintext) and redeploy.
+    # anthropic_model is a plain Anthropic API model id/alias (e.g.
+    # "claude-sonnet-5"), NOT a Bedrock inference profile id -- the two
+    # settings are never mixed.
+    anthropic_api_key: str
+    anthropic_model: str
+
     # ── Agent runner (phase 5, deliberately not deployed yet) ──────────────
     # Empty cluster/task definition = an agent run is recorded (queued) but
     # never actually launched -- the API reports "not configured" rather than
@@ -144,6 +156,8 @@ def get_settings() -> Settings:
         github_client_secret=os.getenv("GITHUB_CLIENT_SECRET", "").strip(),
         github_api_base=os.getenv("GITHUB_API_BASE", "https://api.github.com").strip().rstrip("/"),
         bedrock_claude_model=os.getenv("BEDROCK_CLAUDE_MODEL", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0").strip(),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5").strip(),
         agent_ecs_cluster=os.getenv("AGENT_ECS_CLUSTER", "").strip(),
         agent_task_definition=os.getenv("AGENT_TASK_DEFINITION", "").strip(),
         agent_subnets=[s.strip() for s in os.getenv("AGENT_SUBNETS", "").split(",") if s.strip()],

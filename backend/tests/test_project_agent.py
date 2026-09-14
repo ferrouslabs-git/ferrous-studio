@@ -61,9 +61,39 @@ def test_configured_is_true_once_a_model_is_set(configured):
 
 
 def test_configured_is_false_with_no_model(monkeypatch):
-    settings = replace(get_settings(), bedrock_claude_model="")
+    settings = replace(get_settings(), bedrock_claude_model="", anthropic_api_key="")
     monkeypatch.setattr(pa, "get_settings", lambda: settings)
     assert pa.configured() is False
+
+
+def test_configured_is_true_with_only_a_direct_api_key(monkeypatch):
+    """Bring-your-own-key, prepared ahead of time (§0.4/Phase 5): a deployment
+    can be configured via ANTHROPIC_API_KEY alone, with no Bedrock model set."""
+    settings = replace(get_settings(), bedrock_claude_model="", anthropic_api_key="sk-ant-fake")
+    monkeypatch.setattr(pa, "get_settings", lambda: settings)
+    assert pa.configured() is True
+
+
+def test_client_and_model_uses_bedrock_by_default():
+    settings = replace(get_settings(), bedrock_claude_model="eu.anthropic.claude-sonnet-5", anthropic_api_key="")
+    client, model = pa._client_and_model(settings)
+    assert isinstance(client, anthropic.AsyncAnthropicBedrock)
+    assert model == "eu.anthropic.claude-sonnet-5"
+
+
+def test_client_and_model_prefers_a_direct_api_key_once_set():
+    """The whole point of preparing this switch ahead of time: giving
+    Project Agent a real key later is a config change, not a code change."""
+    settings = replace(
+        get_settings(),
+        bedrock_claude_model="eu.anthropic.claude-sonnet-5",
+        anthropic_api_key="sk-ant-fake",
+        anthropic_model="claude-sonnet-5",
+    )
+    client, model = pa._client_and_model(settings)
+    assert isinstance(client, anthropic.AsyncAnthropic)
+    assert not isinstance(client, anthropic.AsyncAnthropicBedrock)
+    assert model == "claude-sonnet-5"
 
 
 def test_list_messages_works_on_a_locked_version():
@@ -130,7 +160,8 @@ def test_bedrock_calls_carry_an_explicit_timeout():
     long as it likes, tying up a worker and an open DB transaction the
     whole time -- its own way of starving other organisations even though
     the rate limiter above never saw the request."""
-    assert "timeout=BEDROCK_CALL_TIMEOUT_SECONDS" in inspect.getsource(pa._ask_claude)
+    source = inspect.getsource(pa._client_and_model)
+    assert source.count("timeout=BEDROCK_CALL_TIMEOUT_SECONDS") == 2  # both the Bedrock and direct-API clients
 
 
 def test_permissions_match_the_data_routes_convention():

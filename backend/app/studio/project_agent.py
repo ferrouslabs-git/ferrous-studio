@@ -1,15 +1,18 @@
 """The Project Agent chatbot: a per-project conversation with Claude that can
 create wireframes, diagrams, epics and requirements via tool use.
 
-Calls Claude through AWS Bedrock, using the ECS task's own IAM role
-(``infra/terraform/iam.tf``'s ``bedrock_claude`` policy) rather than a
+Calls Claude through AWS Bedrock by default, using the ECS task's own IAM
+role (``infra/terraform/iam.tf``'s ``bedrock_claude`` policy) rather than a
 stored Anthropic API key -- there is nothing to generate, store or rotate.
-Shared by every organisation -- there is no per-organisation credential
-yet, and letting an organisation bring its own key/account is a later,
-separate idea (Elliott's own words: "no need to do this now"). An
-unconfigured deployment reports the tab as unavailable rather than
-500ing, the same convention ``github_client.py`` and the documents
-section already use.
+``_client_and_model`` switches to a direct Anthropic API key the moment
+``settings.anthropic_api_key`` is set (config.py), prepared ahead of time so
+that giving Project Agent a real key later is a config change, not a code
+change -- see that function. Shared by every organisation -- there is no
+per-organisation credential yet, and letting an organisation bring its own
+key/account is a later, separate idea (Elliott's own words: "no need to do
+this now"). An unconfigured deployment reports the tab as unavailable
+rather than 500ing, the same convention ``github_client.py`` and the
+documents section already use.
 
 Every tool is validated and created by exactly the same code its own
 human-facing route uses (``importing.create_bundle_content`` for
@@ -338,7 +341,22 @@ SYSTEM_PROMPT = (
 
 
 def configured() -> bool:
-    return bool(get_settings().bedrock_claude_model)
+    settings = get_settings()
+    return bool(settings.bedrock_claude_model or settings.anthropic_api_key)
+
+
+def _client_and_model(settings: Any) -> tuple[anthropic.AsyncAnthropic | anthropic.AsyncAnthropicBedrock, str]:
+    """Which Claude credential this call runs on.
+
+    A direct API key (once one is set, see config.py's anthropic_api_key)
+    always wins over Bedrock -- that is the whole point of preparing this
+    switch ahead of time: giving us a key is a config change, not a code
+    change. Until then, anthropic_api_key is empty and every call keeps
+    going through Bedrock exactly as it does today.
+    """
+    if settings.anthropic_api_key:
+        return anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=BEDROCK_CALL_TIMEOUT_SECONDS), settings.anthropic_model
+    return anthropic.AsyncAnthropicBedrock(aws_region=settings.aws_region, timeout=BEDROCK_CALL_TIMEOUT_SECONDS), settings.bedrock_claude_model
 
 
 @router.get("/status", response_model=ProjectAgentStatus)
@@ -406,7 +424,7 @@ async def send_message(
     if not configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Project Agent is not configured on this deployment (BEDROCK_CLAUDE_MODEL unset).",
+            detail="Project Agent is not configured on this deployment (BEDROCK_CLAUDE_MODEL and ANTHROPIC_API_KEY both unset).",
         )
 
     history_result = await db.execute(
@@ -520,7 +538,7 @@ async def _ask_claude(
     history: list[ProjectAgentMessage],
 ) -> str:
     settings = get_settings()
-    client = anthropic.AsyncAnthropicBedrock(aws_region=settings.aws_region, timeout=BEDROCK_CALL_TIMEOUT_SECONDS)
+    client, model = _client_and_model(settings)
     messages: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in history]
     tools = _tools_for(ctx)
     repo_fact = (
@@ -544,7 +562,7 @@ async def _ask_claude(
     )
 
     for _round in range(MAX_TOOL_ROUNDS):
-        response = await _call_claude(client, settings.bedrock_claude_model, system, messages, tools=tools)
+        response = await _call_claude(client, model, system, messages, tools=tools)
 
         tool_uses = [block for block in response.content if block.type == "tool_use"]
         if not tool_uses:
@@ -573,7 +591,7 @@ async def _ask_claude(
     # final call with no tools forces a text reply, and the model has every
     # prior tool_result (successes and failures both) in its own context to
     # summarise honestly from.
-    response = await _call_claude(client, settings.bedrock_claude_model, system, messages, tools=None)
+    response = await _call_claude(client, model, system, messages, tools=None)
     text_blocks = [block.text for block in response.content if block.type == "text"]
     return (
         "".join(text_blocks).strip()
@@ -582,7 +600,7 @@ async def _ask_claude(
 
 
 async def _call_claude(
-    client: anthropic.AsyncAnthropicBedrock,
+    client: anthropic.AsyncAnthropic | anthropic.AsyncAnthropicBedrock,
     model: str,
     system: str,
     messages: list[dict[str, Any]],
