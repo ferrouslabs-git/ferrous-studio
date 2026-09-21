@@ -70,13 +70,20 @@ def run_migrations_online() -> None:
         # cannot be caught locally either, where the dev database connects as
         # a superuser and RLS never applies (a1f6c3e8b472 passed here and
         # failed on staging for exactly this reason, 2026-09-21).
-        connection.execute(text("SELECT set_config('app.is_super_admin', 'true', false)"))
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
         )
         with context.begin_transaction():
+            # INSIDE begin_transaction, not before it. Executing anything on
+            # the connection first opens a transaction of SQLAlchemy 2.0's
+            # own, which alembic then joins rather than owns -- so it never
+            # commits, and the whole upgrade is discarded when the connection
+            # closes while every migration still logs as if it had run. A
+            # staging deploy reported five migrations applied and left the
+            # database exactly where it started (2026-09-21).
+            connection.execute(text("SELECT set_config('app.is_super_admin', 'true', false)"))
             context.run_migrations()
 
 
