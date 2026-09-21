@@ -3,7 +3,7 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from alembic import context
 
@@ -54,6 +54,23 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        # A migration maintains the whole database; it is never acting for one
+        # organisation, so it must not be filtered by the per-account RLS
+        # policies (see 7c41e2a9d0b3 for their shape, which read this same
+        # setting as their escape hatch).
+        #
+        # Without this a data migration silently does nothing on a real
+        # deployment. The app roles are plain LOGIN roles and every studio
+        # table runs FORCE ROW LEVEL SECURITY, so an UPDATE with no scope set
+        # matches zero rows and reports success -- while DDL in the same
+        # migration (ADD CONSTRAINT, SET NOT NULL) still validates every row
+        # and fails on the data the UPDATE was meant to fix. That asymmetry is
+        # what makes it dangerous: it fails loudly only when a constraint
+        # happens to follow, and quietly corrupts the rest of the time. It
+        # cannot be caught locally either, where the dev database connects as
+        # a superuser and RLS never applies (a1f6c3e8b472 passed here and
+        # failed on staging for exactly this reason, 2026-09-21).
+        connection.execute(text("SELECT set_config('app.is_super_admin', 'true', false)"))
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

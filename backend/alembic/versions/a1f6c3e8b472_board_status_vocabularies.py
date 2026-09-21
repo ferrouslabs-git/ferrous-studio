@@ -66,8 +66,38 @@ _DELIVERY = "'NotStarted','InProgress','ToTest','DeployedToUAT','DeployedToStagi
 _OLD_EPIC = "'Readiness','Implementation','ReleasedToUAT','HumanValidation','Done'"
 _OLD_SPRINT_STATE = "'planned','active','done'"
 
+#: The tables this migration rewrites rows in. Every one runs FORCE ROW LEVEL
+#: SECURITY, and their policy is deliberately asymmetric -- USING lets a
+#: super-admin context read across accounts, WITH CHECK does not let it write:
+#:
+#:     USING      (is_super_admin OR account_id = current scope)
+#:     WITH CHECK (account_id = current scope)
+#:
+#: which is right for the application and wrong for a migration. A migration
+#: maintains the whole database and belongs to no account, so with no scope
+#: set its UPDATEs match nothing (and with only is_super_admin set they are
+#: refused by WITH CHECK). Either way the DDL that follows still validates
+#: every row and fails on the data the UPDATE was supposed to fix.
+#:
+#: Lifting FORCE for the duration is the narrowest fix: it is scoped to this
+#: transaction, needs no new role or policy, and rolls back with everything
+#: else if the migration fails. Nothing here is account-specific -- it is a
+#: vocabulary rename over every row.
+_RLS_TABLES = ("board_requirements", "board_sprints", "board_releases")
+
+
+def _unforce_rls() -> None:
+    for table in _RLS_TABLES:
+        op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
+
+
+def _reforce_rls() -> None:
+    for table in _RLS_TABLES:
+        op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+
 
 def upgrade() -> None:
+    _unforce_rls()
     # -- 1. requirements: rename the work vocabulary ----------------------
     # Constraint first: it still names the old set, and every UPDATE below
     # would fail against it.
@@ -104,9 +134,11 @@ def upgrade() -> None:
     )
     op.execute("UPDATE board_releases SET status = 'DeployedToLive' WHERE shipped_at IS NOT NULL")
     op.create_check_constraint('ck_board_releases_status', 'board_releases', f"status IN ({_DELIVERY})")
+    _reforce_rls()
 
 
 def downgrade() -> None:
+    _unforce_rls()
     # -- 3b. releases -----------------------------------------------------
     op.drop_constraint('ck_board_releases_status', 'board_releases', type_='check')
     op.drop_column('board_releases', 'status')
@@ -146,3 +178,4 @@ def downgrade() -> None:
     op.alter_column('board_requirements', 'blocked_from', type_=sa.String(length=10), existing_nullable=True)
     op.execute("ALTER TABLE board_requirements ALTER COLUMN status SET DEFAULT 'Todo'")
     op.create_check_constraint('ck_board_requirements_status', 'board_requirements', f"status IN ({_OLD_WORK})")
+    _reforce_rls()
