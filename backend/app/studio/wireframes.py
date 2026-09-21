@@ -465,7 +465,12 @@ async def delete_wireframe(
 async def export_wireframe(
     project_id: UUID,
     wireframe_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("data:read")),
+    # Board tokens too (require_studio_permission), unlike the page routes
+    # below: this is the only read that returns a page's actual content, and
+    # its counterpart /import is already board-token writable. Without it an
+    # agent could replace every page of a wireframe and never read one back
+    # -- including the one it had just written.
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     project = await get_project(db, project_id, ctx)

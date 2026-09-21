@@ -14,6 +14,7 @@ import { STRUCTURAL_TYPES } from "../model/regions";
 import { cmpFloatPos, cmpFreePos, cmpPos, cmpSize, fixedWidthDemand, nodePath, SplitSide } from "../model/tree";
 import { ComponentNode, LayoutNode, LinkTarget, PageDocument, PagePresentation, Size, SplitNode } from "../model/types";
 import { stageScale } from "../stage";
+import { CmpBoundary } from "./CmpBoundary";
 import { draggedElementType, dropBefore, DropHint, hasPayload, readPayload, setPayload } from "./dnd";
 import { EDIT_TOKEN_SELECTOR, Schematic, SchematicChrome, SchematicEdit, styleData } from "./Schematic";
 import { ElementSel, Selection } from "./selection";
@@ -880,7 +881,9 @@ export function Canvas(props: Props) {
                 </>
               );
             })()}
-          <Schematic cmp={cmp} defs={props.defs} datasets={props.datasets} edit={editable ? props.editFor(cmp.id) : undefined} chrome={chrome} />
+          <CmpBoundary cmpId={cmp.id} cmpType={cmp.type}>
+            <Schematic cmp={cmp} defs={props.defs} datasets={props.datasets} edit={editable ? props.editFor(cmp.id) : undefined} chrome={chrome} />
+          </CmpBoundary>
         </div>
         {showHint && !hint.before && <div className="drop-indicator" />}
       </div>

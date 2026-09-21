@@ -351,6 +351,23 @@
 .cmp.selected::after { border: 2px solid var(--edit-accent); }
 .cmp.dragging { opacity: .5; }
 
+/* A component whose render threw (CmpBoundary). The page around it still
+   draws, so this states which component failed and offers a retry rather
+   than replacing the screen. Paper-toned like the rest of the canvas: it
+   reports a fault in the document, not an alarm in the app. */
+.cmp-broken {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  margin: 12px; padding: 12px 14px;
+  border: 1px dashed var(--bad); border-radius: var(--radius-lg);
+  background: var(--bad-soft); color: var(--text); font-size: 12px;
+}
+.cmp-broken-why { color: var(--text-dim); font-family: var(--mono, ui-monospace, monospace); word-break: break-word; }
+.cmp-broken button {
+  padding: 3px 10px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm, 6px);
+  background: var(--panel); color: var(--text);
+}
+
 .cmp-actions {
   position: absolute; top: 6px; right: 6px; z-index: 5;
   display: flex; gap: 2px; padding: 2px;

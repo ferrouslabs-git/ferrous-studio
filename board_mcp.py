@@ -378,9 +378,16 @@ def list_wireframes() -> dict:
 
 @mcp.tool()
 def get_wireframe(wireframe_id: str) -> dict:
-    """One wireframe's full detail, pages included -- what update_wireframe
-    would be replacing, if it's about to be called."""
-    return _studio_call("GET", f"/wireframes/{wireframe_id}")
+    """One wireframe's full contents -- every page with its layout,
+    components and elements, in the same shape update_wireframe takes. This
+    is literally what update_wireframe would be replacing, so read it before
+    editing one page of an existing wireframe: update_wireframe replaces
+    everything, and the pages not being changed have to be passed back
+    unchanged. Also how to check what a previous run actually wrote."""
+    # /export, not the wireframe detail route: detail returns page summaries
+    # (name, route, placement) with no document, so it cannot answer "what is
+    # on this page". Export round-trips through /import unchanged.
+    return _studio_call("GET", f"/wireframes/{wireframe_id}/export")
 
 
 @mcp.tool()

@@ -9,6 +9,7 @@ import { CustomDef, elementLink } from "../model/actions";
 import { cmpSize } from "../model/tree";
 import { ComponentNode, LayoutNode, LinkTarget, PageDocument, PagePresentation, Size } from "../model/types";
 import { cmpSizeStyle, fillsHeight, fillsRegion, floatCmpStyle, freeBodyMinHeight, freeCmpStyle, HostLevel, isFloating } from "./Canvas";
+import { CmpBoundary } from "./CmpBoundary";
 import { Schematic, SchematicChrome, styleData } from "./Schematic";
 
 interface Props {
@@ -76,7 +77,9 @@ export function PreviewCanvas({ doc, host, presentation, activePageIds, defs, da
         className={cls.join(" ")}
         style={{ ...styleData(cmp.props), ...(floating ? floatCmpStyle(cmp) : freePos ? freeCmpStyle(cmp, index) : cmpSizeStyle(cmp, row)) }}
       >
-        <Schematic cmp={cmp} defs={defs} datasets={datasets} chrome={chrome} />
+        <CmpBoundary cmpId={cmp.id} cmpType={cmp.type}>
+          <Schematic cmp={cmp} defs={defs} datasets={datasets} chrome={chrome} />
+        </CmpBoundary>
       </div>
     );
   };

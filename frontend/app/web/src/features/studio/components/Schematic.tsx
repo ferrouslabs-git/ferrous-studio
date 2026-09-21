@@ -121,10 +121,21 @@ const INITIALS = ["AL", "GH", "LT", "MH", "KJ"];
 // side by side in a pie, and the ramp still separates when printed greyscale.
 const PIE_COLOURS = ["#3D4650", "#7A8593", "#5B6673", "#99A3AE", "#2C333B", "#B4BCC5", "#C9CFD6"];
 
-const splitList = (v: string | undefined): string[] =>
-  (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-const numberOf = (v: string, fallback: number) => {
-  const n = parseFloat(v.replace(/[^\d.-]/g, ""));
+/** Sample and option lists are authored as comma-separated text, which is what
+ *  the catalogue seeds and the Inspector write. An imported bundle may carry
+ *  them as a JSON array instead — the format guide never said which, and
+ *  `data` values are only typed as strings by convention, so nothing rejects
+ *  one. Accept both: an array is already the list. A value containing a comma
+ *  survives only in the array form, so arrays are read as-is, never re-joined. */
+const splitList = (v: unknown): string[] =>
+  Array.isArray(v)
+    ? v.map((s) => String(s).trim()).filter(Boolean)
+    : String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+/** Scalars (a free-placed element's x/y/w/h, a chart value) are stored as
+ *  text too, and are no more trustworthy than the lists above — same reason,
+ *  so same tolerance. Anything unreadable falls back. */
+const numberOf = (v: unknown, fallback: number) => {
+  const n = parseFloat(String(v ?? "").replace(/[^\d.-]/g, ""));
   return Number.isFinite(n) ? n : fallback;
 };
 
