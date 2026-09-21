@@ -5,44 +5,65 @@
 import { ReactNode } from "react";
 import type { Agent } from "./agentsApi";
 import type { DueStatus } from "./boardModel";
-import { EPIC_STATUS_LABEL, nextEpicStatus } from "./constants";
+import { DELIVERY_STATUS_LABEL, ST_LABEL } from "./constants";
 import { effortSummary, type Rollup } from "./effort";
-import type { EpicStatus } from "./epicsApi";
 import { Icon } from "./icons";
 import type { RequirementStatus } from "./requirementsApi";
-import type { SprintState } from "./sprintsApi";
+import { DELIVERY_STATUSES, type DeliveryStatus } from "./sprintsApi";
 
 export function IdChip({ children }: { children: ReactNode }) {
   return <span className="bchip k">{children}</span>;
 }
 
 export function StatusChip({ status }: { status: RequirementStatus }) {
-  return <span className={`bchip st st-${status}`}>{status}</span>;
+  return <span className={`bchip st st-${status}`}>{ST_LABEL[status] ?? status}</span>;
 }
 
-// The epic lifecycle chip is a CONTROL when onAdvance is given: clicking it
-// advances the status, and the caret plus title say so. Read-only copies
-// leave onAdvance off.
-export function EpicStatusChip({ status, onAdvance }: { status: EpicStatus; onAdvance?: () => void }) {
-  const label = EPIC_STATUS_LABEL[status] ?? status;
-  if (!onAdvance) return <span className={`bchip st st-${status}`}>{label}</span>;
+// An epic's or a feature's status, which is rolled up from the requirements
+// under it and cannot be set. Same hues as a requirement's -- it is the same
+// vocabulary -- but never a control, and the title says why.
+export function RolledUpStatusChip({ status, of }: { status: RequirementStatus; of: "epic" | "feature" }) {
   return (
-    <button
-      type="button"
-      className={`bchip st adv st-${status}`}
-      title={`click to advance lifecycle status → ${EPIC_STATUS_LABEL[nextEpicStatus(status)]}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onAdvance();
-      }}
-    >
-      {label}
-    </button>
+    <span className={`bchip st rolled st-${status}`} title={`rolled up from this ${of}'s requirements`}>
+      {ST_LABEL[status] ?? status}
+    </span>
   );
 }
 
-export function SprintStateChip({ state }: { state: SprintState }) {
-  return <span className={`bchip sp-${state}`}>{state}</span>;
+export function DeliveryStatusChip({ status }: { status: DeliveryStatus }) {
+  return <span className={`bchip dl dl-${status}`}>{DELIVERY_STATUS_LABEL[status] ?? status}</span>;
+}
+
+// A sprint's or a release's delivery status, as a control. Every value is
+// always offered: the set is non-linear on purpose, so there is no "next"
+// and nothing is ever greyed out for being backwards.
+export function DeliveryStatusSelect({
+  status,
+  onChange,
+  disabled,
+  label,
+}: {
+  status: DeliveryStatus;
+  onChange: (next: DeliveryStatus) => void;
+  disabled?: boolean;
+  label?: string;
+}) {
+  if (disabled) return <DeliveryStatusChip status={status} />;
+  return (
+    <select
+      className={`mini dl-select dl-${status}`}
+      aria-label={label ?? "delivery status"}
+      value={status}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value as DeliveryStatus)}
+    >
+      {DELIVERY_STATUSES.map((s) => (
+        <option key={s} value={s}>
+          {DELIVERY_STATUS_LABEL[s]}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 export function AgentChip({ agent }: { agent: Agent }) {

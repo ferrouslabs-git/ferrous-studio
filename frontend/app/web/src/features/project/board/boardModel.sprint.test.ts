@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completeSprintMessage, sprintDue } from "./boardModel";
+import { closeSprintMessage, sprintDue } from "./boardModel";
 import type { Requirement } from "./requirementsApi";
 import type { Sprint } from "./sprintsApi";
 
@@ -10,7 +10,8 @@ const sprint = (o: Partial<Sprint>): Sprint => ({
   goal: "",
   start_date: null,
   end_date: null,
-  state: "active",
+  status: "InProgress",
+  closed_at: null,
   release_id: null,
   capacity_hours: null,
   ...o,
@@ -38,15 +39,15 @@ describe("sprintDue", () => {
   });
 });
 
-describe("completeSprintMessage", () => {
+describe("closeSprintMessage", () => {
   it("asks plainly when everything is done", () => {
-    expect(completeSprintMessage(sprint({ name: "Sprint 2" }), [req("Done"), req("Done")])).toBe("Complete Sprint 2?");
+    expect(closeSprintMessage(sprint({ name: "Sprint 2" }), [req("Done"), req("Done")])).toBe("Close Sprint 2?");
   });
 
   it("counts every requirement that is not Done as unfinished", () => {
-    const rs = [req("Done"), req("Todo"), req("Doing"), req("Review"), req("Blocked")];
-    expect(completeSprintMessage(sprint({ name: "Sprint 2" }), rs)).toBe(
-      "Complete Sprint 2?\n4 unfinished requirement(s) return to the backlog.",
+    const rs = [req("Done"), req("NotStarted"), req("InProgress"), req("ToTest"), req("Blocked")];
+    expect(closeSprintMessage(sprint({ name: "Sprint 2" }), rs)).toBe(
+      "Close Sprint 2?\n4 unfinished requirement(s) return to the backlog.",
     );
   });
 });

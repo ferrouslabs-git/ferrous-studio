@@ -133,7 +133,7 @@ class QueueResult:
 async def queue_agent_run(
     db: AsyncSession, board: Board, requirement_id: UUID, actor_id: UUID
 ) -> AgentRun | str:
-    """Same atomic-claim shape as claim_requirement (Phase 3): only a Todo
+    """Same atomic-claim shape as claim_requirement (Phase 3): only a NotStarted
     requirement can be queued, and the row lock means two concurrent queue
     attempts can't both win."""
     requirement = (
@@ -145,17 +145,17 @@ async def queue_agent_run(
     ).scalar_one_or_none()
     if requirement is None:
         return QueueResult.NOT_FOUND
-    if requirement.status != "Todo":
+    if requirement.status != "NotStarted":
         return QueueResult.NOT_QUEUABLE
 
-    requirement.status = "Doing"
+    requirement.status = "InProgress"
     requirement.updated_at = utc_now()
     # The same status event a PATCH or a claim writes: sprint_burndown
     # reconstructs status history from requirement.updated rows, so a
-    # queue-driven move to Doing must not be invisible to it.
+    # queue-driven move to InProgress must not be invisible to it.
     await write_event(
         db, board, actor_id, "requirement.updated", "requirement", requirement.id,
-        {"status": {"from": "Todo", "to": "Doing"}},
+        {"status": {"from": "NotStarted", "to": "InProgress"}},
     )
     run = AgentRun(board_id=board.id, account_id=board.account_id, requirement_id=requirement.id, created_by=actor_id, status="queued")
     db.add(run)
@@ -219,7 +219,7 @@ async def report_finished(db: AsyncSession, run: AgentRun, success: bool, error:
 #
 # Ported from software-management's agents table/main.py: unlike AgentRun
 # above (one single attempt), an Agent is started and stopped repeatedly
-# over its lifetime and works its assigned sprint's Todo requirements in
+# over its lifetime and works its assigned sprint's NotStarted requirements in
 # queue order. Same "not configured" honesty as launch_agent_task -- see
 # app/config.py's agent_ecs_cluster/agent_task_definition/agent_subnets/
 # agent_security_group docstring.
@@ -364,14 +364,16 @@ async def sync_agent_status(agent: Agent) -> None:
 async def maybe_wake_agent(db: AsyncSession, board: Board, sprint_id: UUID | None) -> None:
     """Wake an agent assigned to `sprint_id`, if one exists and none is
     already running for that sprint. Call when work lands in a sprint or a
-    sprint is started. Only an ACTIVE sprint wakes anything -- starting a
-    sprint is what releases its work to agents. Best-effort: a failure
-    here never fails the write that triggered it, it just leaves the
-    agent stopped and visible as such."""
+    sprint is reopened. Only an OPEN sprint wakes anything -- closing a
+    sprint is what takes its work away from agents, and a sprint's
+    ``status`` is a free label that deliberately gates nothing (see the
+    Sprint model, 2026-09-14). Best-effort: a failure here never fails the
+    write that triggered it, it just leaves the agent stopped and visible
+    as such."""
     if not sprint_id:
         return
     sprint = (await db.execute(select(Sprint).where(Sprint.id == sprint_id))).scalar_one_or_none()
-    if sprint is None or sprint.state != "active":
+    if sprint is None or sprint.closed_at is not None:
         return
     assigned = list((await db.execute(select(Agent).where(Agent.sprint_id == sprint_id))).scalars().all())
     if any(a.status == "running" for a in assigned):

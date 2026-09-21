@@ -29,9 +29,12 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 from ..models import Base, utc_now
+from .statuses import DELIVERY_STATUSES, WORK_STATUSES
 
 __all__ = [
     "utc_now",
+    "DELIVERY_STATUSES",
+    "WORK_STATUSES",
     "Board",
     "Release",
     "Epic",
@@ -93,9 +96,14 @@ class Release(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
-    # Set when a human marks the release shipped; NULL = still in flight.
-    # Shipping is a judgement call, never computed -- a release can go out
-    # with known gaps, so nothing here blocks or auto-sets it.
+    # How far this release has been pushed towards live -- one of
+    # statuses.DELIVERY_STATUSES, set by hand and deliberately non-linear:
+    # a release may go back to ToTest after DeployedToUAT, and nothing
+    # objects. Replaced the standalone "Mark shipped" toggle on 2026-09-14.
+    status = Column(String(20), nullable=False, default="NotStarted")
+    # When the release first reached DeployedToLive. Stamped by the route,
+    # never cleared by going back: the date it went out stays true even if
+    # the status later moves on. NULL = has not been live yet.
     shipped_at = Column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("board_id", "seq", name="uq_board_releases_seq"),)
@@ -106,19 +114,18 @@ class Release(Base):
 
 
 class Epic(Base):
-    """``status`` tracks where the epic itself sits in the agreed
-    Definition-of-Done lifecycle -- distinct from the live done/doing
-    rollup computed from its requirements (progress_rollup). Ported from
-    software-management (store.py): the transition into 'Done' is refused
-    (routes.py's update_epic) unless every requirement under the epic --
-    direct, or via one of its features -- is itself Done.
+    """An epic carries no status column: its status is rolled up from the
+    requirements under it -- direct, or via one of its features -- by
+    statuses.roll_up_status, and served read-only (routes.py's
+    _epic_status_map). Set 2026-09-14, replacing a hand-advanced
+    Readiness/Implementation/ReleasedToUAT/HumanValidation/Done lifecycle
+    ported from software-management. That lifecycle was a second, unchecked
+    claim about the same work the requirements already described, and the
+    two drifted; how far an epic has got is now answered in one place.
 
-    Replaces ``phase`` (Now/Next/Later), dropped outright by
-    software-management on 2026-08-28: "it never represented real planning
-    (no owner, no dates, no dependency on anything else)."
+    Where the epic has been *deployed* is a different question, and it is
+    the release's and the sprint's to answer -- see DELIVERY_STATUSES.
     """
-
-    STATUSES = ("Readiness", "Implementation", "ReleasedToUAT", "HumanValidation", "Done")
 
     __tablename__ = "board_epics"
 
@@ -128,8 +135,10 @@ class Epic(Base):
     seq = Column(Integer, nullable=False)
     title = Column(String(255), nullable=False)
     summary = Column(Text, nullable=False, default="")
-    status = Column(String(20), nullable=False, default="Readiness")
     release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)
+    # Who is looking after this epic -- a different question from who is
+    # doing each of its requirements, which is often nobody yet.
+    assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
@@ -145,6 +154,9 @@ class Epic(Base):
 
 
 class Feature(Base):
+    """Like Epic, carries no status column -- rolled up from its own
+    requirements by statuses.roll_up_status and served read-only."""
+
     __tablename__ = "board_features"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -153,6 +165,7 @@ class Feature(Base):
     epic_id = Column(UUID(as_uuid=True), ForeignKey("board_epics.id", ondelete="CASCADE"), nullable=False)
     seq = Column(Integer, nullable=False)
     title = Column(String(255), nullable=False)
+    assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
@@ -179,8 +192,6 @@ class Sprint(Base):
     shows its own default (``?? 80``) rather than the database inventing
     one."""
 
-    STATES = ("planned", "active", "done")
-
     __tablename__ = "board_sprints"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -191,7 +202,17 @@ class Sprint(Base):
     goal = Column(Text, nullable=False, default="")
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
-    state = Column(String(10), nullable=False, default="planned")
+    # How far the sprint's work has been pushed towards live -- one of
+    # statuses.DELIVERY_STATUSES. Purely a label: it is set by hand, is
+    # non-linear, and NOTHING keys off it. Replaced the old
+    # planned/active/done ``state`` on 2026-09-14, whose values carried
+    # side effects (only an "active" sprint could be worked; "done" emptied
+    # it) that a freely-settable label must not.
+    status = Column(String(20), nullable=False, default="NotStarted")
+    # What those side effects moved to: closing a sprint returns its
+    # unfinished requirements to the backlog and locks the board; agents
+    # work any sprint that is not closed. NULL = open.
+    closed_at = Column(DateTime, nullable=True)
     # Which release this sprint is planned to deliver -- also what makes a
     # release's date computable at all (Release's docstring/
     # service.release_dates_map: a release's date is the end of its latest
@@ -214,15 +235,19 @@ class Sprint(Base):
 
 
 class Requirement(Base):
-    """``Blocked`` is a flag, not a stage on the normal Todo -> Doing ->
-    Review -> Done path -- a requirement can be blocked from any of the
-    three in-flight stages. ``blocked_from`` records which one, so
-    unblocking returns it there rather than losing that context; it is
+    """The one thing on the board that carries a work status of its own:
+    everything above it (features, epics) rolls its status up from these.
+
+    ``Blocked`` is a flag, not a stage on the normal NotStarted ->
+    InProgress -> ToTest -> Done path -- a requirement can be blocked from
+    any of the three in-flight stages. ``blocked_from`` records which one,
+    so unblocking returns it there rather than losing that context; it is
     computed automatically on the status transition (routes.py's
     update_requirement), never set directly by a client. Ported from
-    software-management (store.py, static/js/reqpane.js's rqpStatusPatch)."""
+    software-management (store.py, static/js/reqpane.js's rqpStatusPatch);
+    the values were renamed from Todo/Doing/Review on 2026-09-14."""
 
-    STATUSES = ("Todo", "Doing", "Review", "Blocked", "Done")
+    STATUSES = WORK_STATUSES
     PRIORITIES = ("Low", "Medium", "High", "Urgent")
 
     __tablename__ = "board_requirements"
@@ -235,8 +260,8 @@ class Requirement(Base):
     body = Column(Text, nullable=False, default="")
     epic_id = Column(UUID(as_uuid=True), ForeignKey("board_epics.id", ondelete="SET NULL"), nullable=True)
     feature_id = Column(UUID(as_uuid=True), ForeignKey("board_features.id", ondelete="SET NULL"), nullable=True)
-    status = Column(String(10), nullable=False, default="Todo")
-    blocked_from = Column(String(10), nullable=True)
+    status = Column(String(20), nullable=False, default="NotStarted")
+    blocked_from = Column(String(20), nullable=True)
     priority = Column(String(10), nullable=False, default="Medium")
     assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)
@@ -252,11 +277,11 @@ class Requirement(Base):
     # surfaces it yet -- it exists so estimates survive the import rather than
     # being silently dropped.
     estimate_hours = Column(Float, nullable=True)
-    # Work order within the requirement's sprint -- what an agent picks Todo
+    # Work order within the requirement's sprint -- what an agent picks
     # work by, and the sprint board's row order. NULL = not ordered (sorts
     # last). Scoped to a sprint, so it is cleared whenever the requirement
     # leaves one (routes.py's update_requirement/delete_sprint and
-    # service.apply_sprint_state_transition). Ported from software-management.
+    # service.close_sprint). Ported from software-management.
     queue_position = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
@@ -554,7 +579,7 @@ class Agent(Base):
     lifetime, unlike AgentRun (one single attempt). Ported from
     software-management (backend/store.py's agents table, added
     incrementally through Sept 2026): an agent is assigned exactly one
-    sprint and works its Todo requirements in queue order; the older
+    sprint and works its NotStarted requirements in queue order; the older
     per-epic scoping was retired as untrustworthy (two stacked filters).
 
     Not wired to a real ECS launch unless AGENT_ECS_CLUSTER/

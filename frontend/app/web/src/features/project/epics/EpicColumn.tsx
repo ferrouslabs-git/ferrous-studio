@@ -4,9 +4,10 @@
 // double-click-to-edit text deliberately), then attachments, docs and the
 // requirements grouped by feature. Ported from renderEpicPage() in the
 // reference app's static/js/epicpage.js.
+import { AssigneeSelect } from "../board/AssigneeSelect";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
-import { CommentButton, EffortFigure, EpicStatusChip, IdChip } from "../board/chips";
+import { CommentButton, EffortFigure, IdChip, RolledUpStatusChip } from "../board/chips";
 import type { CommentsTarget } from "../board/CommentsPanel";
 import { useDialogs } from "../board/dialogs";
 import { rollup } from "../board/effort";
@@ -81,10 +82,7 @@ export function EpicColumn({
     <>
       <div className="epghead">
         <IdChip>{epic.human_id}</IdChip>
-        <EpicStatusChip
-          status={epic.status}
-          onAdvance={canWrite ? () => void mutations.advanceEpicStatus(epic).catch(() => undefined) : undefined}
-        />
+        <RolledUpStatusChip status={epic.status} of="epic" />
         <span className="spacer" />
         <CommentButton
           count={index.commentCount(epic.id)}
@@ -103,6 +101,18 @@ export function EpicColumn({
           placeholder="What does done look like for this epic?"
           disabled={!canWrite}
           {...summaryField}
+        />
+        <label htmlFor="epgAssignee">Assignee</label>
+        <AssigneeSelect
+          id="epgAssignee"
+          value={epic.assignee_id}
+          disabled={!canWrite}
+          onChange={(userId) =>
+            void mutations
+              .patchEpic(epic.id, userId ? { assignee_id: userId } : { clear_assignee: true })
+              .then(() => toast("saved"))
+              .catch(() => undefined)
+          }
         />
       </div>
 

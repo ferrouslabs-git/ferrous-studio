@@ -52,19 +52,28 @@ FeedbackStatus = Literal["New", "Triaged", "Accepted", "Declined", "Done"]
 # ── Releases ─────────────────────────────────────────────────────────────
 
 
+#: A sprint's and a release's own status: how far its work has been pushed
+#: towards live. Free to move in any direction -- see statuses.py.
+DeliveryStatus = Literal[
+    "NotStarted", "InProgress", "ToTest", "DeployedToUAT", "DeployedToStaging", "DeployedToLive"
+]
+
+
 class ReleaseCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str = ""
+    status: DeliveryStatus = "NotStarted"
 
 
 class ReleaseUpdate(BaseModel):
     """No release_date -- it's derived, not settable (see the Release model's
-    docstring). ``shipped`` is a virtual field: True/False sets or clears
-    shipped_at, translated in the route rather than stored as written."""
+    docstring). No ``shipped`` either: as of 2026-09-14 shipping is what
+    ``status: "DeployedToLive"`` means, and the route stamps shipped_at the
+    first time it lands there."""
 
     title: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
-    shipped: bool | None = None
+    status: DeliveryStatus | None = None
 
 
 class ReleaseRead(BaseModel):
@@ -75,6 +84,7 @@ class ReleaseRead(BaseModel):
     title: str
     date: date | None
     description: str
+    status: str
     shipped_at: datetime | None
     progress: EpicProgress
     created_at: datetime
@@ -84,26 +94,23 @@ class ReleaseRead(BaseModel):
 # ── Epics ────────────────────────────────────────────────────────────────
 
 
-EpicStatus = Literal["Readiness", "Implementation", "ReleasedToUAT", "HumanValidation", "Done"]
-
-
 class EpicCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     summary: str = ""
-    status: EpicStatus = "Readiness"
     release_id: UUID | None = None
+    assignee_id: UUID | None = None
 
 
 class EpicUpdate(BaseModel):
-    """No ``status: "Done"`` unless every requirement under the epic (direct,
-    or via one of its features) is itself Done -- enforced in the route,
-    not here (needs a database lookup)."""
+    """No ``status``: an epic's status is rolled up from its requirements
+    and is read-only (statuses.roll_up_status)."""
 
     title: str | None = Field(None, min_length=1, max_length=255)
     summary: str | None = None
-    status: EpicStatus | None = None
     release_id: UUID | None = None
     clear_release: bool = False
+    assignee_id: UUID | None = None
+    clear_assignee: bool = False
 
 
 class EpicRead(BaseModel):
@@ -113,30 +120,33 @@ class EpicRead(BaseModel):
     human_id: str
     title: str
     summary: str
+    # Derived from the requirements under this epic -- direct, or via one of
+    # its features. Read-only: no create or update schema accepts it.
     status: str
     release_id: UUID | None
+    assignee_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class EpicProgress(BaseModel):
-    """Status-weighted rollup: Done = 1, Review = 0.75, Doing = 0.5, every
-    other status 0 -- mirrors the reference's effort.js rollup(), so the
-    server and the client agree on every figure.
+    """Status-weighted rollup: Done = 1, ToTest = 0.75, InProgress = 0.5,
+    every other status 0 -- mirrors the reference's effort.ts rollup(), so
+    the server and the client agree on every figure.
 
     Counts a requirement wherever it sits on the board: for an epic, every
     requirement whose *effective* epic is this one (its own epic_id, or its
     feature's), not just those attached directly. ``hours`` sums only the
     estimates that exist; ``hours_done`` is those same estimates weighted by
-    the status weights above (a 4 h requirement in Review contributes 3 h);
+    the status weights above (a 4 h requirement in ToTest contributes 3 h);
     ``estimated``/``unestimated`` say how many carry one, and ``coverage``
     is their share of ``total`` -- 1.0 when there is nothing to estimate.
     """
 
     total: int
     done: int
-    doing: int
-    review: int
+    in_progress: int
+    to_test: int
     pct: int
     hours: float
     hours_done: float
@@ -151,10 +161,16 @@ class EpicProgress(BaseModel):
 class FeatureCreate(BaseModel):
     epic_id: UUID
     title: str = Field(min_length=1, max_length=255)
+    assignee_id: UUID | None = None
 
 
 class FeatureUpdate(BaseModel):
+    """``title`` stays required: the one PATCH this route has always taken
+    is a rename, and an older client sends nothing else."""
+
     title: str = Field(min_length=1, max_length=255)
+    assignee_id: UUID | None = None
+    clear_assignee: bool = False
 
 
 class FeatureRead(BaseModel):
@@ -164,6 +180,9 @@ class FeatureRead(BaseModel):
     human_id: str
     epic_id: UUID
     title: str
+    # Derived from this feature's own requirements. Read-only, as EpicRead's.
+    status: str
+    assignee_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -184,6 +203,7 @@ class SprintCreate(BaseModel):
     end_date: date | None = None
     release_id: UUID
     capacity_hours: int | None = Field(None, ge=0)
+    status: DeliveryStatus = "NotStarted"
 
     @model_validator(mode="before")
     @classmethod
@@ -198,7 +218,12 @@ class SprintUpdate(BaseModel):
     goal: str | None = None
     start_date: date | None = None
     end_date: date | None = None
-    state: Literal["planned", "active", "done"] | None = None
+    # Free to move in any direction; nothing keys off it (see the Sprint
+    # model). ``closed`` is the separate control that does: True returns
+    # unfinished requirements to the backlog and locks the board, False
+    # reopens it. Both may move in one PATCH.
+    status: DeliveryStatus | None = None
+    closed: bool | None = None
     # A sprint may move between releases but never leave one: the route
     # refuses ``clear_release`` and an explicit null ``release_id`` with a
     # 422. Both fields are kept so an older client gets that error rather
@@ -217,7 +242,8 @@ class SprintRead(BaseModel):
     goal: str
     start_date: date | None
     end_date: date | None
-    state: str
+    status: str
+    closed_at: datetime | None
     release_id: UUID | None
     capacity_hours: int | None
     created_at: datetime
@@ -226,9 +252,10 @@ class SprintRead(BaseModel):
 
 class SprintUpdateResult(BaseModel):
     sprint: SprintRead
-    # Populated only on a planned/active -> done transition: how many
-    # non-Done requirements were returned to the backlog (ported side effect,
-    # SMA store.py's update_sprint).
+    # Populated only when a PATCH closes the sprint: how many non-Done
+    # requirements were returned to the backlog (ported side effect, SMA
+    # store.py's update_sprint, moved off ``state`` onto ``closed`` on
+    # 2026-09-14).
     returned_to_backlog: int = 0
 
 
@@ -262,7 +289,7 @@ class BurndownRead(BaseModel):
 # ── Requirements ─────────────────────────────────────────────────────────
 
 
-RequirementStatus = Literal["Todo", "Doing", "Review", "Blocked", "Done"]
+RequirementStatus = Literal["NotStarted", "InProgress", "ToTest", "Done", "Blocked"]
 
 
 class RequirementCreate(BaseModel):
@@ -270,7 +297,7 @@ class RequirementCreate(BaseModel):
     body: str = ""
     epic_id: UUID | None = None
     feature_id: UUID | None = None
-    status: RequirementStatus = "Todo"
+    status: RequirementStatus = "NotStarted"
     priority: Literal["Low", "Medium", "High", "Urgent"] = "Medium"
     assignee_id: UUID | None = None
     release_id: UUID | None = None
@@ -586,7 +613,7 @@ class AgentRunQueued(BaseModel):
 #
 # Distinct from AgentRun above (one single attempt at a requirement): an
 # Agent is started/stopped repeatedly over its lifetime and works its
-# assigned sprint's Todo requirements in queue order. Ported from
+# assigned sprint's NotStarted requirements in queue order. Ported from
 # software-management's agents table.
 
 AgentDesiredState = Literal["running", "stopped"]
@@ -650,7 +677,7 @@ class SprintQuestion(BaseModel):
     """A Blocked requirement in the sprint whose latest live comment was
     written by one of the sprint's agents, or reads like a question -- see
     service.detect_questions. Answering is a comment plus a flip back to
-    Todo, which wakes the agent."""
+    NotStarted, which wakes the agent."""
 
     requirement: SprintQuestionRequirement
     comment: CommentRead

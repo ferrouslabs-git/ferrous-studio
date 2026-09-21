@@ -18,11 +18,15 @@ from app.studio.board import routes, service
 from app.studio.board.schemas import (
     EpicCreate,
     EpicProgress,
+    EpicUpdate,
+    FeatureCreate,
+    FeatureUpdate,
     RequirementCreate,
     RequirementUpdate,
     SprintCreate,
     SprintUpdate,
 )
+from app.studio.board.statuses import WORK_STATUSES, roll_up_status
 
 
 def _req(status: str, estimate_hours: float | None = None, **extra):
@@ -33,18 +37,18 @@ def _req(status: str, estimate_hours: float | None = None, **extra):
 
 
 def test_rollup_weights_match_effort_js():
-    """Done = 1, Review = 0.75, Doing = 0.5, Todo/Blocked = 0."""
-    rows = [_req("Done"), _req("Review"), _req("Doing"), _req("Todo"), _req("Blocked")]
+    """Done = 1, ToTest = 0.75, InProgress = 0.5, NotStarted/Blocked = 0."""
+    rows = [_req("Done"), _req("ToTest"), _req("InProgress"), _req("NotStarted"), _req("Blocked")]
     out = service.progress_rollup(rows)
-    assert (out["total"], out["done"], out["doing"], out["review"]) == (5, 1, 1, 1)
+    assert (out["total"], out["done"], out["in_progress"], out["to_test"]) == (5, 1, 1, 1)
     assert out["pct"] == round(100 * 2.25 / 5)
 
 
 def test_rollup_hours_sum_only_existing_estimates():
     """``hours_done`` credits every estimate by its status weight -- the
-    same arithmetic as effort.ts's rollup(), so a Review or Doing
+    same arithmetic as effort.ts's rollup(), so a ToTest or InProgress
     requirement counts for part of its estimate rather than nothing."""
-    rows = [_req("Done", 4.0), _req("Review", 2.5), _req("Doing", 2.0), _req("Blocked", 1.0), _req("Todo", None)]
+    rows = [_req("Done", 4.0), _req("ToTest", 2.5), _req("InProgress", 2.0), _req("Blocked", 1.0), _req("NotStarted", None)]
     out = service.progress_rollup(rows)
     assert out["hours"] == 9.5
     assert out["hours_done"] == pytest.approx(4.0 + 2.5 * 0.75 + 2.0 * 0.5)
@@ -60,10 +64,10 @@ def test_rollup_of_nothing_has_full_coverage():
 
 
 def test_rollup_is_the_epic_progress_shape():
-    rows = [_req("Done", 1.0), _req("Doing")]
+    rows = [_req("Done", 1.0), _req("InProgress")]
     progress = EpicProgress(**service.progress_rollup(rows))
     assert set(progress.model_dump()) == {
-        "total", "done", "doing", "review", "pct", "hours", "hours_done", "estimated", "unestimated", "coverage",
+        "total", "done", "in_progress", "to_test", "pct", "hours", "hours_done", "estimated", "unestimated", "coverage",
     }
 
 
@@ -99,7 +103,7 @@ def test_blocked_with_unrelated_latest_comment_is_not_a_question():
 
 def test_non_blocked_requirement_is_never_a_question():
     agent = uuid4()
-    r = _req("Todo")
+    r = _req("NotStarted")
     c = _comment("Question: really?", agent_id=agent)
     assert service.detect_questions([r], {r.id: c}, [agent]) == []
 
@@ -193,8 +197,51 @@ def test_queue_position_is_not_settable_at_creation():
     assert "queue_position" not in RequirementCreate.model_fields
 
 
-def test_new_epics_default_to_readiness():
-    assert EpicCreate(title="t").status == "Readiness"
+def test_an_epic_has_no_settable_status():
+    """It is rolled up from the requirements under it (statuses.roll_up_status),
+    so neither create nor update accepts one."""
+    assert "status" not in EpicCreate.model_fields
+    assert "status" not in EpicUpdate.model_fields
+
+
+# ── Assignment (2026-09-18) ──────────────────────────────────────────────
+
+
+def test_every_level_of_the_board_can_be_assigned():
+    """Requirements always could; epics and features gained it so that "who
+    is looking after this?" has an answer above the requirement level."""
+    for schema in (RequirementCreate, EpicCreate, FeatureCreate):
+        assert "assignee_id" in schema.model_fields, schema.__name__
+    for schema in (RequirementUpdate, EpicUpdate, FeatureUpdate):
+        assert "assignee_id" in schema.model_fields, schema.__name__
+        assert "clear_assignee" in schema.model_fields, schema.__name__
+
+
+def test_an_assignee_must_be_a_member_of_the_board_organisation():
+    """The FK only says "a user exists somewhere", so the route checks the
+    membership -- and all three levels go through the same helper, or they
+    would drift into accepting different ids."""
+    src = inspect.getsource(routes._validate_assignee)
+    assert 'Membership.scope_id == board.account_id' in src
+    assert 'Membership.status == "active"' in src
+    assert "not a member of this organisation" in src
+    for fn in (routes._validate_requirement_refs, routes.create_epic_content, routes.update_epic,
+               routes.create_feature_content, routes.update_feature):
+        assert "_validate_assignee" in inspect.getsource(fn), fn.__name__
+
+
+def test_clearing_an_assignment_is_the_flag_not_a_null():
+    """A null id means "leave it alone" on every link the board patches, so
+    an older client that omits nothing cannot wipe an assignment by accident."""
+    src = inspect.getsource(routes.update_epic)
+    assert 'clear_assignee = data.pop("clear_assignee", False)' in src
+    assert 'if field in ("release_id", "assignee_id") and value is None:' in src
+
+
+def test_assignment_is_on_the_audit_trail():
+    assert "assignee_id" in routes._EPIC_EVENT_FIELDS
+    assert "assignee_id" in routes._FEATURE_EVENT_FIELDS
+    assert "assignee_id" in routes._REQUIREMENT_EVENT_FIELDS
 
 
 # ── Route-level rules, pinned by source ──────────────────────────────────
@@ -204,14 +251,72 @@ def test_update_sprint_refuses_to_clear_the_release():
     assert "a sprint must belong to a release" in inspect.getsource(routes.update_sprint)
 
 
-def test_starting_a_sprint_no_longer_demotes_the_others():
-    """Several sprints may be active at once (software-management,
-    2026-09-04): the transition helper must not touch any other sprint."""
-    assert "planned" not in inspect.getsource(service.apply_sprint_state_transition)
+def test_closing_a_sprint_no_longer_demotes_the_others():
+    """Several sprints may be open at once (software-management,
+    2026-09-04): closing one must not touch any other sprint."""
+    src = inspect.getsource(service.close_sprint)
+    assert "Sprint.id !=" not in src and "!= sprint.id" not in src
 
 
-def test_completing_a_sprint_clears_queue_positions():
-    assert "queue_position = None" in inspect.getsource(service.apply_sprint_state_transition)
+def test_closing_a_sprint_clears_queue_positions():
+    assert "queue_position = None" in inspect.getsource(service.close_sprint)
+
+
+def test_closing_a_closed_sprint_returns_nothing():
+    """A repeated PATCH with closed=true must not empty the sprint twice."""
+    assert "if sprint.closed_at is not None:" in inspect.getsource(service.close_sprint)
+
+
+# ── The two status vocabularies ──────────────────────────────────────────
+
+
+def test_sprint_and_release_statuses_carry_no_side_effects():
+    """A delivery status is a free label: the route must key nothing off it.
+    What used to (an "active" sprint being the only workable one, "done"
+    emptying it) hangs off closed_at now."""
+    src = inspect.getsource(routes.update_sprint)
+    assert "close_sprint" in src
+    for value in ("DeployedToUAT", "DeployedToStaging", "DeployedToLive"):
+        assert value not in src
+
+
+def test_reaching_live_stamps_shipped_at_once_and_never_clears_it():
+    src = inspect.getsource(routes.update_release)
+    assert 'release.status == "DeployedToLive" and release.shipped_at is None' in src
+    assert "shipped_at = None" not in src
+
+
+@pytest.mark.parametrize(
+    "statuses,expected",
+    [
+        ([], "NotStarted"),
+        (["Done", "Done"], "Done"),
+        (["NotStarted", "NotStarted"], "NotStarted"),
+        # Blocked only surfaces once it is the only thing left unfinished.
+        (["Done"] * 9 + ["Blocked"], "Blocked"),
+        (["Blocked"], "Blocked"),
+        (["InProgress", "Blocked"], "InProgress"),
+        # Something has been picked up and run into a wall: a started epic
+        # with a blocked item in it, not a blocked epic.
+        (["Blocked", "NotStarted"], "InProgress"),
+        (["Done", "ToTest"], "ToTest"),
+        (["ToTest"], "ToTest"),
+        (["Done", "NotStarted"], "InProgress"),
+    ],
+)
+def test_roll_up_status_lets_progress_dominate(statuses, expected):
+    assert roll_up_status(statuses) == expected
+
+
+def test_every_rolled_up_status_is_a_requirement_status():
+    """Features and epics share the requirement vocabulary exactly -- they
+    are reporting the same work, so a value it cannot produce would be a
+    value nothing can explain."""
+    produced = {
+        roll_up_status(c)
+        for c in ([], ["Done"], ["NotStarted"], ["InProgress"], ["ToTest"], ["Blocked"], ["Done", "Blocked"])
+    }
+    assert produced <= set(WORK_STATUSES)
 
 
 def test_only_the_author_deletes_a_comment():

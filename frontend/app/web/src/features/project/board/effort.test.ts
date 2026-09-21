@@ -19,19 +19,19 @@ describe("fmtEffort", () => {
 describe("statusWeight and rollup", () => {
   it("credits Done fully, Review three quarters, Doing half, the rest nothing", () => {
     expect(statusWeight("Done")).toBe(1);
-    expect(statusWeight("Review")).toBe(0.75);
-    expect(statusWeight("Doing")).toBe(0.5);
-    expect(statusWeight("Todo")).toBe(0);
+    expect(statusWeight("ToTest")).toBe(0.75);
+    expect(statusWeight("InProgress")).toBe(0.5);
+    expect(statusWeight("NotStarted")).toBe(0);
     expect(statusWeight("Blocked")).toBe(0);
   });
   it("rolls counts, a weighted percentage, hours and coverage together", () => {
     const p = rollup([
       { status: "Done", estimate_hours: 8 },
-      { status: "Review", estimate_hours: 4 },
-      { status: "Doing", estimate_hours: null },
-      { status: "Todo" },
+      { status: "ToTest", estimate_hours: 4 },
+      { status: "InProgress", estimate_hours: null },
+      { status: "NotStarted" },
     ]);
-    expect(p).toMatchObject({ total: 4, done: 1, doing: 1, review: 1, estimated: 2, unestimated: 2 });
+    expect(p).toMatchObject({ total: 4, done: 1, in_progress: 1, to_test: 1, estimated: 2, unestimated: 2 });
     expect(p.pct).toBe(Math.round((100 * (1 + 0.75 + 0.5)) / 4));
     expect(p.hours).toBe(12);
     expect(p.hours_done).toBe(8 + 3);
@@ -45,11 +45,11 @@ describe("statusWeight and rollup", () => {
 describe("effortSummary", () => {
   it("says nothing for an empty set and admits a wholly unestimated one", () => {
     expect(effortSummary(rollup([]))).toEqual({ text: "", partial: false });
-    expect(effortSummary(rollup([{ status: "Todo" }]))).toEqual({ text: "not estimated", partial: true });
+    expect(effortSummary(rollup([{ status: "NotStarted" }]))).toEqual({ text: "not estimated", partial: true });
   });
   it("states the sum at full coverage and admits the gap otherwise", () => {
-    expect(effortSummary(rollup([{ status: "Todo", estimate_hours: 16 }]))).toEqual({ text: "2d", partial: false });
-    expect(effortSummary(rollup([{ status: "Todo", estimate_hours: 16 }, { status: "Todo" }]))).toEqual({
+    expect(effortSummary(rollup([{ status: "NotStarted", estimate_hours: 16 }]))).toEqual({ text: "2d", partial: false });
+    expect(effortSummary(rollup([{ status: "NotStarted", estimate_hours: 16 }, { status: "NotStarted" }]))).toEqual({
       text: "2d · 1/2 estimated",
       partial: true,
     });

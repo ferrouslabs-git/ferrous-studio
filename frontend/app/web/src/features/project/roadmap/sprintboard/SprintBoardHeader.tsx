@@ -4,9 +4,9 @@
 // left, progress, and the same lifecycle button as the sprint card.
 import { Link } from "react-router-dom";
 import { useBoard } from "../../board/boardData";
-import { completeSprintMessage, sprintDue, sprintLifecycle } from "../../board/boardModel";
+import { closeSprintMessage, sprintDue, sprintLifecycle } from "../../board/boardModel";
 import { useBoardMutations } from "../../board/boardMutations";
-import { CommentButton, DueChip, IdChip, ProgressBar, SprintStateChip } from "../../board/chips";
+import { CommentButton, DeliveryStatusSelect, DueChip, IdChip, ProgressBar } from "../../board/chips";
 import { useDialogs } from "../../board/dialogs";
 import { rollup } from "../../board/effort";
 import { InlineText } from "../../board/InlineText";
@@ -55,20 +55,21 @@ export function SprintBoardHeader({ sprint, requirements, refresh, onComments }:
     }
   };
 
-  // ▶ Start / ✓ Complete / ↺ Reopen -- the same control as the sprint card.
-  // Completing returns unfinished work to the backlog, so it asks first.
+  // ✓ Close / ↺ Reopen -- the same control as the sprint card, and separate
+  // from the status select beside it. Closing returns unfinished work to the
+  // backlog, so it asks first.
   const runLifecycle = async () => {
-    if (life.next === "done") {
+    if (life.closed) {
       const ok = await dialogs.confirm({
-        title: "Complete sprint",
-        ok: "Complete",
+        title: "Close sprint",
+        ok: "Close",
         danger: false,
-        message: completeSprintMessage(sprint, requirements),
+        message: closeSprintMessage(sprint, requirements),
       });
       if (!ok) return;
     }
     try {
-      await mutations.setSprintState(sprint, life.next);
+      await mutations.setSprintClosed(sprint, life.closed);
       await refresh(true);
     } catch {
       // Already toasted.
@@ -87,7 +88,12 @@ export function SprintBoardHeader({ sprint, requirements, refresh, onComments }:
         </Link>
       )}
       <IdChip>{sprint.human_id}</IdChip>
-      <SprintStateChip state={sprint.state} />
+      <DeliveryStatusSelect
+        status={sprint.status}
+        disabled={!canWrite}
+        label={`${sprint.human_id} status`}
+        onChange={(s) => void mutations.setSprintStatus(sprint, s).catch(() => {})}
+      />
       <InlineText className="sb-name" value={sprint.name} onSave={rename} disabled={!canWrite} />
       {release ? (
         <Link className="btn mini-x sb-rel" to={paths.release(release.id)} title="open the release page">
@@ -106,10 +112,10 @@ export function SprintBoardHeader({ sprint, requirements, refresh, onComments }:
       <span className="sb-dates">
         {sprint.start_date && sprint.end_date ? `${sprint.start_date} → ${sprint.end_date}` : "no dates"}
       </span>
-      {sprint.state !== "done" && due && <DueChip due={due} />}
+      {!sprint.closed_at && due && <DueChip due={due} />}
       <ProgressBar pct={p.pct} />
       <span className="sb-fig">
-        {p.done}/{p.total} done · {p.pct}%{p.review ? ` · ${p.review} in review` : ""}
+        {p.done}/{p.total} done · {p.pct}%{p.to_test ? ` · ${p.to_test} to test` : ""}
       </span>
       <span className="tk-right">
         {canWrite && (

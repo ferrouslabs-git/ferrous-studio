@@ -7,9 +7,11 @@
 // (static/js/roadmap.js).
 import { MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { AssigneeChip } from "../board/AssigneeSelect";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
-import { CommentButton, EffortFigure, EpicStatusChip, IdChip, ProgressFigure, SegBar } from "../board/chips";
+import { CommentButton, EffortFigure, IdChip, ProgressFigure, RolledUpStatusChip, SegBar } from "../board/chips";
+import type { RequirementStatus } from "../board/requirementsApi";
 import type { CommentsTarget } from "../board/CommentsPanel";
 import { useDialogs } from "../board/dialogs";
 import { rollup, type Rollup } from "../board/effort";
@@ -44,12 +46,6 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
     openEpic();
   };
 
-  const advance = () => {
-    mutations.advanceEpicStatus(epic).catch(() => {
-      // The mutation has already toasted the server's reason.
-    });
-  };
-
   const remove = async () => {
     const ok = await dialogs.confirm({
       title: "Delete epic",
@@ -81,7 +77,7 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
           {folded ? "▸" : "▾"}
         </button>
         <IdChip>{epic.human_id}</IdChip>
-        <EpicStatusChip status={epic.status} onAdvance={canWrite ? advance : undefined} />
+        <RolledUpStatusChip status={epic.status} of="epic" />
         <span className="ep-ttl" title="open the epic">
           {epic.title}
         </span>
@@ -94,7 +90,8 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
             no release
           </span>
         )}
-        <SegBar done={p.done} partial={p.doing + p.review} total={p.total} />
+        <AssigneeChip userId={epic.assignee_id} what={epic.human_id} />
+        <SegBar done={p.done} partial={p.in_progress + p.to_test} total={p.total} />
         <ProgressFigure rollup={p} />
         <EffortFigure rollup={p} />
         <span className="spacer" />
@@ -119,7 +116,14 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
       <div className="ep-sum">{epic.summary || ""}</div>
       <div className="ep-features">
         {features.map((f) => (
-          <FeatureRow key={f.id} k={f.human_id} title={f.title} rollup={rollup(index.featureRequirements(f.id))} onClick={openEpic} />
+          <FeatureRow
+            key={f.id}
+            k={f.human_id}
+            title={f.title}
+            status={f.status}
+            rollup={rollup(index.featureRequirements(f.id))}
+            onClick={openEpic}
+          />
         ))}
         {loose.length > 0 && <FeatureRow k="—" title="Requirements with no feature yet" rollup={rollup(loose)} onClick={openEpic} />}
         {features.length === 0 && loose.length === 0 && (
@@ -132,12 +136,26 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
 
 // One feature inside an epic card (or, with k "—", the requirements that sit
 // directly under the epic with no feature yet).
-function FeatureRow({ k, title, rollup: p, onClick }: { k: string; title: string; rollup: Rollup; onClick: () => void }) {
+function FeatureRow({
+  k,
+  title,
+  status,
+  rollup: p,
+  onClick,
+}: {
+  k: string;
+  title: string;
+  /** Rolled up from the feature's requirements; absent on the "no feature yet" row. */
+  status?: RequirementStatus;
+  rollup: Rollup;
+  onClick: () => void;
+}) {
   return (
     <div className="hrow ep-frow" onClick={onClick}>
       <span className="k">{k}</span>
+      {status && <RolledUpStatusChip status={status} of="feature" />}
       <span className="t">{title}</span>
-      <SegBar done={p.done} partial={p.doing + p.review} total={p.total} width={90} />
+      <SegBar done={p.done} partial={p.in_progress + p.to_test} total={p.total} width={90} />
       <ProgressFigure rollup={p} />
       <EffortFigure rollup={p} />
     </div>

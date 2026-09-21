@@ -8,10 +8,10 @@
 import { KeyboardEvent, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useBoard } from "../board/boardData";
-import { completeSprintMessage, recentVelocity, spOrdered, sprintDue, sprintLifecycle } from "../board/boardModel";
+import { closeSprintMessage, recentVelocity, spOrdered, sprintDue, sprintLifecycle } from "../board/boardModel";
 import { useBoardMutations } from "../board/boardMutations";
 import { BurndownDetails } from "../board/Burndown";
-import { CommentButton, DueChip, IdChip, ProgressBar, SprintStateChip } from "../board/chips";
+import { CommentButton, DeliveryStatusSelect, DueChip, IdChip, ProgressBar } from "../board/chips";
 import { DEFAULT_CAPACITY_HOURS } from "../board/constants";
 import { useDialogs } from "../board/dialogs";
 import { useDropTarget } from "../board/dnd";
@@ -37,11 +37,13 @@ export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, on
   const toast = useToast();
   const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
-  const done = sprint.state === "done";
+  // Closed, not "status is some finished value": the status is a free label
+  // that never locks anything (see boardModel.sprintLifecycle).
+  const done = !!sprint.closed_at;
 
   const reqs = index.sprintRequirements(sprint.id);
   const ordered = spOrdered(reqs);
-  const todo = ordered.filter((r) => r.status === "Todo");
+  const todo = ordered.filter((r) => r.status === "NotStarted");
   const p = rollup(reqs);
   const due = sprintDue(sprint);
   const life = sprintLifecycle(sprint);
@@ -66,17 +68,17 @@ export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, on
   const patch = (fields: SprintPatch) => mutations.patchSprint(sprint.id, fields).catch(() => {});
 
   const runLifecycle = async () => {
-    if (life.next === "done") {
+    if (life.closed) {
       const ok = await dialogs.confirm({
-        title: "Complete sprint",
-        ok: "Complete",
+        title: "Close sprint",
+        ok: "Close",
         danger: false,
-        message: completeSprintMessage(sprint, reqs),
+        message: closeSprintMessage(sprint, reqs),
       });
       if (!ok) return;
     }
     try {
-      await mutations.setSprintState(sprint, life.next);
+      await mutations.setSprintClosed(sprint, life.closed);
     } catch {
       // Already toasted.
     }
@@ -145,7 +147,12 @@ export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, on
     <div ref={ref} className={`mscard spcard${done ? " sp-dim" : ""}${folded ? " sp-folded" : ""}${isOver ? " is-over" : ""}`}>
       <div className="mshead">
         <IdChip>{sprint.human_id}</IdChip>
-        <SprintStateChip state={sprint.state} />
+        <DeliveryStatusSelect
+          status={sprint.status}
+          disabled={!canWrite}
+          label={`${sprint.human_id} status`}
+          onChange={(s) => void mutations.setSprintStatus(sprint, s).catch(() => {})}
+        />
         <InlineText className="ms-ttl" value={sprint.name} disabled={!canWrite} onSave={(v) => patch({ name: v })} />
         {!done && due && <DueChip due={due} />}
         <span className="spacer" />

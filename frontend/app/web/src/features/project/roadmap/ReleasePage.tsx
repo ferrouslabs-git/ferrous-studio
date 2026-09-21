@@ -32,8 +32,10 @@ export function ReleasePage() {
 
   // A done sprint starts folded: its list is history. A folded card is still
   // a drop target -- the whole card always was.
-  const defaultFolded = useCallback((id: string) => index.sprintById.get(id)?.state === "done", [index]);
+  const defaultFolded = useCallback((id: string) => !!index.sprintById.get(id)?.closed_at, [index]);
   const folds = useFoldMap(boardStorageKey(projectId, "sprintFold"), defaultFolded);
+  // The header's epic list, folded per release and remembered with it.
+  const epicFolds = useFoldMap(boardStorageKey(projectId, "relEpicFold"));
 
   const [reqId, setReqId] = useState<string | null>(null);
   const [comments, setComments] = useState<CommentsTarget | null>(null);
@@ -151,6 +153,8 @@ export function ReleasePage() {
       <ReleaseHeader
         release={release}
         sprints={data.sprints}
+        epicsFolded={epicFolds.isFolded(release.id)}
+        onToggleEpics={() => epicFolds.toggle(release.id)}
         onComments={() => setComments({ type: "release", id: release.id, label: `${release.human_id} · ${release.title}` })}
       />
 

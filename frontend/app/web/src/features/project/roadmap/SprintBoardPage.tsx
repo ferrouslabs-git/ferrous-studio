@@ -1,16 +1,18 @@
-// The sprint board: one sprint's kanban (Todo / Doing / Review / Blocked /
-// Done lanes) with the agent(s) delivering it beside it -- start/stop, what
-// each is working on, the questions they have asked, and a live feed of what
-// has happened here. Reached from a sprint row on the Roadmap or a sprint
-// card on the release page. Ported from the reference app's
-// static/js/sprintboard.js.
+// The sprint board: one sprint's kanban -- Not started / In progress / To
+// test / Done / Blocked lanes -- over the full width, with a filter bar for
+// finding a requirement by number and narrowing the lanes to one epic or
+// feature. Reached from a sprint row on the Roadmap or a sprint card on the
+// release page. Ported from the reference app's static/js/sprintboard.js.
 //
-// The sprint and its requirements come from the shared board; agents, events
-// and questions from the activity poll (useSprintActivity), which never
-// redraws over a card in mid-drag or a field being typed in. Every write on
-// this page refreshes the poll straight away so the questions and the feed
-// catch up now, not in ten seconds. `?req=<id>` opens the requirement
-// drawer, so a card can be linked to and survives a reload.
+// The agent column that stood beside the lanes (what each agent was working
+// on, the questions they had asked, a live feed of everything that happened
+// here) was removed on 2026-09-18: agents drive this board through the MCP
+// now, and their chatter belonged on the board no more than a terminal does.
+// The poll behind it stays -- it is what keeps a card fresh while an agent
+// moves it, and the only thing that notices the sprint has been deleted --
+// and it never redraws over a card in mid-drag or a field being typed in.
+// `?req=<id>` opens the requirement drawer, so a card can be linked to and
+// survives a reload.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useBoard } from "../board/boardData";
@@ -22,19 +24,16 @@ import { RequirementDrawer } from "../board/RequirementDrawer";
 import { Requirement, REQUIREMENT_STATUSES, RequirementPatch } from "../board/requirementsApi";
 import { useToast } from "../board/toast";
 import { useSprintActivity } from "../board/useSprintActivity";
-import { ActivityFeedCard } from "./sprintboard/ActivityFeedCard";
-import { AgentCard } from "./sprintboard/AgentCard";
 import { KanbanLane } from "./sprintboard/KanbanLane";
-import { QuestionsCard } from "./sprintboard/QuestionsCard";
 import { SprintBoardHeader } from "./sprintboard/SprintBoardHeader";
+import { SprintBoardFilters } from "./sprintboard/SprintBoardFilters";
+import { matchesSprintFilter, NO_SPRINT_FILTER, SprintFilterState } from "./sprintboard/sprintFilter";
 
-// The reference holds a poll's redraw off while focus is anywhere in its
-// view (#sprintBoardView: the head bar and the board/side layout), but its
-// innerHTML rebuild after every action drops that focus, so in practice only
-// something being TYPED in -- an answer box, an inline rename, the release
-// select -- ever holds a poll off. React keeps a clicked button focused, so
-// the check here is on text entry, never on a button: otherwise pressing
-// ▶ Start or ■ Stop would freeze the live column until you clicked away.
+// A poll's redraw is held off while something in the view is being TYPED
+// in -- the inline rename, the release select, the filter box -- so a
+// requirement is never pulled out from under a half-typed word. The check is
+// on text entry and never on a button: React keeps a clicked button focused,
+// so testing focus alone would freeze the board until you clicked away.
 const EDITING_CONTROLS = "input, textarea, select";
 const VIEW_SCOPE = ".sb-head, .sb-layout";
 function isEditingInView(): boolean {
@@ -51,7 +50,7 @@ export function SprintBoardPage() {
   const dragging = useDragActive("card");
   // A poll never redraws over a card in mid-drag or a field being typed in.
   const busy = () => dragging || isEditingInView();
-  const { live, gone, refresh } = useSprintActivity(sprintId, busy);
+  const { gone, refresh } = useSprintActivity(sprintId, busy);
   const [comments, setComments] = useState<CommentsTarget | null>(null);
   // The index changes on every write; a toast's Undo fires seconds later and
   // must see the requirement as it is THEN, not as it was when the toast rose.
@@ -60,6 +59,13 @@ export function SprintBoardPage() {
 
   const sprint = index.sprintById.get(sprintId) ?? null;
   const requirements = useMemo(() => spOrdered(index.sprintRequirements(sprintId)), [index, sprintId]);
+  // The filter narrows the lanes only: the header's progress still counts
+  // the whole sprint, because that is what the sprint is committed to.
+  const [filter, setFilter] = useState<SprintFilterState>(NO_SPRINT_FILTER);
+  const shown = useMemo(
+    () => requirements.filter((r) => matchesSprintFilter(r, filter, index.effectiveEpicId)),
+    [requirements, filter, index],
+  );
 
   const reqId = params.get("req");
   const openRequirement = reqId ? index.requirementById.get(reqId) ?? null : null;
@@ -93,13 +99,12 @@ export function SprintBoardPage() {
     if (data && reqId && !index.requirementById.has(reqId)) closeDrawer();
   }, [data, reqId, index, closeDrawer]);
 
-  // One PATCH with the cross-epic board's undo toast, then the live column
-  // catches up straight away. The Undo re-enters this same routine, so the
-  // reverting move gets its own toast (an undo can be undone) and its own
-  // refresh (the Questions card and the feed catch up now, not in ten
-  // seconds) -- the reference's sbPatch(rid, prev). The server stamps
-  // blocked_from on a move into Blocked and clears it on the way out, so the
-  // reverting patch is the previous status alone.
+  // One PATCH with the cross-epic board's undo toast, then the poll catches
+  // up straight away rather than in ten seconds. The Undo re-enters this same
+  // routine, so the reverting move gets its own toast (an undo can be undone)
+  // and its own refresh -- the reference's sbPatch(rid, prev). The server
+  // stamps blocked_from on a move into Blocked and clears it on the way out,
+  // so the reverting patch is the previous status alone.
   const sbPatch = async (id: string, patch: RequirementPatch): Promise<void> => {
     const before = indexRef.current.requirementById.get(id);
     let it: Requirement;
@@ -136,7 +141,7 @@ export function SprintBoardPage() {
   }
 
   // A done sprint is read-only on the board; so is a viewer.
-  const canMove = sprint.state !== "done" && canWrite;
+  const canMove = !sprint.closed_at && canWrite;
 
   return (
     <div className="page board-page">
@@ -147,6 +152,7 @@ export function SprintBoardPage() {
         refresh={refresh}
         onComments={() => setComments({ type: "sprint", id: sprint.id, label: `${sprint.human_id} · ${sprint.name}` })}
       />
+      <SprintBoardFilters filter={filter} onChange={setFilter} total={requirements.length} shown={shown.length} />
       <div className="sb-layout">
         <section className="sb-board">
           {requirements.length === 0 && (
@@ -154,22 +160,24 @@ export function SprintBoardPage() {
               Nothing in {sprint.human_id} yet — drag requirements in from the backlog on the release page.
             </div>
           )}
-          {REQUIREMENT_STATUSES.map((st) => (
-            <KanbanLane
-              key={st}
-              status={st}
-              requirements={requirements.filter((r) => r.status === st)}
-              canMove={canMove}
-              onMove={(r, patch) => void sbPatch(r.id, patch)}
-              onOpen={openDrawer}
-            />
-          ))}
+          {requirements.length > 0 && shown.length === 0 && (
+            <div className="hempty sb-empty">Nothing in {sprint.human_id} matches this filter.</div>
+          )}
+          {REQUIREMENT_STATUSES.map((st) => {
+            const lane = shown.filter((r) => r.status === st);
+            return (
+              <KanbanLane
+                key={st}
+                status={st}
+                requirements={lane}
+                hidden={requirements.filter((r) => r.status === st).length - lane.length}
+                canMove={canMove}
+                onMove={(r, patch) => void sbPatch(r.id, patch)}
+                onOpen={openDrawer}
+              />
+            );
+          })}
         </section>
-        <aside className="sb-side">
-          <AgentCard sprint={sprint} live={live} refresh={refresh} onOpen={openDrawer} />
-          <QuestionsCard live={live} refresh={refresh} onOpen={openDrawer} />
-          <ActivityFeedCard live={live} />
-        </aside>
       </div>
       <RequirementDrawer
         open={openRequirement !== null}

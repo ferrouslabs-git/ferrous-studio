@@ -20,22 +20,22 @@ export function fmtEffort(h: number | null | undefined): string {
   return trimNum(h / WORK_DAY_HOURS) + "d";
 }
 
-// How much of a requirement counts as delivered. Done is finished; Review is
-// credited three quarters (implemented, awaiting a human's approval); Doing
-// half. Todo and Blocked count as zero.
+// How much of a requirement counts as delivered. Done is finished; ToTest is
+// credited three quarters (implemented, awaiting a human's approval);
+// InProgress half. NotStarted and Blocked count as zero.
 export function statusWeight(status: string): number {
   if (status === "Done") return 1;
-  if (status === "Review") return 0.75;
-  if (status === "Doing") return 0.5;
+  if (status === "ToTest") return 0.75;
+  if (status === "InProgress") return 0.5;
   return 0;
 }
 
 export interface Rollup {
   total: number;
   done: number;
-  doing: number;
-  review: number;
-  // Weighted by statusWeight(); done/doing/review are plain counts, because a
+  in_progress: number;
+  to_test: number;
+  // Weighted by statusWeight(); the three counts above are plain, because a
   // bar's label should say what is true ("3/8 done") rather than the weighting.
   pct: number;
   // Sum of the estimates that EXIST, and how much of the set they cover. A
@@ -57,8 +57,8 @@ export interface Estimable {
 export function rollup(rs: Estimable[]): Rollup {
   let score = 0;
   let done = 0;
-  let doing = 0;
-  let review = 0;
+  let inProgress = 0;
+  let toTest = 0;
   let hours = 0;
   let hoursDone = 0;
   let estimated = 0;
@@ -66,8 +66,8 @@ export function rollup(rs: Estimable[]): Rollup {
     const w = statusWeight(r.status);
     score += w;
     if (r.status === "Done") done++;
-    else if (r.status === "Doing") doing++;
-    else if (r.status === "Review") review++;
+    else if (r.status === "InProgress") inProgress++;
+    else if (r.status === "ToTest") toTest++;
     const h = r.estimate_hours;
     if (h != null) {
       estimated++;
@@ -79,8 +79,8 @@ export function rollup(rs: Estimable[]): Rollup {
   return {
     total,
     done,
-    doing,
-    review,
+    in_progress: inProgress,
+    to_test: toTest,
     pct: total ? Math.round((100 * score) / total) : 0,
     hours,
     hours_done: hoursDone,

@@ -1,8 +1,17 @@
-// A project's use case model: the user types (actors) and the actions each
-// can perform (use cases). Three sub-tabs under the title — Diagram, User
-// types, Use cases — driven by ?tab= so a tab can be linked to. The New
-// buttons live in the page head so they are reachable from every tab. The
-// diagram is drawn from the two lists on every render, never stored.
+// A project's use case model: the actors outside the system and the actions
+// the system offers. Four sub-tabs under the title — Diagram, Actors, Use
+// cases, Other requirements — driven by ?tab= so a tab can be linked to. The
+// New buttons live in the page head and are hidden on the tab that has
+// nothing to create. The diagram is drawn from the two lists on every
+// render, never stored.
+//
+// The fourth tab holds what a use case cannot say: the physical setup, where
+// it is hosted, the latency and accuracy goals, and example data files.
+//
+// Neither list needs the other (2026-09-18). An actor is a person, another
+// system or time, each drawn its own way; a use case with no actor at all is
+// something the system does of its own accord, which is a real thing to
+// record and used to be impossible to create.
 import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
@@ -11,8 +20,11 @@ import { Badges, ListTable, NameCell } from "../../../components/ListTable";
 import { errorMessage } from "../../../core/api";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
+import { OtherRequirementsTab } from "./OtherRequirementsTab";
 import { DiagramState, INITIAL_DIAGRAM_STATE, useAutoColumns, UseCaseDiagram, UseCaseDiagramControls } from "./UseCaseDiagram";
 import {
+  ACTOR_KIND_LABEL,
+  ACTOR_KINDS,
   createActor,
   createUseCase,
   deleteActor,
@@ -24,17 +36,19 @@ import {
   UseCase,
   UseCaseActor,
   UseCaseActorInput,
+  UseCaseActorKind,
   UseCaseInput,
 } from "./useCasesApi";
 
-const EMPTY_ACTOR: UseCaseActorInput = { name: "", description: "" };
+const EMPTY_ACTOR: UseCaseActorInput = { name: "", description: "", kind: "person" };
 const EMPTY_CASE: UseCaseInput = { name: "", description: "", actor_ids: [] };
 
-type Tab = "diagram" | "actors" | "usecases";
+type Tab = "diagram" | "actors" | "usecases" | "other";
 const TABS: { id: Tab; label: string }[] = [
   { id: "diagram", label: "Diagram" },
-  { id: "actors", label: "User types" },
+  { id: "actors", label: "Actors" },
   { id: "usecases", label: "Use cases" },
+  { id: "other", label: "Other requirements" },
 ];
 
 type Deleting = { kind: "actor"; item: UseCaseActor } | { kind: "usecase"; item: UseCase } | null;
@@ -72,7 +86,7 @@ export function UseCaseDiagramPage() {
 
   const openActor = (a: UseCaseActor | null) => {
     setEditingActor(a);
-    setActorForm(a ? { name: a.name, description: a.description ?? "" } : EMPTY_ACTOR);
+    setActorForm(a ? { name: a.name, description: a.description ?? "", kind: a.kind } : EMPTY_ACTOR);
     setFormError(null);
     setActorDrawer(true);
   };
@@ -88,7 +102,11 @@ export function UseCaseDiagramPage() {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
-    const body: UseCaseActorInput = { name: actorForm.name.trim(), description: actorForm.description?.trim() || null };
+    const body: UseCaseActorInput = {
+      name: actorForm.name.trim(),
+      description: actorForm.description?.trim() || null,
+      kind: actorForm.kind,
+    };
     try {
       if (editingActor) await updateActor(project.id, editingActor.id, body);
       else await createActor(project.id, body);
@@ -136,17 +154,12 @@ export function UseCaseDiagramPage() {
       <div className="page-head">
         <h1>Use case diagram</h1>
         <span className="shell-spacer" />
-        {canWrite && (
+        {canWrite && tab !== "other" && (
           <div className="page-head-actions">
             <button className="btn" onClick={() => openActor(null)}>
-              New user type
+              New actor
             </button>
-            <button
-              className="btn primary"
-              onClick={() => openCase(null)}
-              disabled={actorList.length === 0}
-              title={actorList.length === 0 ? "Add a user type first" : undefined}
-            >
+            <button className="btn primary" onClick={() => openCase(null)}>
               New use case
             </button>
           </div>
@@ -176,15 +189,17 @@ export function UseCaseDiagramPage() {
         )}
       </div>
 
-      {loading ? (
+      {tab === "other" ? (
+        <OtherRequirementsTab />
+      ) : loading ? (
         <div className="empty">Loading…</div>
       ) : error ? (
         <div className="empty error">{error}</div>
       ) : tab === "diagram" ? (
         actorList.length === 0 && caseList.length === 0 ? (
           <div className="empty">
-            <b>No user types yet.</b>{" "}
-            {canWrite ? "Start with who uses the system, then add what each of them can do." : "Nothing here yet."}
+            <b>Nothing to draw yet.</b>{" "}
+            {canWrite ? "Start with what the system does, or with who it does it for." : "Nothing here yet."}
           </div>
         ) : (
           <UseCaseDiagram
@@ -208,7 +223,6 @@ export function UseCaseDiagramPage() {
         <UseCasesTable
           useCases={caseList}
           actorName={actorName}
-          hasActors={actorList.length > 0}
           canWrite={canWrite}
           onEdit={openCase}
           onDelete={(u) => setDeleting({ kind: "usecase", item: u })}
@@ -217,8 +231,8 @@ export function UseCaseDiagramPage() {
 
       <Drawer
         open={actorDrawer}
-        title={editingActor ? "Edit user type" : "New user type"}
-        description="A role that interacts with the system — a person, an organisation or another system."
+        title={editingActor ? "Edit actor" : "New actor"}
+        description="Anything outside the system that interacts with it."
         onClose={() => setActorDrawer(false)}
         onSubmit={saveActor}
         footer={
@@ -227,16 +241,33 @@ export function UseCaseDiagramPage() {
               Cancel
             </button>
             <button className="btn primary" disabled={saving || !actorForm.name.trim()}>
-              {saving ? "Saving…" : editingActor ? "Save changes" : "Create user type"}
+              {saving ? "Saving…" : editingActor ? "Save changes" : "Create actor"}
             </button>
           </>
         }
       >
+        <Field label="Kind">
+          {/* Each kind is drawn its own way on the diagram, so this is a
+              decision about the picture, not a label. */}
+          <div className="usecase-kinds" role="radiogroup" aria-label="Kind of actor">
+            {ACTOR_KINDS.map((k) => (
+              <label key={k.id} className={`usecase-kind${actorForm.kind === k.id ? " is-on" : ""}`} title={k.hint}>
+                <input
+                  type="radio"
+                  name="actor-kind"
+                  checked={actorForm.kind === k.id}
+                  onChange={() => setActorForm((f) => ({ ...f, kind: k.id as UseCaseActorKind }))}
+                />
+                <span>{k.label}</span>
+              </label>
+            ))}
+          </div>
+        </Field>
         <Field label="Name">
           <input
             className="input"
             required
-            placeholder="e.g. Customer, Administrator, Payment gateway"
+            placeholder="e.g. Customer, Payment gateway, Nightly run"
             value={actorForm.name}
             onChange={(e) => setActorForm((f) => ({ ...f, name: e.target.value }))}
           />
@@ -286,14 +317,19 @@ export function UseCaseDiagramPage() {
             onChange={(e) => setCaseForm((f) => ({ ...f, description: e.target.value }))}
           />
         </Field>
-        <Field label="Who can perform it" hint="Tick every user type that can carry out this action.">
+        <Field label="Who performs it">
           <div className="usecase-checklist">
-            {actorList.map((a) => (
-              <label key={a.id} className="usecase-check">
-                <input type="checkbox" checked={caseForm.actor_ids.includes(a.id)} onChange={() => toggleActor(a.id)} />
-                <span>{a.name}</span>
-              </label>
-            ))}
+            {actorList.length === 0 ? (
+              <span className="muted">No actors yet — leave this and the system performs it itself.</span>
+            ) : (
+              actorList.map((a) => (
+                <label key={a.id} className="usecase-check">
+                  <input type="checkbox" checked={caseForm.actor_ids.includes(a.id)} onChange={() => toggleActor(a.id)} />
+                  <span>{a.name}</span>
+                  <small className="muted">{ACTOR_KIND_LABEL[a.kind]}</small>
+                </label>
+              ))
+            )}
           </div>
         </Field>
         {formError && <div className="status-banner warn">{formError}</div>}
@@ -301,7 +337,7 @@ export function UseCaseDiagramPage() {
 
       <ConfirmDrawer
         open={deleting !== null}
-        title={deleting?.kind === "actor" ? "Delete user type" : "Delete use case"}
+        title={deleting?.kind === "actor" ? "Delete actor" : "Delete use case"}
         onClose={() => setDeleting(null)}
         onConfirm={async () => {
           if (!deleting) return;
@@ -316,7 +352,9 @@ export function UseCaseDiagramPage() {
       >
         <p>
           Delete <b>{deleting?.item.name}</b>?{" "}
-          {deleting?.kind === "actor" ? "Use cases they could perform are kept but lose the link." : ""}
+          {deleting?.kind === "actor"
+            ? "Use cases it could perform are kept; each becomes one the system performs itself."
+            : ""}
         </p>
       </ConfirmDrawer>
     </div>
@@ -340,13 +378,17 @@ function ActorsTable({
     <ListTable
       columns={[
         {
-          header: "User type",
+          header: "Actor",
           className: "primary",
           render: (a) => (
             <NameCell sub={a.description || undefined} onOpen={canWrite ? () => onEdit(a) : undefined}>
               {a.name}
             </NameCell>
           ),
+        },
+        {
+          header: "Kind",
+          render: (a) => <span className="badge muted">{ACTOR_KIND_LABEL[a.kind]}</span>,
         },
         {
           header: "Can perform",
@@ -379,7 +421,8 @@ function ActorsTable({
       }
       empty={
         <>
-          <b>No user types yet.</b> {canWrite ? "Add the roles that interact with the system." : "Nothing here yet."}
+          <b>No actors yet.</b>{" "}
+          {canWrite ? "Add whatever interacts with the system — people, other systems, time." : "Nothing here yet."}
         </>
       }
     />
@@ -389,14 +432,12 @@ function ActorsTable({
 function UseCasesTable({
   useCases,
   actorName,
-  hasActors,
   canWrite,
   onEdit,
   onDelete,
 }: {
   useCases: UseCase[];
   actorName: Map<string, string>;
-  hasActors: boolean;
   canWrite: boolean;
   onEdit: (u: UseCase) => void;
   onDelete: (u: UseCase) => void;
@@ -415,9 +456,11 @@ function UseCasesTable({
         },
         {
           header: "Performed by",
+          // No actor is a legitimate answer, not a gap: the system does it
+          // itself. A warning badge here used to say otherwise.
           render: (u) =>
             u.actor_ids.length === 0 ? (
-              <span className="badge warn">No user type</span>
+              <span className="badge muted">The system itself</span>
             ) : (
               <Badges>
                 {u.actor_ids.map((id) => (
@@ -442,8 +485,7 @@ function UseCasesTable({
       }
       empty={
         <>
-          <b>No use cases yet.</b>{" "}
-          {!canWrite ? "Nothing here yet." : hasActors ? "Add the actions the system offers." : "Add a user type first."}
+          <b>No use cases yet.</b> {canWrite ? "Add the actions the system offers." : "Nothing here yet."}
         </>
       }
     />

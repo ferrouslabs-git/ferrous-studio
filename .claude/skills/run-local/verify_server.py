@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.main as m
+import app.studio.common as studio_common
 from app.auth.database import get_db
 from app.auth.security import dependencies as deps
 from app.auth.models.user import User
@@ -32,15 +33,35 @@ from app.auth.models.user import User
 EMAIL = "elliott+studiotest@ferrouslabs.co.uk"
 
 
-async def fake_current_user(db: AsyncSession = Depends(get_db)) -> User:
+async def _seeded_user(db: AsyncSession) -> User:
     result = await db.execute(select(User).where(User.email == EMAIL))
     return result.scalar_one()
+
+
+async def fake_current_user(db: AsyncSession = Depends(get_db)) -> User:
+    return await _seeded_user(db)
 
 
 # Both maps matter: /api is a separately mounted FastAPI app that keeps its own
 # dependency_overrides — overriding on the outer `app` alone does nothing.
 for target in (m.app, m.api):
     target.dependency_overrides[deps.get_current_user] = fake_current_user
+
+
+# ...and dependency_overrides is not enough on its own. Every board, wireframe
+# and diagram route is guarded by studio.common.require_studio_permission,
+# which CALLS get_current_user directly rather than through Depends() — it has
+# to, because it chooses between a Cognito session and a board token after
+# looking at the header, and FastAPI resolves a route's dependency tree before
+# the route body runs. A direct call is invisible to dependency_overrides, so
+# those routes 401 with "Authorization header required" while the rest of the
+# studio happily returns 200. Patching the name in that module's namespace is
+# what makes the board and the wireframes browsable here.
+async def _patched_current_user(credentials=None, db: AsyncSession = None) -> User:
+    return await _seeded_user(db)
+
+
+studio_common.get_current_user = _patched_current_user
 
 if __name__ == "__main__":
     uvicorn.run(m.app, host="127.0.0.1", port=8081, log_level="warning")

@@ -33,6 +33,7 @@ from .models import (
     Sprint,
     utc_now,
 )
+from .statuses import roll_up_status, status_weight
 
 
 # ── Board resolution ─────────────────────────────────────────────────────
@@ -156,10 +157,54 @@ async def annotate_effective(db: AsyncSession, board_id: UUID, requirements: lis
     return out
 
 
+# ── Derived work status (features and epics) ─────────────────────────────
+#
+# Neither carries a status column: both are rolled up from the requirements
+# under them (statuses.roll_up_status), which is why nothing writes one. A
+# feature rolls up its own requirements; an epic rolls up every requirement
+# whose *effective* epic is it -- attached directly, or through one of its
+# features -- the same membership progress_rollup and board_summary use.
+#
+# Computed for a whole board at once. Every route that returns an epic or a
+# feature needs this, including the single-entity ones, so an N+1 here would
+# be felt immediately.
+
+
+async def work_status_maps(db: AsyncSession, board_id: UUID) -> tuple[dict[UUID, str], dict[UUID, str]]:
+    """``(feature_id -> status, epic_id -> status)``, covering every live
+    feature and epic on the board -- including those with no requirements at
+    all, which roll up to "NotStarted" rather than being absent."""
+    feature_epic = await _feature_epic_map(db, board_id)
+    epic_ids = (
+        await db.execute(select(Epic.id).where(Epic.board_id == board_id, Epic.deleted_at.is_(None)))
+    ).scalars().all()
+    rows = (
+        await db.execute(
+            select(Requirement.status, Requirement.epic_id, Requirement.feature_id).where(
+                Requirement.board_id == board_id, Requirement.deleted_at.is_(None)
+            )
+        )
+    ).all()
+
+    by_feature: dict[UUID, list[str]] = {fid: [] for fid in feature_epic}
+    by_epic: dict[UUID, list[str]] = {eid: [] for eid in epic_ids}
+    for status, epic_id, feature_id in rows:
+        if feature_id in by_feature:
+            by_feature[feature_id].append(status)
+        eff_epic = epic_id if epic_id is not None else feature_epic.get(feature_id)
+        if eff_epic in by_epic:
+            by_epic[eff_epic].append(status)
+
+    return (
+        {fid: roll_up_status(ss) for fid, ss in by_feature.items()},
+        {eid: roll_up_status(ss) for eid, ss in by_epic.items()},
+    )
+
+
 # ── Progress rollup ───────────────────────────────────────────────────────
 #
-# Status-weighted score: Done = 1, Review = 0.75, Doing = 0.5, anything else
-# 0 -- the exact weights of the reference's effort.js rollup(), which the
+# Status-weighted score: Done = 1, ToTest = 0.75, InProgress = 0.5, anything
+# else 0 -- the exact weights of the reference's effort.js rollup(), which the
 # front-end (features/project/board/effort.ts) ports verbatim, so the
 # server-computed figure on a release card and the client-computed one on a
 # sprint card never disagree. The same weights apply to hours: ``hours_done``
@@ -170,25 +215,18 @@ async def annotate_effective(db: AsyncSession, board_id: UUID, requirements: lis
 # server-side twin.
 
 
-STATUS_WEIGHTS = {"Done": 1.0, "Review": 0.75, "Doing": 0.5}
-
-
-def status_weight(status: str) -> float:
-    return STATUS_WEIGHTS.get(status, 0.0)
-
-
 def progress_rollup(requirements: list[Requirement]) -> dict:
     """The full EpicProgress shape (schemas.py). ``hours`` sums only the
     estimates that exist -- an unestimated requirement adds nothing, which
     is only honest alongside ``unestimated``/``coverage``, so all three
     ship together. ``hours_done`` is those same estimates weighted by
-    status_weight (a 4 h requirement in Review contributes 3 h), exactly as
+    status_weight (a 4 h requirement in ToTest contributes 3 h), exactly as
     effort.ts's rollup() credits them. ``coverage`` is 1.0 for an empty
     set: nothing is missing an estimate."""
     total = len(requirements)
     done = sum(1 for r in requirements if r.status == "Done")
-    doing = sum(1 for r in requirements if r.status == "Doing")
-    review = sum(1 for r in requirements if r.status == "Review")
+    in_progress = sum(1 for r in requirements if r.status == "InProgress")
+    to_test = sum(1 for r in requirements if r.status == "ToTest")
     score = sum(status_weight(r.status) for r in requirements)
     estimated = [r for r in requirements if r.estimate_hours is not None]
     hours = sum(r.estimate_hours for r in estimated)
@@ -196,8 +234,8 @@ def progress_rollup(requirements: list[Requirement]) -> dict:
     return {
         "total": total,
         "done": done,
-        "doing": doing,
-        "review": review,
+        "in_progress": in_progress,
+        "to_test": to_test,
         "pct": round(100 * score / total) if total else 0,
         "hours": hours,
         "hours_done": hours_done,
@@ -297,32 +335,6 @@ _ENTITY_TABLES = {
 }
 
 
-async def unresolved_requirement_ids(db: AsyncSession, board_id: UUID, epic_id: UUID) -> list[UUID]:
-    """Requirement ids under this epic (direct, or via one of its features)
-    that aren't Done yet -- gates the epic status transition into 'Done'
-    (routes.py's update_epic). Same direct-or-via-feature membership the
-    board uses everywhere else (board_summary, effective_epic_id). Ported
-    from software-management's _unresolved_requirements."""
-    feature_ids = (
-        await db.execute(
-            select(Feature.id).where(
-                Feature.board_id == board_id, Feature.epic_id == epic_id, Feature.deleted_at.is_(None)
-            )
-        )
-    ).scalars().all()
-    rows = (
-        await db.execute(
-            select(Requirement.id).where(
-                Requirement.board_id == board_id,
-                Requirement.status != "Done",
-                Requirement.deleted_at.is_(None),
-                (Requirement.epic_id == epic_id) | (Requirement.feature_id.in_(feature_ids)),
-            )
-        )
-    ).scalars().all()
-    return list(rows)
-
-
 async def entity_exists(db: AsyncSession, board_id: UUID, entity_type: str, entity_id: UUID) -> bool:
     model = _ENTITY_TABLES.get(entity_type)
     if model is None:
@@ -377,54 +389,60 @@ async def record_sprint_history(db: AsyncSession, board: Board, requirement: Req
     ))
 
 
-# ── Sprint state transition side effects ─────────────────────────────────
+# ── Closing a sprint ─────────────────────────────────────────────────────
 #
-# Ported from SMA's update_sprint (store.py). Several sprints may be active
-# at once (SMA, 2026-09-04): starting one used to demote every other active
-# sprint back to 'planned', but agents are assigned per sprint, so a single
-# live sprint would make every agent work the same one -- that rule is
-# gone, here as there. What remains: completing a sprint (-> 'done', only
-# on that exact transition) returns every non-Done requirement in it to the
-# backlog (sprint_id = NULL) and clears its queue_position -- a position is
-# scoped to the sprint, and a requirement back in the backlog must not
-# still carry "3rd in a sprint that no longer holds it". Done ones keep
-# their sprint tag. Enforced in Python rather than a DB constraint,
-# matching SMA's own choice.
+# Ported from SMA's update_sprint (store.py), and hung off ``closed_at``
+# rather than a status value since 2026-09-14: a sprint's status is now a
+# freely-settable label that may move in any direction, and a label that
+# silently emptied the sprint every time it passed through one value would
+# be a trap. Closing is its own explicit act.
+#
+# Several sprints may be open at once (SMA, 2026-09-04): starting one used
+# to demote every other active sprint, but agents are assigned per sprint,
+# so a single live sprint would make every agent work the same one -- that
+# rule is gone, here as there.
+#
+# Closing returns every non-Done requirement in the sprint to the backlog
+# (sprint_id = NULL) and clears its queue_position -- a position is scoped
+# to the sprint, and a requirement back in the backlog must not still carry
+# "3rd in a sprint that no longer holds it". Done ones keep their sprint
+# tag, which is what makes recentVelocity's reading honest. Enforced in
+# Python rather than a DB constraint, matching SMA's own choice.
 
 
-async def apply_sprint_state_transition(db: AsyncSession, board: Board, sprint: Sprint, new_state: str) -> int:
-    """Call BEFORE setting sprint.state = new_state. Returns the count of
-    requirements returned to the backlog (0 unless this is a ->'done' move)."""
-    returned_to_backlog = 0
-    if new_state == "done" and sprint.state != "done":
-        requirements = (
-            await db.execute(
-                select(Requirement).where(
-                    Requirement.board_id == board.id,
-                    Requirement.sprint_id == sprint.id,
-                    Requirement.status != "Done",
-                    Requirement.deleted_at.is_(None),
-                )
+async def close_sprint(db: AsyncSession, board: Board, sprint: Sprint) -> int:
+    """Call BEFORE setting sprint.closed_at. Returns the count of
+    requirements returned to the backlog. A no-op on an already-closed
+    sprint, so a repeated PATCH cannot empty it twice."""
+    if sprint.closed_at is not None:
+        return 0
+    requirements = (
+        await db.execute(
+            select(Requirement).where(
+                Requirement.board_id == board.id,
+                Requirement.sprint_id == sprint.id,
+                Requirement.status != "Done",
+                Requirement.deleted_at.is_(None),
             )
-        ).scalars().all()
-        for r in requirements:
-            r.sprint_id = None
-            r.queue_position = None
-            r.updated_at = utc_now()
-            await record_sprint_history(db, board, r)
-        returned_to_backlog = len(requirements)
-
-    return returned_to_backlog
+        )
+    ).scalars().all()
+    for r in requirements:
+        r.sprint_id = None
+        r.queue_position = None
+        r.updated_at = utc_now()
+        await record_sprint_history(db, board, r)
+    return len(requirements)
 
 
 # ── Claim (atomic SELECT ... FOR UPDATE) ─────────────────────────────────
 #
 # Ported near-as-is from SMA's claim_requirement (store.py). The
-# invariant: two concurrent claimants racing the same Todo requirement must
-# not both believe they won. FOR UPDATE serialises them on the row; the
-# status check happens AFTER the lock, so the second caller (which blocked)
-# sees the already-Doing status and correctly loses, instead of a bare
-# UPDATE ... WHERE status='Todo' letting both callers believe success.
+# invariant: two concurrent claimants racing the same NotStarted
+# requirement must not both believe they won. FOR UPDATE serialises them
+# on the row; the status check happens AFTER the lock, so the second
+# caller (which blocked) sees the already-InProgress status and correctly
+# loses, instead of a bare UPDATE ... WHERE status='NotStarted' letting
+# both callers believe success.
 
 
 class ClaimResult:
@@ -450,17 +468,17 @@ async def claim_requirement(
     ).scalar_one_or_none()
     if row is None:
         return ClaimResult.NOT_FOUND
-    if row.status != "Todo":
+    if row.status != "NotStarted":
         return ClaimResult.NOT_CLAIMABLE
 
-    row.status = "Doing"
+    row.status = "InProgress"
     row.updated_at = utc_now()
     # The same event a PATCH would write, not a bespoke "claimed" action:
     # sprint_burndown reconstructs status history from requirement.updated
     # rows, and the activity feed renders one shape for a status move.
     await write_event(
         db, board, actor_id, "requirement.updated", "requirement", row.id,
-        {"status": {"from": "Todo", "to": "Doing"}},
+        {"status": {"from": "NotStarted", "to": "InProgress"}},
     )
     return row
 
@@ -670,7 +688,7 @@ async def sprint_burndown(db: AsyncSession, board: Board, sprint: Sprint) -> dic
 # a question here is "a Blocked requirement in this sprint whose latest
 # live comment came from one of this sprint's agents, or reads like a
 # question". Answering is likewise convention: a comment plus a flip back
-# to Todo, which the board does and which wakes the agent through
+# to NotStarted, which the board does and which wakes the agent through
 # routes.py's update_requirement.
 
 

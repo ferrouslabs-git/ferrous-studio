@@ -54,12 +54,12 @@ WHAT CANNOT BE PRESERVED
 ORDERING (all three are load-bearing -- see the route code)
 -----------------------------------------------------------
 * A requirement is created in ONE POST carrying its sprint and status
-  together. ``update_requirement`` resets an unfinished status to ``Todo``
-  whenever a requirement *enters* a sprint, so POST-then-PATCH would silently
-  flatten every in-flight status.
-* Sprint states are set BEFORE the requirements, while the sprints are still
-  empty. ``SprintCreate`` has no ``state`` field, and moving a sprint to
-  ``done`` returns its unfinished work to the backlog -- doing that after the
+  together. ``update_requirement`` resets an unfinished status to
+  ``NotStarted`` whenever a requirement *enters* a sprint, so POST-then-PATCH
+  would silently flatten every in-flight status.
+* Sprints are CLOSED before the requirements land, while they are still
+  empty. ``SprintCreate`` has no ``closed`` field, and closing a sprint
+  returns its unfinished work to the backlog -- doing that after the
   requirements landed would quietly empty every finished sprint.
 * Epic statuses are set AFTER the requirements: Studio refuses ``Done`` until
   every requirement under the epic is itself Done.
@@ -93,10 +93,18 @@ PRIORITY = {
     "Must": "High", "Should": "Medium", "Could": "Low",
 }
 
-# Statuses and epic/sprint vocabularies are identical on both sides -- SMA's
-# four requirement statuses are a subset of Studio's five (Studio adds Review).
-FALLBACK_STATUS = "Todo"
-FALLBACK_EPIC_STATUS = "Readiness"
+# SMA's requirement statuses map one-to-one onto Studio's, which were renamed
+# on 2026-09-14 (Todo/Doing/Review -> NotStarted/InProgress/ToTest). SMA's
+# epic lifecycle has no target at all: a Studio epic's status is rolled up
+# from its requirements, so importing the requirements imports it.
+STATUS = {
+    "Todo": "NotStarted",
+    "Doing": "InProgress",
+    "Review": "ToTest",
+    "Blocked": "Blocked",
+    "Done": "Done",
+}
+FALLBACK_STATUS = "NotStarted"
 
 
 class ImportError_(RuntimeError):
@@ -189,20 +197,16 @@ class Importer:
             )
 
     def epics(self) -> None:
+        # SMA's epic lifecycle status is dropped on purpose: a Studio epic has
+        # no status column, only one rolled up from its requirements. Nothing
+        # is lost that the requirements do not already say.
         for e in sorted(self.board.get("epics", []), key=lambda x: x["id"]):
-            status = e.get("status") or FALLBACK_EPIC_STATUS
-            # Studio refuses status=Done unless every requirement under the epic
-            # is Done, and the requirements do not exist yet -- so epics are
-            # created at their real status only if it is not Done, and Done ones
-            # are set at the end (see finish()).
             payload = {
                 "title": e.get("title") or e["id"],
                 "summary": e.get("summary", ""),
                 "release_id": self._map("release", e.get("release")),
             }
             self._post("/epics", payload, "epic", e["id"])
-            if status != FALLBACK_EPIC_STATUS:
-                self._deferred_epic_status.append((e["id"], status))
 
     def features(self) -> None:
         for f in sorted(self.board.get("features", []), key=lambda x: x["id"]):
@@ -225,14 +229,18 @@ class Importer:
             if cap is not None:
                 payload["capacity_hours"] = int(round(float(cap)))  # Studio stores an int
             self._post("/sprints", payload, "sprint", s["id"])
-            if (s.get("state") or "planned") != "planned":
-                self._deferred_sprint_state.append((s["id"], s["state"]))
+            # Only "done" has a target now: a Studio sprint's status is a
+            # free label with no side effects, and what "done" actually meant
+            # -- the sprint is over and its leftovers went back -- is closure.
+            if (s.get("state") or "planned") == "done":
+                self._deferred_sprint_close.append(s["id"])
 
     def requirements(self) -> None:
         for r in sorted(self.board.get("requirements", []), key=lambda x: x["id"]):
-            status = r.get("status") or FALLBACK_STATUS
-            if status not in ("Todo", "Doing", "Review", "Blocked", "Done"):
-                self.warnings.append(f"requirement {r['id']}: unknown status {status!r} -> Todo")
+            source_status = r.get("status") or "Todo"
+            status = STATUS.get(source_status)
+            if status is None:
+                self.warnings.append(f"requirement {r['id']}: unknown status {source_status!r} -> Not started")
                 status = FALLBACK_STATUS
             source_priority = r.get("priority")
             priority = PRIORITY.get(source_priority, "Medium")
@@ -296,59 +304,43 @@ class Importer:
                 },
             )
 
-    def sprint_states(self) -> None:
-        """Set sprint states while the sprints are still EMPTY.
+    def close_sprints(self) -> None:
+        """Close the finished sprints while they are still EMPTY.
 
-        Marking a sprint ``done`` means "complete this sprint", and Studio
-        returns any unfinished work in it to the backlog. Doing this after the
-        requirements had landed would therefore quietly empty out every
-        finished sprint the source board had. Doing it first costs nothing --
-        there is no work in them yet to return -- and the requirements then
-        land into an already-finished sprint with their real statuses, because
-        creating a requirement does not apply the completion rule.
+        Closing a sprint returns any unfinished work in it to the backlog.
+        Doing this after the requirements had landed would therefore quietly
+        empty out every finished sprint the source board had. Doing it first
+        costs nothing -- there is no work in them yet to return -- and the
+        requirements then land into an already-closed sprint with their real
+        statuses, because creating a requirement does not apply the closure
+        rule.
         """
-        for source_id, state in self._deferred_sprint_state:
+        for source_id in self._deferred_sprint_close:
             if not self.apply:
                 continue
             new_id = self._map("sprint", source_id)
             if new_id is None:
                 continue
-            result = _request(f"{self.base}/sprints/{new_id}", token=self.token, method="PATCH", body={"state": state})
+            result = _request(f"{self.base}/sprints/{new_id}", token=self.token, method="PATCH", body={"closed": True})
             returned = (result or {}).get("returned_to_backlog") or 0
             if returned:
                 # Should be zero -- the sprint is empty at this point. If it is
                 # not, the ordering assumption above no longer holds.
                 self.warnings.append(
-                    f"sprint {source_id}: setting {state!r} returned {returned} requirement(s) to the backlog, "
+                    f"sprint {source_id}: closing it returned {returned} requirement(s) to the backlog, "
                     "which should not happen before requirements are created"
                 )
 
-    def epic_statuses(self) -> None:
-        """Epic statuses last: Studio refuses ``Done`` until every requirement
-        under the epic is itself Done, so the requirements must exist first."""
-        for source_id, status in self._deferred_epic_status:
-            if not self.apply:
-                continue
-            new_id = self._map("epic", source_id)
-            if new_id is None:
-                continue
-            try:
-                _request(f"{self.base}/epics/{new_id}", token=self.token, method="PATCH", body={"status": status})
-            except ImportError_ as exc:
-                self.warnings.append(f"epic {source_id}: could not set status {status!r} ({exc})")
-
     def run(self) -> None:
-        self._deferred_epic_status: list[tuple[str, str]] = []
-        self._deferred_sprint_state: list[tuple[str, str]] = []
+        self._deferred_sprint_close: list[str] = []
         self.releases()
         self.epics()
         self.features()
         self.sprints()
-        self.sprint_states()  # before requirements -- see the docstring
+        self.close_sprints()  # before requirements -- see the docstring
         self.requirements()
         self.docs()
         self.comments()
-        self.epic_statuses()  # after requirements -- see the docstring
 
 
 def preflight_estimate_hours(token: str, board: dict) -> None:

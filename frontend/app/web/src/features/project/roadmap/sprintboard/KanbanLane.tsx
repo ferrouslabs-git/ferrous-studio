@@ -2,9 +2,13 @@
 // in queue order, and a drop target for a card from another lane. Blocked is
 // a flag rather than a stage on the normal path, but it is a lane here so
 // blocked work is seen, not hidden behind a badge.
+//
+// The count is what the lane SHOWS. When the board's filter is hiding some
+// of it the heading says so too, so a lane that reads "2" is never mistaken
+// for a lane that holds two.
 import { useRef } from "react";
 import { useBoard } from "../../board/boardData";
-import { ST_ICON } from "../../board/constants";
+import { ST_ICON, ST_LABEL } from "../../board/constants";
 import { useDropTarget } from "../../board/dnd";
 import type { Requirement, RequirementPatch, RequirementStatus } from "../../board/requirementsApi";
 import { RequirementCard } from "./RequirementCard";
@@ -12,13 +16,15 @@ import { RequirementCard } from "./RequirementCard";
 interface KanbanLaneProps {
   status: RequirementStatus;
   requirements: Requirement[];
+  /** How many of this lane's cards the board filter is hiding. */
+  hidden: number;
   /** False once the sprint is done or the viewer cannot write: no drags, drops or move buttons. */
   canMove: boolean;
   onMove: (r: Requirement, patch: RequirementPatch) => void;
   onOpen: (r: Requirement) => void;
 }
 
-export function KanbanLane({ status, requirements, canMove, onMove, onOpen }: KanbanLaneProps) {
+export function KanbanLane({ status, requirements, hidden, canMove, onMove, onOpen }: KanbanLaneProps) {
   const { index } = useBoard();
   const ref = useRef<HTMLDivElement>(null);
   const over = useDropTarget(ref, {
@@ -36,7 +42,8 @@ export function KanbanLane({ status, requirements, canMove, onMove, onOpen }: Ka
   return (
     <div ref={ref} className={`sb-col${over ? " is-over" : ""}`}>
       <h4>
-        {ST_ICON[status]} {status} · {requirements.length}
+        {ST_ICON[status]} {ST_LABEL[status]} · {requirements.length}
+        {hidden > 0 && <span className="sb-col-hidden"> (+{hidden} hidden)</span>}
       </h4>
       <div className="cards">
         {requirements.map((r) => (

@@ -71,6 +71,15 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     rationale = Column(Text, nullable=True)
+    # ── The requirements that are not use cases (2026-09-18) ──
+    # None of these apply to every project, so all four are nullable and NULL
+    # reads as "not asked", not as an answer of "". Both goals are free text:
+    # "under 200 ms at the 95th percentile" and "no worse than the manual
+    # process" are both real answers, and a number could hold neither.
+    physical_setup = Column(Text, nullable=True)
+    hosting = Column(Text, nullable=True)
+    latency_goal = Column(Text, nullable=True)
+    accuracy_goal = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, default="active")
     custom_components = Column(JSONB, nullable=False, default=list)
     schema_version = Column(String(10), nullable=False, default="1.0")
@@ -223,8 +232,12 @@ class PlatformDataset(Base):
 
 
 class UseCaseActor(Base):
-    """A user type (UML actor) for the use case diagram: a role that
-    interacts with the system, e.g. "Customer" or "Administrator"."""
+    """A UML actor for the use case diagram: anything outside the system that
+    interacts with it. ``kind`` says which of the three that is -- a person
+    ("Customer", "Administrator"), another system ("Payment gateway") or time
+    ("Nightly run") -- and the diagram draws each differently. Defaults to
+    "person": every actor was a "user type" before kinds existed (2026-09-18).
+    """
 
     __tablename__ = "use_case_actors"
 
@@ -233,6 +246,7 @@ class UseCaseActor(Base):
     account_id = Column(UUID(as_uuid=True), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    kind = Column(String(16), nullable=False, server_default="person", default="person")
     pos = Column(String(64), nullable=False)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
@@ -529,8 +543,14 @@ class ProjectDocument(Base):
     size_bytes = Column(BigInteger, nullable=False)
     s3_key = Column(String(512), nullable=False, unique=True)
     status = Column(String(12), nullable=False, default="pending")  # pending | uploaded
+    # Which list the file belongs to: the project's Documents, or the example
+    # data captured beside the use case model. One table, one upload path.
+    purpose = Column(String(20), nullable=False, server_default="document", default="document")
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     confirmed_at = Column(DateTime, nullable=True)
 
-    __table_args__ = (Index("ix_project_documents_account_project", "account_id", "project_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_project_documents_account_project", "account_id", "project_id", "created_at"),
+        Index("ix_project_documents_purpose", "account_id", "project_id", "purpose", "created_at"),
+    )

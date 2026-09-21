@@ -3,15 +3,23 @@
 // decided on the Roadmap and only shown here. Cards start folded -- the page
 // is a list first, and the features are one click away when you want them.
 // Ported from the reference app's renderEpicsPage (static/js/roadmap.js).
-import { useCallback, useEffect, useRef, useState } from "react";
+//
+// The release filter takes several releases at once, and "Not in a release"
+// is one of the things it can be set to: this page is where the epics in no
+// release are found, since the Roadmap stopped listing them (2026-09-18).
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
 import { CommentsPanel, CommentsTarget } from "../board/CommentsPanel";
 import { useDialogs } from "../board/dialogs";
-import { Epic, EPIC_STATUSES, EpicStatus } from "../board/epicsApi";
+import { Epic } from "../board/epicsApi";
 import type { Feature } from "../board/featuresApi";
 import { boardStorageKey, useFoldMap } from "../board/folds";
+import { MultiSelect } from "../board/MultiSelect";
 import { EpicCard } from "./EpicCard";
+
+/** The release filter's entry for "not in a release" -- no release has this id. */
+const NO_RELEASE = "__none__";
 
 // Stable identity: useFoldMap memoises on it.
 const foldedByDefault = () => true;
@@ -57,8 +65,27 @@ export function EpicsPage() {
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
   const [query, setQuery] = useRememberedQuery(projectId);
+  const [releaseFilter, setReleaseFilter] = useState<Set<string>>(() => new Set());
   const [comments, setComments] = useState<CommentsTarget | null>(null);
   const fold = useFoldMap(boardStorageKey(projectId, "epicFold"), foldedByDefault);
+
+  // An epic filed under a release that has since been deleted is treated as
+  // unfiled, the same way the roadmap and EpicCard already treat it.
+  const releaseOptions = useMemo(
+    () => [
+      ...index.releases.map((r) => ({ value: r.id, label: `${r.human_id} · ${r.title}` })),
+      { value: NO_RELEASE, label: "Not in a release" },
+    ],
+    [index.releases],
+  );
+  const inReleaseFilter = useCallback(
+    (e: Epic) => {
+      if (releaseFilter.size === 0) return true;
+      const filed = e.release_id && index.releaseById.has(e.release_id) ? e.release_id : NO_RELEASE;
+      return releaseFilter.has(filed);
+    },
+    [releaseFilter, index],
+  );
 
   const newEpic = async () => {
     const v = await dialogs.form({
@@ -67,14 +94,6 @@ export function EpicsPage() {
       fields: [
         { key: "title", label: "Title", required: true, placeholder: "e.g. Bulk import" },
         { key: "summary", label: "Summary", type: "textarea", placeholder: "what should this look like when it's done?" },
-        {
-          key: "status",
-          label: "Status",
-          type: "select",
-          value: "Readiness",
-          required: true,
-          options: EPIC_STATUSES.map((s) => ({ value: s, label: s })),
-        },
         {
           key: "release",
           label: "Release",
@@ -85,9 +104,8 @@ export function EpicsPage() {
       ],
     });
     if (!v) return;
-    const status = (EPIC_STATUSES as string[]).includes(v.status) ? (v.status as EpicStatus) : "Readiness";
     try {
-      await mutations.createEpic({ title: v.title, summary: v.summary, status, release_id: v.release || null });
+      await mutations.createEpic({ title: v.title, summary: v.summary, release_id: v.release || null });
     } catch {
       // Toasted by the mutation.
     }
@@ -101,7 +119,8 @@ export function EpicsPage() {
 
   const all = index.epics;
   const q = query.trim().toLowerCase();
-  const shown = all.filter((e) => epicMatches(e, index.featuresOf(e.id), q));
+  const shown = all.filter((e) => inReleaseFilter(e) && epicMatches(e, index.featuresOf(e.id), q));
+  const narrowed = shown.length !== all.length;
 
   return (
     <div className="page board-page">
@@ -113,9 +132,17 @@ export function EpicsPage() {
           </button>
         )}
         <input className="q2" placeholder="search epics…" aria-label="search epics" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <MultiSelect
+          allLabel="All releases"
+          countLabel="releases"
+          ariaLabel="filter epics by release"
+          options={releaseOptions}
+          selected={releaseFilter}
+          onChange={setReleaseFilter}
+        />
         <span className="tk-right">
           <span className="viewbar-count">
-            {all.length} epic{all.length === 1 ? "" : "s"}
+            {narrowed ? `${shown.length} of ${all.length} epics` : `${all.length} epic${all.length === 1 ? "" : "s"}`}
           </span>
         </span>
       </div>
@@ -133,7 +160,7 @@ export function EpicsPage() {
           )}
         </div>
       ) : shown.length === 0 ? (
-        <div className="hempty">No epic matches “{q}”.</div>
+        <div className="hempty">{q ? `No epic matches “${q}”.` : "No epic is filed under the releases you picked."}</div>
       ) : (
         shown.map((e) => (
           <EpicCard key={e.id} epic={e} folded={fold.isFolded(e.id)} onToggleFold={() => fold.toggle(e.id)} onComments={setComments} />

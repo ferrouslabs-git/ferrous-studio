@@ -1,24 +1,60 @@
-// The use case diagram: stick-figure actors either side of a system boundary
-// holding an ellipse per use case. Relationships are shown by colour rather
-// than lines: every user type has a colour from the brand gradient, an
-// ellipse is tinted by the first user type that can perform it and carries a
-// dot for each one that can. Sized to its container (ResizeObserver),
-// filterable by user type, "Rearrange" cycles the layout seed, and hovering
-// an element dims everything not related to it.
+// The use case diagram: actors either side of a system boundary holding an
+// ellipse per use case. An actor is drawn as what it IS -- a stick figure
+// for a person, a box for another system, an hourglass for time -- so a
+// nightly run is not dressed up as a user. Relationships are shown by colour
+// rather than lines: every actor has a colour from the brand gradient, an
+// ellipse is tinted by the first actor that can perform it and carries a dot
+// for each one that can. A use case with NO actor is something the system
+// does of its own accord: it is drawn untinted, in a band of its own.
+// Sized to its container (ResizeObserver), filterable by actor, "Rearrange"
+// cycles the layout seed, and hovering an element dims everything unrelated.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { actorColours, withAlpha } from "./useCaseColours";
 import { ACTOR_HEIGHT, ACTOR_LABEL_GAP, ACTOR_LINE, layoutUseCaseDiagram, MAX_COLUMNS } from "./useCaseLayout";
-import { UseCase, UseCaseActor } from "./useCasesApi";
+import { UseCase, UseCaseActor, UseCaseActorKind } from "./useCasesApi";
 
 const DOT_R = 4;
 const DOT_GAP = 11;
+
+// One glyph per actor kind, all drawn head-centre-at-origin and ending
+// around y = 40 so the label below sits at the same height whichever it is.
+// Stroke and fill come from the actor's colour through currentColor (see
+// .usecase-actor in shell.css).
+function ActorGlyph({ kind }: { kind: UseCaseActorKind }) {
+  if (kind === "system") {
+    // A box with a divider: the conventional "another system" actor.
+    return (
+      <g className="usecase-actor-glyph">
+        <rect className="usecase-actor-shape" x={-17} y={-8} width={34} height={44} rx={4} />
+        <path d={`M-17 4h34`} />
+        <path d={`M-9 16h18M-9 25h10`} />
+      </g>
+    );
+  }
+  if (kind === "time") {
+    // An hourglass -- UML's time trigger -- with its frame top and bottom.
+    return (
+      <g className="usecase-actor-glyph">
+        <path d={`M-15 -8h30M-15 36h30`} />
+        <path className="usecase-actor-shape" d={`M-12 -8h24l-12 22l12 22h-24l12 -22z`} />
+      </g>
+    );
+  }
+  // A person: head, body, arms, legs -- the original figure.
+  return (
+    <g className="usecase-actor-glyph">
+      <circle className="usecase-actor-shape" cx={0} cy={0} r={7} />
+      <path d={`M0 7v22M-14 15h28M0 29l-12 ${ACTOR_HEIGHT - 40}M0 29l12 ${ACTOR_HEIGHT - 40}`} />
+    </g>
+  );
+}
 
 type Focus = { kind: "actor" | "usecase"; id: string };
 
 /** What the controls edit and the diagram reads; owned by the page so the
  *  controls can sit in the tab row while the diagram sits below it. */
 export interface DiagramState {
-  /** Selected user type ids; empty means all. */
+  /** Selected actor ids; empty means all. */
   filter: Set<string>;
   /** 0 = automatic from the width. */
   columns: number;
@@ -34,7 +70,7 @@ interface ControlledProps {
   onChange: (next: DiagramState) => void;
 }
 
-/** The toolbar: user-type filter, column count and Rearrange. */
+/** The toolbar: actor filter, column count and Rearrange. */
 export function UseCaseDiagramControls({ actors, state, onChange, autoColumns }: ControlledProps & { autoColumns: number }) {
   const colour = useMemo(() => actorColours(actors.map((a) => a.id)), [actors]);
   const toggle = (id: string) => {
@@ -45,7 +81,7 @@ export function UseCaseDiagramControls({ actors, state, onChange, autoColumns }:
   };
   return (
     <div className="usecase-toolbar">
-      <UserTypeSelect
+      <ActorSelect
         actors={actors}
         colour={colour}
         selected={state.filter}
@@ -86,6 +122,10 @@ export function useAutoColumns(actors: UseCaseActor[], useCases: UseCase[], stat
   }, [actors, useCases, state.filter, state.seed, width]);
 }
 
+// Filtering by actor is asking "what does this actor do?", so a use case no
+// actor performs is not an answer and drops out -- but with nothing filtered
+// it is shown, because the system doing something of its own accord belongs
+// on the diagram.
 function applyFilter(actors: UseCaseActor[], useCases: UseCase[], filter: Set<string>) {
   const filtering = filter.size > 0;
   const shownActors = filtering ? actors.filter((a) => filter.has(a.id)) : actors;
@@ -125,6 +165,9 @@ export function UseCaseDiagram({
 
   // Colours follow the full actor list, so filtering never recolours anyone.
   const colour = useMemo(() => actorColours(actors.map((a) => a.id)), [actors]);
+  // The layout does not care what an actor is, only where it goes; the glyph
+  // is looked up here.
+  const actorById = useMemo(() => new Map(actors.map((a) => [a.id, a])), [actors]);
 
   // Drop filter entries for actors that no longer exist.
   useEffect(() => {
@@ -185,7 +228,8 @@ export function UseCaseDiagram({
             </text>
 
             {layout.useCases.map((u) => {
-              // Dots only for user types currently shown; tint by the first.
+              // Dots only for actors currently shown; tint by the first. None at
+              // all means the system does this of its own accord: left untinted.
               const performers = (caseActors.get(u.id) ?? []).filter((id) => shownIds.has(id));
               const primary = performers[0] ? colour.get(performers[0]) : undefined;
               const dotsWidth = (performers.length - 1) * DOT_GAP;
@@ -243,8 +287,7 @@ export function UseCaseDiagram({
                     width={80}
                     height={ACTOR_HEIGHT + ACTOR_LABEL_GAP + a.labelLines.length * ACTOR_LINE + 12}
                   />
-                  <circle cx={0} cy={0} r={7} />
-                  <path d={`M0 7v22M-14 15h28M0 29l-12 ${ACTOR_HEIGHT - 40}M0 29l12 ${ACTOR_HEIGHT - 40}`} />
+                  <ActorGlyph kind={actorById.get(a.id)?.kind ?? "person"} />
                   <text x={0} y={ACTOR_HEIGHT + ACTOR_LABEL_GAP + ACTOR_LINE - 3} textAnchor="middle">
                     {a.labelLines.map((line, i) => (
                       <tspan key={i} x={0} dy={i === 0 ? 0 : ACTOR_LINE}>
@@ -262,9 +305,9 @@ export function UseCaseDiagram({
   );
 }
 
-/** Multi-select of user types: a button showing the selection, opening a
+/** Multi-select of actors: a button showing the selection, opening a
  *  checklist. Empty selection means "all". */
-function UserTypeSelect({
+function ActorSelect({
   actors,
   colour,
   selected,
@@ -297,8 +340,7 @@ function UserTypeSelect({
   }, [open]);
 
   const chosen = actors.filter((a) => selected.has(a.id));
-  const label =
-    chosen.length === 0 ? "All user types" : chosen.length === 1 ? chosen[0].name : `${chosen.length} user types`;
+  const label = chosen.length === 0 ? "All actors" : chosen.length === 1 ? chosen[0].name : `${chosen.length} actors`;
 
   return (
     <div className="usecase-select" ref={ref}>
@@ -322,10 +364,10 @@ function UserTypeSelect({
         </span>
       </button>
       {open && (
-        <div className="usecase-select-menu" role="listbox" aria-multiselectable="true" aria-label="User types">
+        <div className="usecase-select-menu" role="listbox" aria-multiselectable="true" aria-label="Actors">
           <label className="usecase-check">
             <input type="checkbox" checked={selected.size === 0} onChange={onClear} />
-            <span>All user types</span>
+            <span>All actors</span>
           </label>
           <div className="usecase-select-divider" />
           {actors.map((a) => (

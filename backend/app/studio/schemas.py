@@ -26,6 +26,12 @@ class ProjectUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     rationale: str | None = None
+    # The requirements that are not use cases. Free text, all optional; an
+    # unset field is left alone, and "" is how the tab clears one.
+    physical_setup: str | None = None
+    hosting: str | None = None
+    latency_goal: str | None = None
+    accuracy_goal: str | None = None
     status: Literal["active", "archived"] | None = None
     #: What this version is called in the lineage ("Post-review"). Sending it as
     #: null clears the label, leaving the version numbered but unnamed.
@@ -41,6 +47,10 @@ class ProjectRead(BaseModel):
     name: str
     description: str | None
     rationale: str | None
+    physical_setup: str | None = None
+    hosting: str | None = None
+    latency_goal: str | None = None
+    accuracy_goal: str | None = None
     status: str
     schema_version: str
     version: int  # custom_components concurrency counter, not the version number
@@ -197,15 +207,23 @@ class DatasetRead(BaseModel):
 ActorIds = Annotated[list[UUID], Field(max_length=100)]
 
 
+# What an actor IS, not just what it is called: a person, another system, or
+# time. The diagram draws one glyph per kind, so this is the whole vocabulary
+# -- a value outside it has nothing to render.
+UseCaseActorKind = Literal["person", "system", "time"]
+
+
 class UseCaseActorCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    kind: UseCaseActorKind = "person"
     pos: str | None = Field(None, min_length=1, max_length=64)
 
 
 class UseCaseActorUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
+    kind: UseCaseActorKind | None = None
     pos: str | None = Field(None, min_length=1, max_length=64)
 
 
@@ -216,6 +234,7 @@ class UseCaseActorRead(BaseModel):
     project_id: UUID
     name: str
     description: str | None
+    kind: str = "person"
     pos: str
     created_at: datetime
     updated_at: datetime
@@ -585,10 +604,17 @@ class DiagramRead(DiagramSummary):
 # ── Documents ───────────────────────────────────────────────────────────────
 
 
+# Which list a file belongs to: the project's own documents, or the example
+# data captured beside the use case model. One table and one upload path
+# serve both (see documents.py).
+DocumentPurpose = Literal["document", "example_data"]
+
+
 class DocumentCreate(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
     content_type: str = Field(min_length=1, max_length=127)
     size_bytes: int = Field(gt=0)
+    purpose: DocumentPurpose = "document"
 
 
 class DocumentRead(BaseModel):
@@ -600,6 +626,7 @@ class DocumentRead(BaseModel):
     content_type: str
     size_bytes: int
     status: str
+    purpose: str = "document"
     uploaded_by: UUID | None
     created_at: datetime
     confirmed_at: datetime | None

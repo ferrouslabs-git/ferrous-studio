@@ -2,7 +2,10 @@
 // Studio events carry entity_type/entity_id and a server-written `detail`
 // (see eventsApi.ts); the entity's human id and the actor's name are looked
 // up by the caller, so this stays a pure module.
+import { DELIVERY_STATUS_LABEL, ST_LABEL } from "./constants";
 import type { BoardEvent } from "./eventsApi";
+import type { RequirementStatus } from "./requirementsApi";
+import type { DeliveryStatus } from "./sprintsApi";
 
 export function relTime(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return "";
@@ -54,7 +57,18 @@ const show = (v: unknown, resolve?: (v: unknown) => string | null): string => {
   return typeof v === "string" ? v : JSON.stringify(v);
 };
 
-// "created epic — Bulk import", "updated requirement — status: Todo → Doing".
+// A status is STORED space-free and read back here, so the feed labels it
+// on the way out -- "status: Not started → In progress", not "NotStarted →
+// InProgress". Events written before the 2026-09-14 rename hold the old
+// values, which fall through unlabelled and still read correctly.
+const STATUS_FIELDS = new Set(["status", "blocked_from", "state"]);
+
+const statusLabel = (v: unknown): string | null => {
+  if (typeof v !== "string") return null;
+  return ST_LABEL[v as RequirementStatus] ?? DELIVERY_STATUS_LABEL[v as DeliveryStatus] ?? null;
+};
+
+// "created epic — Bulk import", "updated requirement — status: Not started → In progress".
 // `resolveValue` lets the caller turn a uuid in a diff into a human id.
 export function evSummary(e: BoardEvent, resolveValue?: (field: string, v: unknown) => string | null): string {
   const d = e.detail ?? {};
@@ -72,7 +86,7 @@ export function evSummary(e: BoardEvent, resolveValue?: (field: string, v: unkno
       .filter(([, v]) => isChange(v))
       .map(([k, v]) => {
         const c = v as { from?: unknown; to?: unknown };
-        const res = (x: unknown) => resolveValue?.(k, x) ?? null;
+        const res = (x: unknown) => resolveValue?.(k, x) ?? (STATUS_FIELDS.has(k) ? statusLabel(x) : null);
         return `${k.replace(/_id$/, "")}: ${show(c.from, res)} → ${show(c.to, res)}`;
       });
     return `updated ${kind}${parts.length ? ` — ${parts.join(" · ")}` : ""}`;

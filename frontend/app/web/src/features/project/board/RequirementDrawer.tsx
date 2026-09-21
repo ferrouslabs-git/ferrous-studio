@@ -7,11 +7,12 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Drawer, Field } from "../../../components/Drawer";
 import { formatDateTime } from "../../../core/format";
+import { AssigneeSelect } from "./AssigneeSelect";
 import { AttachmentsSection } from "./AttachmentsSection";
 import { useBoard } from "./boardData";
 import { useBoardMutations } from "./boardMutations";
 import { CommentsList } from "./CommentsList";
-import { ST_ICON } from "./constants";
+import { ST_ICON, ST_LABEL } from "./constants";
 import { useDialogs } from "./dialogs";
 import { EstimateField } from "./EstimateField";
 import {
@@ -74,7 +75,7 @@ function DrawerBody({
   onSaved,
   closeOnEscape,
 }: Omit<RequirementDrawerProps, "open"> & { closeOnEscape: boolean }) {
-  const { index, members, canWrite } = useBoard();
+  const { index, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
   // The Feature select lists the DIRECT epic's features only, so a feature
@@ -104,7 +105,7 @@ function DrawerBody({
           body: "",
           epic_id: preset.epicId ?? null,
           feature_id: shownFeature(preset.epicId ?? null, preset.featureId ?? null),
-          status: "Todo",
+          status: "NotStarted",
           priority: "Medium",
           assignee_id: null,
           release_id: null,
@@ -140,7 +141,7 @@ function DrawerBody({
   const features = form.epic_id ? index.featuresOf(form.epic_id) : [];
   // A done sprint is never offered, but stays listed while it is this
   // requirement's own -- otherwise the select would silently read "backlog".
-  const sprints = index.sprints.filter((s) => s.state !== "done" || s.id === form.sprint_id);
+  const sprints = index.sprints.filter((s) => !s.closed_at || s.id === form.sprint_id);
   const inheritedRelease = epic ? (epic.release_id ? index.releaseById.get(epic.release_id) : null) : undefined;
 
   const save = async (e: FormEvent) => {
@@ -275,7 +276,7 @@ function DrawerBody({
           <select className="select" value={form.status} disabled={!canWrite} onChange={(e) => patch({ status: e.target.value as RequirementStatus })}>
             {REQUIREMENT_STATUSES.map((s) => (
               <option key={s} value={s}>
-                {ST_ICON[s]} {s}
+                {ST_ICON[s]} {ST_LABEL[s]}
               </option>
             ))}
           </select>
@@ -292,14 +293,7 @@ function DrawerBody({
         </div>
         <div>
           <label>Assignee</label>
-          <select className="select" value={form.assignee_id ?? ""} disabled={!canWrite} onChange={(e) => patch({ assignee_id: e.target.value || null })}>
-            <option value="">— unassigned —</option>
-            {members.map((m) => (
-              <option key={m.user_id} value={m.user_id}>
-                {m.name || m.email}
-              </option>
-            ))}
-          </select>
+          <AssigneeSelect value={form.assignee_id} disabled={!canWrite} onChange={(userId) => patch({ assignee_id: userId })} />
         </div>
         <div>
           <label>Release</label>
@@ -324,7 +318,7 @@ function DrawerBody({
             {sprints.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.human_id} · {s.name}
-                {s.state === "active" ? " (active)" : ""}
+                {s.closed_at ? " (closed)" : ""}
                 {s.release_id ? ` · ${index.releaseById.get(s.release_id)?.human_id ?? ""}` : ""}
               </option>
             ))}

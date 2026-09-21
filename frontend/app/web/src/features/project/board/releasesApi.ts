@@ -1,6 +1,7 @@
 // Client for a project's board releases (backend app/studio/board/routes.py).
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
 import type { Rollup } from "./effort";
+import type { DeliveryStatus } from "./sprintsApi";
 
 export interface Release {
   id: string;
@@ -10,6 +11,13 @@ export interface Release {
   // release. Null means no sprint with an end date is filed under it yet.
   date: string | null;
   description: string;
+  // Same free-moving vocabulary a sprint uses. "DeployedToLive" is what
+  // shipping means here -- it replaced a separate "Mark shipped" toggle on
+  // 2026-09-14.
+  status: DeliveryStatus;
+  // Stamped by the server the first time status reaches DeployedToLive, and
+  // never cleared by moving away again: the date it first went out stays
+  // true. Not settable.
   shipped_at: string | null;
   progress: Rollup;
   created_at: string;
@@ -17,7 +25,7 @@ export interface Release {
 }
 
 export type ReleaseCreateInput = Pick<Release, "title" | "description">;
-export type ReleaseUpdateInput = Partial<Pick<Release, "title" | "description">> & { shipped?: boolean };
+export type ReleaseUpdateInput = Partial<Pick<Release, "title" | "description" | "status">>;
 
 const base = (projectId: string) => `/studio/projects/${projectId}/board/releases`;
 

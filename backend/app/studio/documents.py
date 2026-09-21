@@ -12,7 +12,7 @@ import unicodedata
 from datetime import timedelta
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +24,7 @@ from app.config import get_settings
 from . import storage
 from .common import get_project, get_writable_project
 from .models import Project, ProjectDocument, utc_now
-from .schemas import DocumentCreate, DocumentDownload, DocumentRead, DocumentUploadTicket
+from .schemas import DocumentCreate, DocumentDownload, DocumentPurpose, DocumentRead, DocumentUploadTicket
 
 router = APIRouter()
 
@@ -42,10 +42,27 @@ ALLOWED_TYPES: dict[str, tuple[str, set[str]]] = {
     "jpeg": ("image/jpeg", {"image/jpeg"}),
 }
 
+# Example data is nearly always tabular, and a store that took a .docx but
+# refused a .csv would be useless for it. These are allowed ONLY for that
+# purpose: widening the Documents tab's surface is a separate decision, and
+# not one this needed.
+EXTRA_TYPES: dict[str, dict[str, tuple[str, set[str]]]] = {
+    "example_data": {
+        "csv": ("text/csv", {"text/csv", "application/csv", "application/vnd.ms-excel", "text/plain", ""}),
+        "json": ("application/json", {"application/json", "text/json", "text/plain", ""}),
+        "xlsx": (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"},
+        ),
+    },
+}
+
 # First bytes of each binary format; text types are not checked.
 MAGIC_BYTES: dict[str, tuple[bytes, ...]] = {
     "application/pdf": (b"%PDF",),
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (b"PK\x03\x04",),
+    # A .xlsx is a zip, like a .docx.
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": (b"PK\x03\x04",),
     "image/png": (b"\x89PNG",),
     "image/jpeg": (b"\xff\xd8\xff",),
 }
@@ -69,12 +86,18 @@ def sanitise_filename(raw: str) -> str:
     return name
 
 
-def resolve_type(filename: str, client_type: str) -> str:
+def allowed_types(purpose: str) -> dict[str, tuple[str, set[str]]]:
+    """What this purpose accepts: the shared list, plus anything only it takes."""
+    return {**ALLOWED_TYPES, **EXTRA_TYPES.get(purpose, {})}
+
+
+def resolve_type(filename: str, client_type: str, purpose: str = "document") -> str:
     """The canonical content type for this upload, or 422."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    entry = ALLOWED_TYPES.get(ext)
+    permitted = allowed_types(purpose)
+    entry = permitted.get(ext)
     if entry is None:
-        allowed = ", ".join(f".{e}" for e in ALLOWED_TYPES)
+        allowed = ", ".join(f".{e}" for e in permitted)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"File type not allowed. Accepted: {allowed}",
@@ -117,13 +140,21 @@ async def _document(db: AsyncSession, project: Project, document_id: UUID) -> Pr
 @router.get("/projects/{project_id}/documents", response_model=list[DocumentRead])
 async def list_documents(
     project_id: UUID,
+    purpose: DocumentPurpose = Query("document"),
     ctx: ScopeContext = Depends(require_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[ProjectDocument]:
+    """One list per purpose. Defaulting to "document" keeps the Documents tab
+    exactly as it was, and keeps a client that has never heard of purposes
+    from being shown someone's example data."""
     project = await get_project(db, project_id, ctx)
     result = await db.execute(
         select(ProjectDocument)
-        .where(ProjectDocument.project_id == project.id, ProjectDocument.account_id == project.account_id)
+        .where(
+            ProjectDocument.project_id == project.id,
+            ProjectDocument.account_id == project.account_id,
+            ProjectDocument.purpose == purpose,
+        )
         .order_by(ProjectDocument.created_at.desc())
     )
     cutoff = utc_now() - PENDING_VISIBLE_FOR
@@ -146,7 +177,7 @@ async def create_document(
     project = await get_writable_project(db, project_id, ctx)
 
     filename = sanitise_filename(payload.filename)
-    content_type = resolve_type(filename, payload.content_type)
+    content_type = resolve_type(filename, payload.content_type, payload.purpose)
     if payload.size_bytes > settings.documents_max_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -163,6 +194,7 @@ async def create_document(
         size_bytes=payload.size_bytes,
         s3_key=s3_key_for(project.account_id, project.id, doc_id, filename),
         status="pending",
+        purpose=payload.purpose,
         uploaded_by=ctx.user_id,
     )
     db.add(doc)

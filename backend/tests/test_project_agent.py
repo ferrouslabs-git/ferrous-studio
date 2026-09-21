@@ -317,7 +317,7 @@ async def test_update_wireframe_tool_call_with_a_malformed_id_is_a_catchable_err
 async def test_create_epic_tool_call_succeeds_for_an_admin(monkeypatch):
     async def _fake_create_epic_content(db, project, ctx, payload):
         assert payload.title == "Login flow"
-        return SimpleNamespace(id="epic-1", title="Login flow", status="Readiness")
+        return SimpleNamespace(id="epic-1", title="Login flow", status="NotStarted")
 
     monkeypatch.setattr(pa, "create_epic_content", _fake_create_epic_content)
     tool_use = SimpleNamespace(name="create_epic", input={"title": "Login flow"})
@@ -325,7 +325,7 @@ async def test_create_epic_tool_call_succeeds_for_an_admin(monkeypatch):
     content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
 
     assert is_error is False
-    assert json.loads(content) == {"id": "epic-1", "title": "Login flow", "status": "Readiness"}
+    assert json.loads(content) == {"id": "epic-1", "title": "Login flow", "status": "NotStarted"}
 
 
 async def test_create_epic_tool_call_is_refused_for_a_member_even_if_somehow_invoked():
@@ -411,7 +411,7 @@ async def test_create_feature_with_a_bad_epic_id_is_a_catchable_error(monkeypatc
 async def test_create_requirement_tool_call_succeeds_for_an_admin(monkeypatch):
     async def _fake_create_requirement_content(db, project, ctx, payload):
         assert payload.title == "Add login form"
-        return SimpleNamespace(), SimpleNamespace(id="req-1", title="Add login form", status="Todo")
+        return SimpleNamespace(), SimpleNamespace(id="req-1", title="Add login form", status="NotStarted")
 
     monkeypatch.setattr(pa, "create_requirement_content", _fake_create_requirement_content)
     tool_use = SimpleNamespace(name="create_requirement", input={"title": "Add login form"})
@@ -419,7 +419,7 @@ async def test_create_requirement_tool_call_succeeds_for_an_admin(monkeypatch):
     content, is_error = await pa._run_tool(None, FAKE_PROJECT, FAKE_CTX_ADMIN, tool_use)
 
     assert is_error is False
-    assert json.loads(content) == {"id": "req-1", "title": "Add login form", "status": "Todo"}
+    assert json.loads(content) == {"id": "req-1", "title": "Add login form", "status": "NotStarted"}
 
 
 async def test_create_requirement_with_a_bad_epic_id_is_a_catchable_error(monkeypatch):
@@ -481,11 +481,11 @@ async def test_an_admin_can_create_an_epic_then_file_a_requirement_under_it(monk
         return _FakeMessage(text="Created the Login flow epic and one requirement under it.")
 
     async def _fake_create_epic_content(db, project, ctx, payload):
-        return SimpleNamespace(id="11111111-1111-1111-1111-111111111111", title=payload.title, status="Readiness")
+        return SimpleNamespace(id="11111111-1111-1111-1111-111111111111", title=payload.title, status="NotStarted")
 
     async def _fake_create_requirement_content(db, project, ctx, payload):
         assert str(payload.epic_id) == "11111111-1111-1111-1111-111111111111"
-        return SimpleNamespace(), SimpleNamespace(id="req-real-id", title=payload.title, status="Todo")
+        return SimpleNamespace(), SimpleNamespace(id="req-real-id", title=payload.title, status="NotStarted")
 
     monkeypatch.setattr(pa, "get_settings", lambda: configured_settings)
     monkeypatch.setattr(pa.anthropic, "AsyncAnthropicBedrock", lambda **kw: _FakeClient(_create))

@@ -1,13 +1,24 @@
 // Client for a project's board requirements (backend app/studio/board/routes.py).
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
 
+// The board's work vocabulary. A requirement is the only thing that carries
+// one directly -- features and epics roll theirs up from the requirements
+// beneath them, server-side, and neither can be set.
+//
 // Blocked is a flag, not a stage on the normal path -- a requirement can be
-// blocked from any of Todo/Doing/Review. blocked_from records which one, so
-// unblocking (setting status back to it) returns the item there instead of
-// losing that context; it's computed by the server on the transition, never
-// sent directly. Ported from software-management (static/js/core.js).
-export type RequirementStatus = "Todo" | "Doing" | "Review" | "Blocked" | "Done";
-export const REQUIREMENT_STATUSES: RequirementStatus[] = ["Todo", "Doing", "Review", "Blocked", "Done"];
+// blocked from any of NotStarted/InProgress/ToTest. blocked_from records
+// which one, so unblocking (setting status back to it) returns the item
+// there instead of losing that context; it's computed by the server on the
+// transition, never sent directly. Ported from software-management
+// (static/js/core.js); renamed from Todo/Doing/Review on 2026-09-14.
+export type RequirementStatus = "NotStarted" | "InProgress" | "ToTest" | "Done" | "Blocked";
+export const REQUIREMENT_STATUSES: RequirementStatus[] = [
+  "NotStarted",
+  "InProgress",
+  "ToTest",
+  "Done",
+  "Blocked",
+];
 
 export type RequirementPriority = "Low" | "Medium" | "High" | "Urgent";
 export const REQUIREMENT_PRIORITIES: RequirementPriority[] = ["Low", "Medium", "High", "Urgent"];

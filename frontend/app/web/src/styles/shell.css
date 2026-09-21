@@ -377,6 +377,22 @@
 .usecase-select-menu .usecase-check { padding: 5px 8px; border-radius: 6px; }
 .usecase-select-menu .usecase-check:hover { background: var(--mute-soft); }
 .usecase-select-divider { height: 1px; background: var(--border); margin: 4px 0; }
+/* Other requirements: four paragraphs, two across on a wide screen. */
+.otherreq-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding: 16px; }
+.otherreq-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.otherreq-label { font-size: 13px; font-weight: 600; }
+@media (max-width: 900px) { .otherreq-fields { grid-template-columns: minmax(0, 1fr); } }
+
+.usecase-kinds { display: flex; gap: 6px; }
+.usecase-kind {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 6px; font-size: 13px; color: var(--text-mute);
+  transition: border-color .12s, color .12s, background .12s;
+}
+.usecase-kind:hover { border-color: var(--border-strong); color: var(--text); }
+.usecase-kind.is-on { border-color: var(--accent); color: var(--text); background: var(--accent-soft); font-weight: 600; }
+.usecase-kind input { margin: 0; }
+.usecase-check small { margin-left: auto; font-size: 11px; }
 .chip { background: var(--panel); border: 1px solid var(--border); color: var(--text-dim); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
 .chip:hover { border-color: var(--border-strong); color: var(--text); }
 .chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
@@ -385,7 +401,7 @@
 .is-dim { opacity: .15; }
 .usecase-ellipse, .usecase-actor { cursor: pointer; }
 .usecase-ellipse.is-pinned ellipse { stroke-width: 2.5; }
-.usecase-actor.is-pinned circle, .usecase-actor.is-pinned path { stroke-width: 2.8; }
+.usecase-actor.is-pinned circle, .usecase-actor.is-pinned path, .usecase-actor.is-pinned rect { stroke-width: 2.8; }
 .usecase-actor.is-pinned text, .usecase-ellipse.is-pinned text { font-weight: 700; }
 .usecase-svg { display: block; max-width: 100%; height: auto; font-family: inherit; }
 .usecase-boundary { fill: var(--panel-2); stroke: var(--border-strong); stroke-width: 1; }
@@ -395,8 +411,10 @@
 .usecase-dot { stroke: var(--panel); stroke-width: 1.5; }
 .chip-colour { display: inline-flex; align-items: center; gap: 6px; }
 .chip-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.usecase-actor circle, .usecase-actor path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.usecase-actor circle { fill: currentColor; fill-opacity: .25; }
+.usecase-actor circle, .usecase-actor path, .usecase-actor rect { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* The "body" of each glyph -- the head, the box, the hourglass -- is tinted;
+   the strokes hung off it (limbs, frame, shelves) are not. */
+.usecase-actor .usecase-actor-shape { fill: currentColor; fill-opacity: .25; }
 .usecase-actor .usecase-actor-hit { fill: transparent; stroke: none; }
 .usecase-actor text { fill: var(--text); font-size: 11px; font-weight: 600; }
 .usecase-checklist { display: flex; flex-direction: column; gap: 6px; }

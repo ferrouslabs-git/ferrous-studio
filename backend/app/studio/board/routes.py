@@ -145,10 +145,12 @@ def _snapshot(obj, fields: tuple[str, ...]) -> dict:
     return {f: getattr(obj, f) for f in fields}
 
 
-_RELEASE_EVENT_FIELDS = ("title", "description")
-_EPIC_EVENT_FIELDS = ("title", "summary", "status", "release_id")
-_FEATURE_EVENT_FIELDS = ("title",)
-_SPRINT_EVENT_FIELDS = ("name", "goal", "start_date", "end_date", "state", "release_id", "capacity_hours")
+_RELEASE_EVENT_FIELDS = ("title", "description", "status")
+# No "status": an epic's is derived from its requirements, so a change to it
+# is already an event on the requirement that moved.
+_EPIC_EVENT_FIELDS = ("title", "summary", "release_id", "assignee_id")
+_FEATURE_EVENT_FIELDS = ("title", "assignee_id")
+_SPRINT_EVENT_FIELDS = ("name", "goal", "start_date", "end_date", "status", "release_id", "capacity_hours")
 # blocked_from is bookkeeping (derived from the status transition) and
 # excluded, as SMA excludes it. "status" must stay: service.sprint_burndown
 # reconstructs status history from detail["status"]["to"].
@@ -178,6 +180,7 @@ async def _release_reads(db: AsyncSession, board: Board, releases: list[Release]
             human_id=r.human_id,
             title=r.title,
             description=r.description,
+            status=r.status,
             shipped_at=r.shipped_at,
             created_at=r.created_at,
             updated_at=r.updated_at,
@@ -190,6 +193,59 @@ async def _release_reads(db: AsyncSession, board: Board, releases: list[Release]
 
 async def _release_read(db: AsyncSession, board: Board, r: Release) -> ReleaseRead:
     [read] = await _release_reads(db, board, [r])
+    return read
+
+
+# An epic's and a feature's status is rolled up from their requirements
+# (service.work_status_maps), never stored, so every route that returns one
+# has to attach it on the way out. Batched per response: one pair of queries
+# whether the response holds one epic or forty.
+
+
+async def _epic_reads(db: AsyncSession, board: Board, epics: list[Epic]) -> list[EpicRead]:
+    # Built field by field, not model_validate(e): ``status`` is not an
+    # attribute of the row at all, and from_attributes would fail on it.
+    _, epic_status = await service.work_status_maps(db, board.id)
+    return [
+        EpicRead(
+            id=e.id,
+            human_id=e.human_id,
+            title=e.title,
+            summary=e.summary,
+            status=epic_status.get(e.id, "NotStarted"),
+            release_id=e.release_id,
+            assignee_id=e.assignee_id,
+            created_at=e.created_at,
+            updated_at=e.updated_at,
+        )
+        for e in epics
+    ]
+
+
+async def _epic_read(db: AsyncSession, board: Board, epic: Epic) -> EpicRead:
+    [read] = await _epic_reads(db, board, [epic])
+    return read
+
+
+async def _feature_reads(db: AsyncSession, board: Board, features: list[Feature]) -> list[FeatureRead]:
+    feature_status, _ = await service.work_status_maps(db, board.id)
+    return [
+        FeatureRead(
+            id=f.id,
+            human_id=f.human_id,
+            epic_id=f.epic_id,
+            title=f.title,
+            status=feature_status.get(f.id, "NotStarted"),
+            assignee_id=f.assignee_id,
+            created_at=f.created_at,
+            updated_at=f.updated_at,
+        )
+        for f in features
+    ]
+
+
+async def _feature_read(db: AsyncSession, board: Board, feature: Feature) -> FeatureRead:
+    [read] = await _feature_reads(db, board, [feature])
     return read
 
 
@@ -267,32 +323,28 @@ async def update_release(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> ReleaseRead:
-    """Shipping is a human judgement call, never computed -- a release can go
-    out with known gaps. ``shipped`` only sets/clears shipped_at and is
-    logged as its own event on an actual transition, distinct from a plain
-    field edit (ported from software-management's update_release)."""
+    """Status moves freely in any direction -- nothing here refuses a step
+    back, and a release may be marked live with known gaps. The one side
+    effect is ``shipped_at``: stamped the first time the release reaches
+    "DeployedToLive", and never cleared by moving away again, because the
+    date it first went out stays true. That replaced the standalone
+    ``shipped`` toggle on 2026-09-14; the "release.shipped" event it wrote
+    is kept, now raised by the status transition."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     release = await _get_release(db, board, release_id)
     data = payload.model_dump(exclude_unset=True)
-    shipped = data.pop("shipped", None)
     before = _snapshot(release, _RELEASE_EVENT_FIELDS)
     for field, value in data.items():
         setattr(release, field, value)
     changes = _diff(before, _snapshot(release, _RELEASE_EVENT_FIELDS), _RELEASE_EVENT_FIELDS)
     if changes:
         await service.write_event(db, board, ctx.user_id, "release.updated", "release", release.id, changes)
-    if shipped is True and release.shipped_at is None:
+    if release.status == "DeployedToLive" and release.shipped_at is None:
         release.shipped_at = utc_now()
         await service.write_event(
             db, board, ctx.user_id, "release.shipped", "release", release.id,
             {"title": release.title, "shipped_at": release.shipped_at.isoformat()},
-        )
-    elif shipped is False and release.shipped_at is not None:
-        release.shipped_at = None
-        await service.write_event(
-            db, board, ctx.user_id, "release.unshipped", "release", release.id,
-            {"title": release.title, "shipped_at": None},
         )
     release.updated_at = utc_now()
     await db.commit()
@@ -359,13 +411,13 @@ async def list_epics(
     project_id: UUID,
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
-) -> list[Epic]:
+) -> list[EpicRead]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     result = await db.execute(
         select(Epic).where(Epic.board_id == board.id, Epic.deleted_at.is_(None)).order_by(Epic.seq)
     )
-    return list(result.scalars().all())
+    return await _epic_reads(db, board, list(result.scalars().all()))
 
 
 @router.get("/projects/{project_id}/board/summary", response_model=BoardSummary)
@@ -377,8 +429,12 @@ async def get_board_summary(
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     summary = await service.board_summary(db, board)
+    reads = await _epic_reads(db, board, [e["epic"] for e in summary["epics"]])
     return BoardSummary(
-        epics=[EpicSummary(epic=e["epic"], progress=EpicProgress(**e["progress"])) for e in summary["epics"]],
+        epics=[
+            EpicSummary(epic=read, progress=EpicProgress(**e["progress"]))
+            for read, e in zip(reads, summary["epics"])
+        ],
         status_counts=summary["status_counts"],
     )
 
@@ -391,6 +447,7 @@ async def create_epic_content(db: AsyncSession, project: Project, ctx: ScopeCont
     board = await _board(db, project, ctx)
     if payload.release_id is not None:
         await _get_release(db, board, payload.release_id)
+    await _validate_assignee(db, board, payload.assignee_id)
     seq = await service._next_seq(db, board, "epic_seq")
     epic = Epic(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(epic)
@@ -405,12 +462,13 @@ async def create_epic(
     payload: EpicCreate,
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
-) -> Epic:
+) -> EpicRead:
     project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
     epic = await create_epic_content(db, project, ctx, payload)
     await db.commit()
     await db.refresh(epic)
-    return epic
+    return await _epic_read(db, board, epic)
 
 
 @router.get("/projects/{project_id}/board/epics/{epic_id}", response_model=EpicRead)
@@ -419,10 +477,10 @@ async def get_epic(
     epic_id: UUID,
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
-) -> Epic:
+) -> EpicRead:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    return await _get_epic(db, board, epic_id)
+    return await _epic_read(db, board, await _get_epic(db, board, epic_id))
 
 
 @router.patch("/projects/{project_id}/board/epics/{epic_id}", response_model=EpicRead)
@@ -432,26 +490,30 @@ async def update_epic(
     payload: EpicUpdate,
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
-) -> Epic:
+) -> EpicRead:
+    """No status here: an epic's is rolled up from its requirements. Moving
+    an epic on is therefore done by moving the work under it, which is the
+    point -- the old hand-advanced lifecycle could claim "Done" over
+    unfinished requirements, and needed a 409 guard to stop it."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     epic = await _get_epic(db, board, epic_id)
     data = payload.model_dump(exclude_unset=True)
-    if data.get("status") == "Done":
-        unresolved = await service.unresolved_requirement_ids(db, board.id, epic.id)
-        if unresolved:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{len(unresolved)} requirement(s) under this epic are not yet Done",
-            )
     before = _snapshot(epic, _EPIC_EVENT_FIELDS)
     clear_release = data.pop("clear_release", False)
+    clear_assignee = data.pop("clear_assignee", False)
     if clear_release:
         epic.release_id = None
     elif data.get("release_id") is not None:
         await _get_release(db, board, data["release_id"])
+    if clear_assignee:
+        epic.assignee_id = None
+    else:
+        await _validate_assignee(db, board, data.get("assignee_id"))
+    # A null id is how an older client says "leave it alone"; clearing is
+    # the explicit clear_ flag above, as it is for every other link here.
     for field, value in data.items():
-        if field == "release_id" and value is None:
+        if field in ("release_id", "assignee_id") and value is None:
             continue
         setattr(epic, field, value)
     epic.updated_at = utc_now()
@@ -460,7 +522,7 @@ async def update_epic(
         await service.write_event(db, board, ctx.user_id, "epic.updated", "epic", epic.id, changes)
     await db.commit()
     await db.refresh(epic)
-    return epic
+    return await _epic_read(db, board, epic)
 
 
 @router.delete("/projects/{project_id}/board/epics/{epic_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -560,14 +622,14 @@ async def list_features(
     epic_id: UUID | None = Query(None),
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
-) -> list[Feature]:
+) -> list[FeatureRead]:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     stmt = select(Feature).where(Feature.board_id == board.id, Feature.deleted_at.is_(None))
     if epic_id is not None:
         stmt = stmt.where(Feature.epic_id == epic_id)
     result = await db.execute(stmt.order_by(Feature.seq))
-    return list(result.scalars().all())
+    return await _feature_reads(db, board, list(result.scalars().all()))
 
 
 async def create_feature_content(db: AsyncSession, project: Project, ctx: ScopeContext, payload: FeatureCreate) -> Feature:
@@ -576,6 +638,7 @@ async def create_feature_content(db: AsyncSession, project: Project, ctx: ScopeC
     Agent chatbot's create_feature tool."""
     board = await _board(db, project, ctx)
     await _get_epic(db, board, payload.epic_id)
+    await _validate_assignee(db, board, payload.assignee_id)
     seq = await service._next_seq(db, board, "feature_seq")
     feature = Feature(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
     db.add(feature)
@@ -592,12 +655,13 @@ async def create_feature(
     payload: FeatureCreate,
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
-) -> Feature:
+) -> FeatureRead:
     project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
     feature = await create_feature_content(db, project, ctx, payload)
     await db.commit()
     await db.refresh(feature)
-    return feature
+    return await _feature_read(db, board, feature)
 
 
 @router.get("/projects/{project_id}/board/features/{feature_id}", response_model=FeatureRead)
@@ -606,10 +670,10 @@ async def get_feature(
     feature_id: UUID,
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
-) -> Feature:
+) -> FeatureRead:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    return await _get_feature(db, board, feature_id)
+    return await _feature_read(db, board, await _get_feature(db, board, feature_id))
 
 
 @router.patch("/projects/{project_id}/board/features/{feature_id}", response_model=FeatureRead)
@@ -619,19 +683,24 @@ async def update_feature(
     payload: FeatureUpdate,
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
-) -> Feature:
+) -> FeatureRead:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     feature = await _get_feature(db, board, feature_id)
     before = _snapshot(feature, _FEATURE_EVENT_FIELDS)
     feature.title = payload.title
+    if payload.clear_assignee:
+        feature.assignee_id = None
+    elif payload.assignee_id is not None:
+        await _validate_assignee(db, board, payload.assignee_id)
+        feature.assignee_id = payload.assignee_id
     feature.updated_at = utc_now()
     changes = _diff(before, _snapshot(feature, _FEATURE_EVENT_FIELDS), _FEATURE_EVENT_FIELDS)
     if changes:
         await service.write_event(db, board, ctx.user_id, "feature.updated", "feature", feature.id, changes)
     await db.commit()
     await db.refresh(feature)
-    return feature
+    return await _feature_read(db, board, feature)
 
 
 @router.delete("/projects/{project_id}/board/features/{feature_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -763,11 +832,18 @@ async def update_sprint(
 ) -> SprintUpdateResult:
     """A sprint may move between releases but never leave one: clearing the
     release (``clear_release`` or an explicit null ``release_id``) is a 422.
-    Several sprints may be active at once -- starting one no longer demotes
-    any other (service.apply_sprint_state_transition). Completing one
-    returns its unfinished work to the backlog, and the ``sprint.updated``
+
+    ``status`` is a free label with no side effects at all -- any of
+    DELIVERY_STATUSES, in any order, forwards or back. ``closed`` is the
+    control that does something: closing returns the sprint's unfinished
+    work to the backlog (service.close_sprint) and the ``sprint.updated``
     event carries that count as ``returned_to_backlog`` (ported from
-    software-management's update_sprint)."""
+    software-management's update_sprint); reopening only clears the flag,
+    since the work it let go is now filed elsewhere and pulling it back
+    would overwrite whatever was decided since.
+
+    Several sprints may be open at once, and reopening one wakes its agents
+    -- agents work any sprint that is not closed."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     sprint = await _get_sprint(db, board, sprint_id)
@@ -779,22 +855,27 @@ async def update_sprint(
     if data.get("release_id") is not None:
         await _sprint_release(db, board, data["release_id"])
     before = _snapshot(sprint, _SPRINT_EVENT_FIELDS)
-    new_state = data.get("state")
+    was_closed = sprint.closed_at is not None
+    closed = data.pop("closed", None)
     returned = 0
-    activating = new_state == "active" and new_state != sprint.state
-    if new_state is not None and new_state != sprint.state:
-        returned = await service.apply_sprint_state_transition(db, board, sprint, new_state)
+    if closed is True and not was_closed:
+        returned = await service.close_sprint(db, board, sprint)
     for field, value in data.items():
         setattr(sprint, field, value)
+    if closed is True:
+        sprint.closed_at = sprint.closed_at or utc_now()
+    elif closed is False:
+        sprint.closed_at = None
     sprint.updated_at = utc_now()
     changes = _diff(before, _snapshot(sprint, _SPRINT_EVENT_FIELDS), _SPRINT_EVENT_FIELDS)
+    if closed is not None and closed is not was_closed:
+        changes["closed"] = {"from": was_closed, "to": closed}
     if changes:
         if returned > 0:
             changes["returned_to_backlog"] = returned
         await service.write_event(db, board, ctx.user_id, "sprint.updated", "sprint", sprint.id, changes)
-    if activating:
-        # Starting a sprint is what releases its work to agents -- an
-        # agent assigned to a planned sprint deliberately stays idle.
+    if closed is False and was_closed:
+        # Reopening is what puts the sprint back in front of its agents.
         await maybe_wake_agent(db, board, sprint.id)
     await db.commit()
     await db.refresh(sprint)
@@ -915,6 +996,32 @@ async def _get_requirement(db: AsyncSession, board: Board, requirement_id: UUID)
     return r
 
 
+async def _validate_assignee(db: AsyncSession, board: Board, assignee_id: UUID | None) -> None:
+    """An assignee must be an active member of the board's organisation.
+    Nothing in the schema can say that -- the FK only constrains "a user
+    exists somewhere" -- so a typo'd or foreign id would otherwise be
+    accepted and shown as a name nobody in the organisation recognises.
+    Shared by requirements, features and epics, which all assign the same
+    way and must refuse the same ids."""
+    if assignee_id is None:
+        return
+    member = (
+        await db.execute(
+            select(Membership).where(
+                Membership.user_id == assignee_id,
+                Membership.scope_type == "account",
+                Membership.scope_id == board.account_id,
+                Membership.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="assignee_id is not a member of this organisation",
+        )
+
+
 async def _validate_requirement_refs(
     db: AsyncSession,
     board: Board,
@@ -949,22 +1056,7 @@ async def _validate_requirement_refs(
         await _get_release(db, board, release_id)
     if sprint_id is not None:
         await _get_sprint(db, board, sprint_id)
-    if assignee_id is not None:
-        member = (
-            await db.execute(
-                select(Membership).where(
-                    Membership.user_id == assignee_id,
-                    Membership.scope_type == "account",
-                    Membership.scope_id == board.account_id,
-                    Membership.status == "active",
-                )
-            )
-        ).scalar_one_or_none()
-        if member is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="assignee_id is not a member of this organisation",
-            )
+    await _validate_assignee(db, board, assignee_id)
 
 
 @router.get("/projects/{project_id}/board/requirements", response_model=list[RequirementRead])
@@ -1114,14 +1206,15 @@ async def update_requirement(
         assignee_id=data.get("assignee_id"),
     )
 
-    # Entering a sprint resets a stale Doing/Review/Blocked back to Todo --
-    # ported invariant, software-management's update_requirement: the sprint
-    # board is the work queue, and a carried-over status would leave the
-    # item invisible there. Done stays Done -- finished work moved into a
-    # sprint (to ship it under that release, say) is still finished.
+    # Entering a sprint resets a stale InProgress/ToTest/Blocked back to
+    # NotStarted -- ported invariant, software-management's
+    # update_requirement: the sprint board is the work queue, and a
+    # carried-over status would leave the item invisible there. Done stays
+    # Done -- finished work moved into a sprint (to ship it under that
+    # release, say) is still finished.
     entering_sprint = data.get("sprint_id") is not None and data["sprint_id"] != requirement.sprint_id
     if entering_sprint and before["status"] != "Done" and data.get("status", before["status"]) != "Done":
-        data["status"] = "Todo"
+        data["status"] = "NotStarted"
 
     # Null is meaningful for estimate_hours and queue_position ("not
     # estimated", "not ordered"), so only the id fields skip it -- those
@@ -1154,13 +1247,18 @@ async def update_requirement(
     if changes:
         await service.write_event(db, board, ctx.user_id, "requirement.updated", "requirement", requirement.id, changes)
 
-    # Wake the sprint's agent when Todo work lands in (or is re-ranked
+    # Wake the sprint's agent when NotStarted work lands in (or is re-ranked
     # within) a sprint, and when a Blocked requirement is answered back to
-    # Todo inside one -- answer-and-unblock is how a question gets picked up
-    # again. maybe_wake_agent only acts on an active sprint with an idle agent.
+    # NotStarted inside one -- answer-and-unblock is how a question gets
+    # picked up again. maybe_wake_agent only acts on an open sprint with an
+    # idle agent.
     if (
-        (("sprint_id" in changes or "queue_position" in changes) and requirement.status == "Todo")
-        or (before["status"] != "Todo" and requirement.status == "Todo" and requirement.sprint_id is not None)
+        (("sprint_id" in changes or "queue_position" in changes) and requirement.status == "NotStarted")
+        or (
+            before["status"] != "NotStarted"
+            and requirement.status == "NotStarted"
+            and requirement.sprint_id is not None
+        )
     ):
         await maybe_wake_agent(db, board, requirement.sprint_id)
 

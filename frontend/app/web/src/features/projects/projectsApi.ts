@@ -12,6 +12,15 @@ export interface Project {
   name: string;
   description: string | null;
   rationale: string | null;
+  /**
+   * The requirements that are not use cases -- captured on the use case
+   * page's "Other requirements" tab. All free text and all optional: null
+   * means "not asked", which is different from an answer of "".
+   */
+  physical_setup: string | null;
+  hosting: string | null;
+  latency_goal: string | null;
+  accuracy_goal: string | null;
   status: "active" | "archived";
   schema_version: string;
   /** Concurrency counter for custom_components -- not the version number. */
@@ -104,7 +113,20 @@ export const createProject = (input: ProjectInput, opts?: RequestOptions) =>
 export const getProject = (id: string) => apiGet<ProjectDetail>(`/studio/projects/${id}`);
 export const updateProject = (
   id: string,
-  patch: Partial<Pick<Project, "name" | "description" | "rationale" | "status" | "version_label">>,
+  patch: Partial<
+    Pick<
+      Project,
+      | "name"
+      | "description"
+      | "rationale"
+      | "physical_setup"
+      | "hosting"
+      | "latency_goal"
+      | "accuracy_goal"
+      | "status"
+      | "version_label"
+    >
+  >,
   opts?: RequestOptions,
 ) => apiPatch<Project>(`/studio/projects/${id}`, patch, opts);
 export const deleteProject = (id: string, opts?: RequestOptions) =>

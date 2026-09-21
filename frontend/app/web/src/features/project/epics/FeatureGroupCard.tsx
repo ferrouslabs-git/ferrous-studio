@@ -4,10 +4,11 @@
 // that requirement in the pane beside the epic. Ported from epgGroupCard()
 // in the reference app's static/js/epicpage.js.
 import { useState } from "react";
+import { AssigneeSelect } from "../board/AssigneeSelect";
 import { AttachmentsSection } from "../board/AttachmentsSection";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
-import { CommentButton, EffortFigure, IdChip, StatusChip } from "../board/chips";
+import { CommentButton, EffortFigure, IdChip, RolledUpStatusChip, StatusChip } from "../board/chips";
 import type { CommentsTarget } from "../board/CommentsPanel";
 import { useDialogs } from "../board/dialogs";
 import { rollup } from "../board/effort";
@@ -53,14 +54,33 @@ export function FeatureGroupCard({ epic, feature: f, rows, selectedReq, onSelect
     <div className="mscard" style={{ marginBottom: 14 }}>
       <div className="mshead">
         {f && <IdChip>{f.human_id}</IdChip>}
+        {f && <RolledUpStatusChip status={f.status} of="feature" />}
         {f ? (
-          <InlineText className="ms-ttl" value={f.title} disabled={!canWrite} onSave={(v) => mutations.patchFeature(f.id, v).catch(() => undefined)} />
+          <InlineText
+            className="ms-ttl"
+            value={f.title}
+            disabled={!canWrite}
+            onSave={(v) => mutations.patchFeature(f.id, { title: v }).catch(() => undefined)}
+          />
         ) : (
           <span className="ms-ttl" style={{ cursor: "default" }}>
             Unassigned
           </span>
         )}
         <EffortFigure rollup={p} />
+        {f && (
+          <AssigneeSelect
+            className="select mini epg-asg"
+            ariaLabel={`${f.human_id} assignee`}
+            value={f.assignee_id}
+            disabled={!canWrite}
+            onChange={(userId) =>
+              void mutations
+                .patchFeature(f.id, userId ? { title: f.title, assignee_id: userId } : { title: f.title, clear_assignee: true })
+                .catch(() => undefined)
+            }
+          />
+        )}
         <span className="spacer" />
         {canWrite && (
           <button

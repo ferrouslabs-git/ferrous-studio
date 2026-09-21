@@ -7,7 +7,7 @@ import { rollup } from "./effort";
 import type { Feature } from "./featuresApi";
 import type { Release } from "./releasesApi";
 import type { Requirement } from "./requirementsApi";
-import type { Sprint, SprintState } from "./sprintsApi";
+import type { Sprint } from "./sprintsApi";
 
 // The trailing number of a human id ("E12" -> 12, "REQ-7" -> 7), which is the
 // creation order every list here sorts by.
@@ -62,8 +62,10 @@ export function releaseSchedule(releaseId: string, sprints: Sprint[]): ReleaseSc
 export const releaseDate = (release: Release, sprints: Sprint[]): string | null =>
   releaseSchedule(release.id, sprints).date;
 
-// Shipped releases sink to the bottom, most recent first; the rest sort by
-// derived date with unscheduled ones last -- the order every consumer wants.
+// Releases that have been live sink to the bottom, most recent first; the
+// rest sort by derived date with unscheduled ones last -- the order every
+// consumer wants. shipped_at is stamped by the server the first time the
+// status reaches "DeployedToLive".
 export function sortReleases(releases: Release[], sprints: Sprint[]): Release[] {
   return [...releases].sort((a, b) => {
     if (!!a.shipped_at !== !!b.shipped_at) return a.shipped_at ? 1 : -1;
@@ -93,11 +95,12 @@ export function releaseDue(release: Release, sprints: Sprint[], now: Date = new 
   return { cls: "due-ok", label: `${days}d left` };
 }
 
-// What is still open on a release when someone ships it. Shipping is a human
-// call and never blocked; this is what the confirmation lists.
+// What is still open on a release when someone marks it live. Nothing here
+// blocks the move -- the status set is free to go anywhere -- this is only
+// what the confirmation lists.
 export function shipGaps(release: Release, backlog: Requirement[], sprints: Sprint[]): string[] {
   const open = backlog.filter((r) => r.status !== "Done");
-  const live = sprints.filter((s) => s.release_id === release.id && s.state !== "done");
+  const live = sprints.filter((s) => s.release_id === release.id && !s.closed_at);
   const gaps: string[] = [];
   if (open.length) gaps.push(`${open.length} requirement${open.length === 1 ? " is" : "s are"} not Done`);
   if (live.length) {
@@ -107,11 +110,15 @@ export function shipGaps(release: Release, backlog: Requirement[], sprints: Spri
 }
 
 // ── sprints ─────────────────────────────────────────────────────────────────
-const SP_RANK: Record<SprintState, number> = { active: 0, planned: 1, done: 2 };
-
-// Active first, then planned, then done; newest first within a state.
+// Open sprints first, then closed; newest first within each. A sprint's
+// `status` deliberately plays no part -- it is a free label that may move in
+// any direction, so sorting by it would shuffle the list for a reason nobody
+// asked for. Being open or closed is the fact worth grouping by.
 export const sortSprints = (sprints: Sprint[]): Sprint[] =>
-  [...sprints].sort((a, b) => SP_RANK[a.state] - SP_RANK[b.state] || numSuffix(b.human_id) - numSuffix(a.human_id));
+  [...sprints].sort(
+    (a, b) =>
+      Number(!!a.closed_at) - Number(!!b.closed_at) || numSuffix(b.human_id) - numSuffix(a.human_id),
+  );
 
 // A release's sprints in date order (undated last). null = no release.
 export function sprintsOf(releaseId: string | null, sprints: Sprint[]): Sprint[] {
@@ -142,11 +149,11 @@ export function sprintDue(sprint: Sprint, now: Date = new Date()): DueStatus | n
   };
 }
 
-// The question asked before completing a sprint: unfinished work goes back
+// The question asked before closing a sprint: unfinished work goes back
 // to the release backlog, and the count is the thing worth knowing first.
-export function completeSprintMessage(sprint: Sprint, requirements: Requirement[]): string {
+export function closeSprintMessage(sprint: Sprint, requirements: Requirement[]): string {
   const open = requirements.filter((r) => r.status !== "Done").length;
-  return `Complete ${sprint.name}?` + (open ? `\n${open} unfinished requirement(s) return to the backlog.` : "");
+  return `Close ${sprint.name}?` + (open ? `\n${open} unfinished requirement(s) return to the backlog.` : "");
 }
 
 // Agent work order within one sprint: queued items first by position, then
@@ -159,14 +166,14 @@ export function spOrdered(rs: Requirement[]): Requirement[] {
 }
 
 // The PATCHes that reflow one sprint's order around a requirement's new
-// 1-based slot. Scoped to a single sprint and to Todo items -- the queue an
-// agent actually walks.
+// 1-based slot. Scoped to a single sprint and to not-started items -- the
+// queue an agent actually walks.
 export function reorderPatches(
   ordered: Requirement[],
   r: Requirement,
   newPos: number,
 ): { id: string; queue_position: number }[] {
-  const current = ordered.filter((x) => x.status === "Todo");
+  const current = ordered.filter((x) => x.status === "NotStarted");
   const without = current.filter((x) => x.id !== r.id);
   const clamped = Math.max(1, Math.min(newPos, without.length + 1));
   without.splice(clamped - 1, 0, r);
@@ -177,15 +184,15 @@ export function reorderPatches(
   return changes;
 }
 
-// Measured velocity: the mean effort completed over the last few finished
-// sprints. Completing a sprint returns everything that is not Done to the
-// backlog, so the requirements still tagged to a done sprint are exactly the
-// ones it delivered. Sprints with no estimated work are skipped.
+// Measured velocity: the mean effort completed over the last few closed
+// sprints. Closing a sprint returns everything that is not Done to the
+// backlog, so the requirements still tagged to a closed sprint are exactly
+// the ones it delivered. Sprints with no estimated work are skipped.
 export const VELOCITY_SAMPLE = 3;
 
 export function recentVelocity(sprints: Sprint[], requirements: Requirement[]): { hours: number; n: number } | null {
   const finished = sprints
-    .filter((s) => s.state === "done")
+    .filter((s) => !!s.closed_at)
     .sort((a, b) => numSuffix(b.human_id) - numSuffix(a.human_id))
     .slice(0, VELOCITY_SAMPLE)
     .map((s) => rollup(requirements.filter((r) => r.sprint_id === s.id)).hours_done)
@@ -195,17 +202,19 @@ export function recentVelocity(sprints: Sprint[], requirements: Requirement[]): 
     : null;
 }
 
-// The sprint's one lifecycle control: ▶ Start / ✓ Complete / ↺ Reopen.
+// The sprint's one lifecycle control: ✓ Close / ↺ Reopen. Separate from the
+// sprint's status, which is a free label with no side effects -- this is the
+// button that returns unfinished work to the backlog and locks the board.
 export interface SprintLifecycle {
   label: string;
   primary: boolean;
-  next: SprintState;
+  closed: boolean;
 }
 
 export function sprintLifecycle(sprint: Sprint): SprintLifecycle {
-  if (sprint.state === "planned") return { label: "▶ Start", primary: true, next: "active" };
-  if (sprint.state === "active") return { label: "✓ Complete", primary: false, next: "done" };
-  return { label: "↺ Reopen", primary: false, next: "planned" };
+  return sprint.closed_at
+    ? { label: "↺ Reopen", primary: false, closed: false }
+    : { label: "✓ Close", primary: false, closed: true };
 }
 
 export const isoLocal = (d: Date): string =>

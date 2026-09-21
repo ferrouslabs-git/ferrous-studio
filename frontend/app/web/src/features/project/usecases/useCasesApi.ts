@@ -1,18 +1,38 @@
 // Client for a project's use case model (backend app/studio/use_cases.py):
-// actors are the user types, use cases are the actions they can perform.
+// actors are what sits outside the system, use cases are what the system
+// offers. Neither side is required by the other -- an actor with nothing to
+// do yet is fine, and so is a use case with no actor (something the system
+// does of its own accord).
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
+
+/** What an actor is, not just what it is called. The diagram draws one glyph
+ *  per kind, so this is the whole vocabulary. */
+export type UseCaseActorKind = "person" | "system" | "time";
+
+export const ACTOR_KINDS: { id: UseCaseActorKind; label: string; hint: string }[] = [
+  { id: "person", label: "Person", hint: "a role someone plays — Customer, Administrator" },
+  { id: "system", label: "System", hint: "another system this one talks to — a payment gateway" },
+  { id: "time", label: "Time", hint: "a schedule or elapsed time — the nightly run, a 30-day expiry" },
+];
+
+export const ACTOR_KIND_LABEL: Record<UseCaseActorKind, string> = {
+  person: "Person",
+  system: "System",
+  time: "Time",
+};
 
 export interface UseCaseActor {
   id: string;
   project_id: string;
   name: string;
   description: string | null;
+  kind: UseCaseActorKind;
   pos: string;
   created_at: string;
   updated_at: string;
 }
 
-export type UseCaseActorInput = Pick<UseCaseActor, "name" | "description">;
+export type UseCaseActorInput = Pick<UseCaseActor, "name" | "description" | "kind">;
 
 export interface UseCase {
   id: string;

@@ -5,12 +5,13 @@
 // batches behind Save. Ported from renderReqPane() in the reference app's
 // static/js/reqpane.js.
 import { formatDateTime } from "../../../core/format";
+import { AssigneeSelect } from "../board/AssigneeSelect";
 import { AttachmentsSection } from "../board/AttachmentsSection";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
 import { IdChip, StatusChip } from "../board/chips";
 import { CommentsList } from "../board/CommentsList";
-import { ST_ICON } from "../board/constants";
+import { ST_ICON, ST_LABEL } from "../board/constants";
 import { useDialogs } from "../board/dialogs";
 import { EstimateField } from "../board/EstimateField";
 import { InlineText } from "../board/InlineText";
@@ -29,7 +30,7 @@ interface RequirementPaneProps {
 }
 
 export function RequirementPane({ requirement: r, onClose }: RequirementPaneProps) {
-  const { index, members, canWrite } = useBoard();
+  const { index, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
   const disabled = !canWrite;
@@ -45,7 +46,7 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
   const features = r.epic_id ? index.featuresOf(r.epic_id) : [];
   // A done sprint is never offered, but stays listed while it is this
   // requirement's own -- otherwise the select would silently read "backlog".
-  const sprints = index.sprints.filter((s) => s.state !== "done" || s.id === r.sprint_id);
+  const sprints = index.sprints.filter((s) => !s.closed_at || s.id === r.sprint_id);
 
   const remove = async () => {
     const ok = await dialogs.confirm({
@@ -102,7 +103,7 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
             <select value={r.status} disabled={disabled} onChange={(e) => void patch({ status: e.target.value as RequirementStatus }, { undo: true })}>
               {REQUIREMENT_STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {ST_ICON[s]} {s}
+                  {ST_ICON[s]} {ST_LABEL[s]}
                 </option>
               ))}
             </select>
@@ -158,21 +159,12 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
           </div>
           <div>
             <label>Assignee</label>
-            <select
-              value={r.assignee_id ?? ""}
+            <AssigneeSelect
+              className=""
+              value={r.assignee_id}
               disabled={disabled}
-              onChange={(e) => {
-                const v = e.target.value;
-                void patch(v ? { assignee_id: v } : { clear_assignee: true });
-              }}
-            >
-              <option value="">— unassigned —</option>
-              {members.map((m) => (
-                <option key={m.user_id} value={m.user_id}>
-                  {m.name || m.email}
-                </option>
-              ))}
-            </select>
+              onChange={(userId) => void patch(userId ? { assignee_id: userId } : { clear_assignee: true })}
+            />
           </div>
           <div>
             <label>Release</label>
@@ -211,7 +203,7 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
               {sprints.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.human_id} · {s.name}
-                  {s.state === "active" ? " (active)" : ""}
+                  {s.closed_at ? " (closed)" : ""}
                 </option>
               ))}
             </select>

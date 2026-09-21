@@ -10,14 +10,13 @@ import { Agent, createAgent, deleteAgent, updateAgent } from "./agentsApi";
 import { useBoard } from "./boardData";
 import { reorderPatches, sameRef, spOrdered } from "./boardModel";
 import { BoardComment, BoardEntityType, createBoardComment, deleteBoardComment } from "./commentsApi";
-import { nextEpicStatus } from "./constants";
+import { DELIVERY_STATUS_LABEL } from "./constants";
 import { BoardDoc, BoardDocInput, createBoardDoc, deleteBoardDoc, updateBoardDoc } from "./docsApi";
-import { rollup } from "./effort";
 import { createEpic, deleteEpic, Epic, EpicInput, EpicPatch, updateEpic } from "./epicsApi";
-import { createFeature, deleteFeature, Feature, updateFeature } from "./featuresApi";
+import { createFeature, deleteFeature, Feature, FeaturePatch, updateFeature } from "./featuresApi";
 import { createRelease, deleteRelease, Release, ReleaseCreateInput, ReleaseUpdateInput, updateRelease } from "./releasesApi";
 import { createRequirement, deleteRequirement, Requirement, RequirementInput, RequirementPatch, updateRequirement } from "./requirementsApi";
-import { createSprint, deleteSprint, Sprint, SprintInput, SprintPatch, SprintState, SprintUpdateResult, updateSprint } from "./sprintsApi";
+import { createSprint, DeliveryStatus, deleteSprint, Sprint, SprintInput, SprintPatch, SprintUpdateResult, updateSprint } from "./sprintsApi";
 import { useToast } from "./toast";
 
 export function useBoardMutations() {
@@ -98,7 +97,7 @@ export function useBoardMutations() {
         const target = sprintId ? b().index.sprintById.get(sprintId) : null;
         toast(
           target
-            ? `${r.human_id} → ${target.human_id} · ${target.name}${target.state === "active" && it.status === "Todo" ? " — agents can pick it up" : ""}`
+            ? `${r.human_id} → ${target.human_id} · ${target.name}${!target.closed_at && it.status === "NotStarted" ? " — agents can pick it up" : ""}`
             : `${r.human_id} back in the backlog${from ? ` (from ${from.human_id})` : ""}`,
         );
       } catch (err) {
@@ -176,18 +175,6 @@ export function useBoardMutations() {
       }
     }
 
-    // The lifecycle chip: advance one step. Client-side mirror of the
-    // server's gate on Done -- saves a round trip, does not replace it.
-    async function advanceEpicStatus(epic: Epic): Promise<void> {
-      const next = nextEpicStatus(epic.status);
-      const p = rollup(b().index.epicRequirements(epic.id));
-      if (next === "Done" && p.done < p.total) {
-        toast(`${epic.human_id}: ${p.total - p.done} requirement(s) not yet Done — can't close the epic yet`);
-        return;
-      }
-      await patchEpic(epic.id, { status: next });
-    }
-
     // ── features ──────────────────────────────────────────────────────────
     async function createFeatureM(epicId: string, title: string): Promise<Feature> {
       try {
@@ -200,9 +187,9 @@ export function useBoardMutations() {
       }
     }
 
-    async function patchFeature(id: string, title: string): Promise<Feature> {
+    async function patchFeature(id: string, patch: FeaturePatch): Promise<Feature> {
       try {
-        const it = await updateFeature(projectId, id, title);
+        const it = await updateFeature(projectId, id, patch);
         b().replace("features", it);
         return it;
       } catch (err) {
@@ -243,9 +230,11 @@ export function useBoardMutations() {
       }
     }
 
-    async function setReleaseShipped(release: Release, shipped: boolean): Promise<void> {
-      const it = await patchRelease(release.id, { shipped });
-      toast(shipped ? `${it.human_id} shipped 🎉` : `${it.human_id} back in flight`);
+    // A release's status moves freely -- nothing here refuses a step back.
+    // Reaching "Deployed to Live" is what the server reads as shipped.
+    async function setReleaseStatus(release: Release, status: DeliveryStatus): Promise<void> {
+      const it = await patchRelease(release.id, { status });
+      toast(status === "DeployedToLive" ? `${it.human_id} is live 🎉` : `${it.human_id} → ${DELIVERY_STATUS_LABEL[status]}`);
     }
 
     async function deleteReleaseM(release: Release): Promise<void> {
@@ -290,17 +279,25 @@ export function useBoardMutations() {
       }
     }
 
-    // ▶ Start / ✓ Complete / ↺ Reopen. Completing returns unfinished work to
-    // the backlog server-side, so the requirements are refreshed after it.
-    async function setSprintState(sprint: Sprint, state: SprintState): Promise<SprintUpdateResult> {
-      const res = await patchSprint(sprint.id, { state });
-      if (state === "active") toast(`${sprint.human_id} started — its agents can pick work up now`);
-      else if (state === "done") {
+    // A sprint's status is a free label with no side effects at all -- so
+    // this only reports the move.
+    async function setSprintStatus(sprint: Sprint, status: DeliveryStatus): Promise<SprintUpdateResult> {
+      const res = await patchSprint(sprint.id, { status });
+      toast(`${sprint.human_id} → ${DELIVERY_STATUS_LABEL[status]}`);
+      return res;
+    }
+
+    // ✓ Close / ↺ Reopen -- the control that does something. Closing returns
+    // unfinished work to the backlog server-side, so the requirements are
+    // refreshed after it.
+    async function setSprintClosed(sprint: Sprint, closed: boolean): Promise<SprintUpdateResult> {
+      const res = await patchSprint(sprint.id, { closed });
+      if (closed) {
         await b().reload(["requirements"]);
         toast(
-          `${sprint.human_id} completed${res.returned_to_backlog ? ` — ${res.returned_to_backlog} requirement(s) back in the backlog` : ""}`,
+          `${sprint.human_id} closed${res.returned_to_backlog ? ` — ${res.returned_to_backlog} requirement(s) back in the backlog` : ""}`,
         );
-      } else toast(`${sprint.human_id} reopened`);
+      } else toast(`${sprint.human_id} reopened — its agents can pick work up again`);
       return res;
     }
 
@@ -408,17 +405,17 @@ export function useBoardMutations() {
       patchEpic,
       deleteEpic: deleteEpicM,
       assignEpicToRelease,
-      advanceEpicStatus,
       createFeature: createFeatureM,
       patchFeature,
       deleteFeature: deleteFeatureM,
       createRelease: createReleaseM,
       patchRelease,
-      setReleaseShipped,
+      setReleaseStatus,
       deleteRelease: deleteReleaseM,
       createSprint: createSprintM,
       patchSprint,
-      setSprintState,
+      setSprintStatus,
+      setSprintClosed,
       deleteSprint: deleteSprintM,
       createDoc: createDocM,
       patchDoc,

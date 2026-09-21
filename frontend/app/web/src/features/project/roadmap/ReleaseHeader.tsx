@@ -1,7 +1,9 @@
 // The release page's header: the release itself -- title and description
-// edited in place, the derived date, ship / unship, comments, delete -- and
+// edited in place, the derived date, its delivery status, comments, delete -- and
 // its epics, with "＋ Add epic" to file an unassigned one here and "↩" on
-// each row to unfile it. The date is read-only on purpose: it is the end of
+// each row to unfile it. The epic list folds away (the count stays on the
+// heading) so a release carrying a dozen epics does not push its sprints off
+// the screen; the choice is remembered per release. The date is read-only on purpose: it is the end of
 // the last sprint filed under this release, so the way to move it is to move
 // that sprint. Ported from the reference app's relPageHead(), relEpicRow()
 // and shipRelease() (static/js/releases.js).
@@ -9,22 +11,25 @@ import { useNavigate } from "react-router-dom";
 import { useBoard } from "../board/boardData";
 import { releaseDue, releaseSchedule, shipGaps } from "../board/boardModel";
 import { useBoardMutations } from "../board/boardMutations";
-import { CommentButton, DueChip, EffortFigure, IdChip, ProgressBar, ProgressFigure } from "../board/chips";
+import { CommentButton, DeliveryStatusSelect, DueChip, EffortFigure, IdChip, ProgressBar, ProgressFigure } from "../board/chips";
 import { useDialogs } from "../board/dialogs";
 import { rollup } from "../board/effort";
 import { InlineText } from "../board/InlineText";
 import type { Release } from "../board/releasesApi";
-import type { Sprint } from "../board/sprintsApi";
+import type { DeliveryStatus, Sprint } from "../board/sprintsApi";
 import { useToast } from "../board/toast";
 
 interface ReleaseHeaderProps {
   release: Release;
   /** Every sprint on the board; the schedule picks out this release's. */
   sprints: Sprint[];
+  /** Whether the epic list is folded away, and the toggle for it. */
+  epicsFolded: boolean;
+  onToggleEpics: () => void;
   onComments: () => void;
 }
 
-export function ReleaseHeader({ release, sprints, onComments }: ReleaseHeaderProps) {
+export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, onComments }: ReleaseHeaderProps) {
   const { index, paths, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
@@ -38,29 +43,25 @@ export function ReleaseHeader({ release, sprints, onComments }: ReleaseHeaderPro
   const epics = index.epics.filter((e) => e.release_id === release.id);
   const shipped = !!release.shipped_at;
 
-  // Marking shipped is a human call, not a computed state: the board never
-  // blocks it, it only says what is still open.
-  const ship = async () => {
-    const gaps = shipGaps(release, backlog, sprints);
-    if (gaps.length) {
-      const ok = await dialogs.confirm({
-        title: "Ship with open work?",
-        ok: "Ship anyway",
-        danger: false,
-        message: `${release.human_id} "${release.title}" still has open work:\n• ${gaps.join("\n• ")}\n\nShip it anyway?`,
-      });
-      if (!ok) return;
+  // The status moves wherever it is pointed -- forwards, backwards, straight
+  // to live -- and nothing blocks it. Going live is the one move worth a
+  // second look, so it says what is still open first and then does it anyway
+  // if that is the answer.
+  const setStatus = async (next: DeliveryStatus) => {
+    if (next === "DeployedToLive") {
+      const gaps = shipGaps(release, backlog, sprints);
+      if (gaps.length) {
+        const ok = await dialogs.confirm({
+          title: "Go live with open work?",
+          ok: "Mark it live anyway",
+          danger: false,
+          message: `${release.human_id} "${release.title}" still has open work:\n• ${gaps.join("\n• ")}\n\nMark it Deployed to Live anyway?`,
+        });
+        if (!ok) return;
+      }
     }
     try {
-      await mutations.setReleaseShipped(release, true);
-    } catch {
-      // Already toasted.
-    }
-  };
-
-  const unship = async () => {
-    try {
-      await mutations.setReleaseShipped(release, false);
+      await mutations.setReleaseStatus(release, next);
     } catch {
       // Already toasted.
     }
@@ -122,16 +123,12 @@ export function ReleaseHeader({ release, sprints, onComments }: ReleaseHeaderPro
         )}
         <DueChip due={due} />
         <span className="spacer" />
-        {canWrite &&
-          (shipped ? (
-            <button type="button" className="btn mini-x" title="mark as not shipped after all" onClick={() => void unship()}>
-              ↶ unship
-            </button>
-          ) : (
-            <button type="button" className="btn mini-x rel-ship-go" title="mark this release as shipped" onClick={() => void ship()}>
-              ✓ Ship
-            </button>
-          ))}
+        <DeliveryStatusSelect
+          status={release.status}
+          disabled={!canWrite}
+          label={`${release.human_id} status`}
+          onChange={(s) => void setStatus(s)}
+        />
         <CommentButton count={index.commentCount(release.id)} onClick={onComments} />
         {canWrite && (
           <button type="button" className="btn mini-x danger-ink" title="delete release" onClick={() => void remove()}>
@@ -154,16 +151,24 @@ export function ReleaseHeader({ release, sprints, onComments }: ReleaseHeaderPro
         </span>
         <EffortFigure rollup={p} />
       </div>
-      <div className="rel-epics">
+      <div className={`rel-epics${epicsFolded ? " rel-epics-folded" : ""}`}>
         <div className="rel-epics-head">
-          epics ({epics.length})
+          <button
+            type="button"
+            className="btn mini-x rel-epics-fold"
+            aria-expanded={!epicsFolded}
+            title={epicsFolded ? "show this release's epics" : "hide this release's epics"}
+            onClick={onToggleEpics}
+          >
+            {epicsFolded ? "▸" : "▾"} epics ({epics.length})
+          </button>
           {canWrite && (
             <button type="button" className="btn mini-x rel-addep" title="file an unassigned epic under this release" onClick={() => void addEpic()}>
               ＋ Add epic
             </button>
           )}
         </div>
-        <div className="ms-items">
+        <div className="ms-items" hidden={epicsFolded}>
           {epics.map((e) => (
             <div
               key={e.id}

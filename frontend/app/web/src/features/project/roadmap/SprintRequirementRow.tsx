@@ -26,7 +26,7 @@ export function SprintRequirementRow({ sprint, requirement: r, queueIndex: i, qu
   const { index, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const ref = useRef<HTMLDivElement>(null);
-  const done = sprint.state === "done";
+  const done = !!sprint.closed_at;
   const draggable = canWrite && !done;
   const dragging = useDraggable(ref, draggable ? { kind: "requirement", id: r.id, from: sprint.id } : null);
 

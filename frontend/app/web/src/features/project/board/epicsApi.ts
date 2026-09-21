@@ -2,20 +2,20 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
 import type { Rollup } from "./effort";
 
-// Where the epic itself sits in the agreed Definition-of-Done lifecycle --
-// distinct from the live done/doing progress rolled up from its
-// requirements. The route refuses a transition into "Done" unless every
-// requirement under the epic is itself Done.
-export type EpicStatus = "Readiness" | "Implementation" | "ReleasedToUAT" | "HumanValidation" | "Done";
-export const EPIC_STATUSES: EpicStatus[] = ["Readiness", "Implementation", "ReleasedToUAT", "HumanValidation", "Done"];
+import type { RequirementStatus } from "./requirementsApi";
 
 export interface Epic {
   id: string;
   human_id: string;
   title: string;
   summary: string;
-  status: EpicStatus;
+  // Rolled up by the server from every requirement under this epic --
+  // attached directly, or through one of its features. Read-only: it moves
+  // by moving the work, which is why no input type below accepts it.
+  status: RequirementStatus;
   release_id: string | null;
+  /** Who is looking after the epic; null is unassigned. */
+  assignee_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -23,16 +23,19 @@ export interface Epic {
 export interface EpicInput {
   title: string;
   summary: string;
-  status?: EpicStatus;
   release_id: string | null;
+  assignee_id?: string | null;
 }
 
 export interface EpicPatch {
   title?: string;
   summary?: string;
-  status?: EpicStatus;
   release_id?: string | null;
   clear_release?: boolean;
+  // Null on the wire means "leave it alone", as it does for release_id;
+  // clearing an assignment is the flag.
+  assignee_id?: string | null;
+  clear_assignee?: boolean;
 }
 
 export interface BoardSummary {

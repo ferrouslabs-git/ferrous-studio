@@ -25,7 +25,8 @@ const sprint = (o: Partial<Sprint> & { id: string; human_id: string }): Sprint =
   goal: "",
   start_date: null,
   end_date: null,
-  state: "planned",
+  status: "NotStarted",
+  closed_at: null,
   release_id: null,
   capacity_hours: null,
   created_at: "",
@@ -37,7 +38,7 @@ const req = (o: Partial<Requirement> & { id: string; human_id: string }): Requir
   body: "",
   epic_id: null,
   feature_id: null,
-  status: "Todo",
+  status: "NotStarted",
   blocked_from: null,
   priority: "Medium",
   assignee_id: null,
@@ -55,8 +56,9 @@ const release = (o: Partial<Release> & { id: string; human_id: string }): Releas
   title: o.id,
   date: null,
   description: "",
+  status: "NotStarted",
   shipped_at: null,
-  progress: { total: 0, done: 0, doing: 0, review: 0, pct: 0, hours: 0, hours_done: 0, estimated: 0, unestimated: 0, coverage: 1 },
+  progress: { total: 0, done: 0, in_progress: 0, to_test: 0, pct: 0, hours: 0, hours_done: 0, estimated: 0, unestimated: 0, coverage: 1 },
   created_at: "",
   updated_at: "",
   ...o,
@@ -70,9 +72,11 @@ describe("ids and inheritance", () => {
   });
   it("derives the effective epic from the feature and the release from the epic", () => {
     const epics = new Map<string, Epic>([
-      ["e1", { id: "e1", human_id: "E1", title: "", summary: "", status: "Readiness", release_id: "r1", created_at: "", updated_at: "" }],
+      ["e1", { id: "e1", human_id: "E1", title: "", summary: "", status: "NotStarted", release_id: "r1", assignee_id: null, created_at: "", updated_at: "" }],
     ]);
-    const features = new Map<string, Feature>([["f1", { id: "f1", human_id: "F1", epic_id: "e1", title: "", created_at: "", updated_at: "" }]]);
+    const features = new Map<string, Feature>([
+      ["f1", { id: "f1", human_id: "F1", epic_id: "e1", title: "", status: "NotStarted", assignee_id: null, created_at: "", updated_at: "" }],
+    ]);
     const viaFeature = req({ id: "a", human_id: "REQ-1", feature_id: "f1" });
     expect(effectiveEpicId(viaFeature, features)).toBe("e1");
     expect(effectiveReleaseId(viaFeature, epics, features)).toBe("r1");
@@ -114,24 +118,24 @@ describe("releases", () => {
     });
     expect(releaseDue(release({ id: "r1", human_id: "REL1" }), sprints, new Date("2026-11-15T23:59:59")).label).toBe("due today");
   });
-  it("lists what is still open before shipping", () => {
+  it("lists what is still open before going live", () => {
     const r = release({ id: "r1", human_id: "REL1" });
     const backlog = [req({ id: "a", human_id: "REQ-1", status: "Done" }), req({ id: "b", human_id: "REQ-2" })];
-    const live = [sprint({ id: "s1", human_id: "S1", release_id: "r1", state: "active" })];
+    const live = [sprint({ id: "s1", human_id: "S1", release_id: "r1" })];
     expect(shipGaps(r, backlog, live)).toEqual(["1 requirement is not Done", "1 sprint still open (S1)"]);
     expect(shipGaps(r, [backlog[0]], [])).toEqual([]);
   });
 });
 
 describe("sprints", () => {
-  it("orders active, planned, done and newest first within a state", () => {
+  it("orders open before closed, newest first within each, ignoring status", () => {
     const ss = [
-      sprint({ id: "s1", human_id: "S1", state: "done" }),
-      sprint({ id: "s2", human_id: "S2", state: "active" }),
-      sprint({ id: "s3", human_id: "S3", state: "planned" }),
-      sprint({ id: "s4", human_id: "S4", state: "active" }),
+      sprint({ id: "s1", human_id: "S1", closed_at: "2026-09-01T00:00:00" }),
+      sprint({ id: "s2", human_id: "S2", status: "DeployedToLive" }),
+      sprint({ id: "s3", human_id: "S3" }),
+      sprint({ id: "s4", human_id: "S4", status: "InProgress" }),
     ];
-    expect(sortSprints(ss).map((s) => s.id)).toEqual(["s4", "s2", "s3", "s1"]);
+    expect(sortSprints(ss).map((s) => s.id)).toEqual(["s4", "s3", "s2", "s1"]);
   });
   it("lists a release's sprints by start date with undated ones last", () => {
     const ss = [
@@ -151,11 +155,11 @@ describe("sprints", () => {
     ];
     expect(spOrdered(rs).map((r) => r.id)).toEqual(["c", "b", "a"]);
   });
-  it("reflows only the Todo items around a new slot and reports the changed ones", () => {
+  it("reflows only the not-started items around a new slot and reports the changed ones", () => {
     const rs = [
       req({ id: "a", human_id: "REQ-1", queue_position: 1 }),
       req({ id: "b", human_id: "REQ-2", queue_position: 2 }),
-      req({ id: "c", human_id: "REQ-3", queue_position: 3, status: "Doing" }),
+      req({ id: "c", human_id: "REQ-3", queue_position: 3, status: "InProgress" }),
       req({ id: "d", human_id: "REQ-4", queue_position: 4 }),
     ];
     expect(reorderPatches(spOrdered(rs), rs[3], 1)).toEqual([
@@ -171,10 +175,10 @@ describe("sprints", () => {
   });
   it("averages delivered hours over the last finished sprints, skipping empty ones", () => {
     const ss = [
-      sprint({ id: "s1", human_id: "S1", state: "done" }),
-      sprint({ id: "s2", human_id: "S2", state: "done" }),
-      sprint({ id: "s3", human_id: "S3", state: "done" }),
-      sprint({ id: "s4", human_id: "S4", state: "done" }),
+      sprint({ id: "s1", human_id: "S1", closed_at: "2026-09-01T00:00:00" }),
+      sprint({ id: "s2", human_id: "S2", closed_at: "2026-09-02T00:00:00" }),
+      sprint({ id: "s3", human_id: "S3", closed_at: "2026-09-03T00:00:00" }),
+      sprint({ id: "s4", human_id: "S4", closed_at: "2026-09-04T00:00:00" }),
     ];
     const rs = [
       req({ id: "a", human_id: "REQ-1", sprint_id: "s4", status: "Done", estimate_hours: 8 }),

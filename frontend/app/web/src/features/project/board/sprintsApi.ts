@@ -5,8 +5,25 @@ import type { BoardComment } from "./commentsApi";
 import type { BoardEvent } from "./eventsApi";
 import type { Requirement } from "./requirementsApi";
 
-export type SprintState = "planned" | "active" | "done";
-export const SPRINT_STATES: SprintState[] = ["planned", "active", "done"];
+// How far a sprint's or a release's work has been pushed towards live.
+// Deliberately non-linear: any value, any order, forwards or back, and
+// nothing at all keys off it -- what used to (only an "active" sprint could
+// be worked, "done" emptied it) now hangs off Sprint.closed_at instead.
+export type DeliveryStatus =
+  | "NotStarted"
+  | "InProgress"
+  | "ToTest"
+  | "DeployedToUAT"
+  | "DeployedToStaging"
+  | "DeployedToLive";
+export const DELIVERY_STATUSES: DeliveryStatus[] = [
+  "NotStarted",
+  "InProgress",
+  "ToTest",
+  "DeployedToUAT",
+  "DeployedToStaging",
+  "DeployedToLive",
+];
 
 export interface Sprint {
   id: string;
@@ -15,7 +32,11 @@ export interface Sprint {
   goal: string;
   start_date: string | null;
   end_date: string | null;
-  state: SprintState;
+  status: DeliveryStatus;
+  // When the sprint was closed; null = open. Closing returns unfinished
+  // requirements to the backlog and locks the board; agents work any open
+  // sprint. Set through SprintPatch's `closed`, never written directly.
+  closed_at: string | null;
   // A sprint always belongs to a release (the server refuses one without);
   // null only on rows from before that rule, which the UI files on request.
   release_id: string | null;
@@ -32,17 +53,21 @@ export interface SprintInput {
   end_date: string | null;
   release_id: string;
   capacity_hours: number | null;
+  status?: DeliveryStatus;
 }
 
 export type SprintPatch = Partial<Omit<SprintInput, "release_id">> & {
   release_id?: string;
-  state?: SprintState;
+  status?: DeliveryStatus;
+  // true closes the sprint, false reopens it. Reopening only clears the
+  // flag -- work the close let go stays wherever it was refiled.
+  closed?: boolean;
 };
 
 export interface SprintUpdateResult {
   sprint: Sprint;
-  // Populated only on a -> done transition: how many unfinished requirements
-  // were returned to the backlog.
+  // Populated only when a patch closed the sprint: how many unfinished
+  // requirements were returned to the backlog.
   returned_to_backlog: number;
 }
 

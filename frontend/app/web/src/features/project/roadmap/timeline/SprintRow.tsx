@@ -5,7 +5,8 @@
 // tlSprintRow (static/js/timeline.js).
 import { useNavigate } from "react-router-dom";
 import { useBoard } from "../../board/boardData";
-import { SprintStateChip } from "../../board/chips";
+import { DeliveryStatusChip } from "../../board/chips";
+import { DELIVERY_STATUS_LABEL } from "../../board/constants";
 import { DEFAULT_CAPACITY_HOURS } from "../../board/constants";
 import { fmtEffort, rollup } from "../../board/effort";
 import { Icon } from "../../board/icons";
@@ -29,14 +30,14 @@ export function SprintRow({ sprint, w }: { sprint: Sprint; w: TimeWindow | null 
 
   return (
     <TimelineRow
-      cls={`tl-sprint tl-sp-${sprint.state}`}
+      cls={`tl-sprint tl-sp-${sprint.closed_at ? "closed" : "open"}`}
       id={sprint.id}
       pre={<Icon name="timer" small />}
       label={`${sprint.human_id} · ${sprint.name}`}
       onClick={() => navigate(paths.sprint(sprint.id))}
       meta={
         <>
-          <SprintStateChip state={sprint.state} />
+          <DeliveryStatusChip status={sprint.status} />
           <span className={`sp-cap-fig${over ? " over" : ""}`}>
             {fmtEffort(p.hours)} / {fmtEffort(cap)}
           </span>
@@ -48,7 +49,7 @@ export function SprintRow({ sprint, w }: { sprint: Sprint; w: TimeWindow | null 
           className={`tl-bar tl-bar-sprint${over ? " tl-over" : ""}`}
           style={tlBarStyle(w, start, end)}
           title={
-            `${sprint.name} · ${sprint.state} · ${start} → ${end} — committed ${fmtEffort(p.hours)} of ${fmtEffort(cap)}` +
+            `${sprint.name} · ${DELIVERY_STATUS_LABEL[sprint.status]}${sprint.closed_at ? " · closed" : ""} · ${start} → ${end} — committed ${fmtEffort(p.hours)} of ${fmtEffort(cap)}` +
             (over ? " (over capacity)" : "") +
             (crew.length ? ` · ${crew.length} agent(s)` : "")
           }

@@ -20,10 +20,11 @@ export interface TimelineFolds {
 }
 
 interface FoldBarProps {
-  /** The release, or null for the Unassigned card. */
+  /** The release, or null for the Unfiled card. */
   releaseId: string | null;
   sprints: Sprint[];
-  epics: Epic[];
+  /** Omitted on the Unfiled card, which no longer lists epics. */
+  epics?: Epic[];
   folds: TimelineFolds;
 }
 
@@ -61,11 +62,12 @@ export function FoldBar({ releaseId, sprints, epics, folds }: FoldBarProps) {
     </>
   ) : null;
 
-  // The Unassigned card only shows its sprints button when it has loose sprints.
+  // The Unfiled card only shows its sprints button when it has loose sprints,
+  // and has no epics button at all.
   return (
     <div className="tl-cardbar">
       {sprints.length || releaseId ? button("sprints", sprints.length, crewInline) : null}
-      {button("epics", epics.length, null)}
+      {epics ? button("epics", epics.length, null) : null}
     </div>
   );
 }

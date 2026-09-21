@@ -34,7 +34,7 @@ from .catalog import BUNDLE_FORMAT_GUIDE, Catalog, get_catalog
 from .common import get_wireframe, get_writable_project, next_pos, require_studio_permission
 from .models import Dataset, Persona, Project, ProjectDiagram, UseCase, UseCaseActor, Wireframe, utc_now
 from .ops import BACK_PAGE_ID, remap_dataset_ids
-from .schemas import DiagramKind, InterfaceType
+from .schemas import DiagramKind, InterfaceType, UseCaseActorKind
 # _set_actors/_set_personas/_snapshot/insert_pages/wireframe_pages are
 # wireframes.py's own "create/replace a whole wireframe's worth of state at
 # once" helpers -- exactly what copy_version_to_wireframe and restore_version
@@ -409,6 +409,14 @@ def _validate_diagram(diagram: Any, path: str, errors: list[BundleError], catalo
 
 def _validate_use_cases(bundle: dict[str, Any], errors: list[BundleError]) -> None:
     actor_names = {a.get("name", "").casefold() for a in bundle.get("actors") or [] if isinstance(a, dict)}
+    # ``kind`` is optional and defaults to "person", so an older bundle stays
+    # valid; a value outside the vocabulary has no glyph and is rejected.
+    for i, actor in enumerate(bundle.get("actors") or []):
+        if not isinstance(actor, dict):
+            continue
+        kind = actor.get("kind")
+        if kind is not None and kind not in get_args(UseCaseActorKind):
+            errors.append(BundleError(f"actors[{i}].kind", f'"{kind}" is not a known actor kind'))
     for i, use_case in enumerate(bundle.get("useCases") or []):
         if not isinstance(use_case, dict):
             errors.append(BundleError(f"useCases[{i}]", "a use case must be an object"))
@@ -523,11 +531,13 @@ async def _resolve_actors(
         if resolve_by_name(name, by_name) is not None:
             matched += 1
             continue
+        kind = entry.get("kind")
         row = UseCaseActor(
             project_id=project.id,
             account_id=project.account_id,
             name=name,
             description=entry.get("description"),
+            kind=kind if kind in get_args(UseCaseActorKind) else "person",
             pos=await next_pos(db, UseCaseActor, UseCaseActor.project_id == project.id),
             created_by=ctx.user_id,
         )

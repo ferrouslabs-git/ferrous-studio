@@ -2,10 +2,14 @@
 // time axis: its head is the release bar, then one row per sprint filed
 // under it (sized by committed-vs-capacity, its agents as chips), then one
 // row per epic in it (a bar if its work is in a dated sprint, "no sprint
-// yet" otherwise). A last, dashed card holds the epics in no release -- and
-// this is where an EPIC IS PUT INTO A RELEASE: drag its row onto a card, or
-// ⇄ on the row. Every row drills in: release → its page, sprint → its
-// board, epic → its page.
+// yet" otherwise). An EPIC IS PUT INTO A RELEASE here: drag its row onto
+// another card, or ⇄ on the row. Every row drills in: release → its page,
+// sprint → its board, epic → its page.
+//
+// A last, dashed card shows up only when something has fallen outside the
+// structure -- a sprint under no release, a requirement under no epic. It
+// used to list the epics in no release as well; that moved to the Epics
+// tab's release filter on 2026-09-18.
 //
 // Two rules keep this honest, and both are deliberate (see
 // timeline/timelineMath.ts): every date comes from a sprint, and hours
@@ -106,9 +110,10 @@ function Roadmap({ data }: { data: BoardData }) {
 
   const w = useMemo(() => tlWindow(data.sprints), [data.sprints]);
   const first = index.releases.length ? index.releases[0] : null;
-  // Requirements in no epic are listed on the Unassigned card, which must
-  // therefore still render when nothing is dated yet.
-  const hasOrphans = data.requirements.some((r) => index.effectiveEpicId(r) === null);
+  // The Unfiled card earns its place only when it has something on it, and
+  // must still render when nothing on the board is dated yet.
+  const hasUnfiled =
+    data.requirements.some((r) => index.effectiveEpicId(r) === null) || data.sprints.some((s) => !s.release_id);
 
   return (
     <div className="page board-page">
@@ -162,7 +167,7 @@ function Roadmap({ data }: { data: BoardData }) {
         </div>
       )}
 
-      {(w || hasOrphans) && <UnassignedCard w={w} folds={folds} onOpenRequirement={(r) => setReqId(r.id)} />}
+      {hasUnfiled && <UnassignedCard w={w} folds={folds} onOpenRequirement={(r) => setReqId(r.id)} />}
 
       <RequirementDrawer open={drawerReq !== null} requirement={drawerReq} onClose={closeReq} />
     </div>

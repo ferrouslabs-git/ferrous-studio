@@ -156,9 +156,10 @@ UPDATE_WIREFRAME_TOOL: dict[str, Any] = {
 CREATE_EPIC_TOOL: dict[str, Any] = {
     "name": "create_epic",
     "description": (
-        "Create an epic on this project's delivery board. New epics always start at "
-        "status \"Readiness\". Returns the created epic's id, which you can pass as "
-        "epic_id to create_requirement to file requirements under it in the same reply."
+        "Create an epic on this project's delivery board. An epic has no status of "
+        "its own -- it is rolled up from the requirements under it. Returns the "
+        "created epic's id, which you can pass as epic_id to create_requirement to "
+        "file requirements under it in the same reply."
     ),
     "input_schema": {
         "type": "object",
@@ -193,7 +194,7 @@ CREATE_REQUIREMENT_TOOL: dict[str, Any] = {
     "name": "create_requirement",
     "description": (
         "Create a requirement on this project's delivery board. Starts at status "
-        "\"Todo\". Pass epic_id (from a create_epic result earlier in this conversation, "
+        "\"NotStarted\". Pass epic_id (from a create_epic result earlier in this conversation, "
         "or one the user names) to file it directly under an epic, or feature_id (from a "
         "create_feature result) to file it under a feature instead -- pass at most one of "
         "the two. Omit both to leave the requirement unfiled."
@@ -249,8 +250,9 @@ SYSTEM_PROMPT = (
     "confirmation before creating or updating; mentioning what already exists is "
     "just keeping them informed, not a gate to wait on.\n\n"
     "If you have create_epic/create_feature/create_requirement available: new "
-    'epics start at status "Readiness", new requirements at "Todo". Create an '
-    "epic before its features or requirements when more than one is wanted, so "
+    "requirements start at status \"NotStarted\", and an epic's status is rolled "
+    "up from them. Create an epic before its features or requirements when more "
+    "than one is wanted, so "
     "you can pass the epic's real id (from that tool's own result) as epic_id -- "
     "never invent an id. A feature always needs a real epic_id too. A "
     "requirement can go straight under an epic (epic_id) or under a feature "

@@ -128,7 +128,7 @@ async def queue_agent_run_route(
     if result == QueueResult.NOT_FOUND:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requirement not found")
     if result == QueueResult.NOT_QUEUABLE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Requirement is not in Todo")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Requirement is not in Not started")
 
     launch_message = await launch_agent_task(result)
     await db.commit()

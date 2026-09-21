@@ -146,6 +146,10 @@ async def copy_project(
         name=source.name,
         description=source.description,
         rationale=source.rationale,
+        physical_setup=source.physical_setup,
+        hosting=source.hosting,
+        latency_goal=source.latency_goal,
+        accuracy_goal=source.accuracy_goal,
         status=source.status,
         custom_components=source.custom_components or [],
         schema_version=source.schema_version,
@@ -195,7 +199,7 @@ async def copy_project(
 
     actor_map: dict[UUID, UUID] = {}
     for row in await _rows(db, UseCaseActor, source, UseCaseActor.pos.asc()):
-        new = child(UseCaseActor, name=row.name, description=row.description, pos=row.pos, created_by=row.created_by)
+        new = child(UseCaseActor, name=row.name, description=row.description, kind=row.kind, pos=row.pos, created_by=row.created_by)
         actor_map[row.id] = new.id
         db.add(new)
 
@@ -444,6 +448,7 @@ async def _copy_documents(db: AsyncSession, source: Project, copy: Project) -> l
                 size_bytes=row.size_bytes,
                 s3_key=new_key,
                 status="pending",
+                purpose=row.purpose,
                 uploaded_by=row.uploaded_by,
             )
         )

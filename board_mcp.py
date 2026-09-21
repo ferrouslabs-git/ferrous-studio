@@ -123,10 +123,11 @@ def recent_activity(limit: int = 30, entity_type: str | None = None, entity_id: 
 @mcp.tool()
 def list_releases() -> dict:
     """Every release, with its derived date (the end of its latest sprint,
-    not something anyone sets directly), shipped status, and progress over
-    every requirement whose effective release is this one -- total/done/
-    doing/review/pct, hours/hours_done from the estimates that exist, and
-    estimated/unestimated/coverage saying how complete those are."""
+    not something anyone sets directly), its delivery status, and progress
+    over every requirement whose effective release is this one -- total/
+    done/in_progress/to_test/pct, hours/hours_done from the estimates that
+    exist, and estimated/unestimated/coverage saying how complete those
+    are."""
     return {"releases": _call("GET", "/releases")}
 
 
@@ -141,10 +142,13 @@ def create_release(title: str, description: str = "") -> dict:
 
 
 @mcp.tool()
-def update_release(release_id: str, title: str | None = None, description: str | None = None, shipped: bool | None = None) -> dict:
-    """Set shipped=true/false to mark a release shipped or not -- a human
-    judgement call, never computed. Everything else is a plain field edit."""
-    return _call("PATCH", f"/releases/{release_id}", _patch_of(title=title, description=description, shipped=shipped))
+def update_release(release_id: str, title: str | None = None, description: str | None = None, status: str | None = None) -> dict:
+    """status: NotStarted | InProgress | ToTest | DeployedToUAT |
+    DeployedToStaging | DeployedToLive. Non-linear: any value, any
+    direction, and nothing refuses a step back. Reaching DeployedToLive is
+    what marks the release shipped (the server stamps shipped_at the first
+    time it gets there, and never clears it afterwards)."""
+    return _call("PATCH", f"/releases/{release_id}", _patch_of(title=title, description=description, status=status))
 
 
 # ── Epics ────────────────────────────────────────────────────────────────
@@ -152,8 +156,9 @@ def update_release(release_id: str, title: str | None = None, description: str |
 
 @mcp.tool()
 def list_epics() -> dict:
-    """Every epic -- title, summary, lifecycle status (Readiness ->
-    Implementation -> ReleasedToUAT -> HumanValidation -> Done), release."""
+    """Every epic -- title, summary, release, and a read-only ``status``
+    rolled up from the requirements under it (direct, or via one of its
+    features): NotStarted | InProgress | ToTest | Done | Blocked."""
     return {"epics": _call("GET", "/epics")}
 
 
@@ -164,16 +169,14 @@ def get_epic(epic_id: str) -> dict:
 
 @mcp.tool()
 def create_epic(title: str, summary: str = "", release_id: str | None = None) -> dict:
-    """New epics always start at status Readiness."""
     return _call("POST", "/epics", _patch_of(title=title, summary=summary, release_id=release_id))
 
 
 @mcp.tool()
-def update_epic(epic_id: str, title: str | None = None, summary: str | None = None, status: str | None = None, release_id: str | None = None) -> dict:
-    """status transitions into 'Done' are refused (HTTP 409) unless every
-    requirement under the epic -- direct, or via one of its features -- is
-    itself Done."""
-    return _call("PATCH", f"/epics/{epic_id}", _patch_of(title=title, summary=summary, status=status, release_id=release_id))
+def update_epic(epic_id: str, title: str | None = None, summary: str | None = None, release_id: str | None = None) -> dict:
+    """No status: an epic's is rolled up from its requirements, so an epic
+    moves on by the work under it moving on."""
+    return _call("PATCH", f"/epics/{epic_id}", _patch_of(title=title, summary=summary, release_id=release_id))
 
 
 # ── Features ─────────────────────────────────────────────────────────────
@@ -219,11 +222,17 @@ def create_sprint(name: str, release_id: str, goal: str = "", start_date: str | 
 
 
 @mcp.tool()
-def update_sprint(sprint_id: str, name: str | None = None, goal: str | None = None, start_date: str | None = None, end_date: str | None = None, state: str | None = None) -> dict:
-    """state: planned | active | done. Several sprints may be active at
-    once; completing one (-> done) returns its non-Done requirements to the
-    backlog and clears their queue positions."""
-    return _call("PATCH", f"/sprints/{sprint_id}", _patch_of(name=name, goal=goal, start_date=start_date, end_date=end_date, state=state))
+def update_sprint(sprint_id: str, name: str | None = None, goal: str | None = None, start_date: str | None = None, end_date: str | None = None, status: str | None = None, closed: bool | None = None) -> dict:
+    """status: NotStarted | InProgress | ToTest | DeployedToUAT |
+    DeployedToStaging | DeployedToLive -- a free label, non-linear, with no
+    side effects whatsoever.
+
+    closed=true is the one that does something: it returns the sprint's
+    non-Done requirements to the backlog, clears their queue positions and
+    locks the board. closed=false reopens it (the work it let go stays
+    wherever it was refiled). Agents work any sprint that is not closed,
+    and several may be open at once."""
+    return _call("PATCH", f"/sprints/{sprint_id}", _patch_of(name=name, goal=goal, start_date=start_date, end_date=end_date, status=status, closed=closed))
 
 
 # ── Requirements ─────────────────────────────────────────────────────────
@@ -231,8 +240,9 @@ def update_sprint(sprint_id: str, name: str | None = None, goal: str | None = No
 
 @mcp.tool()
 def list_requirements(status: str | None = None, epic_id: str | None = None, feature_id: str | None = None, sprint_id: str | None = None) -> dict:
-    """Requirements, optionally filtered by status (Todo | Doing | Review |
-    Blocked | Done), epic, feature, or sprint. Each result carries its
+    """Requirements, optionally filtered by status (NotStarted |
+    InProgress | ToTest | Done | Blocked), epic, feature, or sprint. Each
+    result carries its
     *effective* epic/release (its own value if set, else inherited via its
     feature/epic) as effective_epic_id/effective_release_id -- already
     computed server-side, not something to work out here."""
@@ -274,11 +284,12 @@ def update_requirement(
     release_id: str | None = None, sprint_id: str | None = None,
     queue_position: int | None = None,
 ) -> dict:
-    """status: Todo | Doing | Review | Blocked | Done. Moving into Blocked
-    records which of the three in-flight stages to return to when
-    unblocked automatically -- there's nothing to pass for that. Moving a
-    requirement into a sprint resets a stale Doing/Review/Blocked back to
-    Todo automatically too, unless it's already Done.
+    """status: NotStarted | InProgress | ToTest | Done | Blocked. Moving
+    into Blocked records which of the three in-flight stages to return to
+    when unblocked automatically -- there's nothing to pass for that.
+    Moving a requirement into a sprint resets a stale
+    InProgress/ToTest/Blocked back to NotStarted automatically too, unless
+    it's already Done.
 
     queue_position: the requirement's position within its sprint's work
     order (lower first; unordered ones sort last). It cannot be cleared via
@@ -292,7 +303,7 @@ def update_requirement(
 
 @mcp.tool()
 def claim_requirement(requirement_id: str) -> dict:
-    """Atomically move a Todo requirement to Doing. Fails (409) if it's
+    """Atomically move a NotStarted requirement to InProgress. Fails (409) if it's
     already claimed by the time this runs -- the safe way for more than one
     agent to compete for the same queue without both believing they won."""
     return _call("POST", f"/requirements/{requirement_id}/claim")
