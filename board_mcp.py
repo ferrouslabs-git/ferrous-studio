@@ -12,7 +12,12 @@ touch what FastAPI/pydantic/starlette versions the server itself runs:
 
 Env:
   FERROUS_STUDIO_URL     base URL, e.g. https://studio.ferrouslabs.co.uk
-  FERROUS_STUDIO_PROJECT the project's UUID (from its URL in the app)
+  FERROUS_STUDIO_PROJECT the project's UUID (from its URL in the app) --
+                         optional; if left unset, it's resolved once via
+                         the whoami() tool the first time it's needed and
+                         cached from then on (only works for a token
+                         minted after this existed -- see BoardToken's
+                         own docstring in app/studio/board/models.py)
   FERROUS_BOARD_TOKEN    a board token minted via
                          POST /api/studio/projects/{project_id}/board/tokens
                          (account_admin only) -- shown once at creation
@@ -24,6 +29,15 @@ Ids here are real UUIDs, not the human-readable REL1/E3/REQ-12 form shown
 in the app -- Ferrous Studio's REST routes take the UUID, the human_id is
 display-only. Every list/get result carries both, so map from one to the
 other by reading a list first rather than guessing.
+
+Every tool that connects one thing to another (a feature's epic_id, a
+sprint's release_id, a requirement's epic_id/feature_id/release_id/
+sprint_id, a comment's entity_id, ...) takes a real id and nothing else --
+the server checks it belongs to this board and refuses anything that
+doesn't. If the user's request doesn't already name which one they mean,
+call the matching list_* tool first and match by name; if more than one
+is plausible, ask rather than guessing. Never invent an id -- a made-up
+one is refused the same as a real id from a different board would be.
 
 Board tools ported from software-management's sma_mcp.py, adapted to
 Ferrous Studio's REST shapes: a requirement's inherited epic/release
@@ -52,17 +66,20 @@ except ImportError:                             # mcp SDK 1.x
     from mcp.server.fastmcp import FastMCP
 
 BASE = os.environ.get("FERROUS_STUDIO_URL", "").rstrip("/")
-PROJECT_ID = os.environ.get("FERROUS_STUDIO_PROJECT", "")
+#: May be empty -- resolved lazily via whoami() the first time a project-
+#: scoped call actually needs it, and cached here for the rest of this
+#: process's run. FERROUS_STUDIO_PROJECT still wins when it is set (no
+#: network round trip needed); this only covers a token whose .mcp.json
+#: never had it filled in, or lost it.
+_PROJECT_ID = os.environ.get("FERROUS_STUDIO_PROJECT", "")
 TOKEN = os.environ.get("FERROUS_BOARD_TOKEN", "")
 
 mcp = FastMCP("ferrous-studio-board")
 
 
 def _request(method: str, url: str, body: dict | None = None):
-    if not BASE or not PROJECT_ID or not TOKEN:
-        raise RuntimeError(
-            "FERROUS_STUDIO_URL, FERROUS_STUDIO_PROJECT and FERROUS_BOARD_TOKEN must all be set"
-        )
+    if not BASE or not TOKEN:
+        raise RuntimeError("FERROUS_STUDIO_URL and FERROUS_BOARD_TOKEN must both be set")
     req = urllib.request.Request(url, method=method)
     req.add_header("Authorization", "Bearer " + TOKEN)
     req.add_header("Content-Type", "application/json")
@@ -76,16 +93,27 @@ def _request(method: str, url: str, body: dict | None = None):
     return json.loads(payload) if payload else None
 
 
+def _project_id() -> str:
+    """FERROUS_STUDIO_PROJECT if it was set; otherwise resolved once via
+    GET /board/whoami (the one endpoint that needs no project id of its
+    own) and cached for every call after. Raises the same RuntimeError
+    whoami() itself would if the token has no known project."""
+    global _PROJECT_ID
+    if not _PROJECT_ID:
+        _PROJECT_ID = _request("GET", f"{BASE}/api/studio/board/whoami")["project_id"]
+    return _PROJECT_ID
+
+
 def _call(method: str, path: str, body: dict | None = None):
-    """A board endpoint: .../projects/{PROJECT_ID}/board<path>."""
-    return _request(method, f"{BASE}/api/studio/projects/{PROJECT_ID}/board{path}", body)
+    """A board endpoint: .../projects/{project_id}/board<path>."""
+    return _request(method, f"{BASE}/api/studio/projects/{_project_id()}/board{path}", body)
 
 
 def _studio_call(method: str, path: str, body: dict | None = None):
     """A non-board studio endpoint (wireframes, diagrams, import):
-    .../projects/{PROJECT_ID}<path> -- no /board segment, since these
+    .../projects/{project_id}<path> -- no /board segment, since these
     predate the board feature and were never nested under it."""
-    return _request(method, f"{BASE}/api/studio/projects/{PROJECT_ID}{path}", body)
+    return _request(method, f"{BASE}/api/studio/projects/{_project_id()}{path}", body)
 
 
 def _patch_of(**kwargs) -> dict:
@@ -93,6 +121,16 @@ def _patch_of(**kwargs) -> dict:
 
 
 # ── Overview ──────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def whoami() -> dict:
+    """Which project this board token is for -- {project_id, project_name}.
+    Only needed to check explicitly if FERROUS_STUDIO_PROJECT was never
+    set in this connection's config: every other tool already resolves and
+    caches this automatically the first time it's needed. Fails if the
+    token predates this feature (no project recorded at mint time)."""
+    return _request("GET", f"{BASE}/api/studio/board/whoami")
 
 
 @mcp.tool()
@@ -169,13 +207,19 @@ def get_epic(epic_id: str) -> dict:
 
 @mcp.tool()
 def create_epic(title: str, summary: str = "", release_id: str | None = None) -> dict:
+    """An epic carries no status of its own -- it is rolled up from the
+    requirements under it. release_id is optional: only pass it if the
+    request names a release, resolved via list_releases first; omit it to
+    leave the epic unfiled."""
     return _call("POST", "/epics", _patch_of(title=title, summary=summary, release_id=release_id))
 
 
 @mcp.tool()
 def update_epic(epic_id: str, title: str | None = None, summary: str | None = None, release_id: str | None = None) -> dict:
     """No status: an epic's is rolled up from its requirements, so an epic
-    moves on by the work under it moving on."""
+    moves on by the work under it moving on. release_id: same rule as
+    create_epic -- only pass it if the request names a release, resolved via
+    list_releases first."""
     return _call("PATCH", f"/epics/{epic_id}", _patch_of(title=title, summary=summary, release_id=release_id))
 
 
@@ -190,7 +234,9 @@ def list_features(epic_id: str | None = None) -> dict:
 @mcp.tool()
 def create_feature(epic_id: str, title: str) -> dict:
     """Organising a requirement into a feature is a human-curated step --
-    nothing calls this automatically."""
+    nothing calls this automatically. epic_id is required -- a feature
+    cannot exist without one. If the request doesn't say which epic, call
+    list_epics first and match by name, or ask if it's unclear."""
     return _call("POST", "/features", {"epic_id": epic_id, "title": title})
 
 
@@ -215,9 +261,10 @@ def get_sprint_burndown(sprint_id: str) -> dict:
 @mcp.tool()
 def create_sprint(name: str, release_id: str, goal: str = "", start_date: str | None = None, end_date: str | None = None) -> dict:
     """A sprint must belong to a release -- the server refuses one without
-    a release_id (HTTP 422). A release's date is the end of the latest
-    sprint filed under it, so giving a sprint an end_date is how you move
-    that release's date."""
+    a release_id (HTTP 422). If the request doesn't say which release,
+    call list_releases first and match by name, or ask if it's unclear.
+    A release's date is the end of the latest sprint filed under it, so
+    giving a sprint an end_date is how you move that release's date."""
     return _call("POST", "/sprints", _patch_of(name=name, release_id=release_id, goal=goal, start_date=start_date, end_date=end_date))
 
 
@@ -270,6 +317,13 @@ def create_requirement(
     title: str, body: str = "", epic_id: str | None = None, feature_id: str | None = None,
     priority: str = "Medium", release_id: str | None = None, sprint_id: str | None = None,
 ) -> dict:
+    """epic_id/feature_id/release_id/sprint_id are all optional -- omit any
+    the request doesn't call for rather than guessing a value, and it's
+    simply left unfiled on that dimension. When one is named, resolve it
+    the same way as everywhere else: list_epics/list_features/
+    list_releases/list_sprints first if you don't already have the real
+    id, never invent one. Pass at most one of epic_id/feature_id (a
+    feature already belongs to an epic; the two must not disagree)."""
     return _call("POST", "/requirements", _patch_of(
         title=title, body=body, epic_id=epic_id, feature_id=feature_id,
         priority=priority, release_id=release_id, sprint_id=sprint_id,
@@ -290,6 +344,11 @@ def update_requirement(
     Moving a requirement into a sprint resets a stale
     InProgress/ToTest/Blocked back to NotStarted automatically too, unless
     it's already Done.
+
+    epic_id/feature_id/release_id/sprint_id: same rule as create_requirement
+    -- only pass one if the request actually names it, resolved via the
+    matching list_* tool first, never invented. Omit the rest; they're left
+    exactly as they already are.
 
     queue_position: the requirement's position within its sprint's work
     order (lower first; unordered ones sort last). It cannot be cleared via
@@ -326,6 +385,9 @@ def get_doc(doc_id: str) -> dict:
 
 @mcp.tool()
 def create_doc(title: str, body: str = "", epic_id: str | None = None, tags: list[str] | None = None) -> dict:
+    """epic_id is optional -- only pass it if the request names an epic to
+    file this note under, resolved via list_epics first; omit it to leave
+    the doc unfiled."""
     return _call("POST", "/docs", _patch_of(title=title, body=body, epic_id=epic_id, tags=tags))
 
 
@@ -334,12 +396,17 @@ def create_doc(title: str, body: str = "", epic_id: str | None = None, tags: lis
 
 @mcp.tool()
 def list_comments(entity_type: str, entity_id: str) -> dict:
-    """entity_type: release | epic | feature | requirement | sprint | doc."""
+    """entity_type: release | epic | feature | requirement | sprint | doc.
+    entity_id must be a real id of that type -- get it from the matching
+    list_*/get_*/create_* tool first (e.g. list_requirements for
+    entity_type="requirement"), never invented."""
     return {"comments": _call("GET", f"/comments?entity_type={entity_type}&entity_id={entity_id}")}
 
 
 @mcp.tool()
 def create_comment(entity_type: str, entity_id: str, body: str) -> dict:
+    """Same entity_type/entity_id rule as list_comments -- a real id of
+    that type, resolved first, never invented."""
     return _call("POST", "/comments", {"entity_type": entity_type, "entity_id": entity_id, "body": body})
 
 

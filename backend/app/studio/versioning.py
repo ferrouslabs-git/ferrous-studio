@@ -71,8 +71,17 @@ COPIED_TABLES = frozenset(
 #: same reason as wireframe_audit_log: a conversation is a record of what was
 #: said about *this* version, not content to carry forward -- a new version
 #: starts its Project Agent tab with a clean history.
+#:
+#: board_tokens is here for a different reason: the actual access grant a
+#: token carries is board_id, which already survives versioning on its own
+#: (one board per lineage_id, shared by every version -- see
+#: board/service.py's get_or_create_board) without board_tokens needing to
+#: be copied at all. Its project_id column (the "whoami" lookup,
+#: board/agent_routes.py) is only a record of the exact project row someone
+#: was looking at when they minted it -- copying that forward would just
+#: point a new version's whoami answer at the wrong (old) version.
 SKIPPED_TABLES = frozenset(
-    {"project_versions", "wireframe_audit_log", "project_op_batches", "project_agent_messages"}
+    {"project_versions", "wireframe_audit_log", "project_op_batches", "project_agent_messages", "board_tokens"}
 )
 
 

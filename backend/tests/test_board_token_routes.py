@@ -24,6 +24,11 @@ from app.main import app
 
 #: Every studio route a board token may reach, and why.
 BOARD_TOKEN_ROUTES = {
+    # Which project this token is for. The only route that answers anything
+    # about the token itself, and the only one reachable without already
+    # knowing the project id -- which is the point: an agent that still has
+    # its token but has lost its .mcp.json can recover the rest from here.
+    "board_token_whoami",
     # Reads: find a wireframe, then read what is actually on its pages.
     "list_wireframes",
     "get_wireframe_detail",

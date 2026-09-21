@@ -21,7 +21,8 @@ from app.auth.database import get_db
 from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
 
-from ..common import get_project
+from ..common import get_project, require_studio_permission
+from ..models import Project
 from . import service
 from .agents import (
     create_agent as create_agent_row,
@@ -72,7 +73,7 @@ async def create_board_token(
 ) -> BoardTokenIssued:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project)
-    token, raw = await mint_board_token(db, board, payload.label, ctx.user_id)
+    token, raw = await mint_board_token(db, board, payload.label, ctx.user_id, project.id)
     await db.commit()
     await db.refresh(token)
     return BoardTokenIssued(**BoardTokenRead.model_validate(token).model_dump(), token=raw)
@@ -88,6 +89,37 @@ async def list_board_tokens(
     board = await _board(db, project)
     result = await db.execute(select(BoardToken).where(BoardToken.board_id == board.id).order_by(BoardToken.created_at.desc()))
     return list(result.scalars().all())
+
+
+@router.get("/board/whoami")
+async def board_token_whoami(
+    ctx: ScopeContext = Depends(require_studio_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Which project a board token is for -- id and name -- without
+    already knowing it. Every other board/studio route requires the
+    project id in its own URL before the token is even checked (see
+    common.py's get_project); this is the deliberate one exception, for a
+    local agent that only has the raw token (its .mcp.json lost or never
+    had FERROUS_STUDIO_PROJECT filled in) to discover what belongs there.
+    No /projects/{project_id} prefix on purpose -- that's the whole point.
+
+    Only meaningful for a board token: a human login has no single board
+    to resolve (an account admin can open any project), so that path is
+    refused rather than guessing which project they meant.
+    """
+    if ctx.board_token_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="whoami requires a board token, not a login session")
+    token = await db.get(BoardToken, ctx.board_token_id)
+    if token is None or token.project_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This token has no known project (minted before this existed)",
+        )
+    project = await db.get(Project, token.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return {"project_id": str(project.id), "project_name": project.name}
 
 
 @router.delete("/projects/{project_id}/board/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -185,7 +217,7 @@ async def create_agent_route(
         ).scalar_one_or_none()
         if sprint is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sprint not found")
-    agent = await create_agent_row(db, board, payload.name, ctx.user_id)
+    agent = await create_agent_row(db, board, payload.name, ctx.user_id, project.id)
     if payload.sprint_id is not None:
         agent.sprint_id = payload.sprint_id
     await db.commit()
