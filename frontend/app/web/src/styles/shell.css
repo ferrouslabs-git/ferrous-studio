@@ -408,6 +408,13 @@
 .usecase-boundary-title { fill: var(--text-mute); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
 .usecase-ellipse ellipse { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; }
 .usecase-ellipse text { fill: var(--text); font-size: 12px; }
+/* Nobody performs it -- the system does it of its own accord. Grey says so at
+   a glance, and the untinted accent it used to inherit said the opposite: it
+   read as the first actor's colour. Only the ellipse greys; the label keeps
+   full contrast, because on this diagram it is the only thing naming the use
+   case and the least useful thing to make hard to read. */
+.usecase-ellipse.no-actor ellipse { fill: var(--mute-soft); stroke: var(--text-mute); stroke-dasharray: 4 3; }
+.usecase-ellipse.no-actor text { fill: var(--text); }
 .usecase-dot { stroke: var(--panel); stroke-width: 1.5; }
 .chip-colour { display: inline-flex; align-items: center; gap: 6px; }
 .chip-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }

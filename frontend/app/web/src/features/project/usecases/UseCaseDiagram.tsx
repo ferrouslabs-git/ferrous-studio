@@ -236,7 +236,7 @@ export function UseCaseDiagram({
               return (
                 <g
                   key={u.id}
-                  className={`usecase-ellipse${dim(u.id)}${isPinned("usecase", u.id)}`}
+                  className={`usecase-ellipse${performers.length ? "" : " no-actor"}${dim(u.id)}${isPinned("usecase", u.id)}`}
                   onMouseEnter={() => setHover({ kind: "usecase", id: u.id })}
                   onClick={pin({ kind: "usecase", id: u.id })}
                 >

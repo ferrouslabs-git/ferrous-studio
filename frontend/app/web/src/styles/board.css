@@ -495,7 +495,6 @@ body.board-dragging-epic .board-page .tl-card:not(.tl-card-loose) { border-style
 .board-page .sb-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
 .board-page .sb-filters { gap: 8px 10px; }
 .board-page .sb-filters .sb-q-find { flex: 0 1 260px; min-width: 140px; }
-.board-page .sb-filters select.mini { max-width: 220px; }
 .board-page .sb-board { min-width: 0; position: relative; display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; }
 .board-page .sb-col {
   flex: 1; min-width: 170px; background: color-mix(in srgb, var(--b-card) 60%, transparent); border: 1px solid var(--b-line);

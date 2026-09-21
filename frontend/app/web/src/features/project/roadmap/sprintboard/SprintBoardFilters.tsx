@@ -1,15 +1,21 @@
 // The sprint board's filter bar: find a requirement by its number (or any
-// word in its title) and narrow the lanes to one epic or one feature. A
+// word in its title) and narrow the lanes to a set of epics or features. A
 // sprint is a flat queue of work drawn from anywhere on the board, so "which
 // epic is this card from?" is a question the lanes cannot answer on their
 // own -- hence the epic and feature shown on every card, and these two
-// selects over them.
+// pickers over them.
+//
+// Both take several at once (2026-09-21): one epic at a time could not answer
+// "what is left across these two epics", which is the real question whenever
+// a sprint spans more than one.
 //
 // The filter narrows what the LANES show, never what the sprint contains:
 // the header's progress figures still count the whole sprint, and the bar
 // says how many cards are hidden so a filtered board is never mistaken for
 // an empty one.
+import { useMemo } from "react";
 import { useBoard } from "../../board/boardData";
+import { MultiSelect, MultiSelectOption } from "../../board/MultiSelect";
 import { isFiltering, NO_PARENT, NO_SPRINT_FILTER, SprintFilterState } from "./sprintFilter";
 
 interface SprintBoardFiltersProps {
@@ -22,17 +28,44 @@ interface SprintBoardFiltersProps {
 
 export function SprintBoardFilters({ filter, onChange, total, shown }: SprintBoardFiltersProps) {
   const { index } = useBoard();
-  // Picking an epic narrows the feature list to that epic's; with no epic
-  // picked, every feature is offered under its own epic's heading.
-  const epics = index.epics;
-  const featureEpics = filter.epicId && filter.epicId !== NO_PARENT ? epics.filter((e) => e.id === filter.epicId) : epics;
 
-  // Changing the epic drops a feature that no longer sits under it, rather
-  // than leaving the two disagreeing and the board silently empty.
-  const setEpic = (epicId: string) => {
-    const feature = filter.featureId ? index.featureById.get(filter.featureId) : undefined;
-    const keep = filter.featureId === NO_PARENT || !epicId || epicId === NO_PARENT || feature?.epic_id === epicId;
-    onChange({ ...filter, epicId, featureId: keep ? filter.featureId : "" });
+  const epicOptions = useMemo<MultiSelectOption[]>(
+    () => [
+      ...index.epics.map((e) => ({ value: e.id, label: `${e.human_id} · ${e.title}` })),
+      { value: NO_PARENT, label: "No epic" },
+    ],
+    [index.epics],
+  );
+
+  /** Every feature under these epics; all of them when nothing is picked. */
+  const featuresUnder = (epicIds: Set<string>) => {
+    const epics = epicIds.size > 0 ? index.epics.filter((e) => epicIds.has(e.id)) : index.epics;
+    return epics.flatMap((e) => index.featuresOf(e.id).map((f) => ({ feature: f, epic: e })));
+  };
+
+  // Picking epics narrows the feature list to theirs. Each feature names its
+  // epic underneath rather than sitting under a group heading: a checklist
+  // has no optgroups, and "F2 · Mapping rules" alone repeats across epics.
+  const featureOptions = useMemo<MultiSelectOption[]>(
+    () => [
+      ...featuresUnder(filter.epicIds).map(({ feature, epic }) => ({
+        value: feature.id,
+        label: `${feature.human_id} · ${feature.title}`,
+        hint: `${epic.human_id} · ${epic.title}`,
+      })),
+      { value: NO_PARENT, label: "No feature" },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [index, filter.epicIds],
+  );
+
+  // Changing the epics drops any feature that no longer sits under one of
+  // them, rather than leaving the two disagreeing and the board silently
+  // empty. "No feature" survives: it belongs to no epic by definition.
+  const setEpics = (epicIds: Set<string>) => {
+    const allowed = new Set(featuresUnder(epicIds).map(({ feature }) => feature.id));
+    const featureIds = new Set([...filter.featureIds].filter((id) => id === NO_PARENT || allowed.has(id)));
+    onChange({ ...filter, epicIds, featureIds });
   };
 
   return (
@@ -45,36 +78,22 @@ export function SprintBoardFilters({ filter, onChange, total, shown }: SprintBoa
         value={filter.query}
         onChange={(e) => onChange({ ...filter, query: e.target.value })}
       />
-      <select className="mini" aria-label="filter by epic" value={filter.epicId} onChange={(e) => setEpic(e.target.value)}>
-        <option value="">All epics</option>
-        {epics.map((e) => (
-          <option key={e.id} value={e.id}>
-            {e.human_id} · {e.title}
-          </option>
-        ))}
-        <option value={NO_PARENT}>No epic</option>
-      </select>
-      <select
-        className="mini"
-        aria-label="filter by feature"
-        value={filter.featureId}
-        onChange={(e) => onChange({ ...filter, featureId: e.target.value })}
-      >
-        <option value="">All features</option>
-        {featureEpics.map((e) => {
-          const features = index.featuresOf(e.id);
-          return features.length === 0 ? null : (
-            <optgroup key={e.id} label={`${e.human_id} · ${e.title}`}>
-              {features.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.human_id} · {f.title}
-                </option>
-              ))}
-            </optgroup>
-          );
-        })}
-        <option value={NO_PARENT}>No feature</option>
-      </select>
+      <MultiSelect
+        allLabel="All epics"
+        countLabel="epics"
+        ariaLabel="filter by epic"
+        options={epicOptions}
+        selected={filter.epicIds}
+        onChange={setEpics}
+      />
+      <MultiSelect
+        allLabel="All features"
+        countLabel="features"
+        ariaLabel="filter by feature"
+        options={featureOptions}
+        selected={filter.featureIds}
+        onChange={(featureIds) => onChange({ ...filter, featureIds })}
+      />
       {isFiltering(filter) && (
         <button type="button" className="btn mini-x" onClick={() => onChange(NO_SPRINT_FILTER)}>
           Clear
