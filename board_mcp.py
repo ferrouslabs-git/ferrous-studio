@@ -1,7 +1,7 @@
 """Ferrous Studio MCP server -- lets an AI coding agent read and update one
 project's board (releases, epics, features, sprints, requirements, docs,
-comments) AND its wireframes/diagrams, over the real REST API,
-authenticated as a board token rather than a human login.
+comments) AND its wireframes, diagrams and use case diagram, over the
+real REST API, authenticated as a board token rather than a human login.
 
 Runs over stdio; add it to a project's .mcp.json. Deliberately isolated
 from the main app's dependencies -- `mcp` is not a backend/requirements.txt
@@ -512,6 +512,97 @@ def list_diagrams() -> dict:
 @mcp.tool()
 def get_diagram(diagram_id: str) -> dict:
     return _studio_call("GET", f"/diagrams/{diagram_id}")
+
+
+# ── Use case diagram ────────────────────────────────────────────────────────
+#
+# The project's "Use case diagram" tab is drawn from two plain lists --
+# actors (who or what sits outside the system) and use cases (what the
+# system offers, each naming the actors who perform it). Nothing about the
+# picture itself is stored, so populating the tab means populating these.
+# Creation goes through the same /import route as wireframes: one
+# transaction, and matched by case-folded name, so re-running with the same
+# names never duplicates anything. A match is never edited by import, which
+# is what the two update_* tools are for.
+
+ACTOR_KINDS = ("person", "system", "time")
+
+
+@mcp.tool()
+def get_use_case_model() -> dict:
+    """The project's use case diagram as it stands: every actor (id, name,
+    description, kind) and every use case (id, name, description,
+    actor_ids, plus actor_names resolved from them), in display order.
+    Read this before populate_use_case_model to see what already exists,
+    and before either update_* tool to find the real id meant."""
+    actors = _studio_call("GET", "/use-case-actors")
+    names = {a["id"]: a["name"] for a in actors}
+    use_cases = _studio_call("GET", "/use-cases")
+    for use_case in use_cases:
+        use_case["actor_names"] = [names.get(a, a) for a in use_case["actor_ids"]]
+    return {"actors": actors, "use_cases": use_cases}
+
+
+@mcp.tool()
+def populate_use_case_model(actors: list[dict] | None = None, use_cases: list[dict] | None = None) -> dict:
+    """Add actors and use cases to the project's use case diagram tab.
+
+    actors: [{name, description?, kind?}] -- kind is person (a role someone
+    plays: "Customer", "Administrator"), system (another system this one
+    talks to: "Payment gateway") or time (a schedule: "Nightly run");
+    defaults to person.
+
+    use_cases: [{name, description?, actors?: [actor name, ...]}] -- name is
+    a verb phrase ("Approve invoice"); actors names who performs it, by
+    NAME, not id. A use case with no actors is fine (something the system
+    does of its own accord). Each name must be an actor passed here or one
+    get_use_case_model() already shows -- existing ones are added to the
+    request automatically.
+
+    Anything whose name (case-insensitive) already exists is matched and
+    left exactly as it is -- its description and actors are NOT updated;
+    use update_use_case/update_use_case_actor for that. The result says how
+    many of each were created vs matched. All or nothing: a bad kind or an
+    unknown actor name fails the whole call with the precise errors."""
+    actors = list(actors or [])
+    use_cases = list(use_cases or [])
+    for actor in actors:
+        if actor.get("kind") is not None and actor["kind"] not in ACTOR_KINDS:
+            raise ValueError(f'actor "{actor.get("name")}": kind must be one of {", ".join(ACTOR_KINDS)}')
+    # The import validator only accepts actor names that are in the bundle
+    # itself, so pull in any existing actor a use case refers to. They
+    # match by name and are never modified.
+    passed = {a.get("name", "").casefold() for a in actors}
+    referenced = {n.casefold() for u in use_cases for n in u.get("actors") or [] if isinstance(n, str)}
+    if referenced - passed:
+        for existing in _studio_call("GET", "/use-case-actors"):
+            if existing["name"].casefold() in referenced - passed:
+                actors.append({"name": existing["name"]})
+    result = _studio_call("POST", "/import", {"actors": actors, "useCases": use_cases})
+    return {"actors": result["actors"], "use_cases": result["use_cases"], "warnings": result.get("warnings", [])}
+
+
+@mcp.tool()
+def update_use_case_actor(
+    actor_id: str, name: str | None = None, description: str | None = None, kind: str | None = None
+) -> dict:
+    """Edit an existing actor -- actor_id from get_use_case_model(), never
+    invented. kind: person | system | time. Omitted fields are left as they
+    are."""
+    return _studio_call("PATCH", f"/use-case-actors/{actor_id}", _patch_of(name=name, description=description, kind=kind))
+
+
+@mcp.tool()
+def update_use_case(
+    use_case_id: str, name: str | None = None, description: str | None = None, actor_ids: list[str] | None = None
+) -> dict:
+    """Edit an existing use case -- use_case_id from get_use_case_model(),
+    never invented. actor_ids REPLACES who performs it: pass the complete
+    list of real actor ids (from the same read), or [] for none. Omitted
+    fields are left as they are."""
+    return _studio_call(
+        "PATCH", f"/use-cases/{use_case_id}", _patch_of(name=name, description=description, actor_ids=actor_ids)
+    )
 
 
 if __name__ == "__main__":

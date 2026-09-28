@@ -37,6 +37,13 @@ BOARD_TOKEN_ROUTES = {
     "export_wireframe",
     "list_diagrams",
     "get_diagram",
+    # The use case model: read it back, and correct rows import left alone
+    # (import matches actors and use cases by name and never edits a match).
+    # Creating goes through import_bundle; deleting stays with a person.
+    "list_actors",
+    "list_use_cases",
+    "update_actor",
+    "update_use_case",
     # Writes: creating and regenerating content is the point of the token.
     "import_into_wireframe",
     "import_bundle",

@@ -1,6 +1,11 @@
 """Use case model routes: actors (user types) and the use cases they can
 perform. Plain CRUD ordered by ``pos``; the diagram itself is derived on the
-client from these two lists, so there is nothing to store for it."""
+client from these two lists, so there is nothing to store for it.
+
+Board tokens (require_studio_permission) reach the two lists and the two
+updates, so a connected agent can read the model back and correct what
+``POST /import`` left alone -- import matches existing rows by name and never
+touches them. Creating goes through import; deleting stays a human action."""
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,7 +16,7 @@ from app.auth.database import get_db
 from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
 
-from .common import get_project, get_writable_project, next_pos
+from .common import get_project, get_writable_project, next_pos, require_studio_permission
 from .models import Project, UseCase, UseCaseActor, utc_now
 from .schemas import (
     UseCaseActorCreate,
@@ -75,7 +80,7 @@ async def _known_actor_ids(db: AsyncSession, project: Project, actor_ids: list[U
 @router.get("/projects/{project_id}/use-case-actors", response_model=list[UseCaseActorRead])
 async def list_actors(
     project_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("data:read")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[UseCaseActor]:
     project = await get_project(db, project_id, ctx)
@@ -112,7 +117,7 @@ async def update_actor(
     project_id: UUID,
     actor_id: UUID,
     payload: UseCaseActorUpdate,
-    ctx: ScopeContext = Depends(require_permission("data:write")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> UseCaseActor:
     project = await get_writable_project(db, project_id, ctx)
@@ -158,7 +163,7 @@ async def delete_actor(
 @router.get("/projects/{project_id}/use-cases", response_model=list[UseCaseRead])
 async def list_use_cases(
     project_id: UUID,
-    ctx: ScopeContext = Depends(require_permission("data:read")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[UseCase]:
     project = await get_project(db, project_id, ctx)
@@ -194,7 +199,7 @@ async def update_use_case(
     project_id: UUID,
     use_case_id: UUID,
     payload: UseCaseUpdate,
-    ctx: ScopeContext = Depends(require_permission("data:write")),
+    ctx: ScopeContext = Depends(require_studio_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> UseCase:
     project = await get_writable_project(db, project_id, ctx)
