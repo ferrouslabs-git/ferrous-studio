@@ -17,10 +17,10 @@
 // rows that alternate copy and picture, a "who it is for" section and a
 // closing call to action) without their fabricated social proof.
 //
-// Describe built capability only. The roadmap strip is the one place that
-// mentions what is coming, and says so. The product is invite-only: an
-// organisation is created as part of an engagement, so the calls to action
-// are "Sign in" and "Talk to Ferrous Labs"; there is no sign-up.
+// Describe built capability only; nothing unshipped appears on the page. The
+// product is invite-only: an organisation is created as part of an
+// engagement, so the calls to action are "Sign in" and "Talk to Ferrous
+// Labs"; there is no sign-up.
 import { Link } from "react-router-dom";
 import { ConfigureArt, DeliveryArt, ENVELOPE_JSON, HeroArt, Json, LinkArt, SplitArt } from "./LandingArt";
 
@@ -29,8 +29,8 @@ const FERROUS_LABS = "https://www.ferrouslabs.co.uk/";
 const PROBLEMS = [
   {
     n: "01",
-    title: "The spec is a deck",
-    body: "Slides describe screens. They cannot be clicked, diffed or checked against what was delivered. Six weeks in, nobody is sure what was agreed.",
+    title: "The spec is a document",
+    body: "Written requirements are ambiguous. “A dashboard of the key metrics” is a different screen to everyone who reads it, and nobody finds out until it has been built.",
   },
   {
     n: "02",
@@ -48,7 +48,7 @@ const STEPS = [
   {
     n: "01",
     title: "We lay the screens out with you",
-    body: "Discovery happens on the canvas, not in a slide deck. Each page is split into regions and the components each one holds, so the conversation is about what the system does and who uses it. The record of that conversation is the structure itself.",
+    body: "Discovery happens on the canvas, not in a requirements document. Each page is split into regions and the components each one holds, so the conversation is about what the system does and who uses it. The record of that conversation is the structure itself.",
     art: <SplitArt />,
   },
   {
@@ -93,8 +93,8 @@ const FEATURES = [
     body: "Your organisation connects its own GitHub account once. Each project is linked to a repository you own, so the code lives with you while it is being built, not with us until handover.",
   },
   {
-    title: "Agents in the open",
-    body: "The AI agents Ferrous Labs builds with read and write the same board through a token scoped to one project. They claim requirements, add wireframes and diagrams, and ask their questions as comments you can see.",
+    title: "Bring your own stakeholders",
+    body: "Invite your colleagues as admins, members or viewers. A member walks the screens, raises feedback and pins tasks. A viewer sees everything and changes nothing. Nobody waits for us to forward a screenshot.",
   },
 ];
 
@@ -111,11 +111,6 @@ const AUDIENCE = [
     title: "Whoever runs it afterwards",
     body: "The spec exports as plain JSON, the code sits in your repository, and the audit log says who changed what and when. There is nothing to recover at handover.",
   },
-];
-
-const ROADMAP = [
-  "Builds that push to your repository: agents pick up requirements from the roadmap and open branches in the linked repository for review.",
-  "Live discovery: the Studio listens to the call and drafts use cases, diagrams and wireframes as the conversation happens.",
 ];
 
 export function LandingPage() {
@@ -175,7 +170,7 @@ export function LandingPage() {
           <h2>
             Most engagements run on
             <br />
-            decks, status emails and trust.
+            ambiguous requirements and trust.
           </h2>
           <div className="landing-grid three">
             {PROBLEMS.map((p) => (
@@ -239,8 +234,8 @@ export function LandingPage() {
                 whoever comes next.
               </p>
               <p>
-                The code is in a repository your organisation owns. You invite your own colleagues as admins,
-                members or viewers, and an audit log records who changed what and when.
+                The code is in a repository your organisation owns, and an audit log records who changed what and
+                when.
               </p>
               <h3>Where it stops</h3>
               <p>
@@ -266,18 +261,6 @@ export function LandingPage() {
               </article>
             ))}
           </div>
-        </div>
-      </section>
-
-      <section className="landing-roadmap">
-        <div className="landing-wrap">
-          <p className="landing-eyebrow">On the roadmap</p>
-          <p className="landing-roadmap-note">Specified, not yet shipped. Listed so you know where this is heading.</p>
-          <ul>
-            {ROADMAP.map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-          </ul>
         </div>
       </section>
 
