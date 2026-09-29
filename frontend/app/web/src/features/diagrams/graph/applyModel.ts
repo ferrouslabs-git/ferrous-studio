@@ -7,13 +7,34 @@
 // XML once, so every later open is the ordinary xml-import path.
 import { BaseGraph, Cell, Geometry } from "@maxgraph/core";
 import { DiagramModel, DiagramNode } from "../../project/diagrams/diagramsApi";
-import { isEdgeType, isNodeType, NODE_BY_TYPE, UmlEdgeType, UmlNodeType } from "./umlTypes";
+import { hasCompartments, isEdgeType, isNodeType, NODE_BY_TYPE, UmlEdgeType, UmlNodeType } from "./umlTypes";
 import { styleName } from "./umlStyles";
-import { createUserObject } from "./userObject";
+import { createUserObject, UmlAttrs } from "./userObject";
 
 const FALLBACK_NODE_TYPE: UmlNodeType = "rect";
 const FALLBACK_EDGE_TYPE: UmlEdgeType = "association";
 const FALLBACK_SIZE = { w: 140, h: 80 };
+
+/** The separator deriveModel (serialize.ts) joins a compartment cell's
+ *  text, attributes and operations with when it flattens them into the
+ *  model's single `text` field. */
+const SECTION_SEPARATOR = "\n---\n";
+
+/**
+ * Where a node's `text` goes on the cell. A class or entity draws
+ * `attributes` and `operations` compartments and never its `text`, so a
+ * bundle's "text listing the fields one per line" (the documented shape,
+ * see the import format guide) would vanish if it were stored as text.
+ * Unsplit text is the attributes compartment; two sections, as a saved
+ * class round-trips through deriveModel, are attributes then operations.
+ */
+function textAttrs(type: UmlNodeType, text: string | undefined): Partial<UmlAttrs> {
+  if (!text || !hasCompartments(type)) return { text };
+  const sections = text.split(SECTION_SEPARATOR);
+  if (sections.length === 1) return { attributes: sections[0] };
+  if (sections.length === 2) return { attributes: sections[0], operations: sections[1] };
+  return { text: sections[0], attributes: sections[1], operations: sections[2] };
+}
 
 function makeModelVertex(node: DiagramNode): Cell {
   const type = isNodeType(node.type) ? node.type : FALLBACK_NODE_TYPE;
@@ -21,7 +42,7 @@ function makeModelVertex(node: DiagramNode): Cell {
   const w = node.w > 0 ? node.w : entry?.w ?? FALLBACK_SIZE.w;
   const h = node.h > 0 ? node.h : entry?.h ?? FALLBACK_SIZE.h;
   const cell = new Cell(
-    createUserObject(type, { label: node.label, stereotype: node.stereotype, text: node.text }),
+    createUserObject(type, { label: node.label, stereotype: node.stereotype, ...textAttrs(type, node.text) }),
     new Geometry(node.x, node.y, w, h),
     { baseStyleNames: [styleName(type)] },
   );

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { DiagramModel } from "../../project/diagrams/diagramsApi";
 import { buildFromModel } from "./applyModel";
 import { deriveModel, plainCellsOf } from "./serialize";
+import { readUml } from "./userObject";
 
 function freshGraph(): BaseGraph {
   return new BaseGraph({ container: document.createElement("div") });
@@ -37,6 +38,34 @@ describe("buildFromModel", () => {
     expect(roundTripped.edges).toEqual([
       expect.objectContaining({ id: "e1", type: "association", label: "1..*", source: "n-project", target: "n-requirement" }),
     ]);
+  });
+
+  it("stores an entity's text as its attributes compartment, which is what the box draws", () => {
+    // A bundle lists an entity's fields in `text` (the documented shape);
+    // the compartment renderer only ever draws `attributes`/`operations`,
+    // so text left as text would import as an empty box.
+    const graph = freshGraph();
+    buildFromModel(graph, {
+      nodes: [
+        { id: "n-donation", type: "entity", label: "Donation", text: "id\namount", x: 0, y: 0, w: 170, h: 90 },
+        { id: "n-note", type: "note", label: "Note", text: "plain body", x: 300, y: 0, w: 160, h: 100 },
+      ],
+      edges: [],
+    });
+
+    expect(readUml(graph.getDataModel().getCell("n-donation")!)).toMatchObject({ attributes: "id\namount", text: "" });
+    // Anything without compartments keeps its text as text.
+    expect(readUml(graph.getDataModel().getCell("n-note")!)).toMatchObject({ text: "plain body", attributes: "" });
+  });
+
+  it("splits a round-tripped class back into attributes and operations", () => {
+    const graph = freshGraph();
+    buildFromModel(graph, {
+      nodes: [{ id: "n-class", type: "class", label: "Claim", text: "period\namount\n---\nsubmit()", x: 0, y: 0, w: 180, h: 110 }],
+      edges: [],
+    });
+
+    expect(readUml(graph.getDataModel().getCell("n-class")!)).toMatchObject({ attributes: "period\namount", operations: "submit()" });
   });
 
   it("places a child under its parent even when the parent appears later in the array", () => {
