@@ -1,112 +1,122 @@
-// Public landing page: what Ferrous Studio does and why it is worth using.
+// Public landing page: what Ferrous Studio does for a Ferrous Labs client.
 // Marketing content only. Prerendered to static HTML at build time (see
 // scripts/prerender.mjs) so crawlers see the copy without running JavaScript;
 // keep it free of state, effects and anything that renders differently on the
 // client, or hydration will mismatch.
 //
+// Audience: the people who commission a build from Ferrous Labs, not the
+// people who draw wireframes. Every section leads with what the client gets
+// from the workspace (a spec they can read, sign-off that holds, a roadmap
+// they can open, somewhere to test and report, code in their own repository)
+// and names the product feature second.
+//
 // Layout and copy follow brand-guidelines.html (repo root): mono eyebrow
-// labels, one gradient phrase per page, numbered sections, candid about
-// limits. The structure borrows what the category's product pages have in
-// common (a real product visual in the hero, feature rows that alternate
-// copy and picture, a "who it is for" section and a closing call to action)
-// without their fabricated social proof.
+// labels, one gradient phrase per page, numbered sections, short declarative
+// sentences, candid about limits. The structure borrows what the category's
+// product pages have in common (a real product visual in the hero, feature
+// rows that alternate copy and picture, a "who it is for" section and a
+// closing call to action) without their fabricated social proof.
 //
 // Describe built capability only. The roadmap strip is the one place that
-// mentions what is coming, and says so. The product is invite-only, so both
-// calls to action are "Sign in" and "Request access"; there is no sign-up.
+// mentions what is coming, and says so. The product is invite-only: an
+// organisation is created as part of an engagement, so the calls to action
+// are "Sign in" and "Talk to Ferrous Labs"; there is no sign-up.
 import { Link } from "react-router-dom";
-import { ConfigureArt, ENVELOPE_JSON, ExportArt, HeroArt, Json, LinkArt, SplitArt } from "./LandingArt";
+import { ConfigureArt, DeliveryArt, ENVELOPE_JSON, HeroArt, Json, LinkArt, SplitArt } from "./LandingArt";
 
-const REQUEST_ACCESS = "mailto:hello@ferrouslabs.co.uk?subject=Ferrous%20Studio%20access";
+const FERROUS_LABS = "https://www.ferrouslabs.co.uk/";
 
 const PROBLEMS = [
   {
     n: "01",
-    title: "The structure lives in someone's head",
-    body: "Which regions a page has, what the table shows, which fields the form collects: none of it is in the frame. Engineers reverse-engineer it from screenshots.",
+    title: "The spec is a deck",
+    body: "Slides describe screens. They cannot be clicked, diffed or checked against what was delivered. Six weeks in, nobody is sure what was agreed.",
   },
   {
     n: "02",
-    title: "Every iteration is spot the difference",
-    body: "Two versions of a picture cannot be diffed. The change log is whatever someone remembered to write down.",
+    title: "Progress arrives second-hand",
+    body: "A weekly summary tells you what someone chose to report. The board the engineers work from is somewhere you cannot open.",
   },
   {
     n: "03",
-    title: "Handing a picture to a model is worse",
-    body: "Given a screenshot, an LLM guesses at intent and fills the gaps with defaults. Given the structure, it has nothing to guess.",
+    title: "The work belongs to the vendor",
+    body: "The spec sits in their tool and the code in their account. Handover is a zip file at the end. Leaving is expensive because everything is theirs.",
   },
 ];
 
 const STEPS = [
   {
     n: "01",
-    title: "Split the page into regions",
-    body: "Each page starts as one region. Split it horizontally or vertically as far as you need, drag the dividers to size them, or let the content decide. Nothing sits at a coordinate unless you ask it to.",
+    title: "We lay the screens out with you",
+    body: "Discovery happens on the canvas, not in a slide deck. Each page is split into regions and the components each one holds, so the conversation is about what the system does and who uses it. The record of that conversation is the structure itself.",
     art: <SplitArt />,
   },
   {
     n: "02",
-    title: "Drop in components and say what they hold",
-    body: "Six components cover most product screens: nav bar, list, form, graph, calendar and a free canvas. Each is built from typed elements, so a column knows its data kind and a nav item knows where it goes. Every label on the canvas edits in place.",
+    title: "Every screen says what it holds",
+    body: "A list on the canvas knows its columns, a form its fields, a chart its series. The statuses, categories and lists your business runs on are defined once as a dataset and reused on every screen. Change one in one place and the whole spec follows.",
     art: <ConfigureArt />,
   },
   {
     n: "03",
-    title: "Link pages the way a router would",
-    body: "Nav items and buttons link to a page, or to one region of it, so only that part swaps while the shell stays put. Child pages nest like routes and a page can open as a modal or a drawer. Preview mode clicks through the lot.",
+    title: "You click through it before it exists",
+    body: "Navigation links pages the way the built system will, and preview mode walks the flows. Pin a note or a task to any screen, region or field and it stays with the spec for whoever builds it.",
     art: <LinkArt />,
   },
   {
     n: "04",
-    title: "Export the whole brief as JSON",
-    body: "Personas, use cases, diagrams, datasets and every wireframe leave as one envelope. There is no proprietary format and nothing the export knows that you cannot already see on screen.",
-    art: <ExportArt />,
+    title: "The build runs on a board you can open",
+    body: "Releases, sprints and requirements live in the same project as the spec. Status rolls up from the work itself, not from a report. Every environment the build is deployed to is linked from the project, and what your testers find there is filed with a severity, the page it happened on and a marked-up screenshot.",
+    art: <DeliveryArt />,
   },
 ];
 
 const FEATURES = [
   {
-    title: "Real components, your words",
-    body: "Components render as the UI they stand for, and every string on the screen is yours to edit. Enough to reason about a screen, never enough to argue about a shade of blue.",
+    title: "One project, every artefact",
+    body: "Personas, use cases, wireframes, UML diagrams, datasets and reference documents sit in one project. Nothing about your build lives in a folder somewhere else.",
   },
   {
-    title: "Personas and use cases",
-    body: "Record who each screen is for. Actors from the use case diagram link to wireframes and travel in the export as user types.",
+    title: "Sign-off that holds",
+    body: "When discovery is agreed, the version is locked. Later work branches into a new version, so the signed-off record never quietly changes underneath you.",
   },
   {
-    title: "Datasets",
-    body: "Define a list of values once, then bind it to any column, dropdown or filter. Change it in one place and every screen follows.",
+    title: "A roadmap that reports itself",
+    body: "Releases, sprints and epics, with the requirements underneath. An epic's status is rolled up from its requirements, so the board says a thing is done because the work is done.",
   },
   {
-    title: "Snapshots",
-    body: "Save a version whenever a decision is made. Preview any earlier one, restore it, or fork it into a new wireframe.",
+    title: "Test it where it is deployed",
+    body: "UAT, staging, production: each environment is linked from the project. Report what you find with a severity, the page it happened on and a marked-up screenshot, then watch it move from new to done.",
   },
   {
-    title: "Notes, tasks and an audit log",
-    body: "Annotate any region, component or element for the engineer who builds it. Every change is recorded with who made it and when.",
+    title: "Your repository, not ours",
+    body: "Your organisation connects its own GitHub account once. Each project is linked to a repository you own, so the code lives with you while it is being built, not with us until handover.",
   },
   {
-    title: "Diagrams and documents",
-    body: "Draw UML in the built-in editor and keep reference files with the project, so the export carries the reasoning as well as the screens.",
+    title: "Agents in the open",
+    body: "The AI agents Ferrous Labs builds with read and write the same board through a token scoped to one project. They claim requirements, add wireframes and diagrams, and ask their questions as comments you can see.",
   },
 ];
 
 const AUDIENCE = [
   {
-    title: "Product owners",
-    body: "Lay out the screens in a working session and leave with a spec, not a to-do to write one. The export goes straight into the ticket.",
+    title: "Whoever owns the budget",
+    body: "Open the roadmap and see what is in each release, which sprint is running and what is deployed where. Sign off a version and hold the build to it.",
   },
   {
-    title: "Designers",
-    body: "Settle structure before style. Decide what each page holds and how it links, then take the visual decisions into your own tools.",
+    title: "Whoever will use it every day",
+    body: "Walk the screens in preview before a line of code is written. Test each release in UAT and report what is wrong from the page it happened on.",
   },
   {
-    title: "Engineers and models",
-    body: "Read one JSON tree: splits become rows and columns, regions become containers, child pages become nested routes. Build from it, or have an LLM do the first pass.",
+    title: "Whoever runs it afterwards",
+    body: "The spec exports as plain JSON, the code sits in your repository, and the audit log says who changed what and when. There is nothing to recover at handover.",
   },
 ];
 
-const ROADMAP = ["Schema linking: one named schema generates a form, a table and a card template."];
+const ROADMAP = [
+  "Builds that push to your repository: agents pick up requirements from the roadmap and open branches in the linked repository for review.",
+  "Live discovery: the Studio listens to the call and drafts use cases, diagrams and wireframes as the conversation happens.",
+];
 
 export function LandingPage() {
   return (
@@ -119,7 +129,7 @@ export function LandingPage() {
         <nav className="landing-links" aria-label="Sections">
           <a href="#how">How it works</a>
           <a href="#features">What you get</a>
-          <a href="#export">The export</a>
+          <a href="#ownership">Ownership</a>
         </nav>
         <span className="shell-spacer" />
         <Link to="/signin" className="btn">
@@ -129,28 +139,28 @@ export function LandingPage() {
 
       <section className="landing-hero">
         <div className="landing-wrap">
-          <p className="landing-eyebrow">Low-fidelity wireframing from Ferrous Labs</p>
+          <p className="landing-eyebrow">The client workspace from Ferrous Labs</p>
           <h1>
-            Most tools produce pictures.
+            Your build,
             <br />
-            This one produces
+            agreed before it starts,
             <br />
-            <span className="gradient-text">structured intent</span>.
+            <span className="gradient-text">visible until it ships</span>.
           </h1>
           <p className="landing-lead">
-            Ferrous Studio is where product owners and designers lay out screens, configure the components on
-            them and record who each screen is for. The result exports as one JSON payload an engineer, or an LLM,
-            builds from directly.
+            Ferrous Studio is the workspace Ferrous Labs opens for every engagement. The screens, use cases and
+            rules we agree with you live here as a spec you can read and click through. The roadmap that delivers
+            it, the environments you test on and the feedback you raise are on the same pages.
           </p>
           <div className="landing-cta">
             <Link to="/signin" className="btn primary">
               Sign in
             </Link>
-            <a href={REQUEST_ACCESS} className="btn ghost">
-              Request access
+            <a href={FERROUS_LABS} className="btn ghost">
+              Talk to Ferrous Labs
             </a>
           </div>
-          <p className="landing-caption">Invite-only. Organisations are set up by Ferrous Labs.</p>
+          <p className="landing-caption">Invite-only. Your organisation is set up as part of the engagement.</p>
         </div>
         <div className="landing-wrap wide">
           <HeroArt />
@@ -163,9 +173,9 @@ export function LandingPage() {
         <div className="landing-wrap">
           <p className="landing-eyebrow">The problem</p>
           <h2>
-            A picture says what a page looks like.
+            Most engagements run on
             <br />
-            Not what it is.
+            decks, status emails and trust.
           </h2>
           <div className="landing-grid three">
             {PROBLEMS.map((p) => (
@@ -182,7 +192,7 @@ export function LandingPage() {
       <section className="landing-steps" id="how">
         <div className="landing-wrap">
           <p className="landing-eyebrow">How it works</p>
-          <h2>Four moves. No pixels.</h2>
+          <h2>From the first call to the last release.</h2>
           <ol>
             {STEPS.map((s) => (
               <li key={s.n} className="landing-step">
@@ -201,7 +211,11 @@ export function LandingPage() {
       <section className="landing-features" id="features">
         <div className="landing-wrap">
           <p className="landing-eyebrow">What you get</p>
-          <h2>The essentials of a spec, done properly.</h2>
+          <h2>
+            The whole engagement,
+            <br />
+            in one place you can open.
+          </h2>
           <div className="landing-grid three">
             {FEATURES.map((f) => (
               <article key={f.title} className="card landing-card">
@@ -213,24 +227,26 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-export" id="export">
+      <section className="landing-export" id="ownership">
         <div className="landing-wrap">
           <div className="landing-export-grid">
             <div className="landing-export-copy">
-              <p className="landing-eyebrow">The export</p>
-              <h2>Everything a builder needs, in one envelope.</h2>
+              <p className="landing-eyebrow">Ownership</p>
+              <h2>It is yours to keep.</h2>
               <p>
-                Copy it into a ticket, commit it beside the code, or paste it into a model's context. The diff
-                between two exports is the change log.
+                The whole project exports as one plain JSON file: personas, diagrams, datasets and every wireframe,
+                with no proprietary schema. Commit it beside the code, load it into another tool, or hand it to
+                whoever comes next.
               </p>
               <p>
-                It is plain JSON with no proprietary schema. Any language reads it, and the spec belongs to the
-                team, not to the tool.
+                The code is in a repository your organisation owns. You invite your own colleagues as admins,
+                members or viewers, and an audit log records who changed what and when.
               </p>
               <h3>Where it stops</h3>
               <p>
-                Ferrous Studio does not do visual design. Colour, type and spacing are decisions for Figma or
-                for the code, taken once the structure is agreed.
+                Ferrous Studio is not a design tool. Colour, type and spacing are decided in Figma or in the code
+                once the structure is agreed. It is not a general ticketing system either. It holds one thing: the
+                record of what Ferrous Labs is building for you, and how far it has got.
               </p>
             </div>
             <Json src={ENVELOPE_JSON} className="envelope-json" />
@@ -241,7 +257,7 @@ export function LandingPage() {
       <section className="landing-audience">
         <div className="landing-wrap">
           <p className="landing-eyebrow">Who it is for</p>
-          <h2>Three seats at the same spec.</h2>
+          <h2>Three people on your side of the table.</h2>
           <div className="landing-grid three">
             {AUDIENCE.map((a) => (
               <article key={a.title} className="card landing-card">
@@ -268,16 +284,16 @@ export function LandingPage() {
       <section className="landing-close">
         <div className="landing-wrap">
           <h2>
-            Stop describing screens.
+            Working with Ferrous Labs?
             <br />
-            Start specifying them.
+            The work is in here.
           </h2>
           <div className="landing-cta">
             <Link to="/signin" className="btn primary">
               Sign in
             </Link>
-            <a href={REQUEST_ACCESS} className="btn ghost">
-              Request access
+            <a href={FERROUS_LABS} className="btn ghost">
+              Talk to Ferrous Labs
             </a>
           </div>
         </div>

@@ -314,18 +314,97 @@ export function LinkArt() {
   );
 }
 
-/* ── Step 04: one envelope leaves ─────────────────────────────────────── */
+/* ── Step 04: the delivery board the client can open ──────────────────── */
 
-export function ExportArt() {
-  const parts = ["Personas", "Use cases", "Diagrams", "Datasets", "Wireframes"];
+// Bar positions are percentages of the track, written inline so the server
+// and client render the same attribute. The "today" line sits at TODAY.
+const TODAY = "56%";
+
+function BoardRow({
+  label,
+  status,
+  statusClass,
+  bar,
+  barClass,
+  sprint,
+}: {
+  label: string;
+  status: string;
+  statusClass: string;
+  bar: { left: string; width: string };
+  barClass?: string;
+  sprint?: boolean;
+}) {
   return (
-    <div className="art step-art export-art" aria-hidden="true">
-      <ul className="export-parts">
-        {parts.map((p) => (
-          <li key={p}>{p}</li>
-        ))}
-      </ul>
-      <span className="export-brace">{"{ }"}</span>
+    <div className={"bd-row" + (sprint ? " sprint" : "")}>
+      <span className="bd-label">{label}</span>
+      <span className={"bd-status " + statusClass}>{status}</span>
+      <span className="bd-track">
+        <i className={"bd-bar" + (barClass ? " " + barClass : "")} style={{ left: bar.left, width: bar.width }} />
+        <i className="bd-now" style={{ left: TODAY }} />
+      </span>
+    </div>
+  );
+}
+
+export function DeliveryArt() {
+  return (
+    <div className="art board-art" aria-hidden="true">
+      <div className="art-chrome">
+        <span className="art-crumb">FieldOps</span>
+        <span className="art-crumb-sep">/</span>
+        <span className="art-crumb on">Roadmap</span>
+        <span className="wf-spacer" />
+        <span className="art-chip">Epics</span>
+        <span className="art-chip">Feedback</span>
+      </div>
+      <div className="bd-body">
+        <div className="bd-axis">
+          <span>Release</span>
+          <span>Status</span>
+          <span className="bd-months">
+            <span>Sep</span>
+            <span>Oct</span>
+            <span>Nov</span>
+            <span>Dec</span>
+          </span>
+        </div>
+        <BoardRow
+          label="v1.0 Dispatcher"
+          status="Deployed to live"
+          statusClass="live"
+          bar={{ left: "0%", width: "36%" }}
+          barClass="done"
+        />
+        <BoardRow
+          label="S3 · Status sync"
+          status="To test"
+          statusClass="test"
+          bar={{ left: "22%", width: "14%" }}
+          sprint
+        />
+        <BoardRow
+          label="v1.1 Crew app"
+          status="Deployed to UAT"
+          statusClass="uat"
+          bar={{ left: "40%", width: "38%" }}
+        />
+        <BoardRow
+          label="S4 · Job sheet"
+          status="In progress"
+          statusClass="progress"
+          bar={{ left: "48%", width: "16%" }}
+          barClass="now"
+          sprint
+        />
+        <div className="bd-feedback">
+          <span className="bd-id">FB-4</span>
+          <span className="bd-env">UAT</span>
+          <span className="bd-sev">High</span>
+          <span className="bd-text">Crew list empty after assignment</span>
+          <span className="bd-status">Triaged</span>
+        </div>
+      </div>
     </div>
   );
 }
