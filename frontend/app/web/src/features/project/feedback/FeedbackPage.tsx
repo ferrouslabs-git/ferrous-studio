@@ -40,8 +40,9 @@ import {
   uploadFeedbackScreenshots,
 } from "./feedbackApi";
 
+// The environment is filled in when the form opens: the first in the list.
 const EMPTY: FeedbackInput = {
-  environment: "uat",
+  environment: "",
   kind: "feedback",
   severity: "medium",
   title: "",
@@ -143,7 +144,7 @@ export function FeedbackPage() {
             detail: item.detail,
             page_url: item.page_url,
           }
-        : { ...EMPTY, page_url: addressOf(EMPTY.environment) },
+        : { ...EMPTY, environment: envs[0]?.slug ?? "", page_url: envs[0]?.url ?? "" },
     );
     setUrlTouched(item !== null && item.page_url !== "");
     setStatus(item?.status ?? "New");
@@ -591,7 +592,7 @@ export function FeedbackPage() {
 }
 
 /**
- * The three environments, in the order a build is promoted through them. A
+ * Every environment, in the order a build is promoted through them. A
  * published one is the card itself, so the whole card is the way in; an
  * unpublished one keeps its place, because the gap is the news.
  *

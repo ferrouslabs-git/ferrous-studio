@@ -1,5 +1,6 @@
 // Client for comments on any board entity (backend app/studio/board/routes.py).
 import { apiDelete, apiGet, apiPost } from "../../../core/api";
+import type { BoardAttachment } from "../attachmentsApi";
 
 export type BoardEntityType = "release" | "epic" | "feature" | "requirement" | "sprint" | "doc";
 
@@ -11,8 +12,11 @@ export interface BoardComment {
   // Set when the comment came from an agent acting through its board token
   // (author_id is then the human who minted that token).
   agent_id: string | null;
+  /** "" for a comment that is only its attachments. */
   body: string;
   created_at: string;
+  /** Its uploaded files, oldest first; always [] on a comment just posted. */
+  attachments: BoardAttachment[];
 }
 
 const base = (projectId: string) => `/studio/projects/${projectId}/board/comments`;

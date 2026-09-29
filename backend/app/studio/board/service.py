@@ -23,6 +23,7 @@ from .models import (
     Board,
     Comment,
     Doc,
+    Environment,
     Epic,
     Event,
     Feature,
@@ -67,6 +68,11 @@ async def get_or_create_board(db: AsyncSession, project: Project) -> Board:
         async with db.begin_nested():
             board = Board(account_id=project.account_id, lineage_id=project.lineage_id)
             db.add(board)
+            await db.flush()
+            # Every board starts with the same three environments; the
+            # project edits the list from there.
+            for position, (slug, label) in enumerate(Environment.DEFAULTS):
+                db.add(Environment(board_id=board.id, account_id=board.account_id, slug=slug, label=label, position=position))
             await db.flush()
     except IntegrityError:
         board = (
@@ -332,6 +338,9 @@ _ENTITY_TABLES = {
     # screenshot upload 422 with "Attachment target does not exist", however
     # right the CHECK constraint is.
     "feedback": Feedback,
+    # Attachments only as well: a comment carries files (b2e8c4f7a519) but is
+    # never itself commented on.
+    "comment": Comment,
 }
 
 

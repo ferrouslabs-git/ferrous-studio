@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { STENCILS_XML } from "./umlStencils";
 import { vertexStyleFor } from "./umlStyles";
-import { labelWrapsInsideShape, noteBody, PALETTE } from "./umlTypes";
+import { labelHangsOutsideShape, labelWrapsInsideShape, noteBody, PALETTE } from "./umlTypes";
 
 /** Shape names maxGraph registers itself (registerDefaultShapes). */
 const BUILT_IN = new Set(["actor", "arrow", "arrowConnector", "cloud", "connector", "cylinder", "doubleEllipse", "ellipse", "hexagon", "image", "label", "line", "rectangle", "rhombus", "swimlane", "triangle"]);
@@ -38,6 +38,19 @@ describe("labelWrapsInsideShape", () => {
     for (const type of ["start", "end", "fork", "activation"]) expect(labelWrapsInsideShape(type), type).toBe(false);
     expect(labelWrapsInsideShape("association")).toBe(false);
     expect(labelWrapsInsideShape("")).toBe(false);
+  });
+});
+
+describe("labelHangsOutsideShape", () => {
+  it("is true only for the shapes whose label hangs below them", () => {
+    expect(labelHangsOutsideShape("decision")).toBe(true);
+    expect(labelHangsOutsideShape("actor")).toBe(true);
+    for (const type of ["action", "usecase", "diamond", "association", ""]) expect(labelHangsOutsideShape(type), type).toBe(false);
+  });
+
+  it("backs those labels with the canvas so a connector underneath cannot strike through them", () => {
+    expect(vertexStyleFor("decision").labelBackgroundColor).toBeTruthy();
+    expect(vertexStyleFor("actor").labelBackgroundColor).toBeTruthy();
   });
 });
 

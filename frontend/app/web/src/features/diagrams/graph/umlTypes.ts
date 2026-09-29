@@ -159,6 +159,15 @@ export function labelWrapsInsideShape(type: string): boolean {
 }
 
 /**
+ * Whether a vertex's label hangs outside its shape -- exactly where the
+ * connectors leaving it run -- and so has to be painted above them to stay
+ * readable (see createGraph.ts).
+ */
+export function labelHangsOutsideShape(type: string): boolean {
+  return isNodeType(type) && LABEL_OUTSIDE_SHAPE.has(type);
+}
+
+/**
  * A note is one block of text and nothing else, so its body is the label --
  * the same attribute in-place editing writes, which is why the canvas needs no
  * special case. Notes written before that kept the body in a separate `text`

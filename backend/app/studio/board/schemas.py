@@ -43,8 +43,9 @@ QueuePosition = Annotated[
 ]
 
 EntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc"]
-AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc", "feedback"]
-EnvironmentSlug = Literal["uat", "staging", "production"]
+AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc", "feedback", "comment"]
+# An environment's stable key: minted from its first label, never changed.
+EnvironmentSlug = Annotated[str, Field(pattern=r"^[a-z0-9](?:[a-z0-9-]{0,14}[a-z0-9])?$")]
 FeedbackKind = Literal["feedback", "bug", "requirement"]
 FeedbackSeverity = Literal["low", "medium", "high", "critical"]
 FeedbackStatus = Literal["New", "Triaged", "Accepted", "Declined", "Done"]
@@ -389,9 +390,12 @@ class DocRead(BaseModel):
 
 
 class CommentCreate(BaseModel):
+    """``body`` may be blank for a comment that is only its attachments (a
+    pasted screenshot); the client never posts one with neither."""
+
     entity_type: EntityType
     entity_id: UUID
-    body: str = Field(min_length=1)
+    body: str = ""
 
 
 class CommentRead(BaseModel):
@@ -406,6 +410,9 @@ class CommentRead(BaseModel):
     agent_id: UUID | None = None
     body: str
     created_at: datetime
+    #: Its uploaded files, oldest first -- loaded with the comments in one
+    #: query, so a thread never costs a request per comment.
+    attachments: list[AttachmentRead] = []
 
 
 # ── Environments ─────────────────────────────────────────────────────────
@@ -426,10 +433,24 @@ def http_url(value: str, subject: str) -> str:
     return url
 
 
-class EnvironmentWrite(BaseModel):
-    """Setting an environment's address. An empty ``url`` clears it."""
+def _environment_label(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("An environment needs a name")
+    return value
 
+
+class EnvironmentCreate(BaseModel):
+    """A new environment, added at the end of the list. ``url`` may be left
+    blank for one whose address is not known yet."""
+
+    label: str = Field(max_length=64)
     url: str = ""
+
+    @field_validator("label")
+    @classmethod
+    def _label(cls, value: str) -> str:
+        return _environment_label(value)
 
     @field_validator("url")
     @classmethod
@@ -437,14 +458,39 @@ class EnvironmentWrite(BaseModel):
         return http_url(value, "An environment address")
 
 
+class EnvironmentWrite(BaseModel):
+    """Changing an environment: its name, its address, or both. An empty
+    ``url`` clears the address; an omitted field is left as it is."""
+
+    label: str | None = Field(None, max_length=64)
+    url: str | None = None
+
+    @field_validator("label")
+    @classmethod
+    def _label(cls, value: str | None) -> str | None:
+        return None if value is None else _environment_label(value)
+
+    @field_validator("url")
+    @classmethod
+    def _http_url(cls, value: str | None) -> str | None:
+        return None if value is None else http_url(value, "An environment address")
+
+
+class EnvironmentOrder(BaseModel):
+    """Every environment's slug, in the order they should be listed."""
+
+    slugs: list[EnvironmentSlug] = Field(max_length=100)
+
+
 class EnvironmentRead(BaseModel):
-    """One environment, set or not. Unset ones are returned too, so the client
-    always renders the same three rows in the same order."""
+    """One environment, whether or not it has an address yet, in list order."""
 
     slug: EnvironmentSlug
     label: str
     url: str | None
     updated_at: datetime | None
+    #: Reports raised against it -- an environment with any cannot be removed.
+    feedback_count: int = 0
 
 
 # ── Feedback ─────────────────────────────────────────────────────────────

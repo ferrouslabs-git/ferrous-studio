@@ -323,11 +323,27 @@ def test_only_the_author_deletes_a_comment():
     """An agent's comment belongs to the agent, not to whoever minted its
     token: an agent request matches on agent_id, a human one on author_id
     plus no agent at all -- so neither can delete the other's."""
+    rule = inspect.getsource(routes._is_comment_author) + inspect.getsource(routes._acting_agent_id)
+    assert "Agent.board_token_id == ctx.board_token_id" in rule
+    assert "comment.agent_id == acting_agent_id" in rule
+    assert "comment.author_id == ctx.user_id and comment.agent_id is None" in rule
     source = inspect.getsource(routes.delete_comment)
-    assert "Agent.board_token_id == ctx.board_token_id" in source
-    assert "comment.agent_id == acting_agent_id" in source
-    assert "comment.author_id == ctx.user_id and comment.agent_id is None" in source
+    assert "_is_comment_author(" in source
     assert "You can only delete your own comments" in source
+
+
+def test_only_a_comments_author_adds_or_removes_its_files():
+    """A comment's files are part of what its author said -- the same rule as
+    deleting the comment, applied where files come and go."""
+    upload = inspect.getsource(routes.request_attachment_upload)
+    assert 'payload.entity_type == "comment"' in upload and "_is_comment_author(" in upload
+    remove = inspect.getsource(routes.delete_attachment)
+    assert 'attachment.entity_type == "comment"' in remove and "_is_comment_author(" in remove
+
+
+def test_deleting_a_comment_takes_its_files_with_it():
+    source = inspect.getsource(routes.delete_comment)
+    assert 'Attachment.entity_type == "comment"' in source and "deleted_at=comment.deleted_at" in source
 
 
 def test_requirement_events_keep_status_and_drop_blocked_from():

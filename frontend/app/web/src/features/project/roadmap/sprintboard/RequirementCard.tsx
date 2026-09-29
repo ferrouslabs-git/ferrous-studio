@@ -53,11 +53,17 @@ export function RequirementCard({ requirement: r, canMove, onMove, onOpen }: Req
       <div className="sb-ttl">{r.title}</div>
       <div className="sb-scope">
         <span className="sb-scope-epic" title={epic ? `${epic.human_id} · ${epic.title}` : "in no epic"}>
-          {epic ? epic.title : "No epic"}
+          {epic ? (
+            <>
+              <b className="sb-scope-id">{epic.human_id}</b> {epic.title}
+            </>
+          ) : (
+            "No epic"
+          )}
         </span>
         {feature && (
           <span className="sb-scope-feature" title={`${feature.human_id} · ${feature.title}`}>
-            {feature.title}
+            <b className="sb-scope-id">{feature.human_id}</b> {feature.title}
           </span>
         )}
       </div>

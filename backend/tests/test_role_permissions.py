@@ -322,6 +322,14 @@ def test_only_board_write_sets_an_environment_address():
     assert required_permissions(set_environment) == {"board:write"}
 
 
+def test_only_board_write_edits_the_environment_list():
+    """Adding, reordering and removing environments is filing an admin does."""
+    from app.studio.board.routes import create_environment, delete_environment, reorder_environments
+
+    for route in (create_environment, reorder_environments, delete_environment):
+        assert required_permissions(route) == {"board:write"}, route.__name__
+
+
 # ── Screenshots: the evidence for a report is part of the report ──────────
 # The two upload routes are EXEMPT above. Unlike create_feedback they are
 # generic -- they serve every board entity -- so the body, not the dependency,

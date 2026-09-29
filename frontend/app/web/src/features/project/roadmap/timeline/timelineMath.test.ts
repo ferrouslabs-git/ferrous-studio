@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Requirement } from "../../board/requirementsApi";
 import type { Sprint } from "../../board/sprintsApi";
-import { epicExtent, isLate, releaseExtent, tlBarStyle, tlPct, tlTicks, tlWindow, TL_DAY } from "./timelineMath";
+import { epicExtent, isLate, isoWeek, releaseExtent, tlBarStyle, tlPct, tlTicks, tlWeekGrid, tlWeeks, tlWindow, TL_DAY, weekStart } from "./timelineMath";
 
 const sprint = (id: string, start: string | null, end: string | null): Sprint => ({
   id,
@@ -96,5 +96,31 @@ describe("window", () => {
     );
     expect(ticks[0].pct).toBeGreaterThan(0);
     expect(ticks[2].pct).toBeLessThan(100);
+  });
+});
+
+describe("weeks", () => {
+  it("numbers weeks the ISO way, including across a year boundary", () => {
+    expect(isoWeek(new Date(2026, 8, 28))).toBe(40);
+    expect(isoWeek(new Date(2026, 9, 4))).toBe(40);
+    expect(isoWeek(new Date(2026, 0, 1))).toBe(1);
+    expect(isoWeek(new Date(2027, 0, 1))).toBe(53);
+    expect(isoWeek(new Date(2024, 11, 30))).toBe(1);
+  });
+  it("finds the Monday a moment falls in", () => {
+    expect(weekStart(new Date(2026, 9, 4, 18).getTime())).toEqual(new Date(2026, 8, 28));
+    expect(weekStart(new Date(2026, 8, 28, 9).getTime())).toEqual(new Date(2026, 8, 28));
+  });
+  it("puts a tick on every Monday inside the window, a week apart", () => {
+    const w = tlWindow([sprint("s1", "2026-09-01", "2026-09-30")], new Date("2026-09-11T00:00:00").getTime())!;
+    const weeks = tlWeeks(w);
+    expect(weeks.map((t) => t.monday.getDate())).toEqual([31, 7, 14, 21, 28, 5]);
+    expect(weeks.every((t) => t.monday.getDay() === 1)).toBe(true);
+    expect(weeks[0].week).toBe(36);
+    const grid = tlWeekGrid(w, new Date("2026-09-16T12:00:00").getTime());
+    expect(grid.first).toBeCloseTo(weeks[0].pct);
+    expect(grid.first + grid.week).toBeCloseTo(weeks[1].pct);
+    expect(grid.nowStart).toBeCloseTo(weeks[2].pct);
+    expect(grid.nowEnd).toBeCloseTo(weeks[3].pct);
   });
 });

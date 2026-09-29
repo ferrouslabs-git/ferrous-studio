@@ -2,7 +2,7 @@
 // status chips, due chips, effort figures, progress bars, the comment
 // button. Class names are scoped by board.css under .board-page and
 // .board-drawer; the hue system is one --c custom property per status.
-import { ReactNode } from "react";
+import type { MouseEvent } from "react";
 import type { Agent } from "./agentsApi";
 import type { DueStatus } from "./boardModel";
 import { DELIVERY_STATUS_LABEL, ST_LABEL } from "./constants";
@@ -10,9 +10,26 @@ import { effortSummary, type Rollup } from "./effort";
 import { Icon } from "./icons";
 import type { RequirementStatus } from "./requirementsApi";
 import { DELIVERY_STATUSES, type DeliveryStatus } from "./sprintsApi";
+import { useToastIfAny } from "./toast";
 
-export function IdChip({ children }: { children: ReactNode }) {
-  return <span className="bchip k">{children}</span>;
+// An item's board id (REL1, F3, REQ-12) -- the name people use for it in a
+// conversation, a commit or a ticket, so a click copies it. It sits inside
+// rows that open or navigate on click, and the copy must not do that too.
+export function IdChip({ children: id }: { children: string }) {
+  const toast = useToastIfAny();
+  const copy = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(id).then(
+      () => toast?.(`${id} copied`),
+      () => toast?.(`Couldn't copy ${id}`, { type: "err" }),
+    );
+  };
+  return (
+    <button type="button" className="bchip k idchip" title={`copy ${id}`} onClick={copy} onPointerDown={(e) => e.stopPropagation()}>
+      {id}
+    </button>
+  );
 }
 
 export function StatusChip({ status }: { status: RequirementStatus }) {

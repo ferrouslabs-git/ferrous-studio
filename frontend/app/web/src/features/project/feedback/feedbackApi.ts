@@ -6,7 +6,9 @@
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, errorMessage } from "../../../core/api";
 import { uploadAttachment } from "../attachmentsApi";
 
-export type EnvironmentSlug = "uat" | "staging" | "production";
+/** An environment's stable key. A board starts with "uat", "staging" and
+ *  "production"; ones added later get a slug minted from their first name. */
+export type EnvironmentSlug = string;
 export type FeedbackKind = "feedback" | "bug" | "requirement";
 export type FeedbackSeverity = "low" | "medium" | "high" | "critical";
 export type FeedbackStatus = "New" | "Triaged" | "Accepted" | "Declined" | "Done";
@@ -31,11 +33,13 @@ export const SEVERITY_LABELS: Record<FeedbackSeverity, string> = {
 
 export interface Environment {
   slug: EnvironmentSlug;
-  /** "UAT", "Staging", "Production" -- named by the server, not the client. */
+  /** What it is called on screen; renaming it never changes the slug. */
   label: string;
   /** null when nobody has published an address for it yet. */
   url: string | null;
   updated_at: string | null;
+  /** Reports raised against it; one with any cannot be removed. */
+  feedback_count: number;
 }
 
 export interface Feedback {
@@ -73,10 +77,24 @@ const base = (projectId: string) => `/studio/projects/${projectId}/board`;
 export const listEnvironments = (projectId: string) =>
   apiGet<Environment[]>(`${base(projectId)}/environments`);
 
-/** Publish an address, or clear it with "". Returns all three, so the caller
- *  never has to merge one row back into a list it already holds. */
-export const setEnvironment = (projectId: string, slug: EnvironmentSlug, url: string) =>
-  apiPut<Environment[]>(`${base(projectId)}/environments/${slug}`, { url });
+// Every environment write answers with the whole list, in order, so the
+// caller never has to merge one row back into a list it already holds.
+
+/** Add one at the end of the list; the address may be left blank. */
+export const createEnvironment = (projectId: string, input: { label: string; url: string }) =>
+  apiPost<Environment[]>(`${base(projectId)}/environments`, input);
+
+/** Rename it, publish or clear its address ("" clears), or both. */
+export const setEnvironment = (projectId: string, slug: EnvironmentSlug, patch: { label?: string; url?: string }) =>
+  apiPut<Environment[]>(`${base(projectId)}/environments/${encodeURIComponent(slug)}`, patch);
+
+/** Every slug, in the new order. */
+export const reorderEnvironments = (projectId: string, slugs: EnvironmentSlug[]) =>
+  apiPut<Environment[]>(`${base(projectId)}/environments/order`, { slugs });
+
+/** Refused (409) while any report names it. The caller reloads the list afterwards. */
+export const deleteEnvironment = (projectId: string, slug: EnvironmentSlug) =>
+  apiDelete(`${base(projectId)}/environments/${encodeURIComponent(slug)}`);
 
 export const listFeedback = (projectId: string) => apiGet<Feedback[]>(`${base(projectId)}/feedback`);
 

@@ -62,7 +62,8 @@ export function EpicRow({ epic, release, w }: EpicRowProps) {
       className={dragging ? "dragging" : undefined}
       id={epic.id}
       pre={<Icon name="flag" small />}
-      label={`${epic.human_id} · ${epic.title}`}
+      hid={epic.human_id}
+      label={epic.title}
       onClick={(e) => {
         if ((e.target as Element).closest("button")) return;
         navigate(paths.epic(epic.id));

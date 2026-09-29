@@ -30,7 +30,17 @@ import { ArrowEnd, ArrowKind, withArrow } from "./arrows";
 import { boundsOrigin, cellsToCopy, decodeCells, encodeCells, readClipboard, writeClipboard } from "./clipboard";
 import { applyGraphChrome, registerStyleElements } from "./registerStyleElements";
 import { ACCENT, applyUmlTheme, CANVAS_BG, currentUmlTheme, registerUmlStyles, styleName, UmlTheme } from "./umlStyles";
-import { EDGE_BY_TYPE, hasCompartments, isEdgeType, labelWrapsInsideShape, NODE_BY_TYPE, noteBody, UmlEdgeType, UmlNodeType } from "./umlTypes";
+import {
+  EDGE_BY_TYPE,
+  hasCompartments,
+  isEdgeType,
+  labelHangsOutsideShape,
+  labelWrapsInsideShape,
+  NODE_BY_TYPE,
+  noteBody,
+  UmlEdgeType,
+  UmlNodeType,
+} from "./umlTypes";
 import { createUserObject, isUmlCell, readUml, withAttrs } from "./userObject";
 
 /** Where a cell should move in the paint order of its siblings. */
@@ -186,6 +196,23 @@ export function createDiagramGraph(container: HTMLElement): GraphHandle {
     // An HTML label is markup: the text is escaped so a "<" typed into a
     // name stays a "<", and its line breaks are kept.
     return graph.isHtmlLabel(cell) ? escapeHtml(body).replace(/\n/g, "<br/>") : body;
+  };
+  // A label that hangs outside its shape -- under a decision diamond or a
+  // stick figure -- sits exactly where connectors leave from, and every
+  // validation re-sequences the draw pane into model order, which paints a
+  // later connector straight over it. So once each validation has finished,
+  // those labels are lifted to the top of the pane; their style gives them a
+  // canvas-coloured backing so the line underneath does not strike through.
+  const view = graph.getView();
+  const validateView = view.validate.bind(view);
+  view.validate = (cell) => {
+    validateView(cell);
+    const pane = view.getDrawPane();
+    for (const state of view.getStates().values()) {
+      const node = state.text?.node;
+      if (!node || node.parentNode !== pane || !state.cell.isVertex() || !isUmlCell(state.cell)) continue;
+      if (labelHangsOutsideShape(readUml(state.cell).umlType)) pane.appendChild(node);
+    }
   };
   graph.convertValueToString = (cell) => (isUmlCell(cell) ? bodyOf(cell) : "");
   graph.getEditingValue = (cell) => (isUmlCell(cell) ? bodyOf(cell) : "");

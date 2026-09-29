@@ -129,6 +129,11 @@
   border: 1px solid var(--b-line); color: var(--b-ink2); white-space: nowrap; background: none; font-weight: 500;
 }
 .board-page .bchip.k, .board-drawer .bchip.k { font-weight: 600; color: var(--b-ink3); border: none; padding: 0; }
+/* An id chip copies itself: a button that still reads as the chip, keeping a
+   little room either side so its hover outline has somewhere to sit. */
+.board-page .bchip.idchip, .board-drawer .bchip.idchip { cursor: copy; padding: 0 3px; margin: 0 -3px; border: 1px solid transparent; flex: none; }
+.board-page .bchip.idchip:hover, .board-drawer .bchip.idchip:hover { color: var(--b-ink); border-color: var(--b-line); }
+.board-page .bchip.idchip:focus-visible, .board-drawer .bchip.idchip:focus-visible { outline: 2px solid var(--b-accent-border); outline-offset: 1px; }
 .board-page .bchip.st, .board-drawer .bchip.st { font-weight: 600; }
 /* WORK status (requirements, and the read-only roll-up on features/epics).
    The class name is the stored value, not the label, so re-wording a status
@@ -397,7 +402,7 @@ body.board-dragging-requirement .board-page .spcard:not(.sp-dim), body.board-dra
   position: sticky; top: 0; z-index: 2; padding: 4px 12px 8px;
   background: color-mix(in srgb, var(--b-surface) 92%, transparent); backdrop-filter: blur(4px);
 }
-.board-page .tl-axis .tl-track { height: 16px; }
+.board-page .tl-axis .tl-track { height: 30px; }
 .board-page .tl-row { padding: 3px 12px; cursor: pointer; }
 .board-page .tl-card {
   background: var(--b-card); border: 1px solid var(--b-line); border-radius: var(--b-radius-lg); box-shadow: var(--b-shadow);
@@ -422,6 +427,8 @@ body.board-dragging-requirement .board-page .spcard:not(.sp-dim), body.board-dra
 .board-page .tl-fold.folded { color: var(--b-accent-text); border-color: var(--b-accent-border); }
 .board-page .tl-crew-inline { display: inline-flex; gap: 2px; text-transform: none; letter-spacing: 0; }
 .board-page .tl-label .ico { margin-right: 6px; vertical-align: -2px; opacity: .65; flex: none; }
+.board-page .tl-label .idchip { margin-right: 4px; }
+.board-page .tl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .board-page .tl-row.tl-sprint { background: color-mix(in srgb, var(--b-good) 4%, transparent); }
 .board-page .tl-row.tl-sprint:hover { background: color-mix(in srgb, var(--b-good) 9%, transparent); }
 .board-page .tl-row:hover { background: color-mix(in srgb, var(--b-accent) 6%, transparent); }
@@ -466,6 +473,18 @@ body.board-dragging-epic .board-page .tl-card:not(.tl-card-loose) { border-style
 .board-page .tl-today b { position: absolute; top: -2px; left: 4px; font-family: var(--b-mono); font-size: 8.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--b-accent-text); font-weight: 500; }
 .board-page .tl-tick { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--b-line); }
 .board-page .tl-tick b { position: absolute; top: 0; left: 4px; font-family: var(--b-mono); font-size: 8.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--b-ink4); font-weight: 500; }
+/* Mondays: a short tick under the month row, labelled with the date; the
+   current week in the accent. The grid under every track (below) carries
+   the same Mondays down through the cards. */
+.board-page .tl-wtick { position: absolute; top: 15px; bottom: 0; width: 0; border-left: 1px solid var(--b-line); }
+.board-page .tl-wtick b { position: absolute; top: 1px; left: 3px; font-family: var(--b-mono); font-size: 8.5px; color: var(--b-ink3); font-weight: 500; font-variant-numeric: tabular-nums; cursor: default; }
+.board-page .tl-wtick.now { border-left-color: var(--b-accent-border); }
+.board-page .tl-wtick.now b { color: var(--b-accent-text); font-weight: 700; }
+.board-page.tl-weeks .tl-track {
+  background-image:
+    linear-gradient(to right, transparent var(--tl-now0), color-mix(in srgb, var(--b-accent) 7%, transparent) var(--tl-now0) var(--tl-now1), transparent var(--tl-now1)),
+    repeating-linear-gradient(to right, var(--b-line-faint) var(--tl-wk0) calc(var(--tl-wk0) + 1px), transparent calc(var(--tl-wk0) + 1px) calc(var(--tl-wk0) + var(--tl-wk)));
+}
 .board-page .tl-crew { position: absolute; right: 3px; top: 1px; display: flex; gap: 2px; }
 .board-page .tl-agent {
   font-family: var(--b-mono); font-size: 8px; font-style: normal; letter-spacing: .04em; padding: 0 3px; border-radius: 2px; line-height: 12px;
@@ -518,6 +537,7 @@ body.board-dragging-epic .board-page .tl-card:not(.tl-card-loose) { border-style
   border: 1px solid var(--b-line); color: var(--b-ink3); background: color-mix(in srgb, var(--b-ink) 3%, transparent);
 }
 .board-page .reqcard .sb-scope .sb-scope-feature { border-style: dashed; }
+.board-page .reqcard .sb-scope .sb-scope-id { font-family: var(--b-mono); font-weight: 600; color: var(--b-ink3); }
 .board-page .reqcard .mv { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
 .board-page .reqcard .mv button {
   border: 1px solid var(--b-line); background: none; color: var(--b-ink2); border-radius: var(--b-radius); font-size: 10px; cursor: pointer; padding: 0 6px;
@@ -532,7 +552,6 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
 .board-page .sb-col.is-over { border-style: solid; border-color: var(--b-accent-solid); background: color-mix(in srgb, var(--b-accent) 9%, var(--b-card)); }
 /* ── Epic page: the epic and the detail pane split the width 50/50 ── */
 .board-page .epg-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; align-items: start; }
-.board-page .epg-layout:not(.has-pane) { grid-template-columns: minmax(0, 1fr); }
 .board-page .epg-body { min-width: 0; }
 .board-page .rqp-pane {
   min-width: 0; background: var(--b-card); border: 1px solid var(--b-line); border-radius: var(--b-radius-lg); box-shadow: var(--b-shadow);
@@ -547,6 +566,13 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
 .board-page .epg-groups .hrow { padding: 9px 8px; gap: 12px; }
 .board-page .epghead, .board-page .rqphead { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .board-page .rqp-ttl { font-weight: 600; font-size: 19px; letter-spacing: -.015em; outline: none; margin-top: 14px; }
+/* The pane with nothing open: the split holds, so opening a row never reflows the epic. */
+.board-page .rqp-idle { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 18px 0 8px; font-size: 12.5px; }
+/* A new requirement: the edit pane's title and description, as fields. */
+.board-page .rqp-new .rqp-ttl-in, .board-page .rqp-new .rqp-sum-in { display: block; width: 100%; box-sizing: border-box; }
+.board-page .rqp-new .rqp-ttl-in { margin-top: 14px; height: auto; font-size: 19px; font-weight: 600; letter-spacing: -.015em; }
+.board-page .rqp-new .rqp-sum-in { margin-top: 8px; font-size: 13px; line-height: 1.5; resize: vertical; }
+.board-page .rqp-new .rqp-foot .btn.primary { min-width: 150px; }
 .board-page .rqp-sum { font-size: 13px; color: var(--b-ink2); margin-top: 7px; outline: none; min-height: 1em; white-space: pre-wrap; }
 .board-page .epg-section, .board-page .rqp-section { margin-top: 26px; }
 .board-page .epg-section h3, .board-page .rqp-section h3, .board-drawer .att-h, .board-page .att-h {
@@ -642,6 +668,26 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
 .board-page .cmt-h b, .board-drawer .cmt-h b { color: var(--b-ink2); }
 .board-page .cmt-x, .board-drawer .cmt-x { margin-left: auto; border: none; background: none; color: var(--b-serious); cursor: pointer; font-size: 11px; padding: 0; }
 .board-page .cmt-b, .board-drawer .cmt-b { white-space: pre-wrap; }
+/* A comment's files: image thumbnails and named documents, in one wrapping row. */
+.board-page .cmt-files, .board-drawer .cmt-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: flex-start; }
+.board-page .cmt-file, .board-drawer .cmt-file { position: relative; display: inline-flex; }
+.board-page .cmt-file-name, .board-drawer .cmt-file-name {
+  border: 1px solid var(--b-line); border-radius: var(--b-radius); background: none; color: var(--b-ink2); font: inherit; font-size: 11.5px;
+  padding: 4px 8px; cursor: zoom-in; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.board-page .cmt-file-name:hover, .board-drawer .cmt-file-name:hover { border-color: var(--b-accent-border); color: var(--b-ink); }
+.board-page .cmt-file-x, .board-drawer .cmt-file-x { border: none; background: none; color: var(--b-serious); cursor: pointer; font-size: 10px; padding: 0 3px; }
+.board-page .cmt-file > .cmt-file-x, .board-drawer .cmt-file > .cmt-file-x {
+  position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--b-card); border: 1px solid var(--b-line);
+  display: flex; align-items: center; justify-content: center; padding: 0; opacity: 0; transition: opacity var(--b-transition);
+}
+.board-page .cmt-file:hover > .cmt-file-x, .board-page .cmt-file > .cmt-file-x:focus-visible,
+.board-drawer .cmt-file:hover > .cmt-file-x, .board-drawer .cmt-file > .cmt-file-x:focus-visible { opacity: 1; }
+.board-page .cmt-compose, .board-drawer .cmt-compose { position: relative; border-radius: var(--b-radius); }
+.board-page .cmt-compose.att-drop, .board-drawer .cmt-compose.att-drop { outline: 2px dashed var(--b-accent-border); outline-offset: 4px; }
+.board-page .cmt-pending, .board-drawer .cmt-pending { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.board-page .cmt-pending-file, .board-drawer .cmt-pending-file { text-transform: none; letter-spacing: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; gap: 2px; }
+.board-page .cmt-actions, .board-drawer .cmt-actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
 /* ── Comments panel: docked at the right edge, never modal (the reference's
    #cpanel). Under the drawers (40), toasts (60) and lightbox (70), so a
    drawer opened while the thread is up covers it, as #drawer covers #cpanel.
@@ -657,7 +703,19 @@ body.board-cpanel-open .shell-main { padding-right: 340px; }
 .board-drawer .cptabs { display: flex; gap: 4px; margin-bottom: 10px; }
 
 /* ── Attachments ── */
-.board-page .att-section, .board-drawer .att-section { min-width: 0; }
+.board-page .att-section, .board-drawer .att-section { min-width: 0; position: relative; border-radius: var(--b-radius); }
+.board-page .att-section.att-drop, .board-drawer .att-section.att-drop { outline: 2px dashed var(--b-accent-border); outline-offset: 6px; }
+.board-page .att-drop-note, .board-drawer .att-drop-note {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; border-radius: var(--b-radius);
+  background: color-mix(in srgb, var(--b-card) 82%, transparent); color: var(--b-accent-text); font-family: var(--b-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+}
+.board-page .att-thumbs, .board-drawer .att-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.board-page .att-thumb, .board-drawer .att-thumb {
+  padding: 0; border: 1px solid var(--b-line); border-radius: var(--b-radius); background: color-mix(in srgb, var(--b-ink) 4%, transparent); cursor: zoom-in; overflow: hidden; display: block;
+}
+.board-page .att-thumb:hover, .board-drawer .att-thumb:hover { border-color: var(--b-accent-border); }
+.board-page .att-thumb canvas, .board-drawer .att-thumb canvas { display: block; }
+.board-page .att-thumb-x, .board-drawer .att-thumb-x { display: flex; width: 96px; height: 72px; align-items: center; justify-content: center; padding: 4px; font-size: 10px; color: var(--b-ink3); overflow: hidden; word-break: break-all; }
 .board-page .att-list, .board-drawer .att-list { margin-top: 8px; }
 
 /* ── Dialogs (pickers) inside a board drawer ── */

@@ -10,6 +10,7 @@ it doesn't, since the board keys on (account_id, lineage_id), not
 project_id, so nothing about it is in what versioning copies.
 """
 import datetime as dt
+import re
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -59,8 +60,9 @@ from .schemas import (
     DocRead,
     DocUpdate,
     EntityType,
+    EnvironmentCreate,
+    EnvironmentOrder,
     EnvironmentRead,
-    EnvironmentSlug,
     EnvironmentWrite,
     EpicCreate,
     EpicProgress,
@@ -1447,7 +1449,7 @@ async def list_comments(
     entity_id: UUID | None = Query(None),
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
-) -> list[Comment]:
+) -> list[CommentRead]:
     """One entity's thread when filtered; every live comment on the board
     when not -- the board pages load the lot once for the comment counts on
     their cards and rows, rather than one request per entity."""
@@ -1458,8 +1460,8 @@ async def list_comments(
         stmt = stmt.where(Comment.entity_type == entity_type)
     if entity_id is not None:
         stmt = stmt.where(Comment.entity_id == entity_id)
-    result = await db.execute(stmt.order_by(Comment.created_at))
-    return list(result.scalars().all())
+    comments = list((await db.execute(stmt.order_by(Comment.created_at))).scalars().all())
+    return await _with_attachments(db, board, comments)
 
 
 @router.post("/projects/{project_id}/board/comments", response_model=CommentRead, status_code=status.HTTP_201_CREATED)
@@ -1496,6 +1498,60 @@ async def create_comment(
     )
     await db.commit()
     await db.refresh(comment)
+    # Files are uploaded to a comment after it exists, so a new one has none.
+    return comment
+
+
+async def _with_attachments(db: AsyncSession, board: Board, comments: list[Comment]) -> list[CommentRead]:
+    """The comments as CommentRead, each with its uploaded files."""
+    by_comment: dict[UUID, list[Attachment]] = {}
+    if comments:
+        rows = await db.execute(
+            select(Attachment)
+            .where(
+                Attachment.board_id == board.id,
+                Attachment.entity_type == "comment",
+                Attachment.entity_id.in_([c.id for c in comments]),
+                Attachment.status == "uploaded",
+                Attachment.deleted_at.is_(None),
+            )
+            .order_by(Attachment.created_at)
+        )
+        for a in rows.scalars():
+            by_comment.setdefault(a.entity_id, []).append(a)
+    out = []
+    for c in comments:
+        read = CommentRead.model_validate(c)
+        read.attachments = [AttachmentRead.model_validate(a) for a in by_comment.get(c.id, [])]
+        out.append(read)
+    return out
+
+
+async def _acting_agent_id(db: AsyncSession, board: Board, ctx: ScopeContext) -> UUID | None:
+    if ctx.board_token_id is None:
+        return None
+    return (
+        await db.execute(select(Agent.id).where(Agent.board_id == board.id, Agent.board_token_id == ctx.board_token_id))
+    ).scalar_one_or_none()
+
+
+async def _is_comment_author(db: AsyncSession, board: Board, ctx: ScopeContext, comment: Comment) -> bool:
+    """Whether the caller wrote this comment -- see delete_comment for why an
+    agent and the person who minted its token are different authors."""
+    acting_agent_id = await _acting_agent_id(db, board, ctx)
+    if acting_agent_id is not None:
+        return comment.agent_id == acting_agent_id
+    return comment.author_id == ctx.user_id and comment.agent_id is None
+
+
+async def _live_comment(db: AsyncSession, board: Board, comment_id: UUID) -> Comment:
+    comment = (
+        await db.execute(
+            select(Comment).where(Comment.id == comment_id, Comment.board_id == board.id, Comment.deleted_at.is_(None))
+        )
+    ).scalar_one_or_none()
+    if comment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
     return comment
 
 
@@ -1508,15 +1564,7 @@ async def delete_comment(
 ) -> None:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    comment = (
-        await db.execute(
-            select(Comment).where(
-                Comment.id == comment_id, Comment.board_id == board.id, Comment.deleted_at.is_(None)
-            )
-        )
-    ).scalar_one_or_none()
-    if comment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+    comment = await _live_comment(db, board, comment_id)
     # Deletable only by the identity that wrote it, as in software-management
     # (its author is free text, so an agent's comment is the agent's, not its
     # operator's). Here a board-token request is attributed to the token's
@@ -1526,20 +1574,20 @@ async def delete_comment(
     # human request -- or a human-minted token, which has no agent row --
     # owns only its own agent-less comments. board:write says you may write
     # to the board, not that you may unsay what a colleague said.
-    acting_agent_id = None
-    if ctx.board_token_id is not None:
-        acting_agent_id = (
-            await db.execute(
-                select(Agent.id).where(Agent.board_id == board.id, Agent.board_token_id == ctx.board_token_id)
-            )
-        ).scalar_one_or_none()
-    if acting_agent_id is not None:
-        is_author = comment.agent_id == acting_agent_id
-    else:
-        is_author = comment.author_id == ctx.user_id and comment.agent_id is None
-    if not is_author:
+    if not await _is_comment_author(db, board, ctx, comment):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own comments")
     comment.deleted_at = utc_now()
+    # Its files go with it, the way an epic's do when the epic is deleted.
+    await db.execute(
+        Attachment.__table__.update()
+        .where(
+            Attachment.board_id == board.id,
+            Attachment.entity_type == "comment",
+            Attachment.entity_id == comment.id,
+            Attachment.deleted_at.is_(None),
+        )
+        .values(deleted_at=comment.deleted_at)
+    )
     await service.write_event(
         db, board, ctx.user_id, "comment.deleted", comment.entity_type, comment.entity_id,
         {"excerpt": _clip(comment.body)},
@@ -1549,38 +1597,82 @@ async def delete_comment(
 
 # ── Environments ─────────────────────────────────────────────────────────
 #
-# Where a build of this product can actually be reached. Fixed at three rather
-# than user-defined: an organisation user raising feedback has to name the
-# environment they saw the problem in, and a free-form list would make one
-# organisation's reports incomparable with another's -- and with its own, six
-# months later. Ordered the way a build is promoted through them.
+# Where a build of this product can actually be reached, in the order a build
+# is promoted through them. The list is the board's own: every board starts
+# with UAT, Staging and Production (service.get_or_create_board), and the
+# project adds, renames, reorders and removes from there (a6d3f9c2e814).
 #
-# Only board:write sets one; everyone with board:read sees the links, which is
-# the point (see the Feedback section below).
+# A report names the environment it was seen in by slug, so the slug is the
+# one thing that never changes: minted from the first label, kept through
+# renames, and an environment that reports were raised against cannot be
+# removed -- its reports would be left naming nothing.
+#
+# Only board:write edits the list; everyone with board:read sees the links,
+# which is the point (see the Feedback section below). Every route here uses
+# get_project, not get_writable_project: an address belongs to the lineage,
+# so a frozen design version must neither carry a copy of its own nor stop a
+# wrong link being corrected. See test_lock_coverage.py.
 
 
-ENVIRONMENTS: tuple[tuple[str, str], ...] = (
-    ("uat", "UAT"),
-    ("staging", "Staging"),
-    ("production", "Production"),
-)
+def _slug_for(label: str, taken: set[str]) -> str:
+    """A slug for a new environment: its label, lower-cased and hyphenated,
+    short enough to leave room for a numeric suffix when it is already used."""
+    base = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:12].strip("-") or "env"
+    slug, n = base, 2
+    while slug in taken:
+        slug, n = f"{base}-{n}", n + 1
+    return slug
+
+
+async def _environments(db: AsyncSession, board: Board) -> list[Environment]:
+    return list(
+        (
+            await db.execute(
+                select(Environment)
+                .where(Environment.board_id == board.id)
+                .order_by(Environment.position, Environment.created_at)
+            )
+        ).scalars()
+    )
+
+
+async def _environment(db: AsyncSession, board: Board, slug: str) -> Environment:
+    row = (
+        await db.execute(select(Environment).where(Environment.board_id == board.id, Environment.slug == slug))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found")
+    return row
 
 
 async def _environment_rows(db: AsyncSession, board: Board) -> list[EnvironmentRead]:
-    """All three environments, set or not, always in promotion order."""
-    rows = {
-        row.slug: row
-        for row in (await db.execute(select(Environment).where(Environment.board_id == board.id))).scalars()
-    }
+    """Every environment, with an address or not, in list order."""
+    counts = dict(
+        (
+            await db.execute(
+                select(Feedback.environment, func.count())
+                .where(Feedback.board_id == board.id)
+                .group_by(Feedback.environment)
+            )
+        ).all()
+    )
     return [
         EnvironmentRead(
-            slug=slug,
-            label=label,
-            url=rows[slug].url if slug in rows else None,
-            updated_at=rows[slug].updated_at if slug in rows else None,
+            slug=row.slug,
+            label=row.label,
+            url=row.url or None,
+            updated_at=row.updated_at if row.url else None,
+            feedback_count=counts.get(row.slug, 0),
         )
-        for slug, label in ENVIRONMENTS
+        for row in await _environments(db, board)
     ]
+
+
+def _refuse_duplicate_label(rows: list[Environment], label: str, own: Environment | None = None) -> None:
+    # Two environments both called "Staging" would make a report's
+    # environment ambiguous to anyone reading it.
+    if any(r is not own and r.label.casefold() == label.casefold() for r in rows):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f'There is already an environment called "{label}"')
 
 
 @router.get("/projects/{project_id}/board/environments", response_model=list[EnvironmentRead])
@@ -1593,47 +1685,130 @@ async def list_environments(
     return await _environment_rows(db, await _board(db, project, ctx))
 
 
+@router.post(
+    "/projects/{project_id}/board/environments",
+    response_model=list[EnvironmentRead],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_environment(
+    project_id: UUID,
+    payload: EnvironmentCreate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> list[EnvironmentRead]:
+    project = await get_project(db, project_id, ctx)
+    # Under the board's row lock, so two people adding at once cannot mint the
+    # same slug or the same position.
+    board = await service._lock_board(db, await _board(db, project, ctx))
+    rows = await _environments(db, board)
+    _refuse_duplicate_label(rows, payload.label)
+    row = Environment(
+        board_id=board.id,
+        account_id=board.account_id,
+        # "order" is reserved: PUT .../environments/order is the reorder route.
+        slug=_slug_for(payload.label, {r.slug for r in rows} | {"order"}),
+        label=payload.label,
+        position=max((r.position for r in rows), default=-1) + 1,
+        url=payload.url,
+        updated_by=ctx.user_id,
+    )
+    db.add(row)
+    await db.flush()
+    await service.write_event(
+        db, board, ctx.user_id, "environment.created", "environment", row.id, {"slug": row.slug, "label": row.label}
+    )
+    await db.commit()
+    return await _environment_rows(db, board)
+
+
+@router.put("/projects/{project_id}/board/environments/order", response_model=list[EnvironmentRead])
+async def reorder_environments(
+    project_id: UUID,
+    payload: EnvironmentOrder,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> list[EnvironmentRead]:
+    project = await get_project(db, project_id, ctx)
+    board = await service._lock_board(db, await _board(db, project, ctx))
+    rows = {r.slug: r for r in await _environments(db, board)}
+    # The whole list, exactly once each: a partial order would leave the rest
+    # nowhere in particular, and one written against a stale list would drop
+    # an environment someone else just added.
+    if sorted(payload.slugs) != sorted(rows):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="The environments have changed; reload and try again"
+        )
+    for position, slug in enumerate(payload.slugs):
+        rows[slug].position = position
+    await db.commit()
+    return await _environment_rows(db, board)
+
+
 @router.put("/projects/{project_id}/board/environments/{slug}", response_model=list[EnvironmentRead])
 async def set_environment(
     project_id: UUID,
-    slug: EnvironmentSlug,
+    slug: str,
     payload: EnvironmentWrite,
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> list[EnvironmentRead]:
-    # get_project, not get_writable_project: an environment address belongs to
-    # the lineage, so a frozen design version must neither carry a copy of its
-    # own nor stop a wrong link being corrected. See test_lock_coverage.py.
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    row = (
-        await db.execute(select(Environment).where(Environment.board_id == board.id, Environment.slug == slug))
-    ).scalar_one_or_none()
-
-    # An empty URL means "not set up", which is the absence of a row rather
-    # than a row holding "". Reports already filed against the environment are
-    # untouched: they name it by slug, not by this row.
-    if not payload.url:
-        if row is not None:
-            await db.delete(row)
-            await service.write_event(
-                db, board, ctx.user_id, "environment.cleared", "environment", row.id, {"slug": slug}
-            )
-    elif row is None:
-        row = Environment(
-            board_id=board.id, account_id=board.account_id, slug=slug, url=payload.url, updated_by=ctx.user_id
-        )
-        db.add(row)
-        await db.flush()
-        await service.write_event(db, board, ctx.user_id, "environment.set", "environment", row.id, {"slug": slug})
-    elif row.url != payload.url:
+    row = await _environment(db, board, slug)
+    changed: dict[str, str] = {}
+    if payload.label is not None and payload.label != row.label:
+        _refuse_duplicate_label(await _environments(db, board), payload.label, own=row)
+        row.label = payload.label
+        changed["label"] = payload.label
+    # A blank URL clears the address and keeps the environment. Reports
+    # already filed against it are untouched: they name it by slug.
+    if payload.url is not None and payload.url != row.url:
         row.url = payload.url
+        changed["url"] = payload.url
+    if changed:
         row.updated_by = ctx.user_id
         row.updated_at = utc_now()
-        await service.write_event(db, board, ctx.user_id, "environment.set", "environment", row.id, {"slug": slug})
-
+        event = "environment.cleared" if changed.get("url") == "" and len(changed) == 1 else "environment.set"
+        await service.write_event(db, board, ctx.user_id, event, "environment", row.id, {"slug": slug, **changed})
     await db.commit()
     return await _environment_rows(db, board)
+
+
+@router.delete("/projects/{project_id}/board/environments/{slug}", response_model=list[EnvironmentRead])
+async def delete_environment(
+    project_id: UUID,
+    slug: str,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> list[EnvironmentRead]:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    row = await _environment(db, board, slug)
+    reports = (
+        await db.execute(
+            select(func.count()).where(Feedback.board_id == board.id, Feedback.environment == slug)
+        )
+    ).scalar_one()
+    if reports:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{reports} feedback report(s) were raised against {row.label}; it cannot be removed while they exist",
+        )
+    await db.delete(row)
+    await service.write_event(
+        db, board, ctx.user_id, "environment.deleted", "environment", row.id, {"slug": slug, "label": row.label}
+    )
+    await db.commit()
+    return await _environment_rows(db, board)
+
+
+async def _require_environment(db: AsyncSession, board: Board, slug: str) -> None:
+    """A report must be raised against an environment this board has."""
+    exists = (
+        await db.execute(select(Environment.id).where(Environment.board_id == board.id, Environment.slug == slug))
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unknown environment")
 
 
 # ── Feedback ─────────────────────────────────────────────────────────────
@@ -1661,7 +1836,7 @@ async def _get_feedback(db: AsyncSession, board: Board, feedback_id: UUID) -> Fe
 @router.get("/projects/{project_id}/board/feedback", response_model=list[FeedbackRead])
 async def list_feedback(
     project_id: UUID,
-    environment: EnvironmentSlug | None = Query(None),
+    environment: str | None = Query(None),
     severity: FeedbackSeverity | None = Query(None),
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
@@ -1713,6 +1888,7 @@ async def create_feedback(
     # a report always starts at "New", and only board:write moves it.
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
+    await _require_environment(db, board, payload.environment)
     # Snapshot the reporter, so a report still says who filed it once that
     # person has left the organisation (same reason as WireframeAuditLog).
     user = await db.get(User, ctx.user_id) if ctx.user_id else None
@@ -1753,6 +1929,8 @@ async def update_feedback(
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     item = await _get_feedback(db, board, feedback_id)
+    if payload.environment is not None and payload.environment != item.environment:
+        await _require_environment(db, board, payload.environment)
     before = {"status": item.status}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
@@ -1918,6 +2096,12 @@ async def request_attachment_upload(
     await _authorise_screenshot(db, board, ctx, payload.entity_type, payload.entity_id)
     if not await service.entity_exists(db, board.id, payload.entity_type, payload.entity_id):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Attachment target does not exist")
+    # A comment's files are part of what its author said, so only they add
+    # to it -- the same rule as deleting it.
+    if payload.entity_type == "comment" and not await _is_comment_author(
+        db, board, ctx, await _live_comment(db, board, payload.entity_id)
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only attach files to your own comments")
 
     settings = get_settings()
     max_bytes = settings.documents_max_bytes
@@ -2052,6 +2236,10 @@ async def delete_attachment(
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     attachment = await _get_attachment(db, board, attachment_id)
+    if attachment.entity_type == "comment" and not await _is_comment_author(
+        db, board, ctx, await _live_comment(db, board, attachment.entity_id)
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only remove files from your own comments")
     await storage.delete_object(attachment.s3_key)
     attachment.deleted_at = utc_now()
     await service.write_event(

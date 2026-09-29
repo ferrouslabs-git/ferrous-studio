@@ -6,6 +6,7 @@
 // layer never asks.
 import { useMemo, useRef } from "react";
 import { errorMessage } from "../../../core/api";
+import { deleteAttachment, uploadAll } from "../attachmentsApi";
 import { Agent, createAgent, deleteAgent, updateAgent } from "./agentsApi";
 import { useBoard } from "./boardData";
 import { reorderPatches, sameRef, spOrdered } from "./boardModel";
@@ -345,13 +346,30 @@ export function useBoardMutations() {
     }
 
     // ── comments ──────────────────────────────────────────────────────────
-    async function postComment(entityType: BoardEntityType, entityId: string, body: string): Promise<BoardComment> {
+    // Files go up after the comment exists -- an upload ticket is minted
+    // against its id. The comment stays posted whatever happens to them; a
+    // failed file is toasted by uploadAll and simply is not on it.
+    async function postComment(entityType: BoardEntityType, entityId: string, body: string, files: File[] = []): Promise<BoardComment> {
+      let it: BoardComment;
       try {
-        const it = await createBoardComment(projectId, entityType, entityId, body);
+        it = await createBoardComment(projectId, entityType, entityId, body);
         b().replace("comments", it);
-        return it;
       } catch (err) {
         return fail(err);
+      }
+      if (files.length) {
+        it = { ...it, attachments: await uploadAll(projectId, "comment", it.id, files, toast) };
+        b().replace("comments", it);
+      }
+      return it;
+    }
+
+    async function removeCommentAttachment(comment: BoardComment, attachmentId: string): Promise<void> {
+      try {
+        await deleteAttachment(projectId, attachmentId);
+        b().replace("comments", { ...comment, attachments: comment.attachments.filter((a) => a.id !== attachmentId) });
+      } catch (err) {
+        fail(err);
       }
     }
 
@@ -421,6 +439,7 @@ export function useBoardMutations() {
       patchDoc,
       deleteDoc: deleteDocM,
       postComment,
+      removeCommentAttachment,
       deleteComment: deleteCommentM,
       createAgent: createAgentM,
       patchAgent,

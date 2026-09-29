@@ -85,12 +85,17 @@ const base = (): CellStyle => ({
   rounded: false,
 });
 
+/* A label hanging below its shape is painted over the connectors that leave
+   it (createGraph.ts), on a canvas-coloured backing so a line running
+   underneath does not strike through the text. */
+const outsideLabel = (): CellStyle => ({ labelBackgroundColor: CANVAS_BG });
+
 const solidInk = (): CellStyle => ({ fillColor: INK, strokeColor: INK, noLabel: true, resizable: false });
 
 export function vertexStyleFor(type: UmlNodeType): CellStyle {
   switch (type) {
     case "actor":
-      return { ...base(), shape: "uml-actor", fillColor: PAPER, verticalLabelPosition: "bottom", verticalAlign: "top", aspect: "fixed" };
+      return { ...base(), shape: "uml-actor", fillColor: PAPER, verticalLabelPosition: "bottom", verticalAlign: "top", aspect: "fixed", ...outsideLabel() };
     case "usecase":
       return { ...base(), shape: "ellipse", perimeter: "ellipsePerimeter" };
     case "boundary":
@@ -117,7 +122,7 @@ export function vertexStyleFor(type: UmlNodeType): CellStyle {
     case "action":
       return { ...base(), shape: "rectangle", rounded: true, arcSize: 40 };
     case "decision":
-      return { ...base(), shape: "rhombus", perimeter: "rhombusPerimeter", verticalLabelPosition: "bottom", verticalAlign: "top" };
+      return { ...base(), shape: "rhombus", perimeter: "rhombusPerimeter", verticalLabelPosition: "bottom", verticalAlign: "top", ...outsideLabel() };
     case "fork":
     case "forkV":
       return { ...base(), ...solidInk(), shape: "rectangle" };

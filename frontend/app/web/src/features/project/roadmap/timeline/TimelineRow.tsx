@@ -5,10 +5,13 @@
 // (an epic titled "Auth · SSO" would otherwise break the drill-in), as in
 // the reference app's tlRow (static/js/timeline.js).
 import type { MouseEvent, ReactNode, Ref } from "react";
+import { IdChip } from "../../board/chips";
 
 export interface TimelineRowProps {
   /** Row kind classes: "tl-release tl-cardhead", "tl-sprint tl-sp-active", … */
   cls: string;
+  /** The item's board id, drawn as its own chip so a long title never truncates it away. */
+  hid?: string;
   label: string;
   /** An icon before the label. */
   pre?: ReactNode;
@@ -22,12 +25,13 @@ export interface TimelineRowProps {
   className?: string;
 }
 
-export function TimelineRow({ cls, label, pre, meta, children, id, onClick, rowRef, className }: TimelineRowProps) {
+export function TimelineRow({ cls, hid, label, pre, meta, children, id, onClick, rowRef, className }: TimelineRowProps) {
   return (
     <div ref={rowRef} className={`tl-row ${cls}${className ? ` ${className}` : ""}`} data-id={id} onClick={onClick}>
-      <div className="tl-label" title={label}>
+      <div className="tl-label" title={hid ? `${hid} · ${label}` : label}>
         {pre}
-        {label}
+        {hid && <IdChip>{hid}</IdChip>}
+        <span className="tl-name">{label}</span>
       </div>
       <div className="tl-meta">{meta}</div>
       <div className="tl-track">{children}</div>

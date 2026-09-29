@@ -16,7 +16,7 @@
 // never position anything. A fabricated bar is worse than a visible gap.
 // Ported from the reference app's static/js/timeline.js and the
 // #timelineView block of static/index.html.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { BoardData, useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
@@ -26,7 +26,7 @@ import { boardStorageKey, useStoredJson } from "../board/folds";
 import { RequirementDrawer } from "../board/RequirementDrawer";
 import type { FoldKind, FoldMap, TimelineFolds } from "./timeline/FoldBar";
 import { ReleaseCard } from "./timeline/ReleaseCard";
-import { tlPct, tlTicks, tlWindow, type TimeWindow } from "./timeline/timelineMath";
+import { tlPct, tlTicks, tlWeekGrid, tlWeeks, tlWindow, type TimeWindow } from "./timeline/timelineMath";
 import { UnassignedCard } from "./timeline/UnassignedCard";
 
 const FOLD_KINDS: FoldKind[] = ["sprints", "epics"];
@@ -109,6 +109,19 @@ function Roadmap({ data }: { data: BoardData }) {
   };
 
   const w = useMemo(() => tlWindow(data.sprints), [data.sprints]);
+  // The week grid every track draws behind its bars (board.css). One set of
+  // custom properties on the page lines every row up with the axis above,
+  // because every track sits in the same grid column.
+  const weekGrid = useMemo<CSSProperties | undefined>(() => {
+    if (!w) return undefined;
+    const g = tlWeekGrid(w);
+    return {
+      "--tl-wk0": `${g.first}%`,
+      "--tl-wk": `${g.week}%`,
+      "--tl-now0": `${g.nowStart}%`,
+      "--tl-now1": `${g.nowEnd}%`,
+    } as CSSProperties;
+  }, [w]);
   const first = index.releases.length ? index.releases[0] : null;
   // The Unfiled card earns its place only when it has something on it, and
   // must still render when nothing on the board is dated yet.
@@ -116,7 +129,7 @@ function Roadmap({ data }: { data: BoardData }) {
     data.requirements.some((r) => index.effectiveEpicId(r) === null) || data.sprints.some((s) => !s.release_id);
 
   return (
-    <div className="page board-page">
+    <div className={`page board-page${w ? " tl-weeks" : ""}`} style={weekGrid}>
       {error && <div className="status-banner warn">{error}</div>}
       <div className="viewbar">
         {canWrite && (
@@ -174,19 +187,53 @@ function Roadmap({ data }: { data: BoardData }) {
   );
 }
 
-// Month ticks and the today line, sticky above the cards.
+// Month ticks, a labelled tick on every Monday, and the today line, sticky
+// above the cards. Mondays are labelled by their date, thinned out when the
+// track is too narrow to fit every one; each says its ISO week number on
+// hover, and the current week is picked out.
 function Axis({ w }: { w: TimeWindow }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [trackPx, setTrackPx] = useState(0);
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setTrackPx(el.clientWidth));
+    ro.observe(el);
+    setTrackPx(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const weeks = tlWeeks(w);
+  const weekPx = weeks.length > 1 ? (trackPx * (weeks[1].pct - weeks[0].pct)) / 100 : trackPx;
+  // Every week, every other, or every fourth: whatever leaves a date room to read.
+  const step = weekPx >= 26 ? 1 : weekPx >= 13 ? 2 : 4;
+  const now = Date.now();
+  const thisWeek = weeks.findIndex((t, i) => t.monday.getTime() <= now && (i === weeks.length - 1 || weeks[i + 1].monday.getTime() > now));
+  // Thinning counts out from the current week, so its label is always one of those kept.
+  const anchor = Math.max(thisWeek, 0);
+
   return (
     <div className="tl-axis">
       <div className="tl-label" />
       <div className="tl-meta" />
-      <div className="tl-track">
+      <div className="tl-track" ref={trackRef}>
         {tlTicks(w).map((t) => (
           <i key={`${t.label}-${t.pct}`} className="tl-tick" style={{ left: `${t.pct}%` }}>
             <b>{t.label}</b>
           </i>
         ))}
-        <i className="tl-today" style={{ left: `${tlPct(w, Date.now())}%` }}>
+        {weeks.map((t, i) =>
+          (((i - anchor) % step) + step) % step === 0 ? (
+            <i
+              key={t.monday.getTime()}
+              className={`tl-wtick${i === thisWeek ? " now" : ""}`}
+              style={{ left: `${t.pct}%` }}
+              title={`Week ${t.week} · w/c ${t.monday.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`}
+            >
+              <b>{t.monday.getDate()}</b>
+            </i>
+          ) : null,
+        )}
+        <i className="tl-today" style={{ left: `${tlPct(w, now)}%` }}>
           <b>today</b>
         </i>
       </div>

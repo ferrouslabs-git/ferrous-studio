@@ -33,7 +33,8 @@ export function SprintRow({ sprint, w }: { sprint: Sprint; w: TimeWindow | null 
       cls={`tl-sprint tl-sp-${sprint.closed_at ? "closed" : "open"}`}
       id={sprint.id}
       pre={<Icon name="timer" small />}
-      label={`${sprint.human_id} · ${sprint.name}`}
+      hid={sprint.human_id}
+      label={sprint.name}
       onClick={() => navigate(paths.sprint(sprint.id))}
       meta={
         <>

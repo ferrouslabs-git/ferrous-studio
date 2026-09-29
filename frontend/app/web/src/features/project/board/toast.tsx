@@ -76,6 +76,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** The toast function where there is a provider above, else null -- for pieces also mounted outside the board. */
+export function useToastIfAny(): ToastFn | null {
+  return useContext(ToastContext);
+}
+
 export function useToast(): ToastFn {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error("useToast must be used inside ToastProvider");

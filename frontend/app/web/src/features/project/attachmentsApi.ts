@@ -3,10 +3,10 @@
 // Board-wide rather than feedback-specific -- releases, epics, requirements and
 // docs can all own attachments -- so it sits here rather than inside a feature
 // folder the next consumer would have to import out of.
-import { apiDelete, apiGet, apiPost } from "../../core/api";
+import { apiDelete, apiGet, apiPost, errorMessage } from "../../core/api";
 import { putToPresignedUrl } from "../../core/upload";
 
-export type AttachmentEntityType = "release" | "epic" | "feature" | "requirement" | "doc" | "feedback";
+export type AttachmentEntityType = "release" | "epic" | "feature" | "requirement" | "doc" | "feedback" | "comment";
 
 export interface BoardAttachment {
   id: string;
@@ -99,4 +99,25 @@ export async function uploadAttachment(
   await putToPresignedUrl(ticket.upload_url, file, ticket.headers, opts.signal);
   opts.onPhase?.("confirming");
   return apiPost<BoardAttachment>(`${base(projectId)}/${ticket.attachment_id}/confirm`, {});
+}
+
+/** Upload files to an item one after another; resolves with the ones that made it, each failure already toasted. */
+export async function uploadAll(
+  projectId: string,
+  entityType: AttachmentEntityType,
+  entityId: string,
+  files: File[],
+  toast: (message: string, opts?: { type?: "err" }) => void,
+  onProgress?: (done: number) => void,
+): Promise<BoardAttachment[]> {
+  const uploaded: BoardAttachment[] = [];
+  for (let i = 0; i < files.length; i++) {
+    try {
+      uploaded.push(await uploadAttachment(projectId, entityType, entityId, files[i]));
+    } catch (err) {
+      toast(`${files[i].name}: ${errorMessage(err)}`, { type: "err" });
+    }
+    onProgress?.(i + 1);
+  }
+  return uploaded;
 }

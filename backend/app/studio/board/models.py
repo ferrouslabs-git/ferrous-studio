@@ -330,7 +330,7 @@ class RequirementSprintHistory(Base):
 
 class Environment(Base):
     """Where a build of this product can be reached: one row per environment
-    that has actually been given a URL.
+    the project keeps, in promotion order (``position``).
 
     Lives on the board -- keyed on the lineage -- rather than on the project
     row, because a deployed environment is one address for the whole product,
@@ -338,10 +338,14 @@ class Environment(Base):
     hand v1 and v2 different UAT links and leave a locked version unable to
     correct a wrong one.
 
-    An absent row means "not set up yet"; the URL is never blank.
+    The list is the board's own (a6d3f9c2e814): a board starts with UAT,
+    Staging and Production and may add, rename, reorder and remove from
+    there. ``slug`` is the stable key feedback refers to and never changes;
+    ``label`` is what people see. ``url == ""`` means "no address yet".
     """
 
-    SLUGS = ("uat", "staging", "production")
+    #: What every board starts with, in order.
+    DEFAULTS = (("uat", "UAT"), ("staging", "Staging"), ("production", "Production"))
 
     __tablename__ = "board_environments"
 
@@ -349,10 +353,15 @@ class Environment(Base):
     board_id = Column(UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
     account_id = Column(UUID(as_uuid=True), nullable=False)
     slug = Column(String(16), nullable=False)
-    url = Column(String(1024), nullable=False)
+    label = Column(String(64), nullable=False)
+    position = Column(Integer, nullable=False, default=0)
+    url = Column(String(1024), nullable=False, default="")
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    # When the environment itself last changed -- shown beside its address.
+    # Set by hand, not onupdate: reordering the list writes ``position`` on
+    # every row, and must not make every address look freshly edited.
+    updated_at = Column(DateTime, default=utc_now, nullable=False)
 
     __table_args__ = (UniqueConstraint("board_id", "slug", name="uq_board_environments_slug"),)
 
@@ -380,7 +389,6 @@ class Feedback(Base):
     unset state and the URL is never blank.
     """
 
-    ENVIRONMENTS = ("uat", "staging", "production")
     KINDS = ("feedback", "bug", "requirement")
     SEVERITIES = ("low", "medium", "high", "critical")
     STATUSES = ("New", "Triaged", "Accepted", "Declined", "Done")
@@ -502,7 +510,7 @@ class Attachment(Base):
     raised without holding ``board:write``. That is why the routes restrict a
     feedback attachment to PNG/JPEG and why confirm verifies magic bytes."""
 
-    ENTITY_TYPES = ("release", "epic", "feature", "requirement", "doc", "feedback")
+    ENTITY_TYPES = ("release", "epic", "feature", "requirement", "doc", "feedback", "comment")
     STATUSES = ("pending", "uploaded")
 
     __tablename__ = "board_attachments"
