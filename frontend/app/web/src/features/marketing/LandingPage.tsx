@@ -143,9 +143,8 @@ export function LandingPage() {
             <span className="gradient-text">visible until it ships</span>.
           </h1>
           <p className="landing-lead">
-            Ferrous Studio is the workspace Ferrous Labs opens for every engagement. The screens, use cases and
-            rules we agree with you live here as a spec you can read and click through. The roadmap that delivers
-            it, the environments you test on and the feedback you raise are on the same pages.
+            Know exactly what you are getting before we build it. Watch it take shape sprint by sprint. Test every
+            release where it runs. One workspace, opened for every Ferrous Labs engagement.
           </p>
           <div className="landing-cta">
             <Link to="/signin" className="btn primary">
