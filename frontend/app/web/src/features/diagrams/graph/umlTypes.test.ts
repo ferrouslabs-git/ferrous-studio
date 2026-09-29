@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { STENCILS_XML } from "./umlStencils";
 import { vertexStyleFor } from "./umlStyles";
-import { noteBody, PALETTE } from "./umlTypes";
+import { labelWrapsInsideShape, noteBody, PALETTE } from "./umlTypes";
 
 /** Shape names maxGraph registers itself (registerDefaultShapes). */
 const BUILT_IN = new Set(["actor", "arrow", "arrowConnector", "cloud", "connector", "cylinder", "doubleEllipse", "ellipse", "hexagon", "image", "label", "line", "rectangle", "rhombus", "swimlane", "triangle"]);
@@ -19,6 +19,25 @@ describe("noteBody", () => {
 
   it("prefers the label once the note has been rewritten", () => {
     expect(noteBody({ label: "New", text: "Stale" })).toBe("New");
+  });
+});
+
+describe("labelWrapsInsideShape", () => {
+  it("wraps the label of every shape that carries its text inside itself", () => {
+    for (const type of ["lifeline", "usecase", "action", "rect", "roundRect", "swimlane", "boundary", "cloud", "text"]) {
+      expect(labelWrapsInsideShape(type), type).toBe(true);
+    }
+  });
+
+  it("leaves a label that hangs below its shape on one line", () => {
+    expect(labelWrapsInsideShape("actor")).toBe(false);
+    expect(labelWrapsInsideShape("decision")).toBe(false);
+  });
+
+  it("is false for shapes with no label, and for anything that is not a node type", () => {
+    for (const type of ["start", "end", "fork", "activation"]) expect(labelWrapsInsideShape(type), type).toBe(false);
+    expect(labelWrapsInsideShape("association")).toBe(false);
+    expect(labelWrapsInsideShape("")).toBe(false);
   });
 });
 

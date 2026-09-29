@@ -143,6 +143,21 @@ export const isEdgeType = (t: string): t is UmlEdgeType => t in EDGE_BY_TYPE;
 /** Which types render a class-style compartment box. */
 export const hasCompartments = (t: string) => t === "class" || t === "entity";
 
+/** Types whose label hangs OUTSIDE the shape (below a stick figure, below a
+ *  decision diamond). Wrapping such a label to the shape's width would fold
+ *  "Operations Manager" into a 40px-wide column under an actor. */
+const LABEL_OUTSIDE_SHAPE: ReadonlySet<UmlNodeType> = new Set(["actor", "decision"]);
+
+/**
+ * Whether a vertex's label sits inside its shape and should wrap to the
+ * shape's width instead of running past its edge. That wrapping only happens
+ * for an HTML label -- SVG text ignores `whiteSpace: wrap` -- so this is what
+ * decides which cells the graph renders as HTML (see createGraph.ts).
+ */
+export function labelWrapsInsideShape(type: string): boolean {
+  return isNodeType(type) && !LABEL_OUTSIDE_SHAPE.has(type) && !NODE_BY_TYPE[type].noLabel;
+}
+
 /**
  * A note is one block of text and nothing else, so its body is the label --
  * the same attribute in-place editing writes, which is why the canvas needs no

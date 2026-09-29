@@ -30,7 +30,7 @@ import { ArrowEnd, ArrowKind, withArrow } from "./arrows";
 import { boundsOrigin, cellsToCopy, decodeCells, encodeCells, readClipboard, writeClipboard } from "./clipboard";
 import { applyGraphChrome, registerStyleElements } from "./registerStyleElements";
 import { ACCENT, applyUmlTheme, CANVAS_BG, currentUmlTheme, registerUmlStyles, styleName, UmlTheme } from "./umlStyles";
-import { EDGE_BY_TYPE, hasCompartments, isEdgeType, NODE_BY_TYPE, noteBody, UmlEdgeType, UmlNodeType } from "./umlTypes";
+import { EDGE_BY_TYPE, hasCompartments, isEdgeType, labelWrapsInsideShape, NODE_BY_TYPE, noteBody, UmlEdgeType, UmlNodeType } from "./umlTypes";
 import { createUserObject, isUmlCell, readUml, withAttrs } from "./userObject";
 
 /** Where a cell should move in the paint order of its siblings. */
@@ -164,10 +164,15 @@ export function createDiagramGraph(container: HTMLElement): GraphHandle {
     const a = readUml(cell);
     return a.umlType === "note" ? noteBody(a) : a.label;
   };
+  // Every vertex whose label sits inside its shape is an HTML label: that is
+  // the only kind maxGraph wraps (`whiteSpace: wrap` in the base style),
+  // so a long name folds inside a lifeline head or an action box instead
+  // of running past its edge. Edges, actors and decisions keep SVG text,
+  // which stays on one line -- their labels sit beside or below the shape.
   graph.isHtmlLabel = (cell) => {
     if (!isUmlCell(cell)) return false;
     const type = readUml(cell).umlType;
-    return hasCompartments(type) || type === "note";
+    return hasCompartments(type) || type === "note" || (cell.isVertex() && labelWrapsInsideShape(type));
   };
   graph.getLabel = (cell) => {
     if (!cell || !isUmlCell(cell)) return "";
@@ -177,7 +182,10 @@ export function createDiagramGraph(container: HTMLElement): GraphHandle {
     if (cell.isEdge() && !a.label && isEdgeType(a.umlType) && EDGE_BY_TYPE[a.umlType].stereotype) {
       return `«${EDGE_BY_TYPE[a.umlType].stereotype}»`;
     }
-    return bodyOf(cell);
+    const body = bodyOf(cell);
+    // An HTML label is markup: the text is escaped so a "<" typed into a
+    // name stays a "<", and its line breaks are kept.
+    return graph.isHtmlLabel(cell) ? escapeHtml(body).replace(/\n/g, "<br/>") : body;
   };
   graph.convertValueToString = (cell) => (isUmlCell(cell) ? bodyOf(cell) : "");
   graph.getEditingValue = (cell) => (isUmlCell(cell) ? bodyOf(cell) : "");
