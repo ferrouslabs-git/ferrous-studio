@@ -1,6 +1,7 @@
 """Board request/response schemas."""
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -413,6 +414,27 @@ class CommentRead(BaseModel):
     #: Its uploaded files, oldest first -- loaded with the comments in one
     #: query, so a thread never costs a request per comment.
     attachments: list[AttachmentRead] = []
+
+
+# ── Project key ──────────────────────────────────────────────────────────
+
+
+class BoardKeyRead(BaseModel):
+    key: str
+
+
+class BoardKeyWrite(BaseModel):
+    """A new key: a letter then one to five letters or digits, stored upper case."""
+
+    key: str
+
+    @field_validator("key")
+    @classmethod
+    def _key(cls, value: str) -> str:
+        value = value.strip().upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9]{1,5}", value):
+            raise ValueError("A project key is 2 to 6 letters or digits, starting with a letter")
+        return value
 
 
 # ── Environments ─────────────────────────────────────────────────────────

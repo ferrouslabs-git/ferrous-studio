@@ -110,7 +110,7 @@ export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, on
   return (
     <div className={`mscard rel-page${shipped ? " rel-shipped" : ""}`}>
       <div className="mshead">
-        <IdChip>{release.human_id}</IdChip>
+        <IdChip of={{ type: "release", id: release.id }}>{release.human_id}</IdChip>
         <InlineText className="ms-ttl" value={release.title} disabled={!canWrite} onSave={(v) => mutations.patchRelease(release.id, { title: v }).catch(() => {})} />
         {sch.date && sch.last ? (
           <span className="rel-date" title={`set by ${sch.last.human_id} · ${sch.last.name}, the last sprint to end`}>

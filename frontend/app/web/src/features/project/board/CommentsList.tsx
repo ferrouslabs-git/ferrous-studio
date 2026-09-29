@@ -13,7 +13,7 @@ import { ClipboardEvent, useState } from "react";
 import { formatBytes, formatDateTime } from "../../../core/format";
 import type { BoardAttachment } from "../attachmentsApi";
 import { AttachButton, AttachmentThumb, useFileDrop } from "./AttachmentsSection";
-import { AttachmentPreview } from "./AttachmentPreview";
+import { useAttachmentPreview } from "./AttachmentPreview";
 import { useBoard } from "./boardData";
 import { useBoardMutations } from "./boardMutations";
 import type { BoardComment, BoardEntityType } from "./commentsApi";
@@ -27,7 +27,7 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [posting, setPosting] = useState(false);
-  const [preview, setPreview] = useState<{ items: BoardAttachment[]; at: number } | null>(null);
+  const preview = useAttachmentPreview();
   const comments = index.commentsOf(entityId);
   const addFiles = (more: File[]) => setFiles((f) => [...f, ...more]);
   const drop = useFileDrop(addFiles, !canWrite || posting);
@@ -89,7 +89,7 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
               <div className="cmt-files">
                 {atts.map((a, i) => (
                   <span key={a.id} className="cmt-file">
-                    <button type="button" className={previewKindFor(a) === "image" ? "att-thumb" : "cmt-file-name"} title={a.filename} onClick={() => setPreview({ items: atts, at: i })}>
+                    <button type="button" className={previewKindFor(a) === "image" ? "att-thumb" : "cmt-file-name"} title={a.filename} onClick={() => preview.open(atts, i)}>
                       {previewKindFor(a) === "image" ? <AttachmentThumb projectId={projectId} attachment={a} /> : a.filename}
                     </button>
                     {mine && (
@@ -137,7 +137,7 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
           {drop.over && <div className="att-drop-note">Drop to attach</div>}
         </div>
       )}
-      {preview && <AttachmentPreview items={preview.items} initialIndex={preview.at} onClose={() => setPreview(null)} />}
+      {preview.element}
     </div>
   );
 }

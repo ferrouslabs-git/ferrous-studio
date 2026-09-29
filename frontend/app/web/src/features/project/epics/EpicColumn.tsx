@@ -81,7 +81,7 @@ export function EpicColumn({
   return (
     <>
       <div className="epghead">
-        <IdChip>{epic.human_id}</IdChip>
+        <IdChip of={{ type: "epic", id: epic.id }}>{epic.human_id}</IdChip>
         <RolledUpStatusChip status={epic.status} of="epic" />
         <span className="spacer" />
         <CommentButton

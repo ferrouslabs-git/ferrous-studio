@@ -63,6 +63,7 @@ export function UnassignedCard({ w, folds, onOpenRequirement }: UnassignedCardPr
               id={r.id}
               pre={<Icon name="requirement" small />}
               hid={r.human_id}
+              of={{ type: "requirement", id: r.id }}
               label={r.title}
               meta={<StatusChip status={r.status} />}
               onClick={() => onOpenRequirement(r)}

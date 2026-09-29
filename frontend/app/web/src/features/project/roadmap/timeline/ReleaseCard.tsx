@@ -55,6 +55,7 @@ export function ReleaseCard({ release, w, folds }: { release: Release; w: TimeWi
         cls="tl-release tl-cardhead"
         id={release.id}
         hid={release.human_id}
+        of={{ type: "release", id: release.id }}
         label={release.title}
         onClick={() => navigate(paths.release(release.id))}
         meta={

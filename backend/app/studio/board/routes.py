@@ -44,6 +44,7 @@ from .models import (
     Release,
     Requirement,
     Sprint,
+    remember_board_key,
 )
 from .schemas import (
     AgentRead,
@@ -60,6 +61,8 @@ from .schemas import (
     DocRead,
     DocUpdate,
     EntityType,
+    BoardKeyRead,
+    BoardKeyWrite,
     EnvironmentCreate,
     EnvironmentOrder,
     EnvironmentRead,
@@ -1593,6 +1596,52 @@ async def delete_comment(
         {"excerpt": _clip(comment.body)},
     )
     await db.commit()
+
+
+# ── Project key ──────────────────────────────────────────────────────────
+#
+# The short code every board id starts with (IA-REQ-5), unique within the
+# organisation so an id names one thing wherever it is quoted. Like an
+# environment address it belongs to the lineage, not a version: get_project,
+# not get_writable_project, and on the EXEMPT list in test_lock_coverage.py.
+# Renaming it renames every id in the project at once -- none is stored.
+
+
+@router.get("/projects/{project_id}/board/key", response_model=BoardKeyRead)
+async def get_board_key(
+    project_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> BoardKeyRead:
+    project = await get_project(db, project_id, ctx)
+    return BoardKeyRead(key=(await _board(db, project, ctx)).key)
+
+
+@router.put("/projects/{project_id}/board/key", response_model=BoardKeyRead)
+async def set_board_key(
+    project_id: UUID,
+    payload: BoardKeyWrite,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> BoardKeyRead:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    if payload.key != board.key:
+        clash = (
+            await db.execute(
+                select(Board.id).where(Board.account_id == board.account_id, Board.key == payload.key, Board.id != board.id)
+            )
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=f"Another project in this organisation already uses {payload.key}"
+            )
+        before = board.key
+        board.key = payload.key
+        await service.write_event(db, board, ctx.user_id, "board.key_changed", "board", board.id, {"from": before, "to": payload.key})
+        await db.commit()
+        remember_board_key(board)
+    return BoardKeyRead(key=board.key)
 
 
 # ── Environments ─────────────────────────────────────────────────────────

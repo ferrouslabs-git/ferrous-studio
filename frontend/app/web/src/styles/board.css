@@ -252,7 +252,7 @@
   display: flex; gap: 10px; align-items: center; padding: 6px 4px; border-radius: var(--b-radius); cursor: pointer; min-width: 0;
 }
 .board-page .hrow:hover, .board-drawer .hrow:hover { background: color-mix(in srgb, var(--b-accent) 6%, transparent); }
-.board-page .hrow .k, .board-drawer .hrow .k { flex: none; font-family: var(--b-mono); font-weight: 600; font-size: 10px; color: var(--b-ink3); width: 44px; }
+.board-page .hrow .k, .board-drawer .hrow .k { flex: none; font-family: var(--b-mono); font-weight: 600; font-size: 10px; color: var(--b-ink3); min-width: 64px; white-space: nowrap; }
 .board-page .hrow .t, .board-drawer .hrow .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .board-page .hrow.sel { background: color-mix(in srgb, var(--b-accent) 13%, transparent); box-shadow: inset 2px 0 0 var(--b-accent-solid); }
 /* Zero-count comment badges stay hidden until the row or card is hovered. */
@@ -553,13 +553,14 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
 /* ── Epic page: the epic and the detail pane split the width 50/50 ── */
 .board-page .epg-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; align-items: start; }
 .board-page .epg-body { min-width: 0; }
+/* The pane grows with what is in it -- a requirement, its form, a preview --
+   and the page scrolls, never the pane on its own. */
 .board-page .rqp-pane {
   min-width: 0; background: var(--b-card); border: 1px solid var(--b-line); border-radius: var(--b-radius-lg); box-shadow: var(--b-shadow);
-  padding: 18px 22px 22px; position: sticky; top: 0; max-height: calc(100vh - var(--app-bar-h, 44px) - 56px); overflow: auto;
+  padding: 18px 22px 22px;
 }
 @media (max-width: 1320px) {
   .board-page .epg-layout { grid-template-columns: minmax(0, 1fr); gap: 22px; }
-  .board-page .rqp-pane { position: static; max-height: none; }
 }
 .board-page .epg-groups .mscard { padding: 16px 18px; }
 .board-page .epg-groups .epg-items { margin-top: 8px; }
@@ -571,7 +572,9 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
 /* A new requirement: the edit pane's title and description, as fields. */
 .board-page .rqp-new .rqp-ttl-in, .board-page .rqp-new .rqp-sum-in { display: block; width: 100%; box-sizing: border-box; }
 .board-page .rqp-new .rqp-ttl-in { margin-top: 14px; height: auto; font-size: 19px; font-weight: 600; letter-spacing: -.015em; }
-.board-page .rqp-new .rqp-sum-in { margin-top: 8px; font-size: 13px; line-height: 1.5; resize: vertical; }
+/* Text boxes grow with what is typed (field-sizing), from a floor, rather than scrolling. */
+.board-page .rqp-new .rqp-sum-in { margin-top: 8px; font-size: 13px; line-height: 1.5; resize: vertical; field-sizing: content; min-height: 92px; }
+.board-page .rqp-cmt, .board-drawer .rqp-cmt { field-sizing: content; }
 .board-page .rqp-new .rqp-foot .btn.primary { min-width: 150px; }
 .board-page .rqp-sum { font-size: 13px; color: var(--b-ink2); margin-top: 7px; outline: none; min-height: 1em; white-space: pre-wrap; }
 .board-page .epg-section, .board-page .rqp-section { margin-top: 26px; }
@@ -747,31 +750,36 @@ body.board-cpanel-open .shell-main { padding-right: 340px; }
   width: min(980px, 94vw); max-height: min(88vh, 900px); overflow: hidden; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
   background: var(--b-card); border: 1px solid var(--b-line); border-radius: var(--b-radius-lg); box-shadow: var(--b-shadow);
 }
-.board-lightbox .att-view-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.board-lightbox .att-view-head h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.board-lightbox .att-view-meta { margin-left: auto; flex: none; font-family: var(--b-mono); font-size: 10px; color: var(--b-ink3); font-variant-numeric: tabular-nums; }
-.board-lightbox .att-view-body {
+/* The same viewer inline in the epic page's side pane (AttachmentPreviewHost):
+   the pane's width, and tall media sized to it rather than to the screen. */
+.board-page .att-view.att-inline { display: flex; flex-direction: column; gap: 10px; }
+.board-page .att-inline .att-view-body img, .board-page .att-inline .att-view-body video, .board-page .att-inline .att-view-body canvas { max-height: none; }
+.board-page .att-inline .att-view-body iframe { height: min(80vh, 900px); }
+:is(.board-lightbox, .board-page) .att-view-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+:is(.board-lightbox, .board-page) .att-view-head h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+:is(.board-lightbox, .board-page) .att-view-meta { margin-left: auto; flex: none; font-family: var(--b-mono); font-size: 10px; color: var(--b-ink3); font-variant-numeric: tabular-nums; }
+:is(.board-lightbox, .board-page) .att-view-body {
   flex: 1; min-height: 180px; display: flex; align-items: center; justify-content: center; overflow: auto;
   background: var(--b-surface); border: 1px solid var(--b-line); border-radius: var(--b-radius); padding: 8px; color: var(--b-ink3); font-size: 12px;
 }
-.board-lightbox .att-view-body img, .board-lightbox .att-view-body video, .board-lightbox .att-view-body canvas { max-width: 100%; max-height: 72vh; object-fit: contain; border-radius: 3px; }
-.board-lightbox .att-view-body audio { width: min(520px, 100%); }
-.board-lightbox .att-view-body iframe { width: 100%; height: 72vh; border: 0; border-radius: 3px; background: #fff; }
-.board-lightbox .att-view-body pre { margin: 0; align-self: stretch; width: 100%; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--b-ink2); font: 11.5px/1.6 var(--b-mono); }
-.board-lightbox .att-view-foot { display: flex; align-items: center; gap: 8px; }
-.board-lightbox .att-view-foot .btn.sp { margin-left: auto; }
-.board-lightbox .att-view-count { font-family: var(--b-mono); font-size: 10px; color: var(--b-ink3); font-variant-numeric: tabular-nums; }
-.board-lightbox .att-doc, .board-lightbox .att-sheet { align-self: stretch; width: 100%; min-width: 0; min-height: 0; overflow: auto; color: var(--b-ink); font-size: 12.5px; line-height: 1.6; }
-.board-lightbox .att-sheet { display: flex; flex-direction: column; overflow: hidden; }
-.board-lightbox .att-doc { padding: 2px 12px; }
-.board-lightbox .att-doc h1, .board-lightbox .att-doc h2, .board-lightbox .att-doc h3, .board-lightbox .att-doc h4 { margin: 14px 0 6px; line-height: 1.3; font-weight: 600; }
-.board-lightbox .att-doc p { margin: 0 0 8px; }
-.board-lightbox .att-doc ul, .board-lightbox .att-doc ol { margin: 0 0 8px; padding-left: 20px; }
-.board-lightbox .att-doc img { max-width: 100%; height: auto; border-radius: 3px; margin: 6px 0; }
-.board-lightbox .att-doc a { color: var(--b-accent-text); }
-.board-lightbox .att-doc table, .board-lightbox .att-sheet table { border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.board-lightbox .att-doc td, .board-lightbox .att-doc th, .board-lightbox .att-sheet td, .board-lightbox .att-sheet th { border: 1px solid var(--b-line); padding: 3px 8px; text-align: left; vertical-align: top; white-space: nowrap; }
-.board-lightbox .att-sheet table { width: max-content; min-width: 100%; }
-.board-lightbox .att-sheet-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; flex: none; }
-.board-lightbox .att-sheet-pane { flex: 1; min-height: 0; overflow: auto; }
-.board-lightbox .att-conv-note { margin-top: 12px; font-size: 10.5px; color: var(--b-ink3); font-style: italic; }
+:is(.board-lightbox, .board-page) .att-view-body img, :is(.board-lightbox, .board-page) .att-view-body video, :is(.board-lightbox, .board-page) .att-view-body canvas { max-width: 100%; max-height: 72vh; object-fit: contain; border-radius: 3px; }
+:is(.board-lightbox, .board-page) .att-view-body audio { width: min(520px, 100%); }
+:is(.board-lightbox, .board-page) .att-view-body iframe { width: 100%; height: 72vh; border: 0; border-radius: 3px; background: #fff; }
+:is(.board-lightbox, .board-page) .att-view-body pre { margin: 0; align-self: stretch; width: 100%; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--b-ink2); font: 11.5px/1.6 var(--b-mono); }
+:is(.board-lightbox, .board-page) .att-view-foot { display: flex; align-items: center; gap: 8px; }
+:is(.board-lightbox, .board-page) .att-view-foot .btn.sp { margin-left: auto; }
+:is(.board-lightbox, .board-page) .att-view-count { font-family: var(--b-mono); font-size: 10px; color: var(--b-ink3); font-variant-numeric: tabular-nums; }
+:is(.board-lightbox, .board-page) .att-doc, :is(.board-lightbox, .board-page) .att-sheet { align-self: stretch; width: 100%; min-width: 0; min-height: 0; overflow: auto; color: var(--b-ink); font-size: 12.5px; line-height: 1.6; }
+:is(.board-lightbox, .board-page) .att-sheet { display: flex; flex-direction: column; overflow: hidden; }
+:is(.board-lightbox, .board-page) .att-doc { padding: 2px 12px; }
+:is(.board-lightbox, .board-page) .att-doc h1, :is(.board-lightbox, .board-page) .att-doc h2, :is(.board-lightbox, .board-page) .att-doc h3, :is(.board-lightbox, .board-page) .att-doc h4 { margin: 14px 0 6px; line-height: 1.3; font-weight: 600; }
+:is(.board-lightbox, .board-page) .att-doc p { margin: 0 0 8px; }
+:is(.board-lightbox, .board-page) .att-doc ul, :is(.board-lightbox, .board-page) .att-doc ol { margin: 0 0 8px; padding-left: 20px; }
+:is(.board-lightbox, .board-page) .att-doc img { max-width: 100%; height: auto; border-radius: 3px; margin: 6px 0; }
+:is(.board-lightbox, .board-page) .att-doc a { color: var(--b-accent-text); }
+:is(.board-lightbox, .board-page) .att-doc table, :is(.board-lightbox, .board-page) .att-sheet table { border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+:is(.board-lightbox, .board-page) .att-doc td, :is(.board-lightbox, .board-page) .att-doc th, :is(.board-lightbox, .board-page) .att-sheet td, :is(.board-lightbox, .board-page) .att-sheet th { border: 1px solid var(--b-line); padding: 3px 8px; text-align: left; vertical-align: top; white-space: nowrap; }
+:is(.board-lightbox, .board-page) .att-sheet table { width: max-content; min-width: 100%; }
+:is(.board-lightbox, .board-page) .att-sheet-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; flex: none; }
+:is(.board-lightbox, .board-page) .att-sheet-pane { flex: 1; min-height: 0; overflow: auto; }
+:is(.board-lightbox, .board-page) .att-conv-note { margin-top: 12px; font-size: 10.5px; color: var(--b-ink3); font-style: italic; }

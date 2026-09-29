@@ -66,7 +66,7 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
   return (
     <>
       <div className="rqphead">
-        <IdChip>{r.human_id}</IdChip>
+        <IdChip of={{ type: "requirement", id: r.id }}>{r.human_id}</IdChip>
         <StatusChip status={r.status} />
         {r.queue_position != null && (
           <span className="bchip" title="position in the agent queue">

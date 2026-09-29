@@ -8,6 +8,7 @@ import { updateProject } from "../projects/projectsApi";
 import { BoardTokensSection } from "./BoardTokensSection";
 import { EnvironmentsSection } from "./EnvironmentsSection";
 import { ImportBundleDrawer } from "./ImportBundleDrawer";
+import { ProjectKeyRow } from "./ProjectKeyRow";
 import { RepositorySection } from "./RepositorySection";
 import { useProject } from "./ProjectLayout";
 
@@ -85,6 +86,7 @@ export function ProjectDetailsPage() {
       <section className="section">
         <div className="section-body details-grid">
           <DetailRow label="Name">{project.name}</DetailRow>
+          <ProjectKeyRow />
           <DetailRow label="Description">
             {project.description ? <Prose text={project.description} /> : <span className="muted">Not set</span>}
           </DetailRow>

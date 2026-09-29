@@ -63,6 +63,7 @@ export function EpicRow({ epic, release, w }: EpicRowProps) {
       id={epic.id}
       pre={<Icon name="flag" small />}
       hid={epic.human_id}
+      of={{ type: "epic", id: epic.id }}
       label={epic.title}
       onClick={(e) => {
         if ((e.target as Element).closest("button")) return;

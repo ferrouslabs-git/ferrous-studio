@@ -10,7 +10,7 @@ counter columns on ``boards`` under a row lock -- the same pattern
 wireframes.note_seq/task_seq already uses -- and are never stored on the
 entity rows themselves, only the raw ``seq`` int; the API layer formats it.
 """
-from uuid import uuid4
+from uuid import UUID as PyUUID, uuid4
 
 from sqlalchemy import (
     BigInteger,
@@ -26,6 +26,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy import event
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 from ..models import Base, utc_now
@@ -60,6 +61,11 @@ class Board(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     account_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     lineage_id = Column(UUID(as_uuid=True), nullable=False)
+    #: The project's key (IA, FA2), unique within the organisation, which
+    #: prefixes every board id so REQ-5 in one project is IA-REQ-5 and never
+    #: mistaken for another's (c9f2a6d4e173). Derived from the project name
+    #: when the board is created; editable on the project details page.
+    key = Column(String(6), nullable=False)
     release_seq = Column(Integer, nullable=False, default=0)
     epic_seq = Column(Integer, nullable=False, default=0)
     feature_seq = Column(Integer, nullable=False, default=0)
@@ -70,7 +76,42 @@ class Board(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
-    __table_args__ = (UniqueConstraint("account_id", "lineage_id", name="uq_boards_account_lineage"),)
+    __table_args__ = (
+        UniqueConstraint("account_id", "lineage_id", name="uq_boards_account_lineage"),
+        UniqueConstraint("account_id", "key", name="uq_boards_account_key"),
+    )
+
+
+# Every entity's human_id carries its board's key. The entities hold only
+# board_id, and reading the key through a relationship or a column_property
+# would lazy-load on any row created in the request (sessions do not expire
+# on commit, so nothing refreshes it) -- which async SQLAlchemy refuses. So the
+# key is remembered here whenever a Board is loaded, refreshed or created.
+# Every route loads its board before it renders an id (routes._board), so
+# the key is always current by the time one is read; set_board_key updates
+# it in the same request that renames it.
+BOARD_KEYS: dict[PyUUID, str] = {}
+
+
+def remember_board_key(board: "Board") -> None:
+    if board.id is not None and board.key:
+        BOARD_KEYS[board.id] = board.key
+
+
+@event.listens_for(Board, "load")
+def _board_loaded(target: Board, _context) -> None:
+    remember_board_key(target)
+
+
+@event.listens_for(Board, "refresh")
+def _board_refreshed(target: Board, _context, _attrs) -> None:
+    remember_board_key(target)
+
+
+def keyed(board_id: PyUUID, local_id: str) -> str:
+    """``IA-REQ-5`` from ``REQ-5``; the bare id only if the board was never seen."""
+    key = BOARD_KEYS.get(board_id)
+    return f"{key}-{local_id}" if key else local_id
 
 
 class Release(Base):
@@ -110,7 +151,7 @@ class Release(Base):
 
     @property
     def human_id(self) -> str:
-        return f"REL{self.seq}"
+        return keyed(self.board_id, f"REL{self.seq}")
 
 
 class Epic(Base):
@@ -150,7 +191,7 @@ class Epic(Base):
 
     @property
     def human_id(self) -> str:
-        return f"E{self.seq}"
+        return keyed(self.board_id, f"E{self.seq}")
 
 
 class Feature(Base):
@@ -177,7 +218,7 @@ class Feature(Base):
 
     @property
     def human_id(self) -> str:
-        return f"F{self.seq}"
+        return keyed(self.board_id, f"F{self.seq}")
 
 
 class Sprint(Base):
@@ -231,7 +272,7 @@ class Sprint(Base):
 
     @property
     def human_id(self) -> str:
-        return f"S{self.seq}"
+        return keyed(self.board_id, f"S{self.seq}")
 
 
 class Requirement(Base):
@@ -304,7 +345,7 @@ class Requirement(Base):
 
     @property
     def human_id(self) -> str:
-        return f"REQ-{self.seq}"
+        return keyed(self.board_id, f"REQ-{self.seq}")
 
 
 class RequirementSprintHistory(Base):
@@ -420,7 +461,7 @@ class Feedback(Base):
 
     @property
     def human_id(self) -> str:
-        return f"FB-{self.seq}"
+        return keyed(self.board_id, f"FB-{self.seq}")
 
 
 class Doc(Base):
@@ -448,7 +489,7 @@ class Doc(Base):
 
     @property
     def human_id(self) -> str:
-        return f"D{self.seq}"
+        return keyed(self.board_id, f"D{self.seq}")
 
 
 class Comment(Base):

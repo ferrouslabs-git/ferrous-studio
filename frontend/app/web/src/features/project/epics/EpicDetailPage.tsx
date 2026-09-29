@@ -15,6 +15,8 @@
 // dropped from the URL rather than rendered out of context.
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
+import type { BoardAttachment } from "../attachmentsApi";
+import { AttachmentPreview, AttachmentPreviewHost } from "../board/AttachmentPreview";
 import { useBoard } from "../board/boardData";
 import { CommentsPanel, CommentsTarget } from "../board/CommentsPanel";
 import type { RequirementPreset } from "../board/RequirementDrawer";
@@ -40,6 +42,12 @@ export function EpicDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, error, index, canWrite } = useBoard();
   const [panel, setPanel] = useState<CommentsTarget | null>(null);
+  // An attachment opened anywhere on the page previews in the pane, over
+  // whatever it showed. That stays mounted underneath -- a half-written
+  // comment or new requirement survives a look at a file -- and Back returns
+  // to it. Not in the URL: a preview is a glance, not a place to link to.
+  const [previewing, setPreviewing] = useState<{ items: BoardAttachment[]; at: number } | null>(null);
+  const openPreview = useCallback((items: BoardAttachment[], at: number) => setPreviewing({ items, at }), []);
 
   const reqId = searchParams.get("req");
   const docId = searchParams.get("doc");
@@ -47,6 +55,9 @@ export function EpicDetailPage() {
   // Writing a new requirement needs board:write; a viewer's ?new=1 is dropped below.
   const creating = searchParams.get("new") === "1" && canWrite;
   const presetFeature = searchParams.get("feature");
+
+  // Opening something else in the pane ends the preview.
+  useEffect(() => setPreviewing(null), [reqId, docId, creating]);
 
   const epic = data ? index.epicById.get(epicId) : undefined;
   const requirement = reqId ? index.requirementById.get(reqId) : undefined;
@@ -152,23 +163,36 @@ export function EpicDetailPage() {
   );
 
   return (
-    <div className="page board-page">
-      <div className="epg-layout">
-        <div className="epg-body">
-          <EpicColumn
-            epic={epic}
-            selectedReq={reqShown ? reqId : null}
-            selectedDoc={docShown ? docId : null}
-            onSelectReq={selectReq}
-            onSelectDoc={selectDoc}
-            onDocCreated={openDocForEditing}
-            onNewRequirement={startNew}
-            onOpenComments={setPanel}
-          />
+    <AttachmentPreviewHost open={openPreview}>
+      <div className="page board-page">
+        <div className="epg-layout">
+          <div className="epg-body">
+            <EpicColumn
+              epic={epic}
+              selectedReq={reqShown ? reqId : null}
+              selectedDoc={docShown ? docId : null}
+              onSelectReq={selectReq}
+              onSelectDoc={selectDoc}
+              onDocCreated={openDocForEditing}
+              onNewRequirement={startNew}
+              onOpenComments={setPanel}
+            />
+          </div>
+          <aside className="rqp-pane">
+            {previewing && (
+              <AttachmentPreview
+                key={previewing.items.map((a) => a.id).join() + previewing.at}
+                inline
+                items={previewing.items}
+                initialIndex={previewing.at}
+                onClose={() => setPreviewing(null)}
+              />
+            )}
+            <div hidden={!!previewing}>{pane}</div>
+          </aside>
         </div>
-        <aside className="rqp-pane">{pane}</aside>
+        <CommentsPanel target={panel} onClose={() => setPanel(null)} />
       </div>
-      <CommentsPanel target={panel} onClose={() => setPanel(null)} />
-    </div>
+    </AttachmentPreviewHost>
   );
 }

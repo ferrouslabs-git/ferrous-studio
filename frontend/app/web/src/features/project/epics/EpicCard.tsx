@@ -76,7 +76,7 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
         >
           {folded ? "▸" : "▾"}
         </button>
-        <IdChip>{epic.human_id}</IdChip>
+        <IdChip of={{ type: "epic", id: epic.id }}>{epic.human_id}</IdChip>
         <RolledUpStatusChip status={epic.status} of="epic" />
         <span className="ep-ttl" title="open the epic">
           {epic.title}

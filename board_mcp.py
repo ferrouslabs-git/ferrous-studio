@@ -25,8 +25,9 @@ Env:
 Deliberately no delete tools: an agent creates, updates, and comments;
 deleting stays a human action in the UI.
 
-Ids here are real UUIDs, not the human-readable REL1/E3/REQ-12 form shown
-in the app -- Ferrous Studio's REST routes take the UUID, the human_id is
+Ids here are real UUIDs, not the human-readable IA-REL1/IA-E3/IA-REQ-12
+form shown in the app (the prefix is the project's key, unique within the
+organisation) -- Ferrous Studio's REST routes take the UUID, the human_id is
 display-only. Every list/get result carries both, so map from one to the
 other by reading a list first rather than guessing.
 

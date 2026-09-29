@@ -12,6 +12,8 @@ export interface TimelineRowProps {
   cls: string;
   /** The item's board id, drawn as its own chip so a long title never truncates it away. */
   hid?: string;
+  /** What the id chip links to. */
+  of?: { type: string; id: string };
   label: string;
   /** An icon before the label. */
   pre?: ReactNode;
@@ -25,12 +27,12 @@ export interface TimelineRowProps {
   className?: string;
 }
 
-export function TimelineRow({ cls, hid, label, pre, meta, children, id, onClick, rowRef, className }: TimelineRowProps) {
+export function TimelineRow({ cls, hid, of, label, pre, meta, children, id, onClick, rowRef, className }: TimelineRowProps) {
   return (
     <div ref={rowRef} className={`tl-row ${cls}${className ? ` ${className}` : ""}`} data-id={id} onClick={onClick}>
       <div className="tl-label" title={hid ? `${hid} · ${label}` : label}>
         {pre}
-        {hid && <IdChip>{hid}</IdChip>}
+        {hid && <IdChip of={of}>{hid}</IdChip>}
         <span className="tl-name">{label}</span>
       </div>
       <div className="tl-meta">{meta}</div>

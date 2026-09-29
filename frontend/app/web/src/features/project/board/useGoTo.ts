@@ -14,6 +14,46 @@ import { useToast } from "./toast";
 
 export type GoTo = (entityType: string, entityId: string) => void;
 
+/**
+ * The page a link to an entity should open, or null when it has none. Unlike
+ * goTo a requirement always opens in its epic -- a link is read by someone
+ * who wants the requirement in context, not the sprint it is being worked in
+ * -- and falls back to the roadmap only when it has no epic. An unfiled doc
+ * has no page to link to.
+ */
+export function useEntityHref(): (entityType: string, entityId: string) => string | null {
+  const { paths, index } = useBoard();
+  return useCallback(
+    (entityType, entityId) => {
+      switch (entityType) {
+        case "release":
+          return paths.release(entityId);
+        case "sprint":
+          return paths.sprint(entityId);
+        case "epic":
+          return paths.epic(entityId);
+        case "feature": {
+          const f = index.featureById.get(entityId);
+          return f ? paths.epic(f.epic_id) : null;
+        }
+        case "requirement": {
+          const r = index.requirementById.get(entityId);
+          if (!r) return null;
+          const eid = index.effectiveEpicId(r);
+          return eid ? paths.epic(eid, { req: r.id }) : `${paths.roadmap}?req=${r.id}`;
+        }
+        case "doc": {
+          const d = index.docById.get(entityId);
+          return d?.epic_id ? paths.epic(d.epic_id, { doc: d.id }) : null;
+        }
+        default:
+          return null;
+      }
+    },
+    [paths, index],
+  );
+}
+
 export function useGoTo(): GoTo {
   const navigate = useNavigate();
   const { paths, index } = useBoard();

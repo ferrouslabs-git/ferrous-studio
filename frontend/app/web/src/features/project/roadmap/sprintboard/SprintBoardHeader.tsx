@@ -87,7 +87,7 @@ export function SprintBoardHeader({ sprint, requirements, refresh, onComments }:
           ← Roadmap
         </Link>
       )}
-      <IdChip>{sprint.human_id}</IdChip>
+      <IdChip of={{ type: "sprint", id: sprint.id }}>{sprint.human_id}</IdChip>
       <DeliveryStatusSelect
         status={sprint.status}
         disabled={!canWrite}

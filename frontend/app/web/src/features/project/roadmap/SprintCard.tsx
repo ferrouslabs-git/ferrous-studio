@@ -146,7 +146,7 @@ export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, on
   return (
     <div ref={ref} className={`mscard spcard${done ? " sp-dim" : ""}${folded ? " sp-folded" : ""}${isOver ? " is-over" : ""}`}>
       <div className="mshead">
-        <IdChip>{sprint.human_id}</IdChip>
+        <IdChip of={{ type: "sprint", id: sprint.id }}>{sprint.human_id}</IdChip>
         <DeliveryStatusSelect
           status={sprint.status}
           disabled={!canWrite}

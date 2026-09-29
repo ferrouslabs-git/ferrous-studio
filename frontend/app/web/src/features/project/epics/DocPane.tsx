@@ -81,7 +81,7 @@ export function DocPane({ doc: d, editing, onEditing, onClose, onOpenComments }:
   return (
     <>
       <div className="rqphead">
-        <IdChip>{d.human_id}</IdChip>
+        <IdChip of={{ type: "doc", id: d.id }}>{d.human_id}</IdChip>
         <span className="bchip">doc</span>
         <span className="spacer" />
         {canWrite && (

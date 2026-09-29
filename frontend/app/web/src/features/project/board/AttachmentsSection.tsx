@@ -25,7 +25,7 @@ import {
   loadAttachmentBitmap,
   uploadAll,
 } from "../attachmentsApi";
-import { AttachmentPreview } from "./AttachmentPreview";
+import { useAttachmentPreview } from "./AttachmentPreview";
 import { useBoard } from "./boardData";
 import { useDialogs } from "./dialogs";
 import { previewKindFor } from "./previewKinds";
@@ -96,7 +96,7 @@ export function AttachmentsSection({ entityType, entityId }: { entityType: Attac
   const dialogs = useDialogs();
   const attachments = useLoad(() => listAttachments(projectId, entityType, entityId), [projectId, entityType, entityId]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [preview, setPreview] = useState<number | null>(null);
+  const preview = useAttachmentPreview();
 
   const onFiles = async (files: File[]) => {
     if (progress) return;
@@ -148,7 +148,7 @@ export function AttachmentsSection({ entityType, entityId }: { entityType: Attac
       {images.length > 0 && (
         <div className="att-thumbs">
           {images.map(({ a, i }) => (
-            <button key={a.id} type="button" className="att-thumb" title={a.filename} onClick={() => setPreview(i)}>
+            <button key={a.id} type="button" className="att-thumb" title={a.filename} onClick={() => preview.open(rows, i)}>
               <AttachmentThumb projectId={projectId} attachment={a} />
             </button>
           ))}
@@ -159,7 +159,7 @@ export function AttachmentsSection({ entityType, entityId }: { entityType: Attac
         {attachments.error && <div className="hempty">Couldn't load attachments.</div>}
         {!attachments.loading && !attachments.error && rows.length === 0 && <div className="hempty">No attachments yet.</div>}
         {rows.map((a, i) => (
-          <div key={a.id} className="hrow" title="click to preview" onClick={() => setPreview(i)}>
+          <div key={a.id} className="hrow" title="click to preview" onClick={() => preview.open(rows, i)}>
             <span className="t">{a.filename}</span>
             <span className="r">
               {formatBytes(a.size_bytes)} · {index.memberName(a.created_by)}
@@ -192,7 +192,7 @@ export function AttachmentsSection({ entityType, entityId }: { entityType: Attac
         ))}
       </div>
       {drop.over && <div className="att-drop-note">Drop to attach</div>}
-      {preview !== null && rows[preview] && <AttachmentPreview items={rows} initialIndex={preview} onClose={() => setPreview(null)} />}
+      {preview.element}
     </div>
   );
 }

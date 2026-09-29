@@ -11,22 +11,58 @@ import { Icon } from "./icons";
 import type { RequirementStatus } from "./requirementsApi";
 import { DELIVERY_STATUSES, type DeliveryStatus } from "./sprintsApi";
 import { useToastIfAny } from "./toast";
+import { useEntityHref } from "./useGoTo";
 
-// An item's board id (REL1, F3, REQ-12) -- the name people use for it in a
-// conversation, a commit or a ticket, so a click copies it. It sits inside
-// rows that open or navigate on click, and the copy must not do that too.
-export function IdChip({ children: id }: { children: string }) {
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Put a link on the clipboard: the id hyperlinked where rich text pastes, "id url" where only text does. */
+async function copyLink(id: string, url: string): Promise<void> {
+  const text = `${id} ${url}`;
+  if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([`<a href="${escapeHtml(url)}">${escapeHtml(id)}</a>`], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
+      return;
+    } catch {
+      // Rich clipboard refused (some browsers, some permissions): plain text will do.
+    }
+  }
+  await navigator.clipboard.writeText(text);
+}
+
+// An item's board id (IA-REL1, IA-F3, IA-REQ-12) -- the name people use for
+// it in a conversation, a commit or a ticket. A click copies a link to it:
+// pasted, the id opens the item where it is read in context (a requirement in
+// its epic). Given no `of`, or an item with nowhere to link to, it copies the
+// bare id. It sits inside rows that open or navigate on click, and the copy
+// must not do that too.
+export function IdChip({ children: id, of }: { children: string; of?: { type: string; id: string } }) {
   const toast = useToastIfAny();
+  const hrefFor = useEntityHref();
+  const path = of ? hrefFor(of.type, of.id) : null;
   const copy = (e: MouseEvent) => {
     e.stopPropagation();
     if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(id).then(
-      () => toast?.(`${id} copied`),
+    const done = path ? copyLink(id, window.location.origin + path) : navigator.clipboard.writeText(id);
+    done.then(
+      () => toast?.(path ? `Link to ${id} copied` : `${id} copied`),
       () => toast?.(`Couldn't copy ${id}`, { type: "err" }),
     );
   };
   return (
-    <button type="button" className="bchip k idchip" title={`copy ${id}`} onClick={copy} onPointerDown={(e) => e.stopPropagation()}>
+    <button
+      type="button"
+      className="bchip k idchip"
+      title={path ? `copy a link to ${id}` : `copy ${id}`}
+      onClick={copy}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       {id}
     </button>
   );

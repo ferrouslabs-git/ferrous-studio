@@ -151,9 +151,10 @@ export function useDialogs(): Dialogs {
 }
 
 /** Marks the calling component as a modal (see Dialogs.hold) for as long as it is mounted. */
-export function useModalHold(): void {
+/** Hold the dialog stack while mounted; `active` false (a viewer shown inline) holds nothing. */
+export function useModalHold(active = true): void {
   const { hold } = useDialogs();
-  useEffect(() => hold(), [hold]);
+  useEffect(() => (active ? hold() : undefined), [hold, active]);
 }
 
 // ── a short form: labelled fields, Enter submits, required is enforced ──────

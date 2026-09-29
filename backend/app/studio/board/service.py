@@ -11,6 +11,7 @@ one function each, used everywhere.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -21,6 +22,7 @@ from ..models import Project
 from .models import (
     Agent,
     Board,
+    remember_board_key,
     Comment,
     Doc,
     Environment,
@@ -64,11 +66,15 @@ async def get_or_create_board(db: AsyncSession, project: Project) -> Board:
     if board is not None:
         return board
 
+    taken = set((await db.execute(select(Board.key).where(Board.account_id == project.account_id))).scalars())
     try:
         async with db.begin_nested():
-            board = Board(account_id=project.account_id, lineage_id=project.lineage_id)
+            board = Board(
+                account_id=project.account_id, lineage_id=project.lineage_id, key=derive_board_key(project.name, taken)
+            )
             db.add(board)
             await db.flush()
+            remember_board_key(board)
             # Every board starts with the same three environments; the
             # project edits the list from there.
             for position, (slug, label) in enumerate(Environment.DEFAULTS):
@@ -81,6 +87,28 @@ async def get_or_create_board(db: AsyncSession, project: Project) -> Board:
             )
         ).scalar_one()
     return board
+
+
+#: A board key: a letter, then one to five letters or digits.
+BOARD_KEY_PATTERN = r"^[A-Z][A-Z0-9]{1,5}$"
+
+
+def derive_board_key(name: str, taken: set[str]) -> str:
+    """A key for a project called ``name``: the initials of up to four words
+    ("Invoice Approvals" -> IA), or the first three letters of a single word
+    ("Studio" -> STU), numbered on (IA2, IA3) past any already ``taken`` in
+    the organisation. Kept in step with the copy in c9f2a6d4e173, which keyed
+    the boards that existed before this did."""
+    words = re.findall(r"[A-Za-z0-9]+", name)
+    base = "".join(w[0] for w in words[:4]) if len(words) > 1 else (words[0][:3] if words else "")
+    base = base.upper()
+    if not base or not base[0].isalpha():
+        base = "P" + base
+    base = base[:4].ljust(2, "X")
+    key, n = base, 2
+    while key in taken:
+        key, n = f"{base}{n}", n + 1
+    return key
 
 
 async def _lock_board(db: AsyncSession, board: Board) -> Board:

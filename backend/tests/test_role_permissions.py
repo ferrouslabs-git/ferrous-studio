@@ -322,6 +322,14 @@ def test_only_board_write_sets_an_environment_address():
     assert required_permissions(set_environment) == {"board:write"}
 
 
+def test_only_board_write_renames_the_project_key():
+    """Renaming the key renames every id in the project, so it is an admin's act."""
+    from app.studio.board.routes import get_board_key, set_board_key
+
+    assert required_permissions(set_board_key) == {"board:write"}
+    assert required_permissions(get_board_key) == {"board:read"}
+
+
 def test_only_board_write_edits_the_environment_list():
     """Adding, reordering and removing environments is filing an admin does."""
     from app.studio.board.routes import create_environment, delete_environment, reorder_environments

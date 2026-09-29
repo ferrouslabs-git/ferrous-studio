@@ -3,7 +3,13 @@
 // other attachments. Bytes come from the presigned download URL, so
 // everything renders from an object URL we own and revoke. Ported from the
 // reference app's previewAttachment() (static/js/attachments.js).
-import { KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
+//
+// A page with a side pane (the epic page) can take previews into the pane
+// instead: it wraps itself in <AttachmentPreviewHost>, and useAttachmentPreview()
+// then hands every preview opened beneath it to the host, which renders this
+// same viewer with inline={true} -- no backdrop, no focus trap, and Escape
+// only when focus is not in a field. With no host, the lightbox as before.
+import { createContext, KeyboardEvent as ReactKeyboardEvent, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { attachmentDownloadUrl, BoardAttachment } from "../attachmentsApi";
 import { formatBytes } from "../../../core/format";
@@ -19,6 +25,32 @@ interface AttachmentPreviewProps {
   items: BoardAttachment[];
   initialIndex: number;
   onClose: () => void;
+  /** Render in place (a side pane) rather than as a lightbox over the page. */
+  inline?: boolean;
+}
+
+type OpenPreview = (items: BoardAttachment[], index: number) => void;
+
+const PreviewHostContext = createContext<OpenPreview | null>(null);
+
+/** Previews opened anywhere beneath go to `open` rather than a lightbox. */
+export function AttachmentPreviewHost({ open, children }: { open: OpenPreview; children: ReactNode }) {
+  return <PreviewHostContext.Provider value={open}>{children}</PreviewHostContext.Provider>;
+}
+
+/**
+ * How a list of attachments opens one: `open(items, i)`, plus `element` to
+ * render -- the lightbox when there is no host above, else nothing (the host
+ * draws the preview itself).
+ */
+export function useAttachmentPreview(): { open: OpenPreview; element: ReactNode } {
+  const host = useContext(PreviewHostContext);
+  const [local, setLocal] = useState<{ items: BoardAttachment[]; at: number } | null>(null);
+  if (host) return { open: host, element: null };
+  return {
+    open: (items, at) => setLocal({ items, at }),
+    element: local ? <AttachmentPreview items={local.items} initialIndex={local.at} onClose={() => setLocal(null)} /> : null,
+  };
 }
 
 type Shown =
@@ -29,7 +61,7 @@ type Shown =
   | { kind: "dom"; el: HTMLElement }
   | { kind: "none"; what: string; contentType: string };
 
-export function AttachmentPreview({ items, initialIndex, onClose }: AttachmentPreviewProps) {
+export function AttachmentPreview({ items, initialIndex, onClose, inline = false }: AttachmentPreviewProps) {
   const { projectId, index } = useBoard();
   const [i, setI] = useState(Math.max(0, Math.min(initialIndex, items.length - 1)));
   const [shown, setShown] = useState<Shown>({ kind: "loading" });
@@ -43,21 +75,21 @@ export function AttachmentPreview({ items, initialIndex, onClose }: AttachmentPr
 
   // The lightbox owns Escape while it is up: a drawer beneath treats it as
   // it would a dialog and leaves the key alone (the reference's dialog
-  // stack, core.js).
-  useModalHold();
+  // stack, core.js). Inline, the page stays usable around it.
+  useModalHold(!inline);
 
   // Take keyboard focus on open, as the reference's close.focus() does --
   // Enter or Space then closes, Tab walks the viewer's own controls -- and
   // hand it back to wherever it came from on close.
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeBtn.current?.focus();
-    return () => before?.focus();
-  }, []);
+    closeBtn.current?.focus({ preventScroll: inline });
+    return () => before?.focus({ preventScroll: true });
+  }, [inline]);
 
   // Tab cycles within the viewer rather than walking the page behind it.
   const trapTab = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Tab" || !viewRef.current) return;
+    if (inline || e.key !== "Tab" || !viewRef.current) return;
     const focusable = Array.from(viewRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
     if (!focusable.length) return;
     const first = focusable[0];
@@ -149,14 +181,16 @@ export function AttachmentPreview({ items, initialIndex, onClose }: AttachmentPr
   // arrow keys, but not while a field behind the backdrop still holds focus.
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
+      const t = ev.target as HTMLElement | null;
+      const inField = !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+      // Inline, a field on the page may be mid-edit: Escape there is the field's.
+      if (ev.key === "Escape" && !(inline && inField)) {
         ev.preventDefault();
         ev.stopPropagation();
         closeRef.current();
         return;
       }
-      const t = ev.target as HTMLElement | null;
-      if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+      if (inField) return;
       if (ev.key === "ArrowLeft") {
         ev.preventDefault();
         setI((x) => Math.max(0, x - 1));
@@ -167,7 +201,7 @@ export function AttachmentPreview({ items, initialIndex, onClose }: AttachmentPr
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [items.length]);
+  }, [items.length, inline]);
 
   const download = async () => {
     const { url } = await attachmentDownloadUrl(projectId, at.id);
@@ -200,9 +234,15 @@ export function AttachmentPreview({ items, initialIndex, onClose }: AttachmentPr
     }
   })();
 
-  return createPortal(
-    <div className="board-lightbox" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={viewRef} className="att-view" role="dialog" aria-modal="true" aria-label={at.filename} onKeyDown={trapTab}>
+  const view = (
+      <div
+        ref={viewRef}
+        className={`att-view${inline ? " att-inline" : ""}`}
+        role={inline ? "region" : "dialog"}
+        aria-modal={inline ? undefined : true}
+        aria-label={at.filename}
+        onKeyDown={trapTab}
+      >
         <div className="att-view-head">
           <h3>{at.filename}</h3>
           <span className="att-view-meta">
@@ -231,10 +271,16 @@ export function AttachmentPreview({ items, initialIndex, onClose }: AttachmentPr
             Download
           </button>
           <button ref={closeBtn} type="button" className="btn mini-x primary" onClick={onClose}>
-            Close
+            {inline ? "Back" : "Close"}
           </button>
         </div>
       </div>
+  );
+
+  if (inline) return view;
+  return createPortal(
+    <div className="board-lightbox" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      {view}
     </div>,
     document.body,
   );

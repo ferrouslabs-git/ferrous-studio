@@ -34,6 +34,7 @@ export function SprintRow({ sprint, w }: { sprint: Sprint; w: TimeWindow | null 
       id={sprint.id}
       pre={<Icon name="timer" small />}
       hid={sprint.human_id}
+      of={{ type: "sprint", id: sprint.id }}
       label={sprint.name}
       onClick={() => navigate(paths.sprint(sprint.id))}
       meta={

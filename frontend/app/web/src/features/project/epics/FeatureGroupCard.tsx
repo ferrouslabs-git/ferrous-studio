@@ -53,7 +53,7 @@ export function FeatureGroupCard({ epic, feature: f, rows, selectedReq, onSelect
   return (
     <div className="mscard" style={{ marginBottom: 14 }}>
       <div className="mshead">
-        {f && <IdChip>{f.human_id}</IdChip>}
+        {f && <IdChip of={{ type: "feature", id: f.id }}>{f.human_id}</IdChip>}
         {f && <RolledUpStatusChip status={f.status} of="feature" />}
         {f ? (
           <InlineText
