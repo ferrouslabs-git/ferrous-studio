@@ -18,7 +18,11 @@
   --uml-grid: rgba(22,22,28,.20);
 }
 
-.diagram-editor { height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+.diagram-editor { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg); }
+/* NARROW_MAX (core/breakpoints.ts): under the shell's top strip. */
+@media (max-width: 820px) {
+  .diagram-editor { height: calc(100vh - var(--shell-strip-h)); height: calc(100dvh - var(--shell-strip-h)); }
+}
 .diagram-editor .topbar {
   display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px; flex: 0 0 auto;
   background: var(--panel); border-bottom: 1px solid var(--border); white-space: nowrap; overflow-x: auto;
@@ -35,7 +39,13 @@
 .save-indicator.is-saved { color: var(--good); }
 .save-indicator.is-error, .save-indicator.is-conflict { color: var(--warn); }
 
-.diagram-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 210px 1fr 280px; }
+.diagram-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 210px 1fr 280px; position: relative; }
+/* The viewer is the canvas alone, and a drag on it pans. */
+.diagram-editor.viewing .diagram-main { grid-template-columns: minmax(0, 1fr); }
+.diagram-editor.viewing .diagram-canvas { cursor: grab; }
+.diagram-editor.viewing .diagram-canvas:active { cursor: grabbing; }
+/* Only needed where the inspector is not a column (below). */
+.inspector-toggle { display: none; }
 
 /* Palette */
 .diagram-palette { overflow-y: auto; scrollbar-gutter: stable; border-right: 1px solid var(--border); background: var(--panel); padding: 8px 8px 20px; }
@@ -93,7 +103,16 @@ svg.palette-glyph { color: var(--text-dim); }
 .uml-class-sec { padding: 4px 8px; min-height: 18px; border-bottom: 1px solid var(--uml-ink); white-space: nowrap; overflow: hidden; }
 .uml-class-sec:last-child { border-bottom: 0; flex: 1; }
 
+/* Narrower, the inspector folds away behind its toggle and opens over the
+   canvas, rather than being dropped along with every property field and the
+   Order and clipboard buttons. */
 @media (max-width: 900px) {
   .diagram-main { grid-template-columns: 160px 1fr; }
   .diagram-inspector { display: none; }
+  .inspector-toggle { display: inline-flex; }
+  .diagram-editor .topbar .crumbs { display: none; }
+  .diagram-editor.inspector-open .diagram-inspector {
+    display: flex; position: absolute; top: 0; right: 0; bottom: 0; width: min(280px, 100%); z-index: 5;
+    box-shadow: var(--drawer-shadow);
+  }
 }

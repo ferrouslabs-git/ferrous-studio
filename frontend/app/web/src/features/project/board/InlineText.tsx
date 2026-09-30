@@ -5,7 +5,11 @@
 // whenever it changed -- the reference's wireEditable() treats Escape
 // exactly like Enter, as a way out, not as a revert. Replaces that
 // contentEditable helper, which React could not keep in step with re-renders.
+//
+// Under a finger it opens on a single tap: a double-tap is the browser's
+// zoom gesture on a phone, and there is no hover to show the pencil anyway.
 import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import { useIsTouch } from "../../../core/breakpoints";
 
 interface InlineTextProps {
   value: string;
@@ -31,6 +35,7 @@ export function InlineText({
 }: InlineTextProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  const touch = useIsTouch();
   const fieldRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -83,6 +88,14 @@ export function InlineText({
     <Tag
       className={`${className ?? ""}${disabled ? "" : " editable"}${empty ? " is-empty" : ""}`.trim()}
       title={title ?? (disabled ? undefined : "double-click to edit")}
+      onClick={
+        touch && !disabled
+          ? (e) => {
+              e.stopPropagation();
+              begin();
+            }
+          : undefined
+      }
       onDoubleClick={(e) => {
         e.stopPropagation();
         begin();

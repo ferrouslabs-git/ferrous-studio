@@ -324,6 +324,8 @@ export function Canvas(props: Props) {
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       setLive((l) => {
         const next = { ...l };
         delete next[child.id];
@@ -333,6 +335,7 @@ export function Canvas(props: Props) {
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointercancel", up, { once: true });
   };
 
   /** Drag on a selected region's trailing-edge grip: sets a fixed pixel size
@@ -395,6 +398,8 @@ export function Canvas(props: Props) {
     const up = () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       setLive((l) => {
         const next = { ...l };
         delete next[region.id];
@@ -404,6 +409,7 @@ export function Canvas(props: Props) {
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointercancel", up, { once: true });
   };
 
   /** The layout node a growing component pushes on, per axis: the nearest
@@ -477,6 +483,8 @@ export function Canvas(props: Props) {
       };
       const up = () => {
         window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
         setLiveCmp((m) => {
           const next = { ...m };
           delete next[cmp.id];
@@ -498,6 +506,7 @@ export function Canvas(props: Props) {
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up, { once: true });
+      window.addEventListener("pointercancel", up, { once: true });
     };
 
   /** Pointer drag anywhere on a component in a free-layout region — or on a
@@ -557,6 +566,8 @@ export function Canvas(props: Props) {
       };
       const up = () => {
         window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
         document.body.style.userSelect = prevUserSelect;
         setLiveCmpPos((m) => {
           const next = { ...m };
@@ -585,6 +596,7 @@ export function Canvas(props: Props) {
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up, { once: true });
+      window.addEventListener("pointercancel", up, { once: true });
     };
 
   // ── Drops ─────────────────────────────────────────────────────────────────

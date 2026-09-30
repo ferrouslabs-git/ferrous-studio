@@ -13,7 +13,7 @@
 // and picking the open one again closes it. A selection that no longer
 // belongs here -- a deleted requirement, a doc moved to another epic -- is
 // dropped from the URL rather than rendered out of context.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import type { BoardAttachment } from "../attachmentsApi";
 import { AttachmentPreview, AttachmentPreviewHost } from "../board/AttachmentPreview";
@@ -62,6 +62,16 @@ export function EpicDetailPage() {
 
   // Opening something else in the pane ends the preview.
   useEffect(() => setPreviewing(null), [reqId, docId, creating]);
+
+  // Stacked (below 1321px) the pane sits under the whole epic, where opening a
+  // row would change nothing in view; so it is brought up. On a narrow screen
+  // it is a sheet over the page instead (board.css), already in view.
+  const paneRef = useRef<HTMLElement>(null);
+  const opened = reqId ?? docId ?? (creating ? "new" : null);
+  useEffect(() => {
+    if (!opened || !window.matchMedia("(max-width: 1320px) and (min-width: 821px)").matches) return;
+    paneRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [opened]);
 
   const epic = data ? index.epicById.get(epicId) : undefined;
   const requirement = reqId ? index.requirementById.get(reqId) : undefined;
@@ -169,7 +179,7 @@ export function EpicDetailPage() {
   return (
     <AttachmentPreviewHost open={openPreview}>
       <div className="page board-page">
-        <div className="epg-layout" ref={fillViewport}>
+        <div className={`epg-layout${creating || docShown || reqShown || previewing ? " pane-open" : ""}`} ref={fillViewport}>
           <div className="epg-body">
             <EpicColumn
               epic={epic}
@@ -182,7 +192,7 @@ export function EpicDetailPage() {
               onOpenComments={setPanel}
             />
           </div>
-          <aside className="rqp-pane">
+          <aside className="rqp-pane" ref={paneRef}>
             {previewing && (
               <AttachmentPreview
                 key={previewing.items.map((a) => a.id).join() + previewing.at}

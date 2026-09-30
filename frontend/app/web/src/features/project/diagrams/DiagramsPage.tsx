@@ -6,6 +6,7 @@ import { Drawer, Field } from "../../../components/Drawer";
 import { ListTable, NameCell } from "../../../components/ListTable";
 import { ListToolbar, matches } from "../../../components/ListToolbar";
 import { errorMessage } from "../../../core/api";
+import { useIsPhone } from "../../../core/breakpoints";
 import { formatDate } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
@@ -23,6 +24,8 @@ import {
 export function DiagramsPage() {
   const { project, orgId, canWrite } = useProject();
   const navigate = useNavigate();
+  // A phone gets the viewer, never the editor (DiagramEditorPage), so the name opens that.
+  const isPhone = useIsPhone();
   const diagrams = useLoad(() => listDiagrams(project.id), [project.id]);
   const [editing, setEditing] = useState<DiagramSummary | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -99,7 +102,7 @@ export function DiagramsPage() {
 
       <ListTable
         columns={[
-          { header: "Diagram", className: "primary", render: (d) => <NameCell to={`${base}/${d.id}`}>{d.name}</NameCell> },
+          { header: "Diagram", className: "primary", render: (d) => <NameCell to={isPhone ? `${base}/${d.id}/view` : `${base}/${d.id}`}>{d.name}</NameCell> },
           { header: "Kind", render: (d) => <span className="badge accent">{diagramKindLabel(d.kind)}</span> },
           { header: "Updated", className: "muted when", render: (d) => formatDate(d.updated_at) },
         ]}
@@ -108,6 +111,7 @@ export function DiagramsPage() {
         rowLabel={(d) => d.name}
         actions={(d) => [
           { label: "Open", onSelect: () => navigate(`${base}/${d.id}`) },
+          { label: "View", onSelect: () => navigate(`${base}/${d.id}/view`) },
           ...(canWrite
             ? [
                 { label: "Rename", onSelect: () => openDrawer(d) },

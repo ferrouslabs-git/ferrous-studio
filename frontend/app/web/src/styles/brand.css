@@ -31,6 +31,8 @@
      sit side by side across the top of the window, so they share one height
      and their dividers land on the same row. */
   --app-bar-h: 44px;
+  /* The same bar as the top strip on a narrow screen, with its bottom border. */
+  --shell-strip-h: calc(var(--app-bar-h) + 1px);
   --transition: 260ms cubic-bezier(0.22, 1, 0.36, 1);
 
   --accent: var(--orange);

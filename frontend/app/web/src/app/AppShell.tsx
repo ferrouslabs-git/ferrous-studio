@@ -27,6 +27,18 @@ export function AppShell() {
   // Close the mobile drawer on navigation.
   useEffect(() => setMobileOpen(false), [location.pathname]);
 
+  // While the mobile drawer is open the page behind it must not scroll: the
+  // drawer is the page's full height, and a swipe on it would move both.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const root = document.documentElement;
+    const was = root.style.overflow;
+    root.style.overflow = "hidden";
+    return () => {
+      root.style.overflow = was;
+    };
+  }, [mobileOpen]);
+
   // The collapsed choice survives reloads and new tabs.
   useEffect(() => {
     try {
@@ -82,6 +94,7 @@ export function AppShell() {
               {isAdmin && <span className="sidebar-eyebrow">Platform admin</span>}
             </span>
           </Link>
+          {inProjectScope && shellProject && <span className="sidebar-context">{shellProject.name}</span>}
           <button
             className="sidebar-burger"
             onClick={() => setMobileOpen((o) => !o)}

@@ -6,10 +6,16 @@
 // There is no Save button: every change autosaves, the indicator in the topbar
 // says where that has got to, and Ctrl+S flushes the debounce for anyone who
 // reaches for it out of habit.
+//
+// The same page is the diagram's viewer (diagrams/:id/view): the canvas alone,
+// disabled for editing, dragged and pinched to look round (viewGestures.ts).
+// A phone only ever gets the viewer -- the editor's palette, inspector, hover
+// ports and shortcuts need a pointer and the room to put them.
 import type { FitPlugin } from "@maxgraph/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { ApiError, errorMessage } from "../../core/api";
+import { useIsPhone } from "../../core/breakpoints";
 import { useLoad } from "../../core/useLoad";
 import { useProject } from "../project/ProjectLayout";
 import { diagramKindLabel, DiagramRecord, getDiagram, saveDiagram } from "../project/diagrams/diagramsApi";
@@ -20,19 +26,32 @@ import { CLIPBOARD_KEY, hasClipboard } from "./graph/clipboard";
 import type { GraphHandle } from "./graph/createGraph";
 import { deriveModel, exportXml, importXml, plainCellsOf } from "./graph/serialize";
 import { useGraph } from "./graph/useGraph";
+import { attachViewGestures } from "./graph/viewGestures";
 import "./diagram.css";
 
 const AUTOSAVE_MS = 1500;
 
 type SaveState = { kind: "clean" } | { kind: "dirty" } | { kind: "saving" } | { kind: "saved"; at: number } | { kind: "error"; message: string } | { kind: "conflict"; version: number };
 
-export function DiagramEditorPage() {
+export function DiagramEditorPage({ mode = "edit" }: { mode?: "edit" | "view" }) {
+  const isPhone = useIsPhone();
+  if (mode === "edit" && isPhone) return <Navigate to="view" replace />;
+  // Keyed: the graph is built for one mode and never switches in place.
+  return <DiagramPage key={mode} viewing={mode === "view"} isPhone={isPhone} />;
+}
+
+function DiagramPage({ viewing, isPhone }: { viewing: boolean; isPhone: boolean }) {
   const { diagramId = "" } = useParams();
-  const { project, orgId, canWrite } = useProject();
+  const { project, orgId, canWrite: mayWrite } = useProject();
+  // Viewing changes nothing, whoever is looking.
+  const canWrite = mayWrite && !viewing;
+  const base = `/orgs/${orgId}/projects/${project.id}/diagrams`;
   const record = useLoad(() => getDiagram(project.id, diagramId), [project.id, diagramId]);
   const { containerRef, handleRef, state, whileImporting } = useGraph();
   const [save, setSave] = useState<SaveState>({ kind: "clean" });
-  const [gridOn, setGridOn] = useState(true);
+  const [gridOn, setGridOn] = useState(!viewing);
+  // Below 900px the inspector is not a column but a panel opened over the canvas.
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [canPaste, setCanPaste] = useState(hasClipboard);
   const versionRef = useRef(0);
   const loadedRef = useRef<string | null>(null);
@@ -157,6 +176,15 @@ export function DiagramEditorPage() {
     if (handleRef.current) handleRef.current.editable.current = canWrite;
   }, [canWrite, handleRef, state.ready]);
 
+  // The viewer: nothing selectable or editable, and a drag pans.
+  useEffect(() => {
+    const handle = handleRef.current;
+    const container = containerRef.current;
+    if (!viewing || !state.ready || !handle || !container) return;
+    handle.graph.setEnabled(false);
+    return attachViewGestures(handle.graph, container);
+  }, [viewing, state.ready, handleRef, containerRef]);
+
   const reload = async () => {
     loadedRef.current = null;
     setSave({ kind: "clean" });
@@ -167,11 +195,16 @@ export function DiagramEditorPage() {
   const readOnly = !canWrite;
 
   return (
-    <div className={`diagram-editor${gridOn ? " grid-on" : ""}`}>
+    <div className={`diagram-editor${gridOn ? " grid-on" : ""}${viewing ? " viewing" : ""}${inspectorOpen ? " inspector-open" : ""}`}>
       <div className="topbar">
+        {viewing && (
+          <Link className="btn ghost" to={base}>
+            ‹ Exit
+          </Link>
+        )}
         <div className="brand">
           {record.data?.name ?? "Diagram"}
-          {readOnly && <span className="v"> · read only</span>}
+          {readOnly && !viewing && <span className="v"> · read only</span>}
         </div>
         {record.data && <div className="crumbs">{diagramKindLabel(record.data.kind)}</div>}
         <div className="spacer" />
@@ -199,10 +232,34 @@ export function DiagramEditorPage() {
           <button className="btn ghost small" title="Fit" onClick={() => handle && fitView(handle)}>
             Fit
           </button>
-          <button className={`btn ghost small${gridOn ? " is-on" : ""}`} title="Toggle grid" onClick={() => setGridOn((g) => !g)}>
-            Grid
-          </button>
+          {!viewing && (
+            <button className={`btn ghost small${gridOn ? " is-on" : ""}`} title="Toggle grid" onClick={() => setGridOn((g) => !g)}>
+              Grid
+            </button>
+          )}
         </span>
+        {viewing ? (
+          mayWrite &&
+          !isPhone && (
+            <Link className="btn ghost" to={`${base}/${diagramId}`}>
+              Edit
+            </Link>
+          )
+        ) : (
+          <>
+            <Link className="btn ghost" to={`${base}/${diagramId}/view`} title="View without editing">
+              View
+            </Link>
+            <button
+              type="button"
+              className={`btn ghost inspector-toggle${inspectorOpen ? " is-on" : ""}`}
+              aria-expanded={inspectorOpen}
+              onClick={() => setInspectorOpen((o) => !o)}
+            >
+              Inspector
+            </button>
+          </>
+        )}
       </div>
 
       {record.error && <div className="status-banner warn">{record.error}</div>}
@@ -226,12 +283,12 @@ export function DiagramEditorPage() {
       )}
 
       <div className="diagram-main">
-        <Palette handleRef={handleRef} disabled={readOnly || !state.ready} />
+        {!viewing && <Palette handleRef={handleRef} disabled={readOnly || !state.ready} />}
         <div className="diagram-canvas-wrap">
           <div ref={containerRef} className="diagram-canvas" style={gridStyle(state.scale, handle)} />
           {record.loading && <div className="diagram-overlay muted">Loading…</div>}
         </div>
-        <Inspector selection={state.selection} handleRef={handleRef} disabled={readOnly} canPaste={canPaste} />
+        {!viewing && <Inspector selection={state.selection} handleRef={handleRef} disabled={readOnly} canPaste={canPaste} />}
       </div>
     </div>
   );

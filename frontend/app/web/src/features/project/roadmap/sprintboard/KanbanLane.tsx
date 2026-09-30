@@ -15,6 +15,8 @@ import { RequirementCard } from "./RequirementCard";
 
 interface KanbanLaneProps {
   status: RequirementStatus;
+  /** The lane a phone shows; the others are hidden there (board.css). */
+  current?: boolean;
   requirements: Requirement[];
   /** How many of this lane's cards the board filter is hiding. */
   hidden: number;
@@ -24,7 +26,7 @@ interface KanbanLaneProps {
   onOpen: (r: Requirement) => void;
 }
 
-export function KanbanLane({ status, requirements, hidden, canMove, onMove, onOpen }: KanbanLaneProps) {
+export function KanbanLane({ status, current = false, requirements, hidden, canMove, onMove, onOpen }: KanbanLaneProps) {
   const { index } = useBoard();
   const ref = useRef<HTMLDivElement>(null);
   const over = useDropTarget(ref, {
@@ -40,7 +42,7 @@ export function KanbanLane({ status, requirements, hidden, canMove, onMove, onOp
   });
 
   return (
-    <div ref={ref} className={`sb-col${over ? " is-over" : ""}`}>
+    <div ref={ref} className={`sb-col${over ? " is-over" : ""}${current ? " is-current" : ""}`}>
       <h4>
         {ST_ICON[status]} {ST_LABEL[status]} · {requirements.length}
         {hidden > 0 && <span className="sb-col-hidden"> (+{hidden} hidden)</span>}

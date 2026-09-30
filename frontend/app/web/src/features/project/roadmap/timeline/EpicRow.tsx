@@ -55,6 +55,20 @@ export function EpicRow({ epic, release, w }: EpicRowProps) {
     }
   };
 
+  const moveButton = canWrite && (
+    <button
+      type="button"
+      className="btn mini-x tl-move"
+      title={`move ${epic.human_id} to another release`}
+      onClick={(e) => {
+        e.stopPropagation();
+        void move();
+      }}
+    >
+      ⇄
+    </button>
+  );
+
   return (
     <TimelineRow
       rowRef={ref}
@@ -75,21 +89,10 @@ export function EpicRow({ epic, release, w }: EpicRowProps) {
           <span className="tl-fig" title={effortSummary(ep).text || undefined}>
             {ep.done}/{ep.total} · {ep.pct}%
           </span>
-          {canWrite && (
-            <button
-              type="button"
-              className="btn mini-x tl-move"
-              title={`move ${epic.human_id} to another release`}
-              onClick={(e) => {
-                e.stopPropagation();
-                void move();
-              }}
-            >
-              ⇄
-            </button>
-          )}
+          {moveButton}
         </>
       }
+      action={moveButton}
     >
       {w && eex ? (
         <div

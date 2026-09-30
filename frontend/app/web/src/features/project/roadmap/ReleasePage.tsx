@@ -39,6 +39,9 @@ export function ReleasePage() {
 
   const [reqId, setReqId] = useState<string | null>(null);
   const [comments, setComments] = useState<CommentsTarget | null>(null);
+  // Narrow, the sprints and the backlog take turns rather than stacking the
+  // backlog under every sprint (board.css); wide, both show and this is moot.
+  const [relView, setRelView] = useState<"sprints" | "backlog">("sprints");
 
   const release = data && releaseId ? index.releaseById.get(releaseId) : undefined;
 
@@ -158,7 +161,22 @@ export function ReleasePage() {
         onComments={() => setComments({ type: "release", id: release.id, label: `${release.human_id} · ${release.title}` })}
       />
 
-      <div className="rel-layout">
+      <div className="rel-switch" role="tablist" aria-label="Show">
+        {(["sprints", "backlog"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={relView === v}
+            className={relView === v ? "on" : undefined}
+            onClick={() => setRelView(v)}
+          >
+            {v === "sprints" ? "Sprints" : "Backlog"} <b>{v === "sprints" ? mine.length : backlogCount}</b>
+          </button>
+        ))}
+      </div>
+
+      <div className={`rel-layout show-${relView}`}>
         <section className="rel-sprints">
           {mine.length ? (
             mine.map((s) => (

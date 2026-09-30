@@ -13,10 +13,11 @@
 // page: the canvas renders its ancestors' shells read-only around it (the
 // outlet model behind region-targeted links).
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { ConfirmDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
+import { useIsPhone } from "../../core/breakpoints";
 import { useLoad } from "../../core/useLoad";
 import { createDataset, deleteDataset, listDatasets, updateDataset } from "../project/datasets/datasetsApi";
 import { useProject } from "../project/ProjectLayout";
@@ -90,7 +91,20 @@ const isTextEditing = (el: HTMLElement): boolean =>
   el.isContentEditable ||
   (el.tagName === "INPUT" && TEXT_INPUT_TYPES.has((el as HTMLInputElement).type));
 
+/** Below this the inspector starts folded and opens over the canvas
+ *  (studio.css) rather than taking a 360px column from it. */
+const INSPECTOR_OVERLAY_MAX = 1100;
+
+// Editing a wireframe needs a pointer and room for the inspector beside the
+// canvas; a phone has neither, so there the wireframe opens as its preview,
+// which is the same pages to click through.
 export function StudioPage() {
+  const isPhone = useIsPhone();
+  if (isPhone) return <Navigate to="preview" replace />;
+  return <StudioEditor />;
+}
+
+function StudioEditor() {
   const { wireframeId = "" } = useParams();
   const { project, canWrite, canAddTasks } = useProject();
   const projectId = project.id;
@@ -100,7 +114,7 @@ export function StudioPage() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [editingElement, setEditingElement] = useState<ElementSel | null>(null);
   const [builder, setBuilder] = useState<{ open: boolean; defId: string | null }>({ open: false, defId: null });
-  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth <= INSPECTOR_OVERLAY_MAX);
   const [rightTab, setRightTab] = useState<"inspector" | "notes" | "tasks">("inspector");
   /** A jump to another page — an annotation row, or a link just set: the
    *  selection is applied once the page arrives (the page-change effect

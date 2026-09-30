@@ -18,6 +18,9 @@ export interface TimelineRowProps {
   /** An icon before the label. */
   pre?: ReactNode;
   meta?: ReactNode;
+  /** A control that must stay reachable when the meta column is dropped on
+   *  a narrow screen (board.css); drawn at the end of the label there. */
+  action?: ReactNode;
   /** The track's content: a bar, a marker, or a "no dates" note. */
   children?: ReactNode;
   id?: string;
@@ -27,13 +30,14 @@ export interface TimelineRowProps {
   className?: string;
 }
 
-export function TimelineRow({ cls, hid, of, label, pre, meta, children, id, onClick, rowRef, className }: TimelineRowProps) {
+export function TimelineRow({ cls, hid, of, label, pre, meta, action, children, id, onClick, rowRef, className }: TimelineRowProps) {
   return (
     <div ref={rowRef} className={`tl-row ${cls}${className ? ` ${className}` : ""}`} data-id={id} onClick={onClick}>
       <div className="tl-label" title={hid ? `${hid} · ${label}` : label}>
         {pre}
         {hid && <IdChip of={of}>{hid}</IdChip>}
         <span className="tl-name">{label}</span>
+        {action && <span className="tl-label-action">{action}</span>}
       </div>
       <div className="tl-meta">{meta}</div>
       <div className="tl-track">{children}</div>
