@@ -720,7 +720,16 @@ export function StudioPage() {
     [nav.visit], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const createLinkedPage = async (sel: ElementSel, regionId: string | null, nameOverride?: string, presentation?: PagePresentation) => {
+  /** `just` names the element's page and component outright — for a
+   *  component added in this same handler, which this render's records do
+   *  not hold yet. */
+  const createLinkedPage = async (
+    sel: ElementSel,
+    regionId: string | null,
+    nameOverride?: string,
+    presentation?: PagePresentation,
+    just?: { owner: PageRecord; cmp: ComponentNode },
+  ) => {
     // Settled only: the link-back edit below would be dropped mid-switch,
     // leaving an orphaned page behind.
     if (!page || busy || !pageSettled) return;
@@ -728,12 +737,34 @@ export function StudioPage() {
     // belong to any document on the canvas: the created page is placed in
     // the page that owns THAT REGION, while the name is seeded from the
     // element's own page.
-    const owner = recordOfCmp(sel.cmpId) ?? page;
+    const owner = just?.owner ?? recordOfCmp(sel.cmpId) ?? page;
     const regionOwner = (regionId ? recordOfNode(regionId) : null) ?? owner;
-    const ownerCmpLoc = locateCmp(owner.document, sel.cmpId);
-    const ownerCmp = ownerCmpLoc ? ownerCmpLoc.list[ownerCmpLoc.index] : null;
+    const ownerCmpLoc = just ? null : locateCmp(owner.document, sel.cmpId);
+    const ownerCmp = just?.cmp ?? (ownerCmpLoc ? ownerCmpLoc.list[ownerCmpLoc.index] : null);
     const seed = nameOverride ?? (ownerCmp ? elementValue(ownerCmp, sel.key, sel.index) : "");
     const name = seed.trim() || (presentation === "modal" ? "New modal" : presentation ? "New drawer" : "New page");
+    // The first page placed in a region takes over what that region already
+    // shows. A child page REPLACES its region's content while it is open, so
+    // without this the content would be stranded on the parent — visible
+    // only on a page no link leads to — and the new page would open blank.
+    // Later pages in the same region start empty (siblings, not copies). The
+    // linking component itself never moves.
+    const adopted =
+      regionId && !presentation && !pages.some((p) => p.placement?.page_id === regionOwner.id && p.placement.region_id === regionId)
+        ? (regionOwner.document.regions[regionId] ?? [])
+        : [];
+    const adopt = adopted.some((c) => c.id === sel.cmpId) ? [] : adopted;
+    const document = blankDocument(linkedRegionLabel(ownerCmp, seed));
+    if (adopt.length && regionId) {
+      // The region's own layout comes along with its content, so the
+      // components land exactly as they sat.
+      const source = findNode(regionOwner.document.root, regionId)?.node;
+      if (source?.kind === "region" && document.root.kind === "region") {
+        if (source.dir) document.root.dir = source.dir;
+        if (source.bg) document.root.bg = source.bg;
+      }
+      document.regions[document.root.id] = structuredClone(adopt);
+    }
     setBusy(true);
     try {
       const created = await createWireframePage(projectId, wireframeId, {
@@ -751,20 +782,36 @@ export function StudioPage() {
         presentation,
         // The page arrives with its region already named after the route that
         // reaches it — "Users > Edit" — rather than the server's blank default.
-        document: blankDocument(linkedRegionLabel(ownerCmp, seed)),
+        document,
       });
       await wireframe.reload();
       // Link first, then open: every mutation gates on the open page being
       // settled, so navigating a line earlier would drop the link edit. The
       // batch is already queued, and the outbox sends per page, not per open
-      // page, so leaving the owner page cannot strand it.
-      runCmp(sel.cmpId, (d, c) => A.setElementLink(d, c, sel.cmpId, sel.key, sel.index, { pageId: created.id }));
+      // page, so leaving the owner page cannot strand it. runOn(owner) rather
+      // than runCmp: a just-added component is not in this render's records
+      // (commitOn rebases on the live page either way).
+      const moved = new Set(adopt.map((c) => c.id));
+      const release = (d: PageLike) => {
+        const list = regionId ? d.document.regions[regionId] : undefined;
+        if (regionId && list && moved.size) d.document.regions[regionId] = list.filter((c) => !moved.has(c.id));
+      };
+      // Same page (the usual case): the link and the hand-over are one
+      // commit, so one undo takes both back.
+      const together = regionOwner.id === owner.id;
+      runOn(owner, (d, c) => {
+        if (together) release(d);
+        return A.setElementLink(d, c, sel.cmpId, sel.key, sel.index, { pageId: created.id });
+      });
+      if (!together && moved.size) runOn(regionOwner, (d) => void release(d));
       openLinkedPage(created.id);
       toast(
         presentation
           ? `Created ${presentation} "${name}"`
           : regionId
-            ? `Created "${name}" inside ${regionDisplayName(regionOwner.document.root, regionId)}`
+            ? `Created "${name}" inside ${regionDisplayName(regionOwner.document.root, regionId)}${
+                adopt.length ? `, with the ${adopt.length === 1 ? "component" : `${adopt.length} components`} already there` : ""
+              }`
             : `Created page "${name}"`,
       );
     } catch (err) {
@@ -955,6 +1002,38 @@ export function StudioPage() {
     const regionId = contentRegionFor(owner.document.root, loc.region);
     if (!regionId) return;
     void createLinkedPage(created, regionId, elementMeta("navbar", "nav-item")?.defaultLabel ?? "Item");
+  };
+
+  /** Add a component from the library (bar click or canvas drop). A nav bar
+   *  arrives working, like a real one: its first item links straight away
+   *  to a page placed in the content region it serves (contentRegionFor),
+   *  and that page takes over whatever the region already showed — so
+   *  content added beside a new nav is never stranded behind it. */
+  const addComponentOn = (
+    record: PageRecord | null,
+    seed: { type: string; shape?: string },
+    regionId: string | null,
+    index: number | null,
+    customId: string | null,
+    at: { x: number; y: number } | null,
+  ) => {
+    let added: { cmp: ComponentNode; region: string } | null = null;
+    runOn(record, (d, c) => {
+      const result = A.appendComponent(d, c, seed, regionId, index, customId, at);
+      const loc = result?.selectCmpId ? locateCmp(d.document, result.selectCmpId) : null;
+      // A plain copy: the draft is only valid inside this callback.
+      if (loc) added = { cmp: JSON.parse(JSON.stringify(loc.list[loc.index])) as ComponentNode, region: loc.region };
+      return result;
+    });
+    const made = added as { cmp: ComponentNode; region: string } | null;
+    if (!record || !made || made.cmp.type !== "navbar") return;
+    const item = byPos(made.cmp.elements ?? []).find((e) => e.type === "nav-item");
+    const content = contentRegionFor(record.document.root, made.region);
+    if (!item || !content) return;
+    void createLinkedPage({ cmpId: made.cmp.id, key: A.elKey(item.id), index: null }, content, item.label, undefined, {
+      owner: record,
+      cmp: made.cmp,
+    });
   };
 
   // ── Builder ───────────────────────────────────────────────────────────────
@@ -1320,7 +1399,7 @@ export function StudioPage() {
               // shell); with nothing selected, the open page's first region.
               const regionId = targetRegionId();
               const target = regionId ? recordOfNode(regionId) : page;
-              runOn(target, (d, c) => A.appendComponent(d, c, { type }, regionId, null, null));
+              addComponentOn(target, { type }, regionId, null, null, null);
             }}
           />
         ) : (
@@ -1400,7 +1479,7 @@ export function StudioPage() {
                     onEditStructure={openBuilderFor}
                     onDropPattern={(id, regionId) => runNode(regionId, (d, c) => A.applyPattern(d, c, id, regionId))}
                     onDropComponent={(type, customId, regionId, index, shapeId, at) =>
-                      runNode(regionId, (d, c) => A.appendComponent(d, c, { type, shape: shapeId }, regionId, index, customId ?? null, at ?? null))
+                      addComponentOn(recordOfNode(regionId), { type, shape: shapeId }, regionId, index, customId ?? null, at ?? null)
                     }
                     onDropElement={(type, cmpId) => addElementTo(cmpId, type)}
                     onReorder={(src, target, before) => {
@@ -1557,6 +1636,9 @@ export function StudioPage() {
               onElementText={commitElementText}
               onElementData={(sel, key, value) => {
                 if (isElKey(sel.key)) runCmp(sel.cmpId, (d, c) => A.setElementData(d, c, sel.cmpId, sel.key.slice(EL_PREFIX.length), key, value), `eldata.${sel.cmpId}.${sel.key}.${key}`);
+              }}
+              onElementType={(sel, type) => {
+                if (isElKey(sel.key)) runCmp(sel.cmpId, (d, c) => A.setElementType(d, c, sel.cmpId, sel.key.slice(EL_PREFIX.length), type));
               }}
               onMoveElement={(sel, delta) => {
                 if (isElKey(sel.key)) runCmp(sel.cmpId, (d, c) => A.moveElement(d, c, sel.cmpId, sel.key.slice(EL_PREFIX.length), delta));

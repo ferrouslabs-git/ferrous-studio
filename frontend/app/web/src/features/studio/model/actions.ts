@@ -699,6 +699,69 @@ export function setElementData(draft: Draft, _ctx: ActionContext, cmpId: string,
   return { selectElement: { cmpId, key: elKey(elementId), index: null } };
 }
 
+/** Data every element type understands: free placement, size, styling and
+ *  nav-bar zone. These survive a type change; everything else must be a
+ *  data field (or flag) of the new type. */
+const PORTABLE_DATA_KEYS = new Set(["x", "y", "w", "h", "fontSize", "bg", "fg", "font", "caps", "align"]);
+
+/** The element types `elementId` could become in its component: the host's
+ *  whole vocabulary minus its own type and any type already at its `max`. */
+export function elementTypeOptions(cmp: ComponentNode, elementId: string): { type: string; label: string; full: boolean }[] {
+  const meta = COMPONENTS[cmp.type];
+  const self = findElement(cmp, elementId);
+  if (!meta || !self) return [];
+  return meta.elements.map((m) => ({
+    type: m.type,
+    label: m.label,
+    full:
+      m.type !== self.type &&
+      m.max != null &&
+      (cmp.elements ?? []).filter((e) => e.type === m.type && e.id !== elementId).length >= m.max,
+  }));
+}
+
+/** Turn an element into another type of its host's vocabulary — a dropdown
+ *  into a text input, a label into a heading. It stays the same element: id,
+ *  position, link and annotations are kept, so is the label unless it was
+ *  still the old type's default. Data carries over where the new type has a
+ *  field of that name (a select value only when it is one of the new
+ *  options), placement and styling always; the new type's defaults fill the
+ *  gaps. */
+export function setElementType(draft: Draft, _ctx: ActionContext, cmpId: string, elementId: string, type: string): ActionResult | void {
+  const cmp = cmpById(draft, cmpId);
+  const element = cmp ? findElement(cmp, elementId) : null;
+  if (!cmp || !element || element.type === type) return;
+  const from = elementMeta(cmp.type, element.type);
+  const to = elementMeta(cmp.type, type);
+  if (!to) return;
+  if (to.max != null && (cmp.elements ?? []).filter((e) => e.type === type).length >= to.max) {
+    return { selectElement: { cmpId, key: elKey(elementId), index: null }, toast: `This component already has its ${to.label.toLowerCase()}` };
+  }
+  const old = element.data ?? {};
+  const data: Record<string, string> = {};
+  for (const [key, value] of Object.entries(old)) {
+    const field = to.dataFields.find((f) => f.key === key);
+    const keep =
+      PORTABLE_DATA_KEYS.has(key) ||
+      (key === "shape" && to.shapeable) ||
+      (key === "fill" && to.fillable) ||
+      (!!field && (field.kind !== "select" || (field.options ?? []).includes(value)));
+    if (keep) data[key] = value;
+  }
+  for (const [key, value] of Object.entries(to.defaultData ?? {})) data[key] ??= value;
+  if (!element.label || element.label === from?.defaultLabel) element.label = to.defaultLabel;
+  if (from?.type === "header") ensureProps(cmp).title = ""; // same tombstone as removeElement
+  if (from?.type === "column" && Array.isArray(cmp.props?.rows)) {
+    for (const row of cmp.props.rows as Record<string, unknown>[]) {
+      if (row && typeof row === "object") delete row[elementId];
+    }
+  }
+  element.type = type;
+  if (Object.keys(data).length) element.data = data;
+  else delete element.data;
+  return { selectElement: { cmpId, key: elKey(elementId), index: null } };
+}
+
 /** Free placement inside a canvas; one call per completed drag. */
 export function setElementPosition(draft: Draft, _ctx: ActionContext, cmpId: string, elementId: string, x: number, y: number): void {
   const cmp = cmpById(draft, cmpId);

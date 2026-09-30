@@ -236,7 +236,9 @@
       "elements": {
         "brand": {
           "fields": [
-            "logo"
+            "logo",
+            "logoWidth",
+            "logoHeight"
           ],
           "max": 1,
           "shapeable": false,
@@ -445,7 +447,10 @@
           "fillable": false
         },
         "date-picker": {
-          "fields": [],
+          "fields": [
+            "placeholder",
+            "selected"
+          ],
           "max": null,
           "shapeable": true,
           "fillable": true
@@ -673,7 +678,10 @@
           "fillable": false
         },
         "date-picker": {
-          "fields": [],
+          "fields": [
+            "placeholder",
+            "selected"
+          ],
           "max": null,
           "shapeable": true,
           "fillable": true

@@ -139,7 +139,31 @@ const numberOf = (v: unknown, fallback: number) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+// ── Dates (the date picker) ────────────────────────────────────────────────
+// A picked date is stored as yyyy-mm-dd and shown the British way
+// ("4 Mar 2026"). Anything else typed into the Inspector shows as typed.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+const isoDate = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const parseIsoDate = (v: string | null | undefined): { y: number; m: number; d: number } | null => {
+  const hit = /^(\d{4})-(\d{2})-(\d{2})$/.exec((v ?? "").trim());
+  if (!hit) return null;
+  const y = Number(hit[1]), m = Number(hit[2]) - 1, d = Number(hit[3]);
+  return m >= 0 && m < 12 && d >= 1 && d <= new Date(y, m + 1, 0).getDate() ? { y, m, d } : null;
+};
+const formatDate = (v: string): string => {
+  const p = parseIsoDate(v);
+  return p ? `${p.d} ${MONTHS[p.m]} ${p.y}` : v;
+};
+
 const Chevron = () => <span className="ui-chevron" aria-hidden />;
+const CalendarIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" aria-hidden>
+    <rect x="2" y="3" width="12" height="11" rx="1.5" />
+    <path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" strokeLinecap="round" />
+  </svg>
+);
 const SearchIcon = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
     <circle cx="7" cy="7" r="4.5" />
@@ -211,6 +235,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   /** Ephemeral picks made by viewers (no edit handlers): the menu still works
    *  and the face updates, it just isn't persisted. */
   const [chosen, setChosen] = useState<Record<string, string>>({});
+  /** The month an open date picker's calendar is showing (browsing months
+   *  is view state, never persisted). */
+  const [calView, setCalView] = useState<{ y: number; m: number } | null>(null);
 
   useEffect(() => {
     if (!openSelect) return;
@@ -459,9 +486,20 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const brandMark = (el: ElementNode): ReactNode => {
     const logo = el.data?.logo ?? "";
     if (logo === "none") return null;
-    if (logo.startsWith("data:")) return <img className="ui-brand-img" src={logo} alt="" />;
-    if (BRAND_MARKS[logo]) return <span className="ui-brand-mark" aria-hidden>{BRAND_MARKS[logo]}</span>;
-    return <span className="ui-brand-default" aria-hidden />;
+    // Width/height in px, each independent, so the mark can be a rectangle.
+    // An unset side keeps the 20px standard (an uploaded image's width
+    // follows its own aspect ratio instead).
+    const px = (v: string | undefined) => {
+      const n = numberOf(v, 0);
+      return n > 0 ? Math.min(400, n) : undefined;
+    };
+    const w = px(el.data?.logoWidth);
+    const h = px(el.data?.logoHeight);
+    const size: CSSProperties | undefined = w || h ? { width: w, height: h } : undefined;
+    const sized = size ? " sized" : "";
+    if (logo.startsWith("data:")) return <img className={`ui-brand-img${sized}`} style={size} src={logo} alt="" />;
+    if (BRAND_MARKS[logo]) return <span className={`ui-brand-mark${sized}`} style={size} aria-hidden>{BRAND_MARKS[logo]}</span>;
+    return <span className="ui-brand-default" style={size} aria-hidden />;
   };
   const brandTok = (el: ElementNode) => elTok(el, "ui-brand", <>{brandMark(el)}{el.label}</>);
 
@@ -551,6 +589,79 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     );
   };
 
+  /** The calendar button of a date picker: opens its month calendar, in the
+   *  editor and for viewers alike (same open/close machinery as a dropdown). */
+  const dateToggle = (el: ElementNode) => (
+    <button
+      type="button"
+      className="ui-select-toggle ui-date-toggle"
+      data-select-ui
+      aria-label="Choose date"
+      aria-expanded={openSelect === el.id}
+      onClick={(e: ReactMouseEvent) => {
+        e.stopPropagation();
+        if (openSelect === el.id) {
+          setOpenSelect(null);
+          return;
+        }
+        const at = parseIsoDate(selectedValue(el));
+        const now = new Date();
+        setCalView(at ? { y: at.y, m: at.m } : { y: now.getFullYear(), m: now.getMonth() });
+        setOpenSelect(el.id);
+      }}
+    >
+      <CalendarIcon />
+    </button>
+  );
+  /** The open picker's month grid: weeks start on Monday, today is ringed,
+   *  the chosen day filled. Picking a day behaves like picking a dropdown
+   *  option — persisted as data.selected in the editor, ephemeral for
+   *  viewers (preview). */
+  const datePopover = (el: ElementNode): ReactNode => {
+    const now = new Date();
+    const view = calView ?? { y: now.getFullYear(), m: now.getMonth() };
+    const picked = parseIsoDate(selectedValue(el));
+    const lead = (new Date(view.y, view.m, 1).getDay() + 6) % 7;
+    const days = new Date(view.y, view.m + 1, 0).getDate();
+    const cells: (number | null)[] = [...Array(lead).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
+    while (cells.length % 7) cells.push(null);
+    const step = (delta: number) => (e: ReactMouseEvent) => {
+      e.stopPropagation();
+      const d = new Date(view.y, view.m + delta, 1);
+      setCalView({ y: d.getFullYear(), m: d.getMonth() });
+    };
+    const isToday = (d: number) => d === now.getDate() && view.m === now.getMonth() && view.y === now.getFullYear();
+    return (
+      <div className="ui-select-menu ui-datepicker" role="dialog" aria-label="Choose date" data-select-ui onClick={(e) => e.stopPropagation()}>
+        <div className="ui-dp-head">
+          <button type="button" className="ui-dp-nav" aria-label="Previous month" onClick={step(-1)}>‹</button>
+          <span className="ui-dp-month">{MONTH_NAMES[view.m]} {view.y}</span>
+          <button type="button" className="ui-dp-nav" aria-label="Next month" onClick={step(1)}>›</button>
+        </div>
+        <div className="ui-dp-grid">
+          {WEEKDAYS.map((w) => <span key={w} className="ui-dp-dow">{w}</span>)}
+          {cells.map((d, i) =>
+            d == null ? (
+              <span key={i} />
+            ) : (
+              <button
+                type="button"
+                key={i}
+                className={`ui-dp-day${picked && picked.y === view.y && picked.m === view.m && picked.d === d ? " on" : ""}${isToday(d) ? " today" : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  pickOption(el, isoDate(view.y, view.m, d));
+                }}
+              >
+                {d}
+              </button>
+            ),
+          )}
+        </div>
+      </div>
+    );
+  };
+
   /** A list's filter chip. Given values — a bound dataset, or options typed by
    *  hand — it behaves as a real dropdown, showing the chosen value beside its
    *  field name; with none it stays the plain label chip it has always been, so
@@ -586,7 +697,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "select": return `Select ${n}…`;
       case "text-area": return `Add ${n}…`;
       case "file-upload": return "Drop a file here or browse";
-      case "date-picker": return "Select date…";
+      case "date-picker": return "DD/MM/YYYY";
       default: return `Enter ${n}`;
     }
   };
@@ -599,7 +710,17 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     switch (el.type) {
       case "text-input": return body(el.data?.kind ?? "text");
       case "text-area": return body("tall");
-      case "date-picker": return body("date");
+      case "date-picker": {
+        const value = selectedValue(el);
+        return body(
+          `date${openSelect === el.id ? " open" : ""}`,
+          <>
+            {value ? <span className="ui-value">{formatDate(value)}</span> : <span className="ui-placeholder">{inputPlaceholder(el)}</span>}
+            {dateToggle(el)}
+            {openSelect === el.id && datePopover(el)}
+          </>,
+        );
+      }
       case "file-upload": return body("file");
       case "select": {
         const value = selectedValue(el);

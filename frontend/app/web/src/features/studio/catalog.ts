@@ -115,7 +115,13 @@ const el = (meta: ElementTypeMeta): ElementTypeMeta => meta;
 
 const BRAND = el({
   type: "brand", label: "Brand / logo", desc: "Product name or logo mark", icon: "BR",
-  dataFields: [{ key: "logo", label: "Logo", kind: "logo" }],
+  // Width and height (px) let the mark be a rectangle — a wordmark, a wide
+  // uploaded logo. Blank keeps the standard 20px square.
+  dataFields: [
+    { key: "logo", label: "Logo", kind: "logo" },
+    { key: "logoWidth", label: "Logo width", kind: "text" },
+    { key: "logoHeight", label: "Logo height", kind: "text" },
+  ],
   defaultLabel: "Acme", max: 1,
 });
 const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item", blankRemoves: true });
@@ -205,7 +211,15 @@ const RADIO_GROUP = el({
 });
 const CHECKBOX = el({ type: "checkbox", label: "Checkbox", desc: "On/off tick", icon: "CB", dataFields: [], defaultLabel: "Option" });
 const TOGGLE = el({ type: "toggle", label: "Toggle", desc: "On/off switch", icon: "TG", dataFields: [], defaultLabel: "Enabled" });
-const DATE_PICKER = el({ type: "date-picker", label: "Date picker", desc: "Date input", icon: "DP", dataFields: [], defaultLabel: "Date", shapeable: true, fillable: true, defaultFill: "outline" });
+const DATE_PICKER = el({
+  type: "date-picker", label: "Date picker", desc: "Date input with a calendar", icon: "DP",
+  dataFields: [
+    { key: "placeholder", label: "Placeholder", kind: "text" },
+    // Set by picking a day from the calendar on the canvas (yyyy-mm-dd); blank = no date.
+    { key: "selected", label: "Selected", kind: "text" },
+  ],
+  defaultLabel: "Date", shapeable: true, fillable: true, defaultFill: "outline",
+});
 const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", shapeable: true, fillable: true, defaultFill: "outline" });
 const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
 const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", blankRemoves: true, shapeable: true, fillable: true });

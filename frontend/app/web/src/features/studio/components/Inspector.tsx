@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import type { PageSummary } from "../../projects/projectsApi";
 import { COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign } from "../catalog";
-import { elementLink, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
+import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
 import { ComposedRegions } from "../model/linkRegions";
 import { byPos } from "../model/positions";
 import { cmpSize, findNode, SplitSide } from "../model/tree";
@@ -48,6 +48,8 @@ interface Props {
   onRemoveRegion(id: string): void;
   onElementText(sel: ElementSel, text: string): void;
   onElementData(sel: ElementSel, key: string, value: string): void;
+  /** Turn the element into another type of its component's vocabulary. */
+  onElementType(sel: ElementSel, type: string): void;
   /** Step the element one place earlier/later in its component's order, or
    *  jump it to either end (a canvas child's stacking order). */
   onMoveElement(sel: ElementSel, delta: -1 | 1 | "front" | "back"): void;
@@ -196,7 +198,7 @@ function StyleFields({ bg, fg, font, caps, set, ro }: { bg: string; fg: string; 
 /** Read an image file, downscale it to at most `maxPx`, and hand back a
  *  data URL for inline storage (small marks stay PNG for transparency;
  *  larger pictures become JPEG). */
-function readImageFile(file: File, maxPx: number, cb: (dataUrl: string) => void) {
+function readImageFile(file: File, maxPx: number, cb: (dataUrl: string) => void, mark = maxPx <= 128) {
   const img = new Image();
   const url = URL.createObjectURL(file);
   img.onload = () => {
@@ -206,7 +208,7 @@ function readImageFile(file: File, maxPx: number, cb: (dataUrl: string) => void)
     canvas.height = Math.max(1, Math.round(img.height * scale));
     canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
     URL.revokeObjectURL(url);
-    cb(canvas.toDataURL(maxPx > 128 ? "image/jpeg" : "image/png", 0.85));
+    cb(canvas.toDataURL(mark ? "image/png" : "image/jpeg", 0.85));
   };
   img.src = url;
 }
@@ -236,11 +238,12 @@ function ImageField({ value, onCommit, disabled }: { value: string; onCommit(v: 
   );
 }
 
-/** Brand logo: a built-in icon, an uploaded image (downscaled to 96px and
- *  stored inline), or no logo at all. */
+/** Brand logo: a built-in icon, an uploaded image (downscaled to 240px and
+ *  stored inline as PNG — enough for a wide logo sized up in the bar), or no
+ *  logo at all. */
 function LogoField({ value, onCommit, disabled }: { value: string; onCommit(v: string): void; disabled?: boolean }) {
   const isImage = value.startsWith("data:");
-  const upload = (file: File) => readImageFile(file, 96, onCommit);
+  const upload = (file: File) => readImageFile(file, 240, onCommit, true);
   return (
     <div className="insp-logo">
       <select
@@ -429,6 +432,20 @@ export function Inspector(props: Props) {
         {elementSel && selectedCmp && (
           <div className="insp-section">
             <h4>{elementNodeMeta ? `Element · ${elementNodeMeta.label}` : "Element"}</h4>
+            {elementNode && elementNodeMeta && (
+              <div className="field">
+                <label>Type</label>
+                <select
+                  value={elementNode.type}
+                  disabled={ro}
+                  onChange={(e) => props.onElementType(elementSel, e.target.value)}
+                >
+                  {elementTypeOptions(selectedCmp, elementNode.id).map((o) => (
+                    <option key={o.type} value={o.type} disabled={o.full}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {/* A nav bar dropdown has no visible text of its own (it reads
                 "Select" until a dataset gives it a value), so no Text field. */}
             {!(elementNode?.type === "select" && selectedCmp.type === "navbar") && (

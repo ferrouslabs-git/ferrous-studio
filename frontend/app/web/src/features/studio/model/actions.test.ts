@@ -25,6 +25,8 @@ import {
   setElementLink,
   setElementSize,
   setElementText,
+  setElementType,
+  elementTypeOptions,
   setListCell,
   splitRegionAction,
 } from "./actions";
@@ -278,6 +280,58 @@ describe("shape and type changes", () => {
     expect(cmp.shape).toBe("simple");
     expect(cmp.elements!.some((e) => e.type === "text-input")).toBe(true);
     expect(cmp.props).toBeUndefined();
+  });
+});
+
+describe("element type change", () => {
+  const form = (elements: ElementNode[], props?: Record<string, unknown>) =>
+    page([{ id: "f", type: "form", label: "Form", pos: "a0", shape: "simple", elements, props }]);
+
+  it("keeps id, position, label, link and shared data; drops what the new type lacks", () => {
+    const p = form(
+      [el("e1", "select", "Role", "a3", { options: "A, B", selected: "A", dataset: "ds1", fill: "ghost", bg: "#ffeeee" })],
+      { links: { "el:e1": { pageId: "p2" } } },
+    );
+    setElementType(p, ctx, "f", "e1", "text-input");
+    const e = listOf(p)[0].elements![0];
+    expect(e).toMatchObject({ id: "e1", type: "text-input", label: "Role", pos: "a3" });
+    // kind comes from the new type's defaults; fill and bg carry over.
+    expect(e.data).toEqual({ kind: "text", fill: "ghost", bg: "#ffeeee" });
+    expect(elementLink(listOf(p)[0], "el:e1", null)).toEqual({ pageId: "p2" });
+  });
+
+  it("carries a select value only when the new type offers it", () => {
+    const p = form([el("e1", "text-input", "Email", "a0", { kind: "email" })]);
+    setElementType(p, ctx, "f", "e1", "select");
+    expect(listOf(p)[0].elements![0].data).toEqual({ options: "Option A, Option B" });
+  });
+
+  it("swaps a still-default label for the new type's default", () => {
+    const p = form([el("e1", "text-input", "Field", "a0")]);
+    setElementType(p, ctx, "f", "e1", "date-picker");
+    expect(listOf(p)[0].elements![0].label).toBe("Date");
+  });
+
+  it("refuses a type already at its max, and offers it as full", () => {
+    const p = form([el("h", "header", "Form", "a0"), el("e1", "text-input", "Name", "a1")]);
+    const cmp = listOf(p)[0];
+    expect(elementTypeOptions(cmp, "e1").find((o) => o.type === "header")?.full).toBe(true);
+    expect(elementTypeOptions(cmp, "h").find((o) => o.type === "header")?.full).toBe(false);
+    const result = setElementType(p, ctx, "f", "e1", "header");
+    expect(result?.toast).toMatch(/already has/);
+    expect(listOf(p)[0].elements![1].type).toBe("text-input");
+  });
+
+  it("turning a header into something else leaves the title tombstone", () => {
+    const p = form([el("h", "header", "Form", "a0")]);
+    setElementType(p, ctx, "f", "h", "section-heading");
+    expect(listOf(p)[0].props?.title).toBe("");
+  });
+
+  it("ignores types outside the host's vocabulary", () => {
+    const p = form([el("e1", "text-input", "Name", "a0")]);
+    setElementType(p, ctx, "f", "e1", "column");
+    expect(listOf(p)[0].elements![0].type).toBe("text-input");
   });
 });
 
