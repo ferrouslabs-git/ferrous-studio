@@ -11,6 +11,7 @@ import { AssigneeSelect } from "./AssigneeSelect";
 import { AttachmentsSection } from "./AttachmentsSection";
 import { useBoard } from "./boardData";
 import { useBoardMutations } from "./boardMutations";
+import { IdChip } from "./chips";
 import { CommentsList } from "./CommentsList";
 import { ST_ICON, ST_LABEL } from "./constants";
 import { useDialogs } from "./dialogs";
@@ -205,7 +206,9 @@ function DrawerBody({
   return (
     <Drawer
       open
-      title={requirement ? requirement.human_id : "New requirement"}
+      title={
+        requirement ? <IdChip bare of={{ type: "requirement", id: requirement.id }}>{requirement.human_id}</IdChip> : "New requirement"
+      }
       onClose={onClose}
       onSubmit={canWrite ? save : undefined}
       width={560}

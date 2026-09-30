@@ -5,7 +5,9 @@ import { FormEvent, ReactNode, useEffect, useRef } from "react";
 
 interface DrawerProps {
   open: boolean;
-  title: string;
+  /** Usually text; a node lets a caller title the drawer with a control
+   *  (the board's copy-a-link id chip). */
+  title: ReactNode;
   description?: string;
   onClose: () => void;
   /** When set the body is a <form>; submitting calls this. */
