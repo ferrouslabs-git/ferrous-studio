@@ -8,6 +8,7 @@
 // it loaded. Custom components and datasets are always the project's live
 // ones, since those are shared project state a restore would not replace.
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useIsPhone } from "../../core/breakpoints";
 import { useLoad } from "../../core/useLoad";
 import { listDatasets } from "../project/datasets/datasetsApi";
 import { useProject } from "../project/ProjectLayout";
@@ -117,7 +118,9 @@ export function PreviewShell({
 
   const framed = interfaceType !== "desktop";
   const device = deviceClass(interfaceType);
-  const stageFit = useStageFit(canvasWrap, interfaceType);
+  // On a phone a framed device fits the width and the mat scrolls to the rest.
+  const isPhone = useIsPhone();
+  const stageFit = useStageFit(canvasWrap, interfaceType, isPhone);
   // Desktop pages widen for their fixed-px columns and the canvas scrolls to
   // them; a framed device keeps its screen width, like the hardware it draws.
   const minDeviceWidth = !framed && page ? deviceMinWidth(page.document, host, page.presentation) : 0;

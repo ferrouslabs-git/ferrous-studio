@@ -38,8 +38,12 @@ export interface StageFit {
 
 /** Fit a framed device into the canvas area it is given. Only ever shrinks:
  *  there is nothing to gain from magnifying a phone past its own resolution.
- *  Returns null for desktop, which is not framed. */
-export function useStageFit(wrap: RefObject<HTMLElement | null>, type: InterfaceType): StageFit | null {
+ *  Returns null for desktop, which is not framed.
+ *
+ *  `widthOnly` fits the width alone and lets the mat scroll to the rest -- the
+ *  preview on a phone, where fitting the height as well would shrink a phone
+ *  wireframe to little more than half the screen it is being looked at on. */
+export function useStageFit(wrap: RefObject<HTMLElement | null>, type: InterfaceType, widthOnly = false): StageFit | null {
   const size = DEVICE_SIZE[type] ?? null;
   const [scale, setScale] = useState(1);
 
@@ -57,13 +61,13 @@ export function useStageFit(wrap: RefObject<HTMLElement | null>, type: Interface
       // A collapsed or not-yet-laid-out panel measures zero; keep the last
       // good scale rather than collapsing the device to nothing.
       if (room.w <= 0 || room.h <= 0) return;
-      setScale(Math.min(1, room.w / size.w, room.h / size.h));
+      setScale(Math.min(1, room.w / size.w, widthOnly ? Infinity : room.h / size.h));
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [wrap, size]);
+  }, [wrap, size, widthOnly]);
 
   if (!size) return null;
   return {

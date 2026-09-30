@@ -93,6 +93,14 @@ export function App() {
                   </Suspense>
                 }
               />
+              <Route
+                path="diagrams/:diagramId/view"
+                element={
+                  <Suspense fallback={<div className="page muted">Loading diagram…</div>}>
+                    <DiagramEditorPage mode="view" />
+                  </Suspense>
+                }
+              />
               <Route path="wireframes" element={<WireframesPage />} />
               <Route path="wireframes/:wireframeId" element={<StudioPage />} />
               <Route path="wireframes/:wireframeId/preview" element={<PreviewPage />} />

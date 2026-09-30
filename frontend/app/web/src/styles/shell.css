@@ -151,6 +151,15 @@
 .input.search { flex: 1; min-width: 180px; }
 
 .shell-main { flex: 1; min-width: 0; }
+/* A full-window surface (the studio, its preview, the diagram editor) takes
+   what is left of the window below anything above it -- a locked version's
+   banner -- rather than a whole window's height, which ran the bottom of the
+   canvas off the page by the banner's height. */
+.shell-main:has(> .studio, > .diagram-editor) { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+.shell-main > .studio, .shell-main > .diagram-editor { flex: 1; min-height: 0; height: auto; }
+@media (max-width: 820px) { /* NARROW_MAX: under the top strip */
+  .shell-main:has(> .studio, > .diagram-editor) { height: calc(100vh - var(--shell-strip-h)); height: calc(100dvh - var(--shell-strip-h)); }
+}
 .page { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; }
 .page.narrow { max-width: 640px; }
 .page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }

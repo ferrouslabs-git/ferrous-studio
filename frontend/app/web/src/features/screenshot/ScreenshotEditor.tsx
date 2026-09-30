@@ -154,6 +154,7 @@ export function ScreenshotEditor({
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       setDraft(null);
       const finished =
         current.kind === "freehand"
@@ -165,6 +166,7 @@ export function ScreenshotEditor({
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   /** Drag an existing shape. One history entry, pushed on drop. */
@@ -180,6 +182,7 @@ export function ScreenshotEditor({
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       setDraft(null);
       if (moved !== original) {
         commit(historyRef.current.shapes.map((s) => (s.id === id ? moved : s)));
@@ -187,6 +190,7 @@ export function ScreenshotEditor({
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   // While moving, the dragged shape is drawn from `draft` and hidden from the

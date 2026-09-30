@@ -1532,6 +1532,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       if (!started) return;
       document.body.style.userSelect = prevUserSelect;
       // The click this release fires must not reselect or toggle; the flag
@@ -1552,6 +1554,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointercancel", up, { once: true });
   };
 
   /** Corner drag on a canvas child: sets its width and height; one commit on
@@ -1577,6 +1580,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       setDragSize((s) => {
         const next = { ...s };
         delete next[el.id];
@@ -1586,6 +1591,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointercancel", up, { once: true });
   };
 
   /** Drag the canvas's bottom edge to set its height; one commit on release. */
@@ -1602,11 +1608,14 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       setLiveHeight(null);
       if (latest !== from) edit.setPropValue("height", String(latest));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointercancel", up, { once: true });
   };
 
   const renderCanvas = (): ReactNode => {
