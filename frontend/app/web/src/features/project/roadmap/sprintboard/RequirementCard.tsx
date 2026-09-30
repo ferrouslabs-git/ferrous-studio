@@ -13,6 +13,7 @@ import { SB_STAGES, ST_LABEL } from "../../board/constants";
 import { useDraggable } from "../../board/dnd";
 import { fmtEffort } from "../../board/effort";
 import type { Requirement, RequirementPatch } from "../../board/requirementsApi";
+import { IdChip } from "../../board/chips";
 
 interface RequirementCardProps {
   requirement: Requirement;
@@ -47,7 +48,10 @@ export function RequirementCard({ requirement: r, canMove, onMove, onOpen }: Req
   return (
     <div ref={ref} className={`reqcard${dragging ? " dragging" : ""}`} onClick={() => onOpen(r)}>
       <div className="k">
-        {r.human_id} · <span className={`pri-${r.priority}`}>{r.priority}</span>
+        <IdChip bare of={{ type: "requirement", id: r.id }}>
+          {r.human_id}
+        </IdChip>{" "}
+        · <span className={`pri-${r.priority}`}>{r.priority}</span>
         {r.estimate_hours != null ? ` · ${fmtEffort(r.estimate_hours)}` : ""}
       </div>
       <div className="sb-ttl">{r.title}</div>
@@ -55,7 +59,10 @@ export function RequirementCard({ requirement: r, canMove, onMove, onOpen }: Req
         <span className="sb-scope-epic" title={epic ? `${epic.human_id} · ${epic.title}` : "in no epic"}>
           {epic ? (
             <>
-              <b className="sb-scope-id">{epic.human_id}</b> {epic.title}
+              <IdChip bare of={{ type: "epic", id: epic.id }}>
+                {epic.human_id}
+              </IdChip>{" "}
+              {epic.title}
             </>
           ) : (
             "No epic"
@@ -63,7 +70,10 @@ export function RequirementCard({ requirement: r, canMove, onMove, onOpen }: Req
         </span>
         {feature && (
           <span className="sb-scope-feature" title={`${feature.human_id} · ${feature.title}`}>
-            <b className="sb-scope-id">{feature.human_id}</b> {feature.title}
+            <IdChip bare of={{ type: "feature", id: feature.id }}>
+              {feature.human_id}
+            </IdChip>{" "}
+            {feature.title}
           </span>
         )}
       </div>

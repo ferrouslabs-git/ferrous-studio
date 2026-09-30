@@ -41,8 +41,10 @@ async function copyLink(id: string, url: string): Promise<void> {
 // pasted, the id opens the item where it is read in context (a requirement in
 // its epic). Given no `of`, or an item with nowhere to link to, it copies the
 // bare id. It sits inside rows that open or navigate on click, and the copy
-// must not do that too.
-export function IdChip({ children: id, of }: { children: string; of?: { type: string; id: string } }) {
+// must not do that too; being a button, it is also never where a row's drag
+// starts (dnd.ts refuses those). `bare` drops the chip styling for the id
+// column of a list row, which keeps its own look.
+export function IdChip({ children: id, of, bare = false }: { children: string; of?: { type: string; id: string }; bare?: boolean }) {
   const toast = useToastIfAny();
   const hrefFor = useEntityHref();
   const path = of ? hrefFor(of.type, of.id) : null;
@@ -58,7 +60,7 @@ export function IdChip({ children: id, of }: { children: string; of?: { type: st
   return (
     <button
       type="button"
-      className="bchip k idchip"
+      className={bare ? "k idchip" : "bchip k idchip"}
       title={path ? `copy a link to ${id}` : `copy ${id}`}
       onClick={copy}
       onPointerDown={(e) => e.stopPropagation()}

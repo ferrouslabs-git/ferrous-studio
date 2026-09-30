@@ -119,6 +119,7 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
           <FeatureRow
             key={f.id}
             k={f.human_id}
+            of={{ type: "feature", id: f.id }}
             title={f.title}
             status={f.status}
             rollup={rollup(index.featureRequirements(f.id))}
@@ -138,12 +139,15 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
 // directly under the epic with no feature yet).
 function FeatureRow({
   k,
+  of,
   title,
   status,
   rollup: p,
   onClick,
 }: {
   k: string;
+  /** The feature the id links to; absent on the "no feature yet" row, whose k is not an id. */
+  of?: { type: string; id: string };
   title: string;
   /** Rolled up from the feature's requirements; absent on the "no feature yet" row. */
   status?: RequirementStatus;
@@ -152,7 +156,13 @@ function FeatureRow({
 }) {
   return (
     <div className="hrow ep-frow" onClick={onClick}>
-      <span className="k">{k}</span>
+      {of ? (
+        <IdChip bare of={of}>
+          {k}
+        </IdChip>
+      ) : (
+        <span className="k">{k}</span>
+      )}
       {status && <RolledUpStatusChip status={status} of="feature" />}
       <span className="t">{title}</span>
       <SegBar done={p.done} partial={p.in_progress + p.to_test} total={p.total} width={90} />

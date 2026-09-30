@@ -110,7 +110,9 @@ export function FeatureGroupCard({ epic, feature: f, rows, selectedReq, onSelect
         ) : (
           rows.map((r) => (
             <div key={r.id} className={`hrow${r.id === selectedReq ? " sel" : ""}`} onClick={() => onSelectReq(r.id)}>
-              <span className="k">{r.human_id}</span>
+              <IdChip bare of={{ type: "requirement", id: r.id }}>
+                {r.human_id}
+              </IdChip>
               <span className="t">{r.title}</span>
               <span className="r">
                 <StatusChip status={r.status} />

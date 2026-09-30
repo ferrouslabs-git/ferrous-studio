@@ -7,7 +7,7 @@ import { useRef } from "react";
 import { useBoard } from "../board/boardData";
 import { sameRef } from "../board/boardModel";
 import { useBoardMutations } from "../board/boardMutations";
-import { StatusChip } from "../board/chips";
+import { IdChip, StatusChip } from "../board/chips";
 import { useDraggable } from "../board/dnd";
 import { fmtEffort } from "../board/effort";
 import type { Requirement } from "../board/requirementsApi";
@@ -46,7 +46,9 @@ export function SprintRequirementRow({ sprint, requirement: r, queueIndex: i, qu
       }}
     >
       <span className="k sp-pos">{i >= 0 ? i + 1 : "·"}</span>
-      <span className="k">{r.human_id}</span>
+      <IdChip bare of={{ type: "requirement", id: r.id }}>
+        {r.human_id}
+      </IdChip>
       <span className="t">{r.title}</span>
       {stray && (
         <span className="bchip k sp-stray" title={`this requirement's release is ${strayId ?? "none"}, not this sprint's`}>

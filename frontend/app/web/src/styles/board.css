@@ -134,6 +134,14 @@
 .board-page .bchip.idchip, .board-drawer .bchip.idchip { cursor: copy; padding: 0 3px; margin: 0 -3px; border: 1px solid transparent; flex: none; }
 .board-page .bchip.idchip:hover, .board-drawer .bchip.idchip:hover { color: var(--b-ink); border-color: var(--b-line); }
 .board-page .bchip.idchip:focus-visible, .board-drawer .bchip.idchip:focus-visible { outline: 2px solid var(--b-accent-border); outline-offset: 1px; }
+/* The bare id in a list row or card: the row's own id styling, as a button
+   that copies a link -- underlined on hover so it reads as one. */
+.board-page .idchip:not(.bchip), .board-drawer .idchip:not(.bchip) {
+  background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; letter-spacing: inherit; text-align: left; cursor: copy;
+}
+.board-page .idchip:not(.bchip):hover, .board-drawer .idchip:not(.bchip):hover { color: var(--b-accent-text); text-decoration: underline; text-underline-offset: 2px; }
+.board-page .idchip:not(.bchip):focus-visible, .board-drawer .idchip:not(.bchip):focus-visible { outline: 2px solid var(--b-accent-border); outline-offset: 1px; border-radius: 2px; }
+.board-page .sb-scope .idchip { font-family: var(--b-mono); font-weight: 600; color: var(--b-ink3); }
 .board-page .bchip.st, .board-drawer .bchip.st { font-weight: 600; }
 /* WORK status (requirements, and the read-only roll-up on features/epics).
    The class name is the stored value, not the label, so re-wording a status
@@ -537,7 +545,6 @@ body.board-dragging-epic .board-page .tl-card:not(.tl-card-loose) { border-style
   border: 1px solid var(--b-line); color: var(--b-ink3); background: color-mix(in srgb, var(--b-ink) 3%, transparent);
 }
 .board-page .reqcard .sb-scope .sb-scope-feature { border-style: dashed; }
-.board-page .reqcard .sb-scope .sb-scope-id { font-family: var(--b-mono); font-weight: 600; color: var(--b-ink3); }
 .board-page .reqcard .mv { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
 .board-page .reqcard .mv button {
   border: 1px solid var(--b-line); background: none; color: var(--b-ink2); border-radius: var(--b-radius); font-size: 10px; cursor: pointer; padding: 0 6px;

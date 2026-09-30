@@ -12,7 +12,7 @@ import { MouseEvent, useRef, useState } from "react";
 import { useBoard } from "../board/boardData";
 import { numSuffix } from "../board/boardModel";
 import { useBoardMutations } from "../board/boardMutations";
-import { StatusChip } from "../board/chips";
+import { IdChip, StatusChip } from "../board/chips";
 import { ST_LABEL } from "../board/constants";
 import { useDialogs } from "../board/dialogs";
 import { useDraggable, useDropTarget } from "../board/dnd";
@@ -106,7 +106,11 @@ export function ReleaseBacklog({ release, sprints, onOpen }: ReleaseBacklogProps
         {groups.map((g) => (
           <div key={g.key || "none"} className="sp-bl-group">
             <div className="sp-bl-grouphead" title={g.name}>
-              {g.epic && <span className="k">{g.epic.human_id}</span>}
+              {g.epic && (
+                <IdChip bare of={{ type: "epic", id: g.epic.id }}>
+                  {g.epic.human_id}
+                </IdChip>
+              )}
               {g.epic ? " " : ""}
               <span className="t">{g.name}</span>
             </div>
@@ -161,7 +165,9 @@ function BacklogRow({ requirement: r, open, onOpen }: { requirement: Requirement
         onOpen(r);
       }}
     >
-      <span className="k">{r.human_id}</span>
+      <IdChip bare of={{ type: "requirement", id: r.id }}>
+        {r.human_id}
+      </IdChip>
       <span className="t">{r.title}</span>
       <span className={`est-sum${r.estimate_hours == null ? " est-partial" : ""}`}>{fmtEffort(r.estimate_hours)}</span>
       <span className="r">

@@ -178,7 +178,9 @@ export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, on
                 navigate(paths.epic(e.id));
               }}
             >
-              <span className="k">{e.human_id}</span>
+              <IdChip bare of={{ type: "epic", id: e.id }}>
+                {e.human_id}
+              </IdChip>
               <span className="t">{e.title}</span>
               <ProgressFigure rollup={rollup(index.epicRequirements(e.id))} />
               {canWrite && (
