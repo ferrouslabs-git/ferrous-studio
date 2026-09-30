@@ -24,6 +24,7 @@ import { DocPane } from "./DocPane";
 import { EpicColumn } from "./EpicColumn";
 import { NewRequirementPane } from "./NewRequirementPane";
 import { RequirementPane } from "./RequirementPane";
+import { useFillViewport } from "./useFillViewport";
 
 interface Selection {
   req?: string | null;
@@ -46,6 +47,9 @@ export function EpicDetailPage() {
   // whatever it showed. That stays mounted underneath -- a half-written
   // comment or new requirement survives a look at a file -- and Back returns
   // to it. Not in the URL: a preview is a glance, not a place to link to.
+  // Wide enough to sit side by side (board.css stacks them below 1321px), the
+  // two columns fill the window and scroll independently.
+  const fillViewport = useFillViewport<HTMLDivElement>(1321);
   const [previewing, setPreviewing] = useState<{ items: BoardAttachment[]; at: number } | null>(null);
   const openPreview = useCallback((items: BoardAttachment[], at: number) => setPreviewing({ items, at }), []);
 
@@ -165,7 +169,7 @@ export function EpicDetailPage() {
   return (
     <AttachmentPreviewHost open={openPreview}>
       <div className="page board-page">
-        <div className="epg-layout">
+        <div className="epg-layout" ref={fillViewport}>
           <div className="epg-body">
             <EpicColumn
               epic={epic}

@@ -553,6 +553,14 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
 /* ── Epic page: the epic and the detail pane split the width 50/50 ── */
 .board-page .epg-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; align-items: start; }
 .board-page .epg-body { min-width: 0; }
+/* Side by side, the layout fills the window (useFillViewport sets its height)
+   and each column scrolls on its own: the epic stays put while a long
+   requirement scrolls, and the other way round. Stacked, the page scrolls. */
+.board-page .epg-layout.fills-viewport { grid-template-rows: minmax(0, 1fr); }
+.board-page .epg-layout.fills-viewport > .epg-body, .board-page .epg-layout.fills-viewport > .rqp-pane {
+  align-self: start; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+}
+.board-page .epg-layout.fills-viewport > .epg-body { padding-right: 8px; }
 /* The pane grows with what is in it -- a requirement, its form, a preview --
    and the page scrolls, never the pane on its own. */
 .board-page .rqp-pane {
