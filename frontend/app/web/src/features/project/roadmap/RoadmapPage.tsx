@@ -155,32 +155,34 @@ function Roadmap({ data }: { data: BoardData }) {
         <span className="viewbar-count">Bars come from sprint dates only.</span>
       </div>
 
-      {w ? (
-        <>
-          <Axis w={w} />
-          {index.releases.map((r) => (
-            <ReleaseCard key={r.id} release={r} w={w} folds={folds} />
-          ))}
-        </>
-      ) : (
-        <div className="hempty centred">
-          <div>
-            Nothing is dated yet. Make a release, plan a sprint under it with a start and end, and the roadmap draws itself — every bar
-            here comes from real sprint dates, never from a guess.
+      <div className="tl-scroll" style={w ? ({ "--tl-weeks": tlWeeks(w).length } as CSSProperties) : undefined}>
+        {w ? (
+          <>
+            <Axis w={w} />
+            {index.releases.map((r) => (
+              <ReleaseCard key={r.id} release={r} w={w} folds={folds} />
+            ))}
+          </>
+        ) : (
+          <div className="hempty centred">
+            <div>
+              Nothing is dated yet. Make a release, plan a sprint under it with a start and end, and the roadmap draws itself — every bar
+              here comes from real sprint dates, never from a guess.
+            </div>
+            {first ? (
+              <button type="button" className="btn primary" onClick={() => navigate(paths.release(first.id))}>
+                Plan sprints for {first.human_id}
+              </button>
+            ) : canWrite ? (
+              <button type="button" className="btn primary" onClick={() => void newRelease()}>
+                ＋ New release
+              </button>
+            ) : null}
           </div>
-          {first ? (
-            <button type="button" className="btn primary" onClick={() => navigate(paths.release(first.id))}>
-              Plan sprints for {first.human_id}
-            </button>
-          ) : canWrite ? (
-            <button type="button" className="btn primary" onClick={() => void newRelease()}>
-              ＋ New release
-            </button>
-          ) : null}
-        </div>
-      )}
+        )}
 
-      {hasUnfiled && <UnassignedCard w={w} folds={folds} onOpenRequirement={(r) => setReqId(r.id)} />}
+        {hasUnfiled && <UnassignedCard w={w} folds={folds} onOpenRequirement={(r) => setReqId(r.id)} />}
+      </div>
 
       <RequirementDrawer open={drawerReq !== null} requirement={drawerReq} onClose={closeReq} />
     </div>

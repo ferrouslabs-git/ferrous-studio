@@ -9,7 +9,16 @@
 // then hands every preview opened beneath it to the host, which renders this
 // same viewer with inline={true} -- no backdrop, no focus trap, and Escape
 // only when focus is not in a field. With no host, the lightbox as before.
-import { createContext, KeyboardEvent as ReactKeyboardEvent, ReactNode, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  TouchEvent as ReactTouchEvent,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { attachmentDownloadUrl, BoardAttachment } from "../attachmentsApi";
 import { formatBytes } from "../../../core/format";
@@ -203,6 +212,24 @@ export function AttachmentPreview({ items, initialIndex, onClose, inline = false
     return () => document.removeEventListener("keydown", onKey, true);
   }, [items.length, inline]);
 
+  // A sideways swipe is the touch screen's ‹/›: mostly horizontal and long
+  // enough not to be a tap or a scroll through a long text file.
+  const swipeFrom = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (ev: ReactTouchEvent) => {
+    const t = ev.touches[0];
+    swipeFrom.current = ev.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null;
+  };
+  const onTouchEnd = (ev: ReactTouchEvent) => {
+    const from = swipeFrom.current;
+    const t = ev.changedTouches[0];
+    swipeFrom.current = null;
+    if (!from || !t || items.length < 2) return;
+    const dx = t.clientX - from.x;
+    const dy = t.clientY - from.y;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    setI((x) => (dx < 0 ? Math.min(items.length - 1, x + 1) : Math.max(0, x - 1)));
+  };
+
   const download = async () => {
     const { url } = await attachmentDownloadUrl(projectId, at.id);
     window.open(url, "_blank", "noopener");
@@ -249,7 +276,7 @@ export function AttachmentPreview({ items, initialIndex, onClose, inline = false
             {formatBytes(at.size_bytes)} · {index.memberName(at.created_by)}
           </span>
         </div>
-        <div className="att-view-body">
+        <div className="att-view-body" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
           {body}
           <div ref={domHost} style={{ display: shown.kind === "dom" ? "contents" : "none" }} />
         </div>

@@ -21,7 +21,8 @@ import { useBoardMutations } from "../board/boardMutations";
 import { CommentsPanel, CommentsTarget } from "../board/CommentsPanel";
 import { useDragActive } from "../board/dnd";
 import { RequirementDrawer } from "../board/RequirementDrawer";
-import { Requirement, REQUIREMENT_STATUSES, RequirementPatch } from "../board/requirementsApi";
+import { Requirement, REQUIREMENT_STATUSES, RequirementPatch, RequirementStatus } from "../board/requirementsApi";
+import { ST_ICON, ST_LABEL } from "../board/constants";
 import { useToast } from "../board/toast";
 import { useSprintActivity } from "../board/useSprintActivity";
 import { KanbanLane } from "./sprintboard/KanbanLane";
@@ -66,6 +67,10 @@ export function SprintBoardPage() {
     () => requirements.filter((r) => matchesSprintFilter(r, filter, index.effectiveEpicId)),
     [requirements, filter, index],
   );
+  // A phone has room for one lane (board.css): the tab bar above the board
+  // picks which. Until someone picks, it is the first lane with cards in it.
+  const [chosenLane, setChosenLane] = useState<RequirementStatus | null>(null);
+  const phoneLane = chosenLane ?? REQUIREMENT_STATUSES.find((st) => shown.some((r) => r.status === st)) ?? REQUIREMENT_STATUSES[0];
 
   const reqId = params.get("req");
   const openRequirement = reqId ? index.requirementById.get(reqId) ?? null : null;
@@ -153,6 +158,20 @@ export function SprintBoardPage() {
         onComments={() => setComments({ type: "sprint", id: sprint.id, label: `${sprint.human_id} · ${sprint.name}` })}
       />
       <SprintBoardFilters filter={filter} onChange={setFilter} total={requirements.length} shown={shown.length} />
+      <div className="sb-lanetabs" role="tablist" aria-label="Lane">
+        {REQUIREMENT_STATUSES.map((st) => (
+          <button
+            key={st}
+            type="button"
+            role="tab"
+            aria-selected={st === phoneLane}
+            className={st === phoneLane ? "on" : undefined}
+            onClick={() => setChosenLane(st)}
+          >
+            {ST_ICON[st]} {ST_LABEL[st]} <b>{shown.filter((r) => r.status === st).length}</b>
+          </button>
+        ))}
+      </div>
       <div className="sb-layout">
         <section className="sb-board">
           {requirements.length === 0 && (
@@ -169,6 +188,7 @@ export function SprintBoardPage() {
               <KanbanLane
                 key={st}
                 status={st}
+                current={st === phoneLane}
                 requirements={lane}
                 hidden={requirements.filter((r) => r.status === st).length - lane.length}
                 canMove={canMove}

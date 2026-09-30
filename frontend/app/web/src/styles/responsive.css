@@ -21,7 +21,7 @@
 /* iOS zooms the page into any field whose text is under 16px, and a drawer
    focuses its first field as it opens. The wireframe canvas is excluded: its
    fields are a drawing of someone else's interface, not controls. */
-@media (max-width: 820px), (pointer: coarse) { /* NARROW_MAX */
+@media (pointer: coarse) {
   :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]), select, textarea):not(.device *) {
     font-size: 16px !important;
   }
@@ -63,6 +63,9 @@
   .board-page .btn.mini-x, .board-drawer .btn.mini-x, .board-lightbox .btn.mini-x { min-height: 32px; padding: 4px 10px; }
   .board-page select.mini, .board-page input[type="date"].mini, .board-page input[type="number"].mini { height: 34px; }
   .board-page input.q2 { height: 36px; }
+  /* The status chip-selects are drawn in 9.5px capitals; at the 16px a finger
+     needs (above) capitals shout, so they drop to sentence case. */
+  .board-page select.dl-select, .board-drawer select.dl-select { height: 32px; letter-spacing: 0; text-transform: none; }
   .board-page .cmt-file > .cmt-file-x, .board-drawer .cmt-file > .cmt-file-x { width: 26px; height: 26px; top: -10px; right: -10px; }
 }
 

@@ -798,3 +798,102 @@ body.board-cpanel-open .shell-main { padding-right: 340px; }
 :is(.board-lightbox, .board-page) .att-sheet-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; flex: none; }
 :is(.board-lightbox, .board-page) .att-sheet-pane { flex: 1; min-height: 0; overflow: auto; }
 :is(.board-lightbox, .board-page) .att-conv-note { margin-top: 12px; font-size: 10.5px; color: var(--b-ink3); font-style: italic; }
+
+/* ── Narrow screens and phones ──
+   Widths repeat core/breakpoints.ts: NARROW_MAX is 820px (the shell's top
+   strip), PHONE_MAX 600px. Controls that exist only for these widths -- the
+   sprint board's lane tabs, the release page's sprints/backlog switch, the
+   timeline's in-label move button -- are drawn always and hidden here. */
+.board-page .sb-lanetabs, .board-page .rel-switch, .board-page .tl-label-action { display: none; }
+
+/* Without the meta column (the 1320px rule above) the ⇄ move goes with it;
+   it follows the label instead. */
+@media (max-width: 1320px) {
+  .board-page .tl-label-action { display: inline-flex; flex: none; margin-left: auto; padding-left: 6px; }
+}
+
+@media (max-width: 820px) { /* NARROW_MAX */
+  /* The comments thread covers the page rather than squeezing it: there is
+     no 340px to spare beside it. */
+  body.board-cpanel-open .shell-main { padding-right: 0; }
+  .board-drawer.cpanel { width: 100vw; z-index: 31; }
+
+  /* Release: sprints or backlog, one at a time. */
+  .board-page .rel-switch {
+    display: flex; gap: 4px; margin-bottom: 12px; padding: 3px;
+    border: 1px solid var(--b-line); border-radius: var(--b-radius-lg); background: var(--b-card);
+  }
+  .board-page .rel-switch button, .board-page .sb-lanetabs button {
+    flex: 1; min-height: 34px; border: 1px solid transparent; border-radius: var(--b-radius); background: none; color: var(--b-ink2);
+    font: 12.5px var(--b-display); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .board-page .rel-switch button b, .board-page .sb-lanetabs button b { font-family: var(--b-mono); font-weight: 600; font-size: 11px; color: var(--b-ink3); }
+  .board-page .rel-switch button.on, .board-page .sb-lanetabs button.on {
+    background: var(--b-glow-soft); border-color: var(--b-accent-border); color: var(--b-accent-text);
+  }
+  .board-page .rel-layout.show-sprints > .rel-backlog { display: none; }
+  .board-page .rel-layout.show-backlog > .rel-sprints { display: none; }
+
+  /* Sprint board: the page is the only vertical scroller, and the lanes snap. */
+  .board-page .sb-col .cards { max-height: none; overflow: visible; }
+  .board-page .sb-board { scroll-snap-type: x mandatory; }
+  .board-page .sb-col { scroll-snap-align: start; }
+
+  /* Timeline: a readable width per week, scrolled sideways, with the labels
+     pinned on the left and the axis pinned on top -- both inside the one
+     scroller, which fills the window so the axis has somewhere to stick. */
+  .board-page .tl-scroll {
+    overflow: auto; overscroll-behavior-x: contain;
+    max-height: calc(100vh - var(--shell-strip-h) - 16px); max-height: calc(100dvh - var(--shell-strip-h) - 16px);
+  }
+  .board-page .tl-scroll > .tl-axis, .board-page .tl-scroll > .tl-card { min-width: calc(184px + var(--tl-weeks, 0) * 24px); }
+  .board-page .tl-scroll .tl-row > .tl-label, .board-page .tl-scroll .tl-axis > .tl-label {
+    position: sticky; left: 0; z-index: 1; align-self: stretch; background: var(--b-card);
+  }
+  .board-page .tl-scroll .tl-axis > .tl-label { background: var(--b-surface); }
+  /* A pinned label covers the bars passing under it, so it wears its row's
+     tint over the card rather than being see-through. */
+  .board-page .tl-scroll .tl-row.tl-sprint > .tl-label {
+    background: linear-gradient(color-mix(in srgb, var(--b-good) 4%, transparent) 0 0), var(--b-card);
+  }
+  .board-page .tl-scroll .tl-card-loose .tl-row > .tl-label { background: var(--b-surface); }
+  /* The fold chips under a release head stay in view as well. */
+  .board-page .tl-scroll .tl-cardbar { position: sticky; left: 0; width: max-content; }
+
+  /* Epic page: an open requirement, doc or new requirement is a sheet over
+     the page under the top strip, closed with its own ✕. */
+  .board-page .epg-layout.pane-open > .rqp-pane {
+    position: fixed; inset: var(--shell-strip-h) 0 0 0; z-index: 24; overflow-y: auto; overscroll-behavior: contain;
+    border: 0; border-radius: 0; padding: 16px 16px 40px;
+  }
+  html:has(.board-page .epg-layout.pane-open) { overflow: hidden; }
+}
+
+@media (max-width: 600px) { /* PHONE_MAX */
+  /* One lane at a time, picked from the tabs. */
+  .board-page .sb-lanetabs { display: flex; gap: 4px; overflow-x: auto; margin: 0 0 10px; }
+  .board-page .sb-lanetabs button { flex: none; padding: 0 10px; border-color: var(--b-line); }
+  .board-page .sb-col:not(.is-current) { display: none; }
+  .board-page .sb-col { min-width: 0; }
+  .board-page .sb-board { scroll-snap-type: none; }
+
+  /* List rows wrap: id and title on the first line, the figures and the
+     row's buttons under them, rather than squeezing the title to nothing. */
+  .board-page .hrow, .board-drawer .hrow { flex-wrap: wrap; row-gap: 4px; }
+  .board-page .hrow .t, .board-drawer .hrow .t { flex: 1 1 calc(100% - 96px); white-space: normal; }
+  .board-page .hrow .segbar { display: none; }
+  .board-page .epc .ep-ttl { max-width: none; flex: 1 1 60%; white-space: normal; }
+  .board-page .epc .ep-sum { white-space: normal; }
+  .board-page .segbar { width: 90px; }
+
+  /* A multi-select takes the row, and its checklist the row's width. */
+  .board-page .bmulti { flex: 1 1 100%; }
+  .board-page .bmulti-button { width: 100%; max-width: none; min-width: 0; }
+  .board-page .bmulti-menu { min-width: 0; right: 0; }
+  .board-page .sb-filters .sb-q-find { flex-basis: 100%; }
+  .board-page .sb-head .sb-rel { max-width: 100%; }
+  .board-page .section-row { flex-wrap: wrap; }
+
+  .board-page .tl-axis, .board-page .tl-row { grid-template-columns: 124px minmax(0, 1fr); }
+  .board-page .tl-scroll > .tl-axis, .board-page .tl-scroll > .tl-card { min-width: calc(158px + var(--tl-weeks, 0) * 24px); }
+}
