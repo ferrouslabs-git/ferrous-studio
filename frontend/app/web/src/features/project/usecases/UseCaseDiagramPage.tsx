@@ -17,6 +17,7 @@ import { useSearchParams } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { Badges, ListTable, NameCell } from "../../../components/ListTable";
+import { ListToolbar, matches } from "../../../components/ListToolbar";
 import { errorMessage } from "../../../core/api";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
@@ -209,6 +210,22 @@ export function UseCaseDiagramPage() {
             state={diagram}
             onChange={setDiagram}
             onWidth={onDiagramWidth}
+            onOpenUseCase={
+              canWrite
+                ? (id) => {
+                    const u = caseList.find((c) => c.id === id);
+                    if (u) openCase(u);
+                  }
+                : undefined
+            }
+            onOpenActor={
+              canWrite
+                ? (id) => {
+                    const a = actorList.find((x) => x.id === id);
+                    if (a) openActor(a);
+                  }
+                : undefined
+            }
           />
         )
       ) : tab === "actors" ? (
@@ -442,52 +459,77 @@ function UseCasesTable({
   onEdit: (u: UseCase) => void;
   onDelete: (u: UseCase) => void;
 }) {
+  // Search reads what a row shows: the name, the description under it and
+  // who performs it ("system" finds the ones the system does itself).
+  const [query, setQuery] = useState("");
+  const visible = useMemo(
+    () =>
+      useCases.filter((u) =>
+        matches(
+          query,
+          u.name,
+          u.description,
+          u.actor_ids.length === 0 ? "The system itself" : u.actor_ids.map((id) => actorName.get(id) ?? "").join(" "),
+        ),
+      ),
+    [useCases, actorName, query],
+  );
   return (
-    <ListTable
-      columns={[
-        {
-          header: "Use case",
-          className: "primary",
-          render: (u) => (
-            <NameCell sub={u.description || undefined} onOpen={canWrite ? () => onEdit(u) : undefined}>
-              {u.name}
-            </NameCell>
-          ),
-        },
-        {
-          header: "Performed by",
-          // No actor is a legitimate answer, not a gap: the system does it
-          // itself. A warning badge here used to say otherwise.
-          render: (u) =>
-            u.actor_ids.length === 0 ? (
-              <span className="badge muted">The system itself</span>
-            ) : (
-              <Badges>
-                {u.actor_ids.map((id) => (
-                  <span key={id} className="badge accent">
-                    {actorName.get(id) ?? "Unknown"}
-                  </span>
-                ))}
-              </Badges>
+    <>
+      <ListToolbar
+        search={{ value: query, onChange: setQuery, placeholder: "Search by name, description or actor", label: "Search use cases" }}
+        count={{ visible: visible.length, total: useCases.length, noun: ["use case", "use cases"] }}
+      />
+      <ListTable
+        columns={[
+          {
+            header: "Use case",
+            className: "primary",
+            render: (u) => (
+              <NameCell sub={u.description || undefined} onOpen={canWrite ? () => onEdit(u) : undefined}>
+                {u.name}
+              </NameCell>
             ),
-        },
-      ]}
-      rows={useCases}
-      rowKey={(u) => u.id}
-      rowLabel={(u) => u.name}
-      actions={(u) =>
-        canWrite
-          ? [
-              { label: "Edit", onSelect: () => onEdit(u) },
-              { label: "Delete", danger: true, onSelect: () => onDelete(u) },
-            ]
-          : null
-      }
-      empty={
-        <>
-          <b>No use cases yet.</b> {canWrite ? "Add the actions the system offers." : "Nothing here yet."}
-        </>
-      }
-    />
+          },
+          {
+            header: "Performed by",
+            // No actor is a legitimate answer, not a gap: the system does it
+            // itself. A warning badge here used to say otherwise.
+            render: (u) =>
+              u.actor_ids.length === 0 ? (
+                <span className="badge muted">The system itself</span>
+              ) : (
+                <Badges>
+                  {u.actor_ids.map((id) => (
+                    <span key={id} className="badge accent">
+                      {actorName.get(id) ?? "Unknown"}
+                    </span>
+                  ))}
+                </Badges>
+              ),
+          },
+        ]}
+        rows={visible}
+        rowKey={(u) => u.id}
+        rowLabel={(u) => u.name}
+        actions={(u) =>
+          canWrite
+            ? [
+                { label: "Edit", onSelect: () => onEdit(u) },
+                { label: "Delete", danger: true, onSelect: () => onDelete(u) },
+              ]
+            : null
+        }
+        empty={
+          query.trim() ? (
+            "No use cases match this search."
+          ) : (
+            <>
+              <b>No use cases yet.</b> {canWrite ? "Add the actions the system offers." : "Nothing here yet."}
+            </>
+          )
+        }
+      />
+    </>
   );
 }

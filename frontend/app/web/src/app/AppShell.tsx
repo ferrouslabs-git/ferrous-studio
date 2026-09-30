@@ -231,6 +231,7 @@ function ProjectNav({
         <NavItem to={`${base}/personas`} icon="persona" label="Personas" />
         <NavItem to={`${base}/diagrams`} icon="diagram" label="Diagrams" />
         <NavItem to={`${base}/wireframes`} icon="layout" label="Wireframes" />
+        <NavItem to={`${base}/high-fidelity-design`} icon="design" label="High fidelity design" />
         <NavItem to={`${base}/documents`} icon="file" label="Documents" />
       </NavGroup>
       <NavGroup title="Delivery">
@@ -332,6 +333,7 @@ type IconName =
   | "usecase"
   | "diagram"
   | "layout"
+  | "design"
   | "file"
   | "plan"
   | "roadmap"
@@ -392,6 +394,15 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M3 9h18M9 9v11" />
+    </>
+  ),
+  // A pen nib: finished visual design, the step beyond the wireframe.
+  design: (
+    <>
+      <path d="M12 3 6 10l2.5 9h7L18 10z" />
+      <path d="M12 3v9" />
+      <circle cx="12" cy="13" r="1.5" />
+      <path d="M8 21h8" />
     </>
   ),
   file: (
