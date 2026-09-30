@@ -1,6 +1,6 @@
 """Ferrous Studio MCP server -- lets an AI coding agent read and update one
 project's board (releases, epics, features, sprints, requirements, docs,
-comments) AND its wireframes, diagrams and use case diagram, over the
+comments, attachments) AND its wireframes, diagrams and use case diagram, over the
 real REST API, authenticated as a board token rather than a human login.
 
 Runs over stdio; add it to a project's .mcp.json. Deliberately isolated
@@ -400,7 +400,10 @@ def list_comments(entity_type: str, entity_id: str) -> dict:
     """entity_type: release | epic | feature | requirement | sprint | doc.
     entity_id must be a real id of that type -- get it from the matching
     list_*/get_*/create_* tool first (e.g. list_requirements for
-    entity_type="requirement"), never invented."""
+    entity_type="requirement"), never invented.
+
+    Each comment carries its own `attachments` (screenshots and files the
+    human added to it); pass one's id to get_attachment to see it."""
     return {"comments": _call("GET", f"/comments?entity_type={entity_type}&entity_id={entity_id}")}
 
 
@@ -409,6 +412,80 @@ def create_comment(entity_type: str, entity_id: str, body: str) -> dict:
     """Same entity_type/entity_id rule as list_comments -- a real id of
     that type, resolved first, never invented."""
     return _call("POST", "/comments", {"entity_type": entity_type, "entity_id": entity_id, "body": body})
+
+
+# ── Attachments ──────────────────────────────────────────────────────────
+#
+# Screenshots and files people attach to an item or a comment are often the
+# actual spec ("see image"), so an agent must be able to look at them, not
+# just their names. The file bytes live in S3: the API hands out a short-lived
+# presigned URL, fetched here without the board token (the URL is the
+# credential). Read-only by design, like every other file-shaped thing here.
+
+#: Largest file returned inline to the model. Anything bigger is still saved
+#: to disk, and the result says where.
+_INLINE_MAX_BYTES = 5 * 1024 * 1024
+_TEXT_TYPES = ("text/", "application/json", "application/xml", "application/x-yaml", "application/yaml")
+
+
+def _attachment_dir() -> str:
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), "ferrous-board-attachments")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+@mcp.tool()
+def list_attachments(entity_type: str, entity_id: str) -> dict:
+    """Files attached directly to one item. entity_type: release | epic |
+    feature | requirement | doc | feedback | comment. Same id rule as
+    list_comments -- a real id of that type, resolved first, never invented.
+
+    A requirement's screenshots are often on its comments rather than on the
+    requirement itself: list_comments returns each comment's attachments
+    inline, so check both. Pass an attachment's id to get_attachment."""
+    return {"attachments": _call("GET", f"/attachments?entity_type={entity_type}&entity_id={entity_id}")}
+
+
+@mcp.tool()
+def get_attachment(attachment_id: str, entity_type: str, entity_id: str):
+    """Download one attachment and show it. entity_type/entity_id are the
+    item it is attached to (as listed by list_attachments or list_comments),
+    used to confirm the id and name the file.
+
+    Images come back as images you can look at; text files (plain text,
+    markdown, JSON, CSV...) as their text. Every file is also saved to a
+    local temp folder and its path returned, so other tools can open it --
+    that is the only way to read a PDF, an archive, or anything over 5 MB."""
+    from mcp.types import ImageContent, TextContent
+    import base64
+
+    meta = next(
+        (a for a in _call("GET", f"/attachments?entity_type={entity_type}&entity_id={entity_id}") if a["id"] == attachment_id),
+        None,
+    )
+    if meta is None:
+        raise RuntimeError(f"No attachment {attachment_id} on {entity_type} {entity_id} -- list_attachments / list_comments show the real ids")
+    url = _call("GET", f"/attachments/{attachment_id}/download")["url"]
+    with urllib.request.urlopen(url, timeout=60) as r:
+        data = r.read()
+
+    safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in meta["filename"]) or "attachment"
+    path = os.path.join(_attachment_dir(), f"{attachment_id[:8]}-{safe_name}")
+    with open(path, "wb") as f:
+        f.write(data)
+
+    ctype = (meta.get("content_type") or "application/octet-stream").split(";")[0].strip().lower()
+    summary = TextContent(type="text", text=json.dumps({
+        "filename": meta["filename"], "content_type": ctype, "size_bytes": len(data), "saved_to": path,
+    }))
+    if len(data) > _INLINE_MAX_BYTES:
+        return [summary]
+    if ctype.startswith("image/"):
+        return [summary, ImageContent(type="image", data=base64.b64encode(data).decode(), mimeType=ctype)]
+    if ctype.startswith(_TEXT_TYPES) or ctype in _TEXT_TYPES:
+        return [summary, TextContent(type="text", text=data.decode("utf-8", errors="replace"))]
+    return [summary]
 
 
 # ── Wireframes & diagrams ───────────────────────────────────────────────────
