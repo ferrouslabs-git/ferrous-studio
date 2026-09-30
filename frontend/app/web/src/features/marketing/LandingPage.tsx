@@ -144,7 +144,7 @@ export function LandingPage() {
           </h1>
           <p className="landing-lead">
             Know exactly what you are getting before we build it. Watch it take shape sprint by sprint. Test every
-            release where it runs. One workspace, opened for every Ferrous Labs engagement.
+            release where it runs.
           </p>
           <div className="landing-cta">
             <Link to="/signin" className="btn primary">
