@@ -6,6 +6,11 @@
 // The projects list is the one table that cannot be expressed as flat rows
 // (each project groups its versions beneath it), so it draws its own table on
 // the same classes -- see features/projects/ProjectsList.tsx.
+//
+// On a phone the table becomes a stack of cards (responsive.css): the name on
+// top, every other cell a line labelled with its column's heading, which each
+// cell carries as data-label because the heading row is no longer shown.
+// Wider than the page but not phone-narrow, the table scrolls inside its panel.
 import { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { RowMenu, RowMenuItem } from "./RowMenu";
@@ -18,6 +23,13 @@ export interface ListColumn<Row> {
    * on one line; "muted" dims the cell; "num" right-aligns a count.
    */
   className?: string;
+  /** The cell's label when the table is drawn as cards; defaults to the header when that is text. */
+  label?: string;
+}
+
+/** What a column's cells are called once the heading row is out of sight. */
+export function columnLabel(col: Pick<ListColumn<unknown>, "header" | "label">): string | undefined {
+  return col.label ?? (typeof col.header === "string" && col.header ? col.header : undefined);
 }
 
 interface ListTableProps<Row> {
@@ -56,38 +68,40 @@ export function ListTable<Row>({ columns, rows, rowKey, rowLabel, actions, loadi
       ) : rows.length === 0 ? (
         <div className="empty">{empty}</div>
       ) : (
-        <table className="data-table list-table">
-          <thead>
-            <tr>
-              {columns.map((col, i) => (
-                <th key={i} className={col.className}>
-                  {col.header}
-                </th>
-              ))}
-              {/* Unlabelled: a heading would be twice the width of the "⋯" it
-                  names, and each menu says which row it acts on itself. */}
-              {hasActions && <th className="actions" />}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, r) => (
-              <tr key={rowKey(row)}>
+        <div className="list-scroll">
+          <table className="data-table list-table">
+            <thead>
+              <tr>
                 {columns.map((col, i) => (
-                  <td key={i} className={col.className}>
-                    {col.render(row)}
-                  </td>
+                  <th key={i} className={col.className}>
+                    {col.header}
+                  </th>
                 ))}
-                {hasActions && (
-                  <td className="actions">
-                    {menus[r].length > 0 && (
-                      <RowMenu label={rowLabel ? `Actions for ${rowLabel(row)}` : "Actions"} items={menus[r]} />
-                    )}
-                  </td>
-                )}
+                {/* Unlabelled: a heading would be twice the width of the "⋯" it
+                    names, and each menu says which row it acts on itself. */}
+                {hasActions && <th className="actions" />}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((row, r) => (
+                <tr key={rowKey(row)}>
+                  {columns.map((col, i) => (
+                    <td key={i} className={col.className} data-label={columnLabel(col)}>
+                      {col.render(row)}
+                    </td>
+                  ))}
+                  {hasActions && (
+                    <td className="actions">
+                      {menus[r].length > 0 && (
+                        <RowMenu label={rowLabel ? `Actions for ${rowLabel(row)}` : "Actions"} items={menus[r]} />
+                      )}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

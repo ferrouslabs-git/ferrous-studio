@@ -239,6 +239,13 @@
 /* A few lines of a longer list (a persona's jobs), then how many more. */
 .list-table .preview { display: flex; flex-direction: column; gap: 2px; max-width: 320px; color: var(--text-dim); }
 .list-table .preview-more { font-size: 11px; color: var(--text-mute); }
+/* A table wider than its panel scrolls inside it instead of widening the page.
+   On a phone it is not a table at all -- see the cards in responsive.css.
+   The row menu stays pinned to the right edge while the columns scroll, so
+   it never ends up out of reach off the side. */
+.list-scroll { overflow-x: auto; }
+.list-scroll .list-table td.actions, .list-scroll .list-table th.actions { position: sticky; right: 0; background: var(--bg-element); }
+.list-table td.lead { min-width: 140px; }
 
 .section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 .section-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }

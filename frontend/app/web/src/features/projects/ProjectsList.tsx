@@ -140,34 +140,36 @@ export function ProjectsList<P extends Project>({
         ) : lineages.length === 0 ? (
           <div className="empty">{empty}</div>
         ) : (
-          <table className="data-table list-table">
-            <thead>
-              <tr>
-                {/* The expander column carries no heading of its own. */}
-                <th className="expand" />
-                <th>Project</th>
-                {orgColumn && <th>{orgColumn.header}</th>}
-                <th>Version</th>
-                <th>Status</th>
-                <th>Updated</th>
-                {/* Unlabelled: the heading would be twice the width of the "⋯"
-                    column it names, and each button says which version it acts
-                    on in its own accessible name. */}
-                {canWrite && <th className="actions" />}
-              </tr>
-            </thead>
-            {lineages.map((lineage) => (
-              <LineageRows
-                key={lineage.head.lineage_id}
-                lineage={lineage}
-                canWrite={canWrite}
-                hrefOf={hrefOf}
-                onOpen={onOpen}
-                orgColumn={orgColumn}
-                actions={actions}
-              />
-            ))}
-          </table>
+          <div className="list-scroll">
+            <table className="data-table list-table">
+              <thead>
+                <tr>
+                  {/* The expander column carries no heading of its own. */}
+                  <th className="expand" />
+                  <th>Project</th>
+                  {orgColumn && <th>{orgColumn.header}</th>}
+                  <th>Version</th>
+                  <th>Status</th>
+                  <th>Updated</th>
+                  {/* Unlabelled: the heading would be twice the width of the "⋯"
+                      column it names, and each button says which version it acts
+                      on in its own accessible name. */}
+                  {canWrite && <th className="actions" />}
+                </tr>
+              </thead>
+              {lineages.map((lineage) => (
+                <LineageRows
+                  key={lineage.head.lineage_id}
+                  lineage={lineage}
+                  canWrite={canWrite}
+                  hrefOf={hrefOf}
+                  onOpen={onOpen}
+                  orgColumn={orgColumn}
+                  actions={actions}
+                />
+              ))}
+            </table>
+          </div>
         )}
       </section>
 
@@ -502,14 +504,20 @@ function LineageRows<P extends Project>({
             {head.name}
           </NameCell>
         </td>
-        {orgColumn && <td className="nowrap">{orgColumn.render(head)}</td>}
-        <td>
+        {orgColumn && (
+          <td className="nowrap" data-label={orgColumn.header}>
+            {orgColumn.render(head)}
+          </td>
+        )}
+        <td data-label="Version">
           <span className="badge accent">{versionTitle(head)}</span>
         </td>
-        <td>
+        <td data-label="Status">
           <StatusBadge project={head} />
         </td>
-        <td className="muted when">{formatDate(head.updated_at)}</td>
+        <td className="muted when" data-label="Updated">
+          {formatDate(head.updated_at)}
+        </td>
         {rowMenu(head, true)}
       </tr>
 
@@ -521,11 +529,15 @@ function LineageRows<P extends Project>({
               <NameCell {...opener(version)}>{versionTitle(version)}</NameCell>
             </td>
             {orgColumn && <td />}
-            <td className="muted">{parentOf(version)}</td>
-            <td>
+            <td className="muted" data-label="Version">
+              {parentOf(version)}
+            </td>
+            <td data-label="Status">
               <StatusBadge project={version} />
             </td>
-            <td className="muted when">{formatDate(version.updated_at)}</td>
+            <td className="muted when" data-label="Updated">
+              {formatDate(version.updated_at)}
+            </td>
             {rowMenu(version, false)}
           </tr>
         ))}

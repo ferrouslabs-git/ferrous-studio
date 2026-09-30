@@ -214,38 +214,42 @@ export function AuditLogPage() {
         ) : visible.length === 0 ? (
           <div className="empty">No events match the current search and filters.</div>
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>User</th>
-                <th>Event</th>
-                <th>Page</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((e) => {
-                const excerpt = eventExcerpt(e);
-                // A coalesced editing session spans created_at → updated_at.
-                const ongoing =
-                  parseUtcDate(e.updated_at).getTime() - parseUtcDate(e.created_at).getTime() > 60_000;
-                return (
-                  <tr key={e.id}>
-                    <td className="muted">
-                      {formatDateTime(e.created_at)}
-                      {ongoing && ` – ${formatDateTime(e.updated_at)}`}
-                    </td>
-                    <td>{e.user_name || e.user_email || "Unknown user"}</td>
-                    <td>
-                      {eventText(e)}
-                      {excerpt && <div className="muted">{excerpt}</div>}
-                    </td>
-                    <td className="muted">{pageNameOf(e)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="list-scroll">
+            <table className="data-table list-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>User</th>
+                  <th>Event</th>
+                  <th>Page</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((e) => {
+                  const excerpt = eventExcerpt(e);
+                  // A coalesced editing session spans created_at → updated_at.
+                  const ongoing =
+                    parseUtcDate(e.updated_at).getTime() - parseUtcDate(e.created_at).getTime() > 60_000;
+                  return (
+                    <tr key={e.id}>
+                      <td className="muted" data-label="Time">
+                        {formatDateTime(e.created_at)}
+                        {ongoing && ` – ${formatDateTime(e.updated_at)}`}
+                      </td>
+                      <td data-label="User">{e.user_name || e.user_email || "Unknown user"}</td>
+                      <td className="lead">
+                        {eventText(e)}
+                        {excerpt && <div className="muted">{excerpt}</div>}
+                      </td>
+                      <td className="muted" data-label="Page">
+                        {pageNameOf(e)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
         {hasMore && (
           <div className="load-more-row">

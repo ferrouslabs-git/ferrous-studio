@@ -1,0 +1,158 @@
+/* Small screens and touch, across the whole app. Imported last, so every rule
+   here is an override of a desktop rule elsewhere; nothing outside a media
+   query, so a desktop with a mouse renders exactly as it did.
+
+   The exceptions are the few rules at the top that cannot change a desktop
+   layout (a long word allowed to break; an element only the strip shows).
+
+   Width bands mirror core/breakpoints.ts -- CSS cannot import them, so each
+   query is tagged with the constant it repeats:
+     PHONE_MAX  (max-width: 600px)   one column
+     NARROW_MAX (max-width: 820px)   the sidebar is a top strip (shell.css)
+   Touch is its own axis, not a width: an iPad is wide and has no hover. */
+
+/* Addresses and hashes are one long word. */
+.env-row .repo-link, .details-value .repo-link, .repo-sha { overflow-wrap: anywhere; min-width: 0; }
+/* The project's name in the top strip; see NARROW_MAX below. */
+.sidebar-context { display: none; }
+
+/* ── Touch: no hover, a fingertip rather than a pointer ───────────────────── */
+
+/* iOS zooms the page into any field whose text is under 16px, and a drawer
+   focuses its first field as it opens. The wireframe canvas is excluded: its
+   fields are a drawing of someone else's interface, not controls. */
+@media (max-width: 820px), (pointer: coarse) { /* NARROW_MAX */
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]), select, textarea):not(.device *) {
+    font-size: 16px !important;
+  }
+}
+
+/* Reveals that wait for :hover never arrive under a finger, and an invisible
+   control still takes taps -- so they show, a little quieter than on hover. */
+@media (hover: none) {
+  .board-page .cmt-zero, .board-drawer .cmt-zero { opacity: .6; }
+  .board-page .rel-eprow .rel-unassign,
+  .board-page .sp-bl-row .sp-pull,
+  .board-page .sp-row .sp-out,
+  .board-page .tl-row .tl-move { opacity: .75; }
+  .board-page .cmt-file > .cmt-file-x, .board-drawer .cmt-file > .cmt-file-x { opacity: 1; }
+  .sidebar-rail { opacity: .6; }
+
+  /* Hover styling that sticks to whatever was last tapped. */
+  .btn:hover:not(:disabled) { transform: none; }
+  .btn.primary:hover:not(:disabled) { box-shadow: none; background: var(--orange-solid); }
+  .section:not(.list-panel):hover, .card:hover { box-shadow: none; border-color: var(--border); }
+  .list-table tbody > tr:hover > td { background: none; }
+}
+
+/* Room for a fingertip. Only the controls that are drawn smaller than a
+   finger grow; the layout around them stays as it is. */
+@media (pointer: coarse) {
+  .btn { min-height: 38px; }
+  .btn.small { min-height: 34px; }
+  .btn.icon { width: 34px; height: 34px; }
+  .input, .select, .field input, .field select, .link-trigger { min-height: 36px; }
+  .sidebar-burger, .sidebar-signout { width: 40px; height: 40px; }
+  .sidebar-item { height: 40px; }
+  .drawer-close { width: 40px; height: 40px; }
+  .row-toggle { width: 32px; height: 32px; }
+  .row-menu-item, .combo-option { padding-top: 10px; padding-bottom: 10px; }
+  .chip { padding: 7px 12px; }
+  .page-subtab { padding-top: 11px; padding-bottom: 11px; }
+
+  .board-page .btn.mini-x, .board-drawer .btn.mini-x, .board-lightbox .btn.mini-x { min-height: 32px; padding: 4px 10px; }
+  .board-page select.mini, .board-page input[type="date"].mini, .board-page input[type="number"].mini { height: 34px; }
+  .board-page input.q2 { height: 36px; }
+  .board-page .cmt-file > .cmt-file-x, .board-drawer .cmt-file > .cmt-file-x { width: 26px; height: 26px; top: -10px; right: -10px; }
+}
+
+/* ── The top strip (NARROW_MAX) ─────────────────────────────────────────── */
+@media (max-width: 820px) { /* NARROW_MAX */
+  /* Above page content that positions itself (row menus, combo lists), which
+     would otherwise scroll over it; below the drawer it opens. */
+  .sidebar { z-index: 25; }
+  .shell.is-mobile-open .sidebar { height: 100vh; height: 100dvh; }
+  /* The open drawer leaves the flow; hold the strip's place so the page
+     does not jump up under it. */
+  .shell.is-mobile-open .shell-main { padding-top: var(--shell-strip-h); }
+  /* The desktop's collapsed rail must not leak into the strip. */
+  .shell.is-collapsed .sidebar-top { padding: 0 8px 0 10px; }
+  .shell.is-collapsed .sidebar-brand { justify-content: flex-start; }
+  /* Which project this is: on desktop the sidebar says so; here the sidebar
+     is folded away behind the burger. */
+  .sidebar-context {
+    display: block; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; font-weight: 500; color: var(--text-dim); padding-left: 10px; border-left: 1px solid var(--border);
+  }
+  .shell.is-mobile-open .sidebar-context { display: none; }
+  .drawer { height: 100vh; height: 100dvh; }
+  .shell, .auth-wrap { min-height: 100vh; min-height: 100dvh; }
+  .board-toasts { left: 12px; right: 12px; bottom: 12px; }
+  .board-toast { max-width: 100%; }
+}
+
+/* ── Phone layouts (PHONE_MAX) ──────────────────────────────────────────── */
+@media (max-width: 600px) { /* PHONE_MAX */
+  .page-head h1 { font-size: 24px; }
+  .auth-wrap { padding: 16px; }
+  .auth-card { width: 100%; max-width: 380px; padding: 24px 20px; }
+
+  /* Label above value rather than a 140px label column. */
+  .details-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .details-grid > .details-label:not(:first-child) { margin-top: 12px; }
+
+  .input { min-width: 0; }
+  .input.search { min-width: 0; flex-basis: 100%; }
+  .card-grid { grid-template-columns: minmax(0, 1fr); }
+  .status-banner { flex-wrap: wrap; row-gap: 6px; }
+  .list-editor-row { flex-wrap: wrap; }
+  .list-editor-row .input { flex-basis: 100%; }
+
+  /* Tabs and the diagram's controls: the controls take a line of their own. */
+  .page-subtabs { flex-wrap: wrap; }
+  .page-subtab { padding-left: 8px; padding-right: 8px; }
+  .page-subtabs > .shell-spacer { flex-basis: 100%; height: 0; }
+  .page-subtabs .usecase-toolbar { padding: 6px 0; }
+  .usecase-select-button { min-width: 0; }
+  .usecase-select-menu { min-width: min(240px, calc(100vw - 32px)); }
+  /* The diagram keeps a readable size and scrolls, rather than shrinking its
+     labels to a few pixels. */
+  .usecase-svg { max-width: none; min-width: 560px; }
+
+  /* Lists as cards (ListTable and the tables drawn on its classes): the name
+     first, each other cell a line labelled with its column (data-label), the
+     row's menu in the corner. The heading row has nothing left to head. */
+  .list-scroll { overflow-x: visible; }
+  .list-scroll > .list-table, .list-scroll > .list-table > tbody { display: block; width: 100%; }
+  .list-scroll > .list-table > thead { display: none; }
+  .list-scroll > .list-table > tbody > tr {
+    position: relative; display: flex; flex-direction: column; gap: 6px;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+  }
+  .list-scroll > .list-table > tbody:last-child > tr:last-child { border-bottom: 0; }
+  .data-table.list-table > tbody > tr > td {
+    display: block; width: auto; min-width: 0; padding: 0; border: 0; white-space: normal; text-align: left;
+  }
+  .list-table > tbody > tr > td:empty { display: none; }
+  /* .lead marks the heading cell of a table whose desktop layout has no
+     primary column to give the slack to (the wireframes, the audit log). */
+  .list-table > tbody > tr > td:is(.primary, .lead) { order: -1; padding-right: 44px; font-size: 14px; }
+  .list-table > tbody > tr > td[data-label]:not(.primary, .lead) { display: flex; gap: 12px; align-items: baseline; }
+  .list-table > tbody > tr > td[data-label]:not(.primary, .lead)::before {
+    content: attr(data-label); flex: 0 0 92px;
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-mute);
+  }
+  .list-scroll > .list-table > tbody > tr > td.actions { position: absolute; top: 6px; right: 6px; background: none; }
+  .list-table .preview { max-width: none; }
+
+  /* The projects list: a project and its older versions are one card; the
+     expander sits beside the menu. */
+  .list-scroll > .list-table > tbody.lineage { border-bottom: 1px solid var(--border); }
+  .list-scroll > .list-table > tbody.lineage:last-child { border-bottom: 0; }
+  .list-scroll > .list-table > tbody.lineage > tr { border-bottom: 0; }
+  .list-table > tbody.lineage > tr > td.expand { position: absolute; top: 6px; right: 44px; }
+  .list-table > tbody.lineage > tr:has(> td.expand > button) > td.primary { padding-right: 84px; }
+  .list-scroll > .list-table > tbody > tr.version-row { margin: 0 14px 10px 26px; padding: 8px 44px 8px 12px; border-left: 1px solid var(--border); }
+  .list-table tr.version-row > td.sub-name { padding-left: 0; font-size: 13px; }
+  .list-table tr.version-row > td.sub-name::before { display: none; }
+}

@@ -6,6 +6,7 @@ import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { RowMenu } from "../../../components/RowMenu";
 import { errorMessage } from "../../../core/api";
+import { useIsPhone } from "../../../core/breakpoints";
 import { formatDateTime } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import { ImportBundleDrawer } from "../ImportBundleDrawer";
@@ -33,6 +34,9 @@ import {
 export function WireframesPage() {
   const { project, orgId, canWrite } = useProject();
   const navigate = useNavigate();
+  // A phone cannot edit a wireframe (StudioPage sends it to the preview), so
+  // the name opens the preview there directly.
+  const isPhone = useIsPhone();
   const location = useLocation();
   const data = useLoad(
     () => Promise.all([listWireframes(project.id), listPersonas(project.id), listActors(project.id)]),
@@ -292,69 +296,73 @@ export function WireframesPage() {
         ) : visible.length === 0 ? (
           <div className="empty">No wireframes match the current search and filter.</div>
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>User types</th>
-                <th>Personas</th>
-                <th>Interface</th>
-                <th>Status</th>
-                <th>Updated</th>
-                <th className="actions">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((w) => (
-                <tr key={w.id}>
-                  <td>
-                    <Link to={`${base}/${w.id}`}>{w.name}</Link>
-                  </td>
-                  <td>
-                    <NameChips ids={w.actor_ids} names={actorNames} />
-                  </td>
-                  <td>
-                    <NameChips ids={w.persona_ids} names={personaNames} />
-                  </td>
-                  <td>
-                    <span className="badge accent">{interfaceLabel(w.interface_type)}</span>
-                  </td>
-                  <td>
-                    <span className={w.status === "archived" ? "badge" : "badge good"}>
-                      {w.status === "archived" ? "Archived" : "Active"}
-                    </span>
-                  </td>
-                  <td className="muted">{new Date(w.updated_at).toLocaleDateString()}</td>
-                  <td className="actions">
-                    <RowMenu
-                      label={`Actions for ${w.name}`}
-                      items={[
-                        { label: "Open", onSelect: () => navigate(`${base}/${w.id}`) },
-                        { label: "Preview", onSelect: () => navigate(`${base}/${w.id}/preview`) },
-                        { label: "Copy JSON", onSelect: () => void copyJson(w) },
-                        { label: "Snapshots", onSelect: () => openSnapshots(w) },
-                        { label: "Audit log", onSelect: () => navigate(`${base}/${w.id}/audit`) },
-                        ...(canWrite
-                          ? [
-                              { label: "Edit", onSelect: () => openDrawer(w) },
-                              {
-                                label: w.status === "archived" ? "Restore" : "Archive",
-                                onSelect: () => void toggleArchived(w),
-                              },
-                              // Hard delete only once archived -- archiving is
-                              // the reversible step in front of it.
-                              ...(w.status === "archived"
-                                ? [{ label: "Delete", onSelect: () => setDeleting(w), danger: true }]
-                                : []),
-                            ]
-                          : []),
-                      ]}
-                    />
-                  </td>
+          <div className="list-scroll">
+            <table className="data-table list-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>User types</th>
+                  <th>Personas</th>
+                  <th>Interface</th>
+                  <th>Status</th>
+                  <th>Updated</th>
+                  <th className="actions">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {visible.map((w) => (
+                  <tr key={w.id}>
+                    <td className="lead">
+                      <Link to={isPhone ? `${base}/${w.id}/preview` : `${base}/${w.id}`}>{w.name}</Link>
+                    </td>
+                    <td data-label="User types">
+                      <NameChips ids={w.actor_ids} names={actorNames} />
+                    </td>
+                    <td data-label="Personas">
+                      <NameChips ids={w.persona_ids} names={personaNames} />
+                    </td>
+                    <td data-label="Interface">
+                      <span className="badge accent">{interfaceLabel(w.interface_type)}</span>
+                    </td>
+                    <td data-label="Status">
+                      <span className={w.status === "archived" ? "badge" : "badge good"}>
+                        {w.status === "archived" ? "Archived" : "Active"}
+                      </span>
+                    </td>
+                    <td className="muted" data-label="Updated">
+                      {new Date(w.updated_at).toLocaleDateString()}
+                    </td>
+                    <td className="actions">
+                      <RowMenu
+                        label={`Actions for ${w.name}`}
+                        items={[
+                          { label: "Open", onSelect: () => navigate(`${base}/${w.id}`) },
+                          { label: "Preview", onSelect: () => navigate(`${base}/${w.id}/preview`) },
+                          { label: "Copy JSON", onSelect: () => void copyJson(w) },
+                          { label: "Snapshots", onSelect: () => openSnapshots(w) },
+                          { label: "Audit log", onSelect: () => navigate(`${base}/${w.id}/audit`) },
+                          ...(canWrite
+                            ? [
+                                { label: "Edit", onSelect: () => openDrawer(w) },
+                                {
+                                  label: w.status === "archived" ? "Restore" : "Archive",
+                                  onSelect: () => void toggleArchived(w),
+                                },
+                                // Hard delete only once archived -- archiving is
+                                // the reversible step in front of it.
+                                ...(w.status === "archived"
+                                  ? [{ label: "Delete", onSelect: () => setDeleting(w), danger: true }]
+                                  : []),
+                              ]
+                            : []),
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
