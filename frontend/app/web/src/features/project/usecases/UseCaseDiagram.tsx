@@ -140,7 +140,16 @@ export function UseCaseDiagram({
   state,
   onChange,
   onWidth,
-}: ControlledProps & { systemName: string; useCases: UseCase[]; onWidth?: (w: number | undefined) => void }) {
+  onOpenUseCase,
+  onOpenActor,
+}: ControlledProps & {
+  systemName: string;
+  useCases: UseCase[];
+  onWidth?: (w: number | undefined) => void;
+  /** Double click opens the item's edit form; absent for read-only viewers. */
+  onOpenUseCase?: (id: string) => void;
+  onOpenActor?: (id: string) => void;
+}) {
   const { seed, columns, filter } = state;
   // Hover highlights; a click pins the highlight until a click anywhere else.
   const [hover, setHover] = useState<Focus | null>(null);
@@ -239,6 +248,7 @@ export function UseCaseDiagram({
                   className={`usecase-ellipse${performers.length ? "" : " no-actor"}${dim(u.id)}${isPinned("usecase", u.id)}`}
                   onMouseEnter={() => setHover({ kind: "usecase", id: u.id })}
                   onClick={pin({ kind: "usecase", id: u.id })}
+                  onDoubleClick={onOpenUseCase ? () => onOpenUseCase(u.id) : undefined}
                 >
                   <title>{u.name}</title>
                   <ellipse
@@ -276,6 +286,7 @@ export function UseCaseDiagram({
                   transform={`translate(${a.x} ${a.y})`}
                   onMouseEnter={() => setHover({ kind: "actor", id: a.id })}
                   onClick={pin({ kind: "actor", id: a.id })}
+                  onDoubleClick={onOpenActor ? () => onOpenActor(a.id) : undefined}
                   style={c ? { color: c } : undefined}
                 >
                   <title>{a.name}</title>
