@@ -52,10 +52,10 @@ resource "aws_secretsmanager_secret" "github" {
 # rest. Same reasoning as github_secrets above: no aws_secretsmanager_secret_version,
 # the values are set once by hand --
 #   aws secretsmanager put-secret-value #     --secret-id ferrous-studio/<env>/SLACK_CLIENT_SECRET --secret-string <value>
-# NOT yet passed to the task: infra/ecs/taskdef.template.json does not name
-# these, because an ECS task cannot start while a secret it names has no value
-# and no environment has a Slack app yet. Once an environment's four values are
-# set, add four entries to the template's "secrets" (same shape as GITHUB_*).
+# Passed to the task by infra/ecs/taskdef.template.json, so every environment
+# needs a value in each (an ECS task cannot start while a secret it names has no
+# value). An environment with no Slack app holds a single space: the backend
+# strips it to empty and reports Slack as not configured. Staging is that today.
 locals {
   slack_secrets = ["SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET", "SLACK_TOKEN_KEY"]
 }
