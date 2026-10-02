@@ -9,10 +9,10 @@
 // into it. They upload once the comment is posted (an upload is minted
 // against the comment's id), and a comment may be files alone. Only a
 // comment's author removes one of its files, as only they delete it.
-import { ClipboardEvent, useState } from "react";
+import { useState } from "react";
 import { formatBytes, formatDateTime } from "../../../core/format";
 import type { BoardAttachment } from "../attachmentsApi";
-import { AttachButton, AttachmentThumb, useFileDrop } from "./AttachmentsSection";
+import { AttachButton, AttachmentThumb, pasteFiles, useFileDrop } from "./AttachmentsSection";
 import { useAttachmentPreview } from "./AttachmentPreview";
 import { useBoard } from "./boardData";
 import { useBoardMutations } from "./boardMutations";
@@ -48,14 +48,7 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
   };
 
   // A screenshot on the clipboard becomes an attachment; text pastes as text.
-  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pasted = Array.from(e.clipboardData.files);
-    if (!pasted.length) return;
-    e.preventDefault();
-    // Clipboard images all arrive as "image.png"; name them so a thread of them can be told apart.
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-    addFiles(pasted.map((f, i) => (f.name === "image.png" ? new File([f], `pasted-${stamp}${pasted.length > 1 ? `-${i + 1}` : ""}.png`, { type: f.type }) : f)));
-  };
+  const onPaste = pasteFiles(addFiles);
 
   const remove = async (id: string) => {
     if (!(await dialogs.confirm({ title: "Delete comment", message: "Delete this comment?", ok: "Delete comment" }))) return;

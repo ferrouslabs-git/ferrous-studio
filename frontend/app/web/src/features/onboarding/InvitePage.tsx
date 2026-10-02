@@ -24,7 +24,7 @@ import { RoleName } from "../orgs/roleLabels";
 /** Where to go once accepted: into the organisation, or, for a super admin
  * invitation (no organisation), to the platform admin pages. */
 function landingFor(tenantId: string | null): string {
-  return tenantId ? `/orgs/${tenantId}/projects` : "/admin/orgs";
+  return tenantId ? `/orgs/${tenantId}/projects` : "/admin/projects";
 }
 
 function passwordProblem(password: string): string | null {

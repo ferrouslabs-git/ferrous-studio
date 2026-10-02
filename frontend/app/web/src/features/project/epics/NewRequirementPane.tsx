@@ -9,7 +9,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { AssigneeSelect } from "../board/AssigneeSelect";
 import { uploadAll } from "../attachmentsApi";
-import { PendingAttachments } from "../board/AttachmentsSection";
+import { PendingAttachments, pasteFiles } from "../board/AttachmentsSection";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
 import { ST_ICON, ST_LABEL } from "../board/constants";
@@ -88,7 +88,12 @@ export function NewRequirementPane({ epic, featureId, onCreated, onCancel }: New
   const busy = saving !== null;
 
   return (
-    <form className="rqp-new" onSubmit={create} onKeyDown={(e) => e.key === "Escape" && !busy && onCancel()}>
+    // Paste is caught on the form so a screenshot lands as an attachment from the title or description alike.
+    <form
+      className="rqp-new"
+      onSubmit={create}
+      onPaste={pasteFiles((more) => setFiles((all) => [...all, ...more]), busy)}
+      onKeyDown={(e) => e.key === "Escape" && !busy && onCancel()}>
       <div className="rqphead">
         <span className="bchip k">New requirement</span>
         <span className="bchip" title={epic.title}>

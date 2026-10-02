@@ -12,7 +12,7 @@
 // files, and the caller uploads them once the item has an id. The drop hook,
 // the attach button and the thumbnail are exported for the comment composer
 // (CommentsList), which attaches files the same way.
-import { DragEvent, useEffect, useRef, useState } from "react";
+import { ClipboardEvent, DragEvent, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../../core/api";
 import { formatBytes } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
@@ -66,6 +66,26 @@ export function useFileDrop(onFiles: (files: File[]) => void, disabled: boolean)
         },
       };
   return { over, handlers };
+}
+
+/**
+ * An onPaste handler that turns pasted files (a screenshot on the clipboard)
+ * into attachments; a paste of text is left alone. Clipboard images all arrive
+ * as "image.png", so they are renamed to tell a batch of them apart.
+ */
+export function pasteFiles(onFiles: (files: File[]) => void, disabled = false) {
+  return (e: ClipboardEvent) => {
+    if (disabled) return;
+    const pasted = Array.from(e.clipboardData.files);
+    if (!pasted.length) return;
+    e.preventDefault();
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+    onFiles(
+      pasted.map((f, i) =>
+        f.name === "image.png" ? new File([f], `pasted-${stamp}${pasted.length > 1 ? `-${i + 1}` : ""}.png`, { type: f.type }) : f,
+      ),
+    );
+  };
 }
 
 export function AttachButton({ busy, label, onFiles }: { busy: boolean; label: string; onFiles: (files: File[]) => void }) {
