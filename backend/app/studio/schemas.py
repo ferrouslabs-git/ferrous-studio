@@ -686,6 +686,37 @@ class GitHubConnectUrl(BaseModel):
     url: str
 
 
+class SlackConnectionRead(BaseModel):
+    """Where the organisation's Slack connection stands.
+
+    ``missing`` names the unset environment variables when ``configured`` is
+    false, so the page can tell an admin exactly what a deployment lacks. No
+    token is ever included.
+    """
+
+    configured: bool
+    connected: bool
+    missing: list[str] = []
+    team_name: str | None = None
+    channel_id: str | None = None
+    channel_name: str | None = None
+    connected_at: datetime | None = None
+    connected_by: UUID | None = None
+
+
+class SlackConnectUrl(BaseModel):
+    url: str
+
+
+class SlackChannelRead(BaseModel):
+    id: str
+    name: str
+
+
+class SlackChannelSet(BaseModel):
+    channel_id: str = Field(min_length=1, max_length=32)
+
+
 class GitHubRepositoryRead(BaseModel):
     """One repository the installation can see."""
 

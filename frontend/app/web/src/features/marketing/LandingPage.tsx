@@ -143,8 +143,7 @@ export function LandingPage() {
             <span className="gradient-text">visible until it ships</span>.
           </h1>
           <p className="landing-lead">
-            Know exactly what you are getting before we build it. Watch it take shape sprint by sprint. Test every
-            release where it runs.
+            Know exactly what you are getting before we build it. Watch it take shape release by release.
           </p>
           <div className="landing-cta">
             <Link to="/signin" className="btn primary">
@@ -154,7 +153,7 @@ export function LandingPage() {
               Talk to Ferrous Labs
             </a>
           </div>
-          <p className="landing-caption">Invite-only. Your organisation is set up as part of the engagement.</p>
+          <p className="landing-caption">Invite-only.</p>
         </div>
         <div className="landing-wrap wide">
           <HeroArt />

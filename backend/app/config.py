@@ -103,6 +103,20 @@ class Settings:
     agent_task_definition: str
     agent_subnets: list[str]
     agent_security_group: str
+    # ── Slack app (per-organisation connection; see app/studio/slack.py) ───
+    # A Slack *app* installed into an organisation's workspace through OAuth,
+    # so each organisation's bot token is its own. The four values are set once
+    # per environment (infra/docs/slack-app-setup.md); leaving any empty is a
+    # valid choice and the Slack page reports "not configured".
+    slack_client_id: str
+    slack_client_secret: str
+    #: Verifies that an interactivity request (the Approve / Reject buttons)
+    #: really came from Slack.
+    slack_signing_secret: str
+    #: A Fernet key (urlsafe base64, 32 bytes) encrypting each organisation's bot
+    #: token at rest. Its own secret rather than derived from the client secret,
+    #: so rotating the client secret does not silently orphan stored tokens.
+    slack_token_key: str
     # Best-effort only -- a notification posted on Blocked/Done never gates
     # anything. Empty = notifications are silently skipped.
     slack_webhook_url: str
@@ -162,5 +176,9 @@ def get_settings() -> Settings:
         agent_task_definition=os.getenv("AGENT_TASK_DEFINITION", "").strip(),
         agent_subnets=[s.strip() for s in os.getenv("AGENT_SUBNETS", "").split(",") if s.strip()],
         agent_security_group=os.getenv("AGENT_SECURITY_GROUP", "").strip(),
+        slack_client_id=os.getenv("SLACK_CLIENT_ID", "").strip(),
+        slack_client_secret=os.getenv("SLACK_CLIENT_SECRET", "").strip(),
+        slack_signing_secret=os.getenv("SLACK_SIGNING_SECRET", "").strip(),
+        slack_token_key=os.getenv("SLACK_TOKEN_KEY", "").strip(),
         slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL", "").strip(),
     )

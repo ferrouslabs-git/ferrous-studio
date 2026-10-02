@@ -1,8 +1,9 @@
 // The element link control: what following this element does. The menu
 // discloses progressively — Region (a new page placed in one of the visible
 // composition's regions — the open page's AND its ancestor shells', the
-// outlet model), New page (stand-alone, or an overlay), Page (an existing
-// root page) and Back. Hovering a region row reports it upward so the canvas
+// outlet model), New page (stand-alone, or an overlay), Page (any existing
+// page: top-level ones first, then pages placed in a region, which open
+// inside their host exactly as a nav item's page does) and Back. Hovering a region row reports it upward so the canvas
 // can outline the region it would replace. The menu expands in flow: the
 // inspector body scrolls, so an absolutely positioned dropdown would be
 // clipped by its overflow.
@@ -13,15 +14,22 @@ import { BACK_PAGE_ID, LinkTarget, PagePresentation, PRESENTATION_LABELS } from 
 import { pageDisplayName } from "./PageSelect";
 
 /** Pages that root a placement tree: no parent, or a parent that no longer
- *  exists (an orphan lists as a root rather than vanish). Placed pages are
- *  region content — they are reached by linking through a region, never
- *  directly. */
+ *  exists (an orphan lists as a root rather than vanish). */
 export function rootPages(pages: readonly PageSummary[]): PageSummary[] {
   const ids = new Set(pages.map((p) => p.id));
   return pages.filter((p) => {
     const parent = p.placement?.page_id;
     return !parent || parent === p.id || !ids.has(parent);
   });
+}
+
+/** Every page a link may point at, top-level pages first, each with the name
+ *  the picker shows: a placed page is named by its path ("Home ▸ Edit"). */
+export function linkChoices(pages: readonly PageSummary[]): { page: PageSummary; label: string }[] {
+  const roots = rootPages(pages);
+  const rootIds = new Set(roots.map((p) => p.id));
+  const placed = pages.filter((p) => !rootIds.has(p.id));
+  return [...roots, ...placed].map((p) => ({ page: p, label: rootIds.has(p.id) ? p.name : pageDisplayName(p, pages) }));
 }
 
 type View = "menu" | "regions" | "new" | "pages";
@@ -54,12 +62,15 @@ export function LinkPicker({
   const targetPage = link && !isBack ? pages.find((p) => p.id === link.pageId) ?? null : null;
   const summary = !link ? "None" : isBack ? "‹ Back (previous page)" : targetPage ? pageDisplayName(targetPage, pages) : "Missing page";
 
-  const roots = useMemo(() => rootPages(pages), [pages]);
+  // Every page can be linked to: placed pages already are, by nav items, and
+  // the one a list's Edit button should open is usually one of them. Top-level
+  // pages come first; a placed page is named by its path ("Home ▸ Edit").
+  const choices = useMemo(() => linkChoices(pages), [pages]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return roots;
-    return roots.filter((p) => p.name.toLowerCase().includes(q) || (p.route ?? "").toLowerCase().includes(q));
-  }, [roots, query]);
+    if (!q) return choices;
+    return choices.filter((c) => c.label.toLowerCase().includes(q) || (c.page.route ?? "").toLowerCase().includes(q));
+  }, [choices, query]);
 
   const hover = (regionId: string | null) => onHoverRegion?.(regionId);
   // The picker can unmount mid-hover (selection change, page switch): never
@@ -91,7 +102,7 @@ export function LinkPicker({
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") { setHighlight((h) => Math.min(h + 1, filtered.length - 1)); e.preventDefault(); }
     else if (e.key === "ArrowUp") { setHighlight((h) => Math.max(h - 1, 0)); e.preventDefault(); }
-    else if (e.key === "Enter") { if (filtered[highlight]) pick({ pageId: filtered[highlight].id }); e.preventDefault(); }
+    else if (e.key === "Enter") { if (filtered[highlight]) pick({ pageId: filtered[highlight].page.id }); e.preventDefault(); }
     else if (e.key === "Escape") close();
   };
 
@@ -156,14 +167,14 @@ export function LinkPicker({
             onKeyDown={onSearchKey}
           />
           <div className="link-pages">
-            {filtered.map((p, i) => (
+            {filtered.map(({ page: p, label }, i) => (
               <div
                 key={p.id}
                 className={`link-opt${p.id === link?.pageId ? " active" : ""}${i === highlight ? " highlight" : ""}`}
                 onMouseEnter={() => setHighlight(i)}
                 onClick={() => pick({ pageId: p.id })}
               >
-                <span className="name">{p.name}</span>
+                <span className="name">{label}</span>
                 {p.presentation && <span className="link-note">{PRESENTATION_LABELS[p.presentation]}</span>}
               </div>
             ))}

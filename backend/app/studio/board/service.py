@@ -18,6 +18,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import slack_notify
 from ..models import Project
 from .models import (
     Agent,
@@ -406,6 +407,8 @@ async def write_event(
         entity_id=entity_id,
         detail=detail or {},
     ))
+    # Announced to Slack only once this transaction commits (slack_notify).
+    slack_notify.stage(db.sync_session, board, actor_id, action, entity_type, entity_id, detail)
 
 
 # ── Sprint membership history (burndown input) ───────────────────────────
