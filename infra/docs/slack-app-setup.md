@@ -58,10 +58,10 @@ The four values, **labelled with which environment they are for**:
 
 They live in Secrets Manager as `ferrous-studio/<env>/SLACK_*` (created by
 `infra/terraform/secrets.tf`; set each once by hand with
-`aws secretsmanager put-secret-value`). Then add four `SLACK_*` entries to the `secrets` list in
-`infra/ecs/taskdef.template.json`, copying the `GITHUB_*` lines. That step is
-deliberately not done yet: an ECS task cannot start while a secret it names has
-no value, so wire it only for an environment whose four values are set. For local dev see
+`aws secretsmanager put-secret-value`). `infra/ecs/taskdef.template.json` passes them to the task in every
+environment. An ECS task cannot start while a secret it names has no value, so
+an environment with no Slack app holds a single space in each
+(`--secret-string " "`); the backend treats that as "not configured". For local dev see
 `backend/.env.local.example`.
 
 ## Then, in the app
