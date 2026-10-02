@@ -8,6 +8,9 @@
 export const KNOWN_AUDIT_ACTIONS = [
   "github_connected",
   "github_disconnected",
+  "slack_connected",
+  "slack_channel_set",
+  "slack_disconnected",
   "invitation_created",
   "invitation_resent",
   "invitation_revoked",
@@ -43,6 +46,14 @@ export function describeEvent(action: string, metadata: Record<string, unknown>)
     }
     case "github_disconnected":
       return `Disconnected GitHub account ${str(metadata, "account_login") || "the account"}`;
+    case "slack_connected":
+      return metadata.reconnected
+        ? `Reconnected Slack to ${str(metadata, "team_name") || "the workspace"}`
+        : `Connected Slack workspace ${str(metadata, "team_name") || ""}`.trim();
+    case "slack_channel_set":
+      return `Chose #${str(metadata, "channel_name")} for Slack updates`;
+    case "slack_disconnected":
+      return "Disconnected Slack";
     case "invitation_created":
       return `Invited ${str(metadata, "invited_email")} as ${roleLabel(metadata.invited_role)}`;
     case "invitation_resent":
@@ -75,6 +86,9 @@ export const AUDIT_ACTION_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All events" },
   { value: "github_connected", label: "GitHub connected" },
   { value: "github_disconnected", label: "GitHub disconnected" },
+  { value: "slack_connected", label: "Slack connected" },
+  { value: "slack_channel_set", label: "Slack channel chosen" },
+  { value: "slack_disconnected", label: "Slack disconnected" },
   { value: "invitation_created", label: "Invitations sent" },
   { value: "invitation_revoked", label: "Invitations revoked" },
   { value: "invitation_accepted", label: "Invitations accepted" },

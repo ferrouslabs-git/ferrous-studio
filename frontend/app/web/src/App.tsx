@@ -14,6 +14,7 @@ import { InvitePage } from "./features/onboarding/InvitePage";
 import { PendingPage } from "./features/onboarding/PendingPage";
 import { OrgAuditPage } from "./features/orgs/OrgAuditPage";
 import { OrgGitHubPage } from "./features/orgs/OrgGitHubPage";
+import { OrgSlackPage } from "./features/orgs/OrgSlackPage";
 import { OrgPage } from "./features/orgs/OrgPage";
 import { RoleCatalogueProvider } from "./features/orgs/roleLabels";
 import { DiagramsPage } from "./features/project/diagrams/DiagramsPage";
@@ -70,6 +71,7 @@ export function App() {
             <Route path="/orgs/:orgId" element={<Navigate to="users" replace />} />
             <Route path="/orgs/:orgId/users" element={<OrgPage />} />
             <Route path="/orgs/:orgId/github" element={<OrgGitHubPage />} />
+            <Route path="/orgs/:orgId/slack" element={<OrgSlackPage />} />
             <Route path="/orgs/:orgId/audit" element={<OrgAuditPage />} />
             <Route path="/orgs/:orgId/projects" element={<ProjectsPage />} />
 

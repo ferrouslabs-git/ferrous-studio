@@ -48,6 +48,7 @@ __all__ = [
     "Doc",
     "Comment",
     "Event",
+    "ApprovalRequest",
     "Attachment",
     "BoardToken",
     "AgentRun",
@@ -540,6 +541,40 @@ class Event(Base):
         Index("ix_board_events_entity", "entity_type", "entity_id"),
         Index("ix_board_events_board_created", "board_id", "created_at"),
     )
+
+
+class ApprovalRequest(Base):
+    """A question an agent put to a human, answered with a button in Slack.
+
+    The agent files it (``POST .../board/approvals``), it is posted to the
+    organisation's Slack channel with Approve / Reject buttons, and the agent
+    polls ``GET`` until ``status`` leaves ``pending``. Whoever clicks is
+    recorded by their Slack identity; an approval is a recorded decision, not
+    authorisation the server enforces -- the agent is trusted to act on the
+    answer, as it is trusted with its board token.
+
+    ``message_ts`` and ``channel_id`` locate the Slack message so it can be
+    rewritten to show the decision once made.
+    """
+
+    STATUSES = ("pending", "approved", "rejected")
+
+    __tablename__ = "board_approvals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    board_id = Column(UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    summary = Column(String(300), nullable=False)
+    detail = Column(Text, nullable=False, default="")
+    status = Column(String(16), nullable=False, default="pending")
+    decided_by = Column(String(255), nullable=True)  # Slack display name, snapshotted
+    decided_at = Column(DateTime, nullable=True)
+    channel_id = Column(String(32), nullable=True)
+    message_ts = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (Index("ix_board_approvals_board_created", "board_id", "created_at"),)
 
 
 class Attachment(Base):

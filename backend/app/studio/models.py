@@ -156,6 +156,37 @@ class GitHubInstallation(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
 
+class SlackConnection(Base):
+    """An organisation's Slack workspace and the channel it posts to. One row
+    per organisation.
+
+    Unlike ``GitHubInstallation`` this row *does* hold a secret: Slack hands back
+    a long-lived bot token, so ``bot_token`` is Fernet-encrypted with
+    ``SLACK_TOKEN_KEY`` (see ``slack_client``) and is never serialised to a
+    client. ``channel_id`` is NULL between installing and picking a channel, and
+    nothing is posted until it is set.
+
+    Not project-owned, for the same reason as the GitHub connection: it is
+    organisation administration, made once, and every project's board events
+    flow through it.
+    """
+
+    __tablename__ = "slack_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    account_id = Column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    team_id = Column(String(32), nullable=False)
+    team_name = Column(String(255), nullable=True)
+    bot_token = Column(Text, nullable=False)  # encrypted; see slack_client.encrypt_token
+    channel_id = Column(String(32), nullable=True)
+    channel_name = Column(String(255), nullable=True)
+    connected_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+
 # ── Personas ────────────────────────────────────────────────────────────────
 
 

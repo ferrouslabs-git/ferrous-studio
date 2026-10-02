@@ -25,13 +25,14 @@ from .agents import maybe_wake_agent, sync_agent_status
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
-from .. import storage
+from .. import slack_client, storage
 from ..common import get_project, require_studio_permission as require_permission
 from ..documents import ALLOWED_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
 from . import service
 from .models import (
     Agent,
+    ApprovalRequest,
     Attachment,
     Board,
     Comment,
@@ -53,6 +54,8 @@ from .schemas import (
     AttachmentRead,
     AttachmentUploadRequest,
     AttachmentUploadTicket,
+    ApprovalCreate,
+    ApprovalRead,
     BoardSummary,
     BurndownRead,
     CommentCreate,
@@ -2296,3 +2299,77 @@ async def delete_attachment(
         {"attachment_id": str(attachment.id), "filename": attachment.filename},
     )
     await db.commit()
+
+
+# ── Approvals (an agent asks a human; the answer comes back through Slack) ──
+#
+# The agent files a request and polls it. The request is posted to the
+# organisation's Slack channel with Approve / Reject buttons (slack.py handles
+# the press). Without a Slack connection there is nobody to ask, so filing one is
+# refused with 409 rather than left pending forever -- the agent should then put
+# the question to its user in the conversation instead.
+
+
+@router.post(
+    "/projects/{project_id}/board/approvals", response_model=ApprovalRead, status_code=status.HTTP_201_CREATED
+)
+async def request_approval(
+    project_id: UUID,
+    payload: ApprovalCreate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> ApprovalRequest:
+    from .. import slack, slack_notify  # deferred: slack.py imports this package's models
+
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    if not slack_client.configured():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slack is not configured for this deployment.")
+    connection = await slack_notify.connection_for(db, board.account_id)
+    if connection is None or not connection.channel_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This organisation has no Slack channel to ask in. Ask the user directly instead.",
+        )
+    approval = ApprovalRequest(
+        board_id=board.id,
+        account_id=board.account_id,
+        requested_by=ctx.user_id,
+        summary=payload.summary.strip(),
+        detail=payload.detail.strip(),
+        channel_id=connection.channel_id,
+    )
+    db.add(approval)
+    await db.flush()
+    try:
+        approval.message_ts = await slack_client.post_message(
+            slack_client.decrypt_token(connection.bot_token),
+            connection.channel_id,
+            f"Approval needed: {approval.summary}",
+            slack.approval_blocks(approval, project.name),
+        )
+    except slack_client.SlackError as exc:
+        # Nothing was asked, so nothing is left pending.
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    await db.commit()
+    return approval
+
+
+@router.get("/projects/{project_id}/board/approvals/{approval_id}", response_model=ApprovalRead)
+async def read_approval(
+    project_id: UUID,
+    approval_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> ApprovalRequest:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    approval = (
+        await db.execute(
+            select(ApprovalRequest).where(ApprovalRequest.id == approval_id, ApprovalRequest.board_id == board.id)
+        )
+    ).scalar_one_or_none()
+    if approval is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
+    return approval

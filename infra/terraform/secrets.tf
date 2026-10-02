@@ -44,3 +44,23 @@ resource "aws_secretsmanager_secret" "github" {
   for_each = { for pair in setproduct(local.envs, local.github_secrets) : "${pair[0]}/${pair[1]}" => pair }
   name     = "${local.product_name}/${each.value[0]}/${each.value[1]}"
 }
+
+# The Slack app's credentials (one Slack app per environment, because its
+# Redirect URL is fixed to that environment's domain -- see
+# infra/docs/slack-app-setup.md). SLACK_TOKEN_KEY is not issued by Slack: it is
+# a Fernet key we generate, which encrypts each organisation's bot token at
+# rest. Same reasoning as github_secrets above: no aws_secretsmanager_secret_version,
+# the values are set once by hand --
+#   aws secretsmanager put-secret-value #     --secret-id ferrous-studio/<env>/SLACK_CLIENT_SECRET --secret-string <value>
+# NOT yet passed to the task: infra/ecs/taskdef.template.json does not name
+# these, because an ECS task cannot start while a secret it names has no value
+# and no environment has a Slack app yet. Once an environment's four values are
+# set, add four entries to the template's "secrets" (same shape as GITHUB_*).
+locals {
+  slack_secrets = ["SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET", "SLACK_TOKEN_KEY"]
+}
+
+resource "aws_secretsmanager_secret" "slack" {
+  for_each = { for pair in setproduct(local.envs, local.slack_secrets) : "${pair[0]}/${pair[1]}" => pair }
+  name     = "${local.product_name}/${each.value[0]}/${each.value[1]}"
+}

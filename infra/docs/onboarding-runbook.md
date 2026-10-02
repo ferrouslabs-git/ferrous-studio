@@ -100,6 +100,17 @@ entirely separate — nothing you sign up with in staging exists in prod.
     `infra/ecs/taskdef.template.json` passes all five to the task as secrets,
     the same shape as `DATABASE_URL`.
 
+12. **Slack app secrets** (`secrets.tf`): `<product>/<env>/SLACK_CLIENT_ID`,
+    `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`, `SLACK_TOKEN_KEY` — one set
+    per environment, created **empty** like the GitHub ones, and set by hand.
+    Each environment needs its own Slack app (its Redirect URL is fixed to one
+    origin); `infra/docs/slack-app-setup.md` has the settings and where to find
+    each value. The task definition does **not** name them yet: add four
+    `SLACK_*` entries beside the `GITHUB_*` ones in
+    `infra/ecs/taskdef.template.json` only once the environment's four values
+    are set, because a task cannot start while a secret it names has no value.
+    Until then the Slack page reports "not configured".
+
 What Terraform does **not** create: the ECS task definition or service.
 Those change on every deploy (new image tag), so `infra/scripts/deploy-*`
 registers the task definition and creates/updates the service imperatively
