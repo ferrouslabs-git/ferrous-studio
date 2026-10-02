@@ -21,6 +21,7 @@ from .importing import router as importing_router
 from .project_agent import router as project_agent_router
 from .personas import router as personas_router
 from .projects import router as projects_router
+from .slack import router as slack_router
 from .use_cases import router as use_cases_router
 from .wireframes import router as wireframes_router
 
@@ -37,6 +38,7 @@ router.include_router(datasets_router)
 router.include_router(importing_router)
 router.include_router(project_agent_router)
 router.include_router(github_router)
+router.include_router(slack_router)
 # Repository links hang off a project, so they carry no /github prefix.
 router.include_router(github_project_router)
 router.include_router(board_router)

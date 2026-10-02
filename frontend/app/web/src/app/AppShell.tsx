@@ -85,7 +85,7 @@ export function AppShell() {
           </span>
         </button>
         <div className="sidebar-top">
-          <Link to={isAdmin ? "/admin/orgs" : activeOrg ? `/orgs/${activeOrg.id}/projects` : "/orgs"} className="sidebar-brand" title="Ferrous Studio">
+          <Link to={isAdmin ? "/admin/projects" : activeOrg ? `/orgs/${activeOrg.id}/projects` : "/orgs"} className="sidebar-brand" title="Ferrous Studio">
             <span className="sidebar-logo" aria-hidden="true">
               <span className="brand-symbol" />
             </span>
@@ -152,6 +152,7 @@ export function AppShell() {
                   connected; only canManageIntegrations sees the controls,
                   which the page itself decides. */}
               <NavItem to={`/orgs/${activeOrg.id}/github`} icon="github" label="GitHub" />
+              <NavItem to={`/orgs/${activeOrg.id}/slack`} icon="slack" label="Slack" />
               {canReadAudit && (
                 <NavItem to={`/orgs/${activeOrg.id}/audit`} icon="audit" label="Audit log" />
               )}
@@ -160,9 +161,9 @@ export function AppShell() {
 
           {isAdmin && !inProjectScope && (
             <NavGroup title="Administration">
+              <NavItem to="/admin/projects" icon="folder" label="Projects" />
               <NavItem to="/admin/orgs" icon="grid" label="Organisations" />
               <NavItem to="/admin/users" icon="users" label="Users" />
-              <NavItem to="/admin/projects" icon="folder" label="Projects" />
               <NavItem to="/admin/datasets" icon="list" label="Datasets" />
             </NavGroup>
           )}
@@ -353,6 +354,7 @@ type IconName =
   | "epic"
   | "feedback"
   | "github"
+  | "slack"
   | "audit"
   | "agent"
   | "arrowLeft";
@@ -456,6 +458,12 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M9 15l6-6" />
       <path d="M8 16.5a4 4 0 0 1 0-5.7l2-2a4 4 0 0 1 5.7 5.7l-1 1" />
       <path d="M16 7.5a4 4 0 0 1 0 5.7l-2 2a4 4 0 0 1-5.7-5.7l1-1" />
+    </>
+  ),
+  slack: (
+    <>
+      <path d="M5 9h14M5 15h14" />
+      <path d="M9 4L7.5 20M16.5 4L15 20" />
     </>
   ),
   audit: (

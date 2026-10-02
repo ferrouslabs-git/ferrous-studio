@@ -143,6 +143,7 @@ export function AdminOrgsPage() {
         actions={(t) => [
           { label: "Edit", onSelect: () => openEdit(t) },
           { label: "GitHub", onSelect: () => navigate(`/orgs/${t.tenant_id}/github`) },
+          { label: "Slack", onSelect: () => navigate(`/orgs/${t.tenant_id}/slack`) },
           { label: "Audit log", onSelect: () => navigate(`/orgs/${t.tenant_id}/audit`) },
           t.status === "active"
             ? { label: "Suspend", onSelect: () => void act(() => suspendTenant(t.tenant_id)) }

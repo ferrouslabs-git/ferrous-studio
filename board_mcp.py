@@ -414,6 +414,32 @@ def create_comment(entity_type: str, entity_id: str, body: str) -> dict:
     return _call("POST", "/comments", {"entity_type": entity_type, "entity_id": entity_id, "body": body})
 
 
+# ── Approvals ────────────────────────────────────────────────────────────
+#
+# For anything that should have a human's yes before it happens -- structure
+# the user did not ask for (new epics, releases, sprints), deleting or moving
+# work, overwriting wireframes. The request is posted to the organisation's
+# Slack channel with Approve / Reject buttons.
+
+
+@mcp.tool()
+def request_approval(summary: str, detail: str = "") -> dict:
+    """Ask a human to approve something BEFORE doing it. `summary` is one line
+    saying what you want to do; `detail` is anything they need to decide.
+    Returns an approval with `id` and `status: pending`: do NOT proceed yet --
+    poll get_approval until `status` is approved or rejected, and treat
+    rejected (or no answer) as no. Fails with 409 if the organisation has no
+    Slack channel connected; then ask the user directly in the conversation."""
+    return _call("POST", "/approvals", {"summary": summary, "detail": detail})
+
+
+@mcp.tool()
+def get_approval(approval_id: str) -> dict:
+    """The current state of an approval request: pending, approved or
+    rejected, and who decided."""
+    return _call("GET", f"/approvals/{approval_id}")
+
+
 # ── Attachments ──────────────────────────────────────────────────────────
 #
 # Screenshots and files people attach to an item or a comment are often the

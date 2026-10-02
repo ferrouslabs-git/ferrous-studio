@@ -24,7 +24,7 @@ function landingPath(from?: string | null): string {
   if (from && from !== "/signin" && !from.startsWith("/auth/")) return from;
   // Super admins administer the platform rather than belonging to an
   // organisation, so their home is the admin area.
-  return authService.isPlatformAdmin() ? "/admin/orgs" : "/orgs";
+  return authService.isPlatformAdmin() ? "/admin/projects" : "/orgs";
 }
 
 function AuthMark() {

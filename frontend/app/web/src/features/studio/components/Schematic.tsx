@@ -278,9 +278,12 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     secondary = false,
     style?: CSSProperties,
     drag?: Record<string, unknown>,
+    /** What stays on screen when the text is blank (the brand's logo mark):
+     *  blanking the text must not take the rest of the element with it. */
+    keep?: ReactNode,
   ) => {
     const blank = value === "";
-    if (blank && !edit) return null;
+    if (blank && !edit && !keep) return null;
     const link = el && chrome ? chrome.linkOf(el.key, el.index) : null;
     const element =
       el && chrome
@@ -303,7 +306,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         element={element}
         drag={drag}
       >
-        {blank ? "…" : children}
+        {blank ? <>{keep}{edit ? "…" : null}</> : children}
       </EditableToken>
     );
   };
@@ -354,8 +357,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   };
   /** An element's label; an empty commit removes pure-text elements only
    *  (blankRemoves). Draggable to reorder within the component (elDrag). */
-  const elTok = (el: ElementNode, className: string, children?: ReactNode) =>
-    tok(`${className}${variantCls(el)}${markCls(el)}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), { ...elDrag(el), ...markHoverProps(el) });
+  const elTok = (el: ElementNode, className: string, children?: ReactNode, keep?: ReactNode) =>
+    tok(`${className}${variantCls(el)}${markCls(el)}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), { ...elDrag(el), ...markHoverProps(el) }, keep);
   /** One slot of an element's representative data; blanking restores the
    *  sample. Carries the element's identity so a click selects it. */
   const dataTok = (el: ElementNode, key: string, sample: string, className = "") =>
@@ -501,7 +504,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     if (BRAND_MARKS[logo]) return <span className={`ui-brand-mark${sized}`} style={size} aria-hidden>{BRAND_MARKS[logo]}</span>;
     return <span className="ui-brand-default" style={size} aria-hidden />;
   };
-  const brandTok = (el: ElementNode) => elTok(el, "ui-brand", <>{brandMark(el)}{el.label}</>);
+  // Blanking the text leaves the logo: the mark is the `keep` of a blank token.
+  const brandTok = (el: ElementNode) => elTok(el, "ui-brand", <>{brandMark(el)}{el.label}</>, brandMark(el));
 
   /** A nav item's icon (Icons shape): a built-in mark, an uploaded image, or
    *  — until one is picked in the Inspector — the placeholder square. */

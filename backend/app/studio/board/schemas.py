@@ -390,6 +390,26 @@ class DocRead(BaseModel):
 # ── Comments ─────────────────────────────────────────────────────────────
 
 
+class ApprovalCreate(BaseModel):
+    """What an agent asks a human to approve. ``summary`` is the one line the
+    Slack message leads with; ``detail`` is anything a decision needs."""
+
+    summary: str = Field(min_length=1, max_length=300)
+    detail: str = Field(default="", max_length=3000)
+
+
+class ApprovalRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    summary: str
+    detail: str
+    status: Literal["pending", "approved", "rejected"]
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    created_at: datetime
+
+
 class CommentCreate(BaseModel):
     """``body`` may be blank for a comment that is only its attachments (a
     pasted screenshot); the client never posts one with neither."""
