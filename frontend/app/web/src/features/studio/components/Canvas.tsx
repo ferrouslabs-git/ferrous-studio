@@ -124,16 +124,41 @@ export const fillsRegion = (cmp: ComponentNode): boolean =>
 export const isFloating = (cmp: ComponentNode): boolean =>
   cmp.type === "canvas" ? cmp.layout === "float" : cmp.props?.float === true;
 
+/** Narrowest a drawer page can be dragged to. */
+export const DRAWER_MIN_W = 280;
+
+/** A drawer page's width (FS-REQ-46). A drawer is as wide as its page's root
+ *  node is sized — a root never sizes anything else (it always fills), so its
+ *  fixed px size is free to carry the panel width; unset keeps the drawer's
+ *  standard width from the stylesheet. `live` is an in-flight drag. Never
+ *  wider than the screen it slides over. Modals keep their own width. */
+export function overlayPanelStyle(
+  presentation: PagePresentation | null,
+  root: LayoutNode,
+  live?: number | null,
+): CSSProperties | undefined {
+  if (!presentation || presentation === "modal") return undefined;
+  const w = live ?? (typeof root.size === "number" ? root.size : null);
+  return w == null ? undefined : { width: `min(${Math.max(DRAWER_MIN_W, Math.round(w))}px, 100%)` };
+}
+
 /** The width the device must reserve so every fixed-px column — across the
  *  page and its ancestor shells — shows at full size; the canvas scrolls
  *  sideways to reach it. An overlay page scrolls inside its own floating
  *  panel, so only its backdrop chain counts (and the innermost shell keeps
  *  its own region content, not an outlet). Shared with the preview page. */
-export function deviceMinWidth(doc: PageDocument, host: HostLevel[], presentation: PagePresentation | null): number {
-  let demand = presentation ? 0 : fixedWidthDemand(doc.root, undefined, doc.regions);
+export function deviceMinWidth(
+  doc: PageDocument,
+  host: HostLevel[],
+  presentation: PagePresentation | null,
+  /** See fixedWidthDemand: a floor for flexible columns, for the width the
+   *  whole composition needs to look as designed rather than merely fit. */
+  flexFloor = 0,
+): number {
+  let demand = presentation ? 0 : fixedWidthDemand(doc.root, undefined, doc.regions, flexFloor);
   for (let i = host.length - 1; i >= 0; i--) {
     const outlet = presentation && i === host.length - 1 ? undefined : { regionId: host[i].regionId, demand };
-    demand = fixedWidthDemand(host[i].doc.root, outlet, host[i].doc.regions);
+    demand = fixedWidthDemand(host[i].doc.root, outlet, host[i].doc.regions, flexFloor);
   }
   return demand;
 }
@@ -1095,6 +1120,43 @@ export function Canvas(props: Props) {
     );
   };
 
+  /** Drag a drawer's inner edge to set its width; one commit on release,
+   *  stored as the page root's px size (see overlayPanelStyle). */
+  const startDrawerResize = (e: ReactPointerEvent) => {
+    if (e.button !== 0 || !presentation || presentation === "modal") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const panel = (e.currentTarget as HTMLElement).closest(".overlay-panel") as HTMLElement | null;
+    const layer = panel?.parentElement;
+    if (!panel || !layer) return;
+    const rootId = doc.root.id;
+    const scale = stageScale(panel);
+    const from = panel.offsetWidth;
+    const max = layer.clientWidth;
+    // A right-hand drawer grows leftwards, a left-hand one rightwards.
+    const sign = presentation === "drawer-left" ? 1 : -1;
+    const startX = e.clientX;
+    let latest = from;
+    const move = (ev: PointerEvent) => {
+      latest = Math.round(Math.max(DRAWER_MIN_W, Math.min(max, from + (sign * (ev.clientX - startX)) / scale)));
+      setLive((l) => ({ ...l, [rootId]: latest }));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      setLive((l) => {
+        const next = { ...l };
+        delete next[rootId];
+        return next;
+      });
+      if (latest !== from) props.onResize([{ id: rootId, size: latest }]);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointercancel", up, { once: true });
+  };
+
   if (presentation) {
     const level: Level = { doc, editable: true, outletRegion: null, outletContent: null };
     return (
@@ -1102,7 +1164,17 @@ export function Canvas(props: Props) {
         {renderBackdrop(0)}
         {/* Namespaced modifier: the app's Drawer component owns bare `.drawer`. */}
         <div className={`overlay-layer overlay-${presentation}`}>
-          <div className="overlay-panel">
+          <div className="overlay-panel" style={overlayPanelStyle(presentation, doc.root, live[doc.root.id])}>
+            {presentation !== "modal" && canWrite && (
+              <div
+                className="overlay-resize"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Drawer width"
+                title="Drag to resize"
+                onPointerDown={startDrawerResize}
+              />
+            )}
             {/* Chrome, not a document element: every overlay page keeps a way
                 back to the page it floats over. */}
             <button

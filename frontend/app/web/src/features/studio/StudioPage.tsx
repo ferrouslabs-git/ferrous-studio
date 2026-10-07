@@ -41,7 +41,7 @@ import {
   updateWireframe,
 } from "../project/wireframes/wireframesApi";
 import { replaceCustomComponents } from "../projects/projectsApi";
-import { Stage, stageScale, useStageFit } from "./stage";
+import { DESKTOP_DESIGN_W, DESKTOP_FLEX_FLOOR, Stage, stageScale, useDesktopFit, useStageFit } from "./stage";
 import { Builder } from "./builder/Builder";
 import { COMPONENTS, DATA_KINDS, DataKind, elementMeta } from "./catalog";
 import { AnnotationsPanel, ComposerTarget, TargetInfo } from "./components/AnnotationsPanel";
@@ -57,12 +57,14 @@ import { ActionContext, ActionResult, CustomDef, elementLink, elementValue, elKe
 import { PageLike } from "./model/applyOps";
 import { ClipboardItem, copyComponentItem, copyElementItem, pasteComponent, pasteElement, readClipboard, storeClipboard } from "./model/clipboard";
 import {
+  addButtonSeed,
   ARCHIVE_ACTION_LABEL,
   buildEditDocument,
   crudDisabledReason,
   crudGaps,
   EDIT_ACTION_LABEL,
   editPageName,
+  editTargetOf,
   FILTER_DEFAULT,
   FILTER_FALLBACK_OPTIONS,
   FILTER_LABEL,
@@ -306,7 +308,10 @@ function StudioEditor() {
     [projectId],
   );
 
-  const ctx: ActionContext = useMemo(() => ({ customComponents }), [customComponents]);
+  const ctx: ActionContext = useMemo(
+    () => ({ customComponents, datasets: datasetsLoad.data ?? [] }),
+    [customComponents, datasetsLoad.data],
+  );
 
   /** Every editable record on the canvas: the open page, then its shells. */
   const editableRecords = useCallback(
@@ -861,14 +866,16 @@ function StudioEditor() {
     if (!listCmp || crudDisabledReason(listCmp)) return;
 
     const gaps = crudGaps(listCmp);
-    if (!gaps.edit && !gaps.archive && !gaps.filter) {
+    if (!gaps.edit && !gaps.archive && !gaps.filter && !gaps.add) {
       toast("This list already has its CRUD actions");
       return;
     }
     const name = editPageName(listCmp);
     setBusy(true);
     try {
-      let editPageId: string | null = null;
+      // An Edit action already wired up keeps its drawer; the create button
+      // opens that same form.
+      let editPageId: string | null = editTargetOf(listCmp);
       if (gaps.edit) {
         const created = await createWireframePage(projectId, wireframeId, {
           name,
@@ -894,6 +901,12 @@ function StudioEditor() {
           if (key && editPageId) A.setElementLink(d, c, cmpId, key, null, { pageId: editPageId });
         }
         if (gaps.archive) A.addElement(d, c, cmpId, { type: "row-action", label: ARCHIVE_ACTION_LABEL });
+        if (gaps.add) {
+          // "+ Client": opens the same form as the rows' Edit (FS-REQ-43).
+          const added = A.addElement(d, c, cmpId, addButtonSeed(listCmp));
+          const key = added?.selectElement?.key;
+          if (key && editPageId) A.setElementLink(d, c, cmpId, key, null, { pageId: editPageId });
+        }
         if (gaps.filter) {
           // Bind the seeded platform dataset when it is still there; a platform
           // admin can delete it, so fall back to the same values inline.
@@ -1003,14 +1016,22 @@ function StudioEditor() {
     }
   };
 
-  /** Add an element. A nav item added to a nav bar also gets a page of its
-   *  own, placed in the content region that nav bar serves — its immediate
-   *  child region on the page that owns the nav bar (see contentRegionFor). */
-  const addElementTo = (cmpId: string, type: string) => {
+  /** Add an element. With one of the component's elements selected it lands
+   *  straight after that one (a column beside the selected column, a field
+   *  under the selected field) rather than at the end; `afterSelection`
+   *  false (a drop) always appends. A nav item added to a nav bar also gets
+   *  a page of its own, placed in the content region that nav bar serves —
+   *  its immediate child region on the page that owns the nav bar (see
+   *  contentRegionFor). */
+  const addElementTo = (cmpId: string, type: string, afterSelection = true) => {
     const owner = recordOfCmp(cmpId);
     const loc = owner ? locateCmp(owner.document, cmpId) : null;
     const hostCmp = loc ? loc.list[loc.index] : null;
-    const result = runCmp(cmpId, (d, c) => A.addElement(d, c, cmpId, type));
+    const afterId =
+      afterSelection && selection?.kind === "element" && selection.cmpId === cmpId && isElKey(selection.key)
+        ? selection.key.slice(EL_PREFIX.length)
+        : null;
+    const result = runCmp(cmpId, (d, c) => A.addElement(d, c, cmpId, type, null, afterId));
     const created = result?.selectElement;
     if (!created || !owner || !loc || hostCmp?.type !== "navbar" || type !== "nav-item") return;
     const regionId = contentRegionFor(owner.document.root, loc.region);
@@ -1363,6 +1384,12 @@ function StudioEditor() {
   // because measuring the stage is a hook.
   const interfaceType = wireframe.data?.interface_type ?? "desktop";
   const stageFit = useStageFit(canvasWrap, interfaceType);
+  // A desktop page narrower than it is designed scales down whole instead of
+  // squeezing its flexible columns (FS-REQ-37; see useDesktopFit).
+  const desktopDesignW = page
+    ? Math.max(DESKTOP_DESIGN_W, deviceMinWidth(page.document, host, page.presentation, DESKTOP_FLEX_FLOOR))
+    : DESKTOP_DESIGN_W;
+  const desktopFit = useDesktopFit(canvasWrap, desktopDesignW, interfaceType === "desktop" && !!page);
 
   // Only the cold start blanks the studio: reload() keeps data, so page
   // create/rename/delete refresh the list without unmounting the canvas.
@@ -1459,8 +1486,11 @@ function StudioEditor() {
                 setSelection(null);
               }}
             >
-              <Stage fit={stageFit}>
-              <div className={`device ${device}${pageSwitching ? " page-switching" : ""}`} style={stageFit ? stageFit.device : minDeviceWidth > 0 ? { minWidth: minDeviceWidth } : undefined}>
+              <Stage fit={stageFit ?? desktopFit} desktop={!framed}>
+              <div
+                className={`device ${device}${pageSwitching ? " page-switching" : ""}`}
+                style={stageFit ? stageFit.device : desktopFit ? desktopFit.device : minDeviceWidth > 0 ? { minWidth: minDeviceWidth } : undefined}
+              >
                 {page ? (
                   <Canvas
                     doc={page.document}
@@ -1495,7 +1525,7 @@ function StudioEditor() {
                     onDropComponent={(type, customId, regionId, index, shapeId, at) =>
                       addComponentOn(recordOfNode(regionId), { type, shape: shapeId }, regionId, index, customId ?? null, at ?? null)
                     }
-                    onDropElement={(type, cmpId) => addElementTo(cmpId, type)}
+                    onDropElement={(type, cmpId) => addElementTo(cmpId, type, false)}
                     onReorder={(src, target, before) => {
                       const srcRec = recordOfCmp(src);
                       const dstRec = recordOfCmp(target);

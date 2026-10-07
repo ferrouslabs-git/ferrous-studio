@@ -519,6 +519,8 @@ class Comment(Base):
     agent_id = Column(UUID(as_uuid=True), ForeignKey("board_agents.id", ondelete="SET NULL"), nullable=True)
     body = Column(Text, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
+    #: Set by the author's last edit; NULL while the comment reads as posted.
+    edited_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (Index("ix_board_comments_entity", "entity_type", "entity_id"),)

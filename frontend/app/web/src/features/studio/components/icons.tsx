@@ -103,6 +103,8 @@ export const LIB_ICONS: Record<string, ReactNode> = {
   "row-action": navSvg(<><circle cx="8" cy="3.5" r=".9" /><circle cx="8" cy="8" r=".9" /><circle cx="8" cy="12.5" r=".9" /></>),
   "select-column": navSvg(<><rect x="2.5" y="5" width="6" height="6" rx="1.25" /><path d="m4.25 8 1.25 1.25L7.5 6.75M11 6h3M11 10h3" /></>),
   filter: navSvg(<path d="M2.5 3h11L10 8.25V12l-4 1.75V8.25L2.5 3Z" />),
+  "filter-multi": navSvg(<><path d="M2 3h8L7.5 7v4L5 12.5V7L2 3Z" /><path d="m10 9.5 1.25 1.25L14 8" /></>),
+  "filter-multi-search": navSvg(<><path d="M2 3h8L7.5 7v4L5 12.5V7L2 3Z" /><circle cx="11.5" cy="10" r="2" /><path d="m13 11.5 1.5 1.5" /></>),
   pagination: navSvg(<><rect x="2" y="5.25" width="3.25" height="5.5" rx="1" /><rect x="6.4" y="5.25" width="3.25" height="5.5" rx="1" /><rect x="10.75" y="5.25" width="3.25" height="5.5" rx="1" /></>),
   // Form elements
   "text-input": navSvg(<><rect x="2" y="4.75" width="12" height="6.5" rx="1.25" /><path d="M4.75 7v2" /></>),
@@ -111,6 +113,7 @@ export const LIB_ICONS: Record<string, ReactNode> = {
   checkbox: navSvg(<><rect x="2.75" y="2.75" width="10.5" height="10.5" rx="2" /><path d="m5.25 8.25 2 2L11 6" /></>),
   toggle: navSvg(<><rect x="2" y="4.75" width="12" height="6.5" rx="3.25" /><circle cx="10.75" cy="8" r="1.9" /></>),
   "date-picker": NAV_ICON_MARKS.calendar,
+  "read-only": navSvg(<><rect x="2" y="4.75" width="12" height="6.5" rx="1.25" strokeDasharray="2.2 1.8" /><path d="M4.5 8h5" /></>),
   "file-upload": navSvg(<path d="M8 10.5V3.5M4.75 6.25 8 3l3.25 3.25M2.5 13h11" />),
   "section-heading": navSvg(<><path d="M2.5 4h6" /><path d="M2.5 8h11M2.5 11.5h11" opacity=".45" /></>),
   step: navSvg(<><circle cx="3.9" cy="8" r="1.9" /><path d="M5.8 8h4.3" /><circle cx="12" cy="8" r="1.9" /></>),

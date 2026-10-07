@@ -1,7 +1,7 @@
 // Per-type default props, element minting and id minting. Pure functions: no
 // state, no DOM. This is the domain knowledge the server deliberately does
 // not have.
-import { COMPONENTS, ElementSeed, elementMeta } from "../catalog";
+import { COMPONENTS, elementDefaultData, ElementSeed, elementMeta } from "../catalog";
 import { ElementNode } from "./types";
 import { reposition } from "./positions";
 
@@ -35,8 +35,11 @@ export function getDefaultProps(type: string): Record<string, unknown> {
   }
 }
 
-/** Build one element instance from its catalogue meta plus an optional seed. */
-export function makeElement(componentType: string, seed: ElementSeed): ElementNode | null {
+/** Build one element instance from its catalogue meta plus an optional seed.
+ *  `hostDefaults` false skips the host's own element defaults
+ *  (ComponentMeta.elementData): read-time migration rebuilds what a stored
+ *  document already showed, which must not pick up today's new-element look. */
+export function makeElement(componentType: string, seed: ElementSeed, hostDefaults = true): ElementNode | null {
   const meta = elementMeta(componentType, seed.type);
   if (!meta) return null;
   const node: ElementNode = {
@@ -45,7 +48,7 @@ export function makeElement(componentType: string, seed: ElementSeed): ElementNo
     label: seed.label ?? meta.defaultLabel,
     pos: "",
   };
-  const data = { ...meta.defaultData, ...seed.data };
+  const data = { ...(hostDefaults ? elementDefaultData(componentType, seed.type) : meta.defaultData), ...seed.data };
   if (Object.keys(data).length) node.data = data;
   return node;
 }

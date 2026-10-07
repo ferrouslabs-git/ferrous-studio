@@ -10,8 +10,9 @@
 // child node (ElementNode) is addressed by the key `el:<id>` with a null
 // index; a scalar prop token (the brand text, a heading) by its prop key.
 // Selection, Inspector editing and link targets all use this addressing.
-import { ComponentSeed, COMPONENTS, ElementSeed, elementMeta, navAlign, PATTERNS, PatternTemplate } from "../catalog";
+import { ComponentSeed, COMPONENTS, elementDefaultData, ElementSeed, elementMeta, isMultiFilter, navAlign, PATTERNS, PatternTemplate } from "../catalog";
 import { PageLike } from "./applyOps";
+import { DatasetRef, suggestDataset } from "./datasetMatch";
 import { byPos, posAfterLast, posAtIndex, posBetween, reposition } from "./positions";
 import { defaultElementsFor, getDefaultProps, makeElement, uid } from "./regions";
 import {
@@ -61,6 +62,8 @@ export interface ActionResult {
 
 export interface ActionContext {
   customComponents: readonly CustomDef[];
+  /** Bindable datasets, for picking one from an element's label. */
+  datasets?: readonly DatasetRef[];
 }
 
 type Draft = PageLike;
@@ -587,13 +590,16 @@ export function findElement(cmp: ComponentNode, elementId: string): ElementNode 
 }
 
 /** Add one element to a component, honouring the vocabulary and `max`.
- *  Canvas children get a cascading default position they can be moved from. */
+ *  Canvas children get a cascading default position they can be moved from.
+ *  `afterId` names a sibling to land straight after (the selected column or
+ *  field), which wins over `atIndex`; an id not in the component is ignored. */
 export function addElement(
   draft: Draft,
-  _ctx: ActionContext,
+  ctx: ActionContext,
   cmpId: string,
   seedIn: ElementSeed | string,
   atIndex: number | null = null,
+  afterId: string | null = null,
 ): ActionResult | void {
   const cmp = cmpById(draft, cmpId);
   if (!cmp) return;
@@ -607,15 +613,32 @@ export function addElement(
   const node = makeElement(cmp.type, seed)!;
   // A header re-added from the library titles the component again.
   if (node.type === "header" && !seed.label) node.label = cmp.label;
+  autoBindDataset(cmp.type, node, ctx);
   if (cmp.type === "canvas") {
     const n = list.length;
     node.data = { x: String(16 + (n % 8) * 24), y: String(16 + (n % 8) * 24), ...node.data };
   }
   const sorted = byPos(list);
-  const i = atIndex == null ? sorted.length : Math.max(0, Math.min(atIndex, sorted.length));
+  const after = afterId ? sorted.findIndex((e) => e.id === afterId) : -1;
+  const i =
+    after >= 0 ? after + 1 : atIndex == null ? sorted.length : Math.max(0, Math.min(atIndex, sorted.length));
   node.pos = posAtIndex(sorted, i);
   list.push(node);
   return { selectElement: { cmpId, key: elKey(node.id), index: null } };
+}
+
+/** Bind an element to the dataset its label names (FS-REQ-44) — only while
+ *  it can hold one and nothing has been chosen for it yet: no dataset, and
+ *  the manual values that dataset would supersede still the type's own
+ *  defaults. Typed options, sample values or an existing binding always win. */
+export function autoBindDataset(cmpType: string, element: ElementNode, ctx: ActionContext): void {
+  const field = elementMeta(cmpType, element.type)?.dataFields.find((f) => f.kind === "dataset");
+  if (!field || !ctx.datasets?.length || element.data?.[field.key]) return;
+  const manual = field.supersedes;
+  const typed = manual ? element.data?.[manual] : undefined;
+  if (typed && typed !== elementDefaultData(cmpType, element.type)[manual!]) return;
+  const hit = suggestDataset(element.label, ctx.datasets);
+  if (hit) (element.data ??= {})[field.key] = hit.id;
 }
 
 export function removeElement(draft: Draft, _ctx: ActionContext, cmpId: string, elementId: string): ActionResult | void {
@@ -727,7 +750,7 @@ export function elementTypeOptions(cmp: ComponentNode, elementId: string): { typ
  *  field of that name (a select value only when it is one of the new
  *  options), placement and styling always; the new type's defaults fill the
  *  gaps. */
-export function setElementType(draft: Draft, _ctx: ActionContext, cmpId: string, elementId: string, type: string): ActionResult | void {
+export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, elementId: string, type: string): ActionResult | void {
   const cmp = cmpById(draft, cmpId);
   const element = cmp ? findElement(cmp, elementId) : null;
   if (!cmp || !element || element.type === type) return;
@@ -748,7 +771,13 @@ export function setElementType(draft: Draft, _ctx: ActionContext, cmpId: string,
       (!!field && (field.kind !== "select" || (field.options ?? []).includes(value)));
     if (keep) data[key] = value;
   }
-  for (const [key, value] of Object.entries(to.defaultData ?? {})) data[key] ??= value;
+  for (const [key, value] of Object.entries(elementDefaultData(cmp.type, type))) data[key] ??= value;
+  // A multi-select becoming a single-select keeps its first pick only.
+  if (isMultiFilter(element.type) && !isMultiFilter(type) && data.selected) {
+    const firstPick = data.selected.split(",")[0].trim();
+    if (firstPick) data.selected = firstPick;
+    else delete data.selected;
+  }
   if (!element.label || element.label === from?.defaultLabel) element.label = to.defaultLabel;
   if (from?.type === "header") ensureProps(cmp).title = ""; // same tombstone as removeElement
   if (from?.type === "column" && Array.isArray(cmp.props?.rows)) {
@@ -759,6 +788,7 @@ export function setElementType(draft: Draft, _ctx: ActionContext, cmpId: string,
   element.type = type;
   if (Object.keys(data).length) element.data = data;
   else delete element.data;
+  autoBindDataset(cmp.type, element, ctx);
   return { selectElement: { cmpId, key: elKey(elementId), index: null } };
 }
 
@@ -914,6 +944,7 @@ export function setElementText(draft: Draft, ctx: ActionContext, id: string, key
       return removeElement(draft, ctx, id, elementId);
     }
     element.label = value;
+    autoBindDataset(cmp.type, element, ctx);
     // Keep the element selected — a rename (or blank) is not a deselection.
     return { selectElement: { cmpId: id, key, index: null } };
   }

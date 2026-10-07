@@ -6,7 +6,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import type { PageSummary } from "../../projects/projectsApi";
-import { COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign } from "../catalog";
+import {
+  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
+} from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
 import { ComposedRegions } from "../model/linkRegions";
 import { byPos } from "../model/positions";
@@ -420,6 +423,9 @@ export function Inspector(props: Props) {
   const elIndex = elementNode ? sortedEls.findIndex((e) => e.id === elementNode.id) : -1;
   const showAlign =
     !!elementNode && selectedCmp?.type === "navbar" && (selectedCmp.layout ?? cmpMeta?.defaultLayout) === "horizontal";
+  // A list's filters, search and buttons each pick a side of their line.
+  const showListAlign = !!elementNode && selectedCmp?.type === "list" && LIST_ALIGNABLE.has(elementNode.type);
+  const listBesideTitle = !!selectedCmp?.elements?.some((e) => e.type === "header" && e.data?.placement !== "above");
   // Nav items carry an icon only in the Icons shape (it is what draws them).
   const showIcon =
     elementNode?.type === "nav-item" && selectedCmp?.type === "navbar" && (selectedCmp.shape ?? cmpMeta?.defaultShape) === "icons";
@@ -609,6 +615,20 @@ export function Inspector(props: Props) {
                     >
                       {NAV_ALIGN_OPTIONS.map((a) => (
                         <option key={a} value={a}>{a[0].toUpperCase() + a.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {showListAlign && (
+                  <div className="field">
+                    <label>Alignment</label>
+                    <select
+                      value={listAlign(elementNode, listBesideTitle)}
+                      disabled={ro}
+                      onChange={(e) => props.onElementData(elementSel, "align", e.target.value)}
+                    >
+                      {LIST_ALIGN_OPTIONS.map((a) => (
+                        <option key={a} value={a}>{cap(a)}</option>
                       ))}
                     </select>
                   </div>

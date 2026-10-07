@@ -56,7 +56,7 @@ interface Ctx {
 /** Append one element (dropping seeds the new vocabulary rejects) and carry
  *  a legacy link across to the element's `el:` key. */
 function put(ctx: Ctx, seed: ElementSeed, link?: LinkTarget | null): ElementNode | null {
-  const node = makeElement(ctx.cmp.type, seed);
+  const node = makeElement(ctx.cmp.type, seed, false);
   if (!node) return null;
   ctx.elements.push(node);
   if (link) ctx.newLinks[`el:${node.id}`] = link;
@@ -262,7 +262,7 @@ function migrateHeader(cmp: ComponentNode): void {
   }
   const raw = cmp.props?.title;
   if (raw === "") return; // tombstone: the header was removed (or hidden)
-  const node = makeElement(cmp.type, { type: "header", label: raw == null ? cmp.label : String(raw) });
+  const node = makeElement(cmp.type, { type: "header", label: raw == null ? cmp.label : String(raw) }, false);
   if (!node) return;
   const list = (cmp.elements ??= []);
   node.pos = posAtIndex(byPos(list), 0);

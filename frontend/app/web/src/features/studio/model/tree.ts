@@ -252,6 +252,11 @@ export function fixedWidthDemand(
   root: LayoutNode,
   outlet?: { regionId: string; demand: number },
   regions?: Record<string, ComponentNode[]>,
+  /** Least width a flexible (fill/hug) column of a row is counted at. 0
+   *  measures only what fixed sizes force; a floor gives the width a page
+   *  needs to look as designed, flexible columns included (see
+   *  useDesktopFit) — at 0 they would be squeezed to nothing. */
+  flexFloor = 0,
 ): number {
   const measure = (node: LayoutNode, parentDir: "row" | "col" | null): number => {
     const fixed = parentDir === "row" && typeof node.size === "number" ? node.size : null;
@@ -267,7 +272,10 @@ export function fixedWidthDemand(
       }
       return Math.max(0, ...cmps.map((c) => cmpSize(c).w ?? 0));
     }
-    const widths = node.children.map((child) => measure(child, node.dir));
+    const widths = node.children.map((child) => {
+      const w = measure(child, node.dir);
+      return node.dir === "row" && typeof child.size !== "number" ? Math.max(flexFloor, w) : w;
+    });
     return node.dir === "row" ? widths.reduce((a, b) => a + b, 0) : Math.max(0, ...widths);
   };
   return measure(root, null);

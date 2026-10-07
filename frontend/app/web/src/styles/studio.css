@@ -147,7 +147,7 @@
 }
 /* The sheet: a bordered, lifted page. One rule for every interface type — the
    framed stage below only adds the device's size and corner radius. */
-.canvas-wrap > .device {
+.canvas-wrap > .device, .canvas-wrap > .stage.desktop > .device {
   border: 1px solid #C3CAD2;
   box-shadow: 0 1px 2px rgba(27,32,39,.06), 0 10px 28px rgba(27,32,39,.10);
 }
@@ -314,6 +314,13 @@
    footprint — is what they centre: a transform leaves layout at full size, so
    centring the device itself would push a fitted device off the mat. */
 .canvas-wrap.framed .stage { flex: 0 0 auto; margin: auto; }
+/* Desktop's stage (FS-REQ-37): box-less while the page fits the room, so the
+   device stays in the mat's flex chain exactly as before; once the room is
+   narrower than the page's design width the device is drawn at that width
+   and scaled down whole, and the stage holds its scaled footprint. */
+.stage.desktop:not(.fitted) { display: contents; }
+.stage.desktop.fitted { flex: 0 0 auto; }
+.stage.desktop.fitted > .device { flex: none; transform-origin: top left; }
 .canvas-wrap.framed .device {
   flex: 0 0 auto; min-height: 0;
   overflow: auto;
@@ -438,6 +445,11 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* A blanked value keeps a select-only "…" so it can be recovered. */
 .ui-edit.blank { opacity: 0; min-width: 14px; text-align: center; color: var(--text-mute); }
 .cmp.selected .ui-edit.blank, .cmp.has-sel .ui-edit.blank { opacity: .7; }
+/* A blank token that keeps something (a brand's logo with no name) stays
+   visible; only its recovery "…" hides until the component is selected. */
+.ui-edit.blank.keeps, .cmp.selected .ui-edit.blank.keeps, .cmp.has-sel .ui-edit.blank.keeps { opacity: 1; min-width: 0; }
+.ui-edit.blank.keeps .ui-blank-dots { opacity: 0; }
+.cmp.selected .ui-edit.blank.keeps .ui-blank-dots, .cmp.has-sel .ui-edit.blank.keeps .ui-blank-dots { opacity: .7; }
 
 .inline-edit-input {
   height: 24px; min-width: 72px;
@@ -521,6 +533,24 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-select-option.on { background: var(--wf-soft); }
 .ui-select-option.none { color: var(--text-mute); cursor: default; }
 .ui-select-option.none:hover { background: transparent; }
+/* Multi-select filters: a tick box per option, picks stay highlighted, and
+   the searchable kind leads with a filter box (FS-REQ-40). */
+.ui-multi-menu { min-width: max(100%, 200px); }
+.ui-multi-option { display: flex; align-items: center; gap: 8px; }
+.ui-multi-option .ui-checkbox { flex-shrink: 0; }
+.ui-multi-option.on .ui-checkbox { background: var(--wf-solid); border-color: var(--wf-solid); color: var(--on-accent); }
+.ui-select-search {
+  flex-shrink: 0; height: 28px; margin: 2px 2px 4px; padding: 0 8px; min-width: 0;
+  border: 1px solid var(--border-strong); border-radius: 5px; background: var(--inset-2);
+  font: inherit; font-size: 12px; color: var(--text); outline: none;
+}
+.ui-select-search:focus { border-color: var(--wf-solid); }
+/* A read-only field: the value as plain text on a quiet ground, no frame. */
+.ui-readonly {
+  min-height: 32px; display: flex; align-items: center; padding: 0 10px;
+  border-radius: var(--el-shape-radius, var(--radius-lg)); background: var(--mute-soft);
+  font-size: 12.5px; color: var(--text);
+}
 /* Date picker: a field with a calendar button; the button opens a month
    grid. The grid reuses .ui-select-menu (so every container that lets a
    dropdown menu escape its overflow lets this out too) with its own layout. */
@@ -549,6 +579,10 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-input svg { flex-shrink: 0; }
 .ui-input-wide { width: min(100%, 420px); }
 .ui-placeholder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* A text area's placeholder wraps inside the box instead of being cut off;
+   single-line inputs keep the ellipsis (FS-REQ-48). */
+.ui-input.tall { height: auto; min-height: 72px; }
+.ui-input.tall .ui-placeholder { white-space: normal; overflow-wrap: anywhere; }
 /* A filled-in value (a dropdown showing its bound dataset's first entry). */
 .ui-value { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ui-label { display: block; font-size: 11.5px; font-weight: 500; color: var(--text-dim); margin-bottom: 6px; }
@@ -601,7 +635,14 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-card-title { font-size: 13px; font-weight: 600; }
 /* A header element placed "above": its own line over the component. */
 .ui-headed { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.ui-headed > .ui-card-title { font-size: 14px; }
+.ui-headed > .ui-card-title, .ui-headed-bar > .ui-card-title { font-size: 14px; }
+/* The title line: the header and any list buttons placed "above". */
+.ui-headed-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; min-width: 0; }
+/* A list line's two sides (FS-REQ-41): the right group takes the slack, so it
+   sits at the far end whatever else shares the line. */
+.ui-head-right { margin-left: auto; }
+/* A list's controls pack from the start; only the right group is pushed. */
+.ui-list-head { justify-content: flex-start; }
 .ui-h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
 .ui-h3 { font-size: 14px; font-weight: 600; margin: 0; }
 .ui-p { font-size: 13px; line-height: 1.55; color: var(--text-dim); margin: 0; }
@@ -706,9 +747,12 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* Compact variant for the horizontal bar. */
 .ui-workspace.bar { padding: 4px 8px; gap: 8px; flex-shrink: 0; }
 /* ── Feed ── */
-.ui-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
-.ui-feed li { display: flex; gap: 10px; align-items: flex-start; }
-.ui-feed-body { min-width: 0; }
+/* Entries sit inset from the card's edges (FS-REQ-42), each on its own
+   ruled line like the rows shape. */
+.ui-feed { list-style: none; margin: 0; padding: 4px 16px; display: flex; flex-direction: column; }
+.ui-feed li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.ui-feed li:last-child { border-bottom: 0; }
+.ui-feed-body { min-width: 0; flex: 1 1 auto; }
 .ui-feed-text { font-size: 12.5px; }
 .ui-feed-time { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
 /* Row actions trail the entry; margin-left keeps them right-aligned without
@@ -1010,6 +1054,18 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .overlay-layer.overlay-drawer-left { justify-content: flex-start; }
 .overlay-layer.overlay-drawer-left .overlay-panel { width: min(420px, 85%); height: 100%; border-top: 0; border-bottom: 0; border-left: 0; }
 .overlay-layer.overlay-drawer-left .overlay-close { top: 10px; left: calc(100% + 10px); }
+/* A drawer's inner edge drags to set its width (FS-REQ-46): an invisible
+   strip straddling the edge that shows a line on hover. */
+.overlay-resize {
+  position: absolute; top: 0; bottom: 0; width: 10px; z-index: 2; cursor: ew-resize; touch-action: none;
+}
+.overlay-layer.overlay-drawer .overlay-resize { left: -5px; }
+.overlay-layer.overlay-drawer-left .overlay-resize { right: -5px; }
+.overlay-resize::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px;
+  background: var(--edit-accent); opacity: 0; transition: opacity .12s;
+}
+.overlay-resize:hover::after, .overlay-resize:active::after { opacity: 1; }
 
 /* Entry motion: the scrim fades while the dialog settles in / the drawer
    slides from its edge. Entry only — closing navigates away, so there is no
@@ -1475,6 +1531,11 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* Table extras. */
 .ui-td-select { width: 28px; }
 .ui-td-actions { text-align: right; white-space: nowrap; }
+/* Values of a linked column read as clickable: pointer and underline on
+   hover, in the editor and the preview alike. */
+.ui-cell-link { cursor: pointer; text-underline-offset: 2px; transition: color .12s; }
+.ui-cell-link:hover { text-decoration: underline; color: var(--wf-ink); }
+.ui-badge.ui-cell-link:hover { text-decoration: underline; filter: brightness(.95); }
 .ui-td-actions .ui-btn { margin-left: 6px; }
 
 /* List shape: cards. */
@@ -1489,7 +1550,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-card-line-label { color: var(--text-mute); font-size: 11px; }
 
 /* List shape: rows. */
-.ui-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ui-rows { list-style: none; margin: 0; padding: 2px 14px; display: flex; flex-direction: column; }
 .ui-rows.scroll { flex-direction: row; overflow-x: auto; gap: 10px; }
 .ui-rows.scroll .ui-rowitem { border-bottom: 0; border-right: 1px solid var(--border); padding-right: 12px; }
 .ui-rowitem {

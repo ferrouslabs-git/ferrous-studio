@@ -10,7 +10,7 @@
 // keep a blank label. With no `edit` handlers everything is read-only.
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { byPos } from "../model/positions";
 import { getDefaultProps } from "../model/regions";
@@ -238,6 +238,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   /** The month an open date picker's calendar is showing (browsing months
    *  is view state, never persisted). */
   const [calView, setCalView] = useState<{ y: number; m: number } | null>(null);
+  /** What is typed in an open searchable filter's menu (view state). */
+  const [menuQuery, setMenuQuery] = useState("");
+  useEffect(() => setMenuQuery(""), [openSelect]);
 
   useEffect(() => {
     if (!openSelect) return;
@@ -299,14 +302,16 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         : undefined;
     return (
       <EditableToken
-        className={`ui-edit${blank ? " blank" : ""} ${className}`.trim()}
+        className={`ui-edit${blank ? (keep ? " blank keeps" : " blank") : ""} ${className}`.trim()}
         style={style}
         value={value ?? sample}
         onCommit={edit && commit ? commit : undefined}
         element={element}
         drag={drag}
       >
-        {blank ? <>{keep}{edit ? "…" : null}</> : children}
+        {/* A blank token hides until its component is selected — but what it
+            keeps (the logo) must stay visible, so only the "…" hides then. */}
+        {blank ? <>{keep}{edit ? keep ? <span className="ui-blank-dots">…</span> : "…" : null}</> : children}
       </EditableToken>
     );
   };
@@ -666,23 +671,90 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     );
   };
 
-  /** A list's filter chip. Given values — a bound dataset, or options typed by
-   *  hand — it behaves as a real dropdown, showing the chosen value beside its
-   *  field name; with none it stays the plain label chip it has always been, so
-   *  no existing wireframe changes appearance. `ui-filter` rather than
-   *  `ui-chip` because the chip's static ::after chevron would collide with the
+  /** A multi-select filter's picks, in the order its options list them. */
+  const selectedValues = (el: ElementNode): string[] => splitList(chosen[el.id] ?? el.data?.selected);
+  /** Tick or untick one option of a multi-select. The menu stays open, as a
+   *  real one does, so several can be picked in a row. */
+  const toggleOption = (el: ElementNode, value: string) => {
+    const current = selectedValues(el);
+    const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+    const options = dropdownOptions(el);
+    const ordered = [...options.filter((o) => next.includes(o)), ...next.filter((v) => !options.includes(v))];
+    const joined = ordered.join(", ");
+    if (edit) edit.setElementData(el.id, "selected", joined);
+    else setChosen((c) => ({ ...c, [el.id]: joined }));
+  };
+  /** A multi-select's menu: a tick box per option, optionally led by a search
+   *  box that narrows the list as you type. */
+  const multiMenu = (el: ElementNode, searchable: boolean): ReactNode => {
+    const options = dropdownOptions(el);
+    const picked = selectedValues(el);
+    const q = menuQuery.trim().toLowerCase();
+    const shown = searchable && q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+    return (
+      <div className="ui-select-menu ui-multi-menu" role="listbox" aria-multiselectable data-select-ui onClick={(e) => e.stopPropagation()}>
+        {searchable && (
+          <input
+            className="ui-select-search"
+            placeholder="Search…"
+            aria-label="Search options"
+            autoFocus
+            value={menuQuery}
+            onChange={(e) => setMenuQuery(e.target.value)}
+            onPointerDown={(e) => e.stopPropagation()}
+          />
+        )}
+        {shown.length === 0 ? (
+          <span className="ui-select-option none">{options.length ? "No matches" : "No options"}</span>
+        ) : (
+          shown.map((opt, i) => {
+            const on = picked.includes(opt);
+            return (
+              <button
+                type="button"
+                key={i}
+                role="option"
+                aria-selected={on}
+                className={`ui-select-option ui-multi-option${on ? " on" : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleOption(el, opt);
+                }}
+              >
+                <i className="ui-checkbox" aria-hidden>{on && <CheckIcon />}</i>
+                {opt}
+              </button>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
+  /** A list's filter chip, in one of three kinds (FS-REQ-40). Given values —
+   *  a bound dataset, or options typed by hand — it behaves as a real
+   *  dropdown, showing what is picked beside its field name: one value, or
+   *  for a multi-select "All" / the one pick / the first pick and a count.
+   *  With no values it stays the plain label chip it has always been, so no
+   *  existing wireframe changes appearance. `ui-filter` rather than `ui-chip`
+   *  because the chip's static ::after chevron would collide with the
    *  interactive toggle (and with the annotation marker's own ::after). */
   const filterChip = (el: ElementNode): ReactNode => {
     const options = dropdownOptions(el);
     if (options.length === 0) return elTok(el, "ui-chip");
+    const multi = isMultiFilter(el.type);
+    const picked = multi ? selectedValues(el) : [];
+    const summary = multi
+      ? picked.length === 0 ? "All" : picked.length === 1 ? picked[0] : `${picked[0]} +${picked.length - 1}`
+      : selectedValue(el) ?? options[0];
     return elBox(
       el,
-      `ui-filter${openSelect === el.id ? " open" : ""}`,
+      `ui-filter${multi ? " multi" : ""}${openSelect === el.id ? " open" : ""}`,
       <>
         {elTok(el, "ui-filter-label")}
-        <span className="ui-value">{selectedValue(el) ?? options[0]}</span>
+        <span className="ui-value">{summary}</span>
         {selectToggle(el)}
-        {openSelect === el.id && selectMenu(el)}
+        {openSelect === el.id && (multi ? multiMenu(el, el.type === "filter-multi-search") : selectMenu(el))}
       </>,
     );
   };
@@ -726,6 +798,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         );
       }
       case "file-upload": return body("file");
+      // Shown, not editable: the value reads as plain text on a quiet ground,
+      // with no input frame to suggest it can be typed into (FS-REQ-45).
+      case "read-only": return <div className="ui-readonly">{dataTok(el, "value", "REF-00421")}</div>;
       case "select": {
         const value = selectedValue(el);
         return body(
@@ -768,7 +843,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "section-heading": return <div className="ui-h3">{elTok(el, "")}</div>;
       case "step": return elTok(el, "ui-chip");
       case "search": return searchBox(el, context === "canvas" ? "" : "sm");
-      case "filter": return filterChip(el);
+      case "filter":
+      case "filter-multi":
+      case "filter-multi-search":
+        return filterChip(el);
       case "row-action": return elTok(el, "ui-btn sm");
       case "image":
         // With an uploaded picture the placeholder chrome (dashed outline,
@@ -800,6 +878,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "text-area":
       case "select":
       case "date-picker":
+      case "read-only":
       case "file-upload":
         return elBox(
           el,
@@ -1037,13 +1116,31 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
 
   // ── List ──────────────────────────────────────────────────────────────────
 
+  /** One element of a list's chrome line: a filter, the search box or a
+   *  list button. */
+  const listControl = (e: ElementNode): ReactNode => {
+    if (e.type === "search") return searchBox(e, "sm");
+    if (e.type === "button") return <Fragment key={e.id}>{elTok(e, btnClass(e, "sm"))}</Fragment>;
+    return <Fragment key={e.id}>{filterChip(e)}</Fragment>;
+  };
+  /** A line's elements split into its left and right groups (pos order
+   *  within each); the right group is pushed to the far end. */
+  const listSides = (line: ElementNode[], besideTitle: boolean): ReactNode => {
+    const left = line.filter((e) => listAlign(e, besideTitle) === "left");
+    const right = line.filter((e) => listAlign(e, besideTitle) === "right");
+    return (
+      <>
+        {left.length > 0 && <div className="ui-row ui-head-left">{left.map(listControl)}</div>}
+        {right.length > 0 && <div className="ui-row ui-head-right">{right.map(listControl)}</div>}
+      </>
+    );
+  };
+
   const renderList = (): ReactNode => {
     const columns = byType("column");
     const headerEl = first("column-header");
     const selectEl = first("select-column");
     const rowActions = byType("row-action");
-    const searchEl = first("search");
-    const filters = byType("filter");
     const pagerEl = first("pagination");
     const rows: Record<string, string>[] = Array.isArray(cmp.props?.rows) ? (cmp.props.rows as Record<string, string>[]) : [{}, {}, {}];
 
@@ -1057,7 +1154,11 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       const value = own ?? null;
       const shown = own ?? sample;
       const kind = ds?.kind ?? col.data?.kind;
-      const cls = className ?? (kind === "status" || isStatus(shown) ? `ui-badge${statusTone(shown)}` : "");
+      // A linked column's values are what a user would click to open the
+      // record, so they answer the pointer like links do (FS-REQ-49).
+      const linkCls = chrome?.linkOf(elKey(col.id), null) ? " ui-cell-link" : "";
+      const cls =
+        (className ?? (kind === "status" || isStatus(shown) ? `ui-badge${statusTone(shown)}` : "")) + linkCls;
       // Cells carry their column's identity as secondary tokens: a click on
       // sample data selects the column (a headerless table still reaches the
       // Inspector), a double click edits the cell value as before.
@@ -1065,13 +1166,17 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     };
     const colOfKind = (...kinds: string[]) => columns.find((c) => kinds.includes(c.data?.kind ?? ""));
 
-    const head = headerInline || filters.length > 0 || searchEl ? (
-      <div className="ui-card-head">
+    // The controls row: filters, search and inline buttons, in pos order,
+    // each on the side it chose (listAlign — FS-REQ-41). Buttons placed
+    // "above" ride the title line instead (see the wrap at the end).
+    const besideTitle = !!headerInline;
+    const controls = els.filter(
+      (e) => e.type === "search" || isFilterType(e.type) || (e.type === "button" && e.data?.placement !== "above"),
+    );
+    const head = headerInline || controls.length > 0 ? (
+      <div className="ui-card-head ui-list-head">
         {headerInline && elTok(headerInline, "ui-card-title")}
-        <div className="ui-row">
-          {filters.map((f) => <Fragment key={f.id}>{filterChip(f)}</Fragment>)}
-          {searchEl && searchBox(searchEl, "sm")}
-        </div>
+        {listSides(controls, besideTitle)}
       </div>
     ) : null;
     const addBar = addCluster(
@@ -1895,11 +2000,17 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     }
   })();
 
-  // A header placed "above" sits on its own line over the component.
-  if (headerEl && !headerInline) {
+  // A header placed "above" sits on its own line over the component — and a
+  // list's buttons placed "above" share that line, on their chosen side.
+  const aboveTitle = headerEl && !headerInline ? headerEl : null;
+  const aboveButtons = cmp.type === "list" ? byType("button").filter((b) => b.data?.placement === "above") : [];
+  if (aboveTitle || aboveButtons.length) {
     return (
       <div className="ui-headed">
-        {elTok(headerEl, "ui-card-title")}
+        <div className="ui-headed-bar">
+          {aboveTitle && elTok(aboveTitle, "ui-card-title")}
+          {listSides(aboveButtons, true)}
+        </div>
         {body}
       </div>
     );

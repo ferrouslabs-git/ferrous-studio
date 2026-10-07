@@ -77,11 +77,70 @@ export function useStageFit(wrap: RefObject<HTMLElement | null>, type: Interface
   };
 }
 
+/** The width a desktop wireframe is designed at: below this much room the
+ *  page is not re-flowed (squeezing its flexible columns while the fixed ones
+ *  hold) but drawn at this width and scaled down whole, so every region
+ *  shrinks in proportion and the page always fits the canvas (FS-REQ-37).
+ *  At or above it the desktop page fills the room as before. */
+export const DESKTOP_DESIGN_W = 960;
+/** Least width a flexible column is counted at when working out how wide a
+ *  page must be drawn (see fixedWidthDemand's flexFloor). */
+export const DESKTOP_FLEX_FLOOR = 240;
+
+/** Fit an unframed desktop page into the canvas width. Returns null while the
+ *  room is at least `designWidth` — the page then fills it, unscaled. Below
+ *  that the page is laid out at `designWidth` and scaled to the room's width;
+ *  its height still grows with its content (the mat scrolls vertically), so
+ *  the scaled footprint is re-measured whenever the page's height changes. */
+export function useDesktopFit(wrap: RefObject<HTMLElement | null>, designWidth: number, enabled: boolean): StageFit | null {
+  const [room, setRoom] = useState<{ w: number; h: number } | null>(null);
+  const [deviceH, setDeviceH] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = wrap.current;
+    if (!el || !enabled) return;
+    const measure = () => {
+      const cs = getComputedStyle(el);
+      const w = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const h = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      if (w <= 0 || h <= 0) return;
+      setRoom((r) => (r && r.w === w && r.h === h ? r : { w, h }));
+      const device = el.querySelector<HTMLElement>(":scope > .stage > .device");
+      if (device) setDeviceH(device.offsetHeight);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    const device = el.querySelector<HTMLElement>(":scope > .stage > .device");
+    if (device) observer.observe(device);
+    return () => observer.disconnect();
+  }, [wrap, enabled]);
+
+  if (!enabled || !room || room.w >= designWidth) return null;
+  const scale = room.w / designWidth;
+  const minHeight = room.h / scale;
+  return {
+    scale,
+    box: { width: room.w, height: Math.max(minHeight, deviceH) * scale },
+    device: { width: designWidth, minHeight, transform: `scale(${scale})` },
+  };
+}
+
 /** The box a framed device sits in. `transform` scales what you see but leaves
  *  layout at full size, so without this the mat would still scroll to a device
  *  that only *looks* like it fits. Desktop renders no wrapper at all — its
  *  device stays a direct flex child of the mat, which its sizing relies on. */
-export function Stage({ fit, children }: { fit: StageFit | null; children: ReactNode }) {
+export function Stage({ fit, desktop = false, children }: { fit: StageFit | null; desktop?: boolean; children: ReactNode }) {
+  // Desktop always renders its wrapper — box-less (display: contents) until
+  // it is fitted — so crossing the fit threshold while the window resizes
+  // never remounts the canvas underneath.
+  if (desktop) {
+    return (
+      <div className={`stage desktop${fit ? " fitted" : ""}`} style={fit?.box}>
+        {children}
+      </div>
+    );
+  }
   if (!fit) return <>{children}</>;
   return (
     <div className="stage" style={fit.box}>
