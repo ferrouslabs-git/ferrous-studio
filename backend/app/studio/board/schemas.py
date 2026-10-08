@@ -419,6 +419,13 @@ class CommentCreate(BaseModel):
     body: str = ""
 
 
+class CommentUpdate(BaseModel):
+    """The new text. Blank is allowed only while the comment still has files
+    to stand for it -- the route checks that, as it needs the attachments."""
+
+    body: str
+
+
 class CommentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -431,6 +438,8 @@ class CommentRead(BaseModel):
     agent_id: UUID | None = None
     body: str
     created_at: datetime
+    #: When its author last changed the text; None if never edited.
+    edited_at: datetime | None = None
     #: Its uploaded files, oldest first -- loaded with the comments in one
     #: query, so a thread never costs a request per comment.
     attachments: list[AttachmentRead] = []

@@ -162,19 +162,51 @@ const COLUMN = el({
 const COLUMN_HEADER = el({ type: "column-header", label: "Column header", desc: "The header row; remove it for a headerless table", icon: "CH", dataFields: [], defaultLabel: "", max: 1 });
 const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit", blankRemoves: true, shapeable: true, fillable: true });
 const SELECT_COLUMN = el({ type: "select-column", label: "Select column", desc: "Bulk-select checkboxes", icon: "☑", dataFields: [], defaultLabel: "", max: 1 });
-/** The field a list filters by. Bind it to a dataset (or type options) and the
- *  chip becomes a real dropdown showing the chosen value; left unbound it stays
- *  the plain label chip it has always been. */
+/** The fields every filter chip shares: its values (a dataset, or options
+ *  typed by hand) and what is picked from them. */
+const FILTER_FIELDS: DataFieldMeta[] = [
+  { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "options" },
+  { key: "options", label: "Options", kind: "text" },
+  // Set by picking from the expanded menu on the canvas; blank = unselected.
+  // A multi-select keeps every pick, comma-separated.
+  { key: "selected", label: "Selected", kind: "text" },
+];
+/** The field a list filters by, in three kinds (FS-REQ-40): pick one value,
+ *  pick several, or pick several from a searchable menu. Bind one to a
+ *  dataset (or type options) and the chip becomes a real dropdown; left
+ *  unbound it stays a plain label chip. `filter` is the single-select kind —
+ *  the id every existing filter already carries. */
 const FILTER = el({
-  type: "filter", label: "Filter chip", desc: "The field this list filters by", icon: "FL",
-  dataFields: [
-    { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "options" },
-    { key: "options", label: "Options", kind: "text" },
-    // Set by picking from the expanded menu on the canvas; blank = unselected.
-    { key: "selected", label: "Selected", kind: "text" },
-  ],
-  defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+  type: "filter", label: "Filter: single select", desc: "Filter the list by one value of a field", icon: "FL",
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
 });
+const FILTER_MULTI = el({
+  type: "filter-multi", label: "Filter: multi-select", desc: "Filter the list by several values of a field", icon: "FM",
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+});
+const FILTER_MULTI_SEARCH = el({
+  type: "filter-multi-search", label: "Filter: multi-select with search", desc: "Several values, picked from a searchable menu", icon: "FS",
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+});
+/** The filter element types, in bar order. */
+export const FILTER_TYPES = [FILTER.type, FILTER_MULTI.type, FILTER_MULTI_SEARCH.type] as const;
+export const isFilterType = (type: string): boolean => (FILTER_TYPES as readonly string[]).includes(type);
+export const isMultiFilter = (type: string): boolean => type === FILTER_MULTI.type || type === FILTER_MULTI_SEARCH.type;
+
+/** Where a list's chrome element sits on its line (stored as `data.align`):
+ *  filters, search and buttons each choose left or right (FS-REQ-41). */
+export const LIST_ALIGN_OPTIONS = ["left", "right"] as const;
+export type ListAlign = (typeof LIST_ALIGN_OPTIONS)[number];
+/** The list element types the Alignment control offers itself for. */
+export const LIST_ALIGNABLE = new Set<string>(["search", "button", ...FILTER_TYPES]);
+/** An element's side of its list line. Unset keeps the look lists have
+ *  always had: controls trail an inline title and lead otherwise; buttons
+ *  trail (a "+ Client" sits at the far end). */
+export function listAlign(el: { type: string; data?: Record<string, string> }, besideTitle: boolean): ListAlign {
+  const a = el.data?.align;
+  if (a === "left" || a === "right") return a;
+  return el.type === "button" || besideTitle ? "right" : "left";
+}
 const PAGINATION = el({
   type: "pagination", label: "Pagination", desc: "Page controls", icon: "PG",
   dataFields: [{ key: "pageSize", label: "Page size", kind: "text" }],
@@ -219,6 +251,13 @@ const DATE_PICKER = el({
     { key: "selected", label: "Selected", kind: "text" },
   ],
   defaultLabel: "Date", shapeable: true, fillable: true, defaultFill: "outline",
+});
+/** A field shown but not editable — a reference number, a created date, a
+ *  value set elsewhere. The label is the field name; `value` is what it reads. */
+const READ_ONLY = el({
+  type: "read-only", label: "Read-only field", desc: "A value shown but not editable", icon: "RO",
+  dataFields: [{ key: "value", label: "Value", kind: "text" }],
+  defaultLabel: "Reference", defaultData: { value: "REF-00421" },
 });
 const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", shapeable: true, fillable: true, defaultFill: "outline" });
 const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
@@ -283,11 +322,23 @@ const CAL_LEGEND = el({
 /** Element lists shared between hosts (the canvas hosts everything). */
 export const FORM_ELEMENTS: ElementTypeMeta[] = [
   TEXT_INPUT, TEXT_AREA, SELECT, RADIO_GROUP, CHECKBOX, TOGGLE, DATE_PICKER,
-  FILE_UPLOAD, SECTION_HEADING, STEP, HELP_TEXT, BUTTON,
+  READ_ONLY, FILE_UPLOAD, SECTION_HEADING, STEP, HELP_TEXT, BUTTON,
 ];
 export const LIST_ELEMENTS: ElementTypeMeta[] = [
-  COLUMN, COLUMN_HEADER, ROW_ACTION, SELECT_COLUMN, SEARCH, FILTER, PAGINATION,
+  COLUMN, COLUMN_HEADER, ROW_ACTION, SELECT_COLUMN, SEARCH, FILTER, FILTER_MULTI, FILTER_MULTI_SEARCH, PAGINATION,
 ];
+/** A list's own button (FS-REQ-43) — "+ Client", "Export". Like the header it
+ *  sits on the title's line ("above") or in the controls row ("inline"),
+ *  and like the filters it chooses its side. */
+const LIST_BUTTON = el({
+  ...BUTTON,
+  desc: "Action button on the title line or beside the filters",
+  dataFields: [
+    ...BUTTON.dataFields,
+    { key: "placement", label: "Placement", kind: "select", options: ["inline", "above"] },
+  ],
+  defaultLabel: "+ Add", defaultData: { style: "primary", placement: "above" },
+});
 
 const dedupe = (lists: ElementTypeMeta[][]): ElementTypeMeta[] => {
   const seen = new Set<string>();
@@ -332,6 +383,19 @@ export interface ComponentMeta {
   defaultLayout?: string;
   elements: ElementTypeMeta[];
   defaultElements: ElementSeed[];
+  /** Per-type data this host gives an element on top of the type's own
+   *  defaults — a list's header starts on its own line, large. Applies to
+   *  every new element of that type here (seeded, added, or converted). */
+  elementData?: Record<string, Record<string, string>>;
+}
+
+/** The data a new `elementType` element starts with in `componentType`: the
+ *  type's own defaults, overridden by the host's (ComponentMeta.elementData). */
+export function elementDefaultData(componentType: string, elementType: string): Record<string, string> {
+  return {
+    ...elementMeta(componentType, elementType)?.defaultData,
+    ...COMPONENTS[componentType]?.elementData?.[elementType],
+  };
 }
 
 export const COMPONENTS: Record<string, ComponentMeta> = {
@@ -374,7 +438,9 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
       { id: "horizontal", label: "Horizontal" },
     ],
     defaultLayout: "vertical",
-    elements: [HEADER, ...LIST_ELEMENTS],
+    elements: [HEADER, ...LIST_ELEMENTS, LIST_BUTTON],
+    // A list's title reads as the page's heading: its own line, large.
+    elementData: { header: { placement: "above", fontSize: "36" } },
     defaultElements: [
       { type: "header" },
       { type: "column-header" },

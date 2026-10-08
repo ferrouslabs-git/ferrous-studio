@@ -5,7 +5,8 @@
 // The recipe deliberately writes only to a component's `elements` and
 // `props.links`, never to its `shape`. A list keeps its CRUD wiring when the
 // user switches it between table, cards, rows and feed.
-import { ElementSeed } from "../catalog";
+import { ElementSeed, isFilterType } from "../catalog";
+import { singular } from "./datasetMatch";
 import { componentTitle, elementLink, elKey, LinksProp } from "./actions";
 import { reposition } from "./positions";
 import { getDefaultProps, makeElement, uid } from "./regions";
@@ -23,6 +24,44 @@ export const FILTER_DEFAULT = "Active";
 
 export const EDIT_ACTION_LABEL = "Edit";
 export const ARCHIVE_ACTION_LABEL = "Archive";
+
+/** The list's create button: "+ Client" for a list titled Clients — the
+ *  title's last word made singular, capitalised as a button label is. A list
+ *  with no title gets "+ Add". */
+export function addButtonLabel(list: ComponentNode): string {
+  const title = componentTitle(list);
+  const last = title.split(/\s+/).filter(Boolean).pop();
+  if (!last) return "+ Add";
+  const one = singular(last);
+  return `+ ${one[0].toUpperCase()}${one.slice(1)}`;
+}
+
+/** The list's create button, if it has one: a button linked to the same page
+ *  as its Edit action, or labelled the way the recipe labels it. */
+const addButtonOf = (list: ComponentNode, editPageId: string | null): ElementNode | undefined =>
+  (list.elements ?? []).find(
+    (e) =>
+      e.type === "button" &&
+      ((editPageId != null && elementLink(list, elKey(e.id), null)?.pageId === editPageId) ||
+        e.label.trim().toLowerCase() === addButtonLabel(list).toLowerCase()),
+  );
+
+/** Where the recipe's Edit action leads, if it is wired up. */
+export function editTargetOf(list: ComponentNode): string | null {
+  const edit = rowActionNamed(list, EDIT_ACTION_LABEL);
+  return (edit && elementLink(list, elKey(edit.id), null)?.pageId) || null;
+}
+
+/** The create button the recipe adds (FS-REQ-43): right-aligned, on the
+ *  title's line when the title has its own line, else beside the filters. */
+export function addButtonSeed(list: ComponentNode): ElementSeed {
+  const header = (list.elements ?? []).find((e) => e.type === "header");
+  return {
+    type: "button",
+    label: addButtonLabel(list),
+    data: { style: "primary", placement: header?.data?.placement === "above" ? "above" : "inline", align: "right" },
+  };
+}
 
 /** Above this many fields a drawer's form goes two-column: a side sheet is the
  *  wrong home for a long single-column form. */
@@ -137,12 +176,13 @@ const rowActionNamed = (list: ComponentNode, label: string): ElementNode | undef
  *  someone labelled "Edit" by hand, or one whose drawer they later deleted,
  *  still wants wiring up. Archive and the filter have no link to check, so a
  *  matching element is enough. */
-export function crudGaps(list: ComponentNode): { edit: boolean; archive: boolean; filter: boolean } {
-  const edit = rowActionNamed(list, EDIT_ACTION_LABEL);
+export function crudGaps(list: ComponentNode): { edit: boolean; archive: boolean; filter: boolean; add: boolean } {
+  const editTarget = editTargetOf(list);
   return {
-    edit: !edit || !elementLink(list, elKey(edit.id), null),
+    edit: !editTarget,
     archive: !rowActionNamed(list, ARCHIVE_ACTION_LABEL),
-    filter: !(list.elements ?? []).some((e) => e.type === "filter"),
+    filter: !(list.elements ?? []).some((e) => isFilterType(e.type)),
+    add: !addButtonOf(list, editTarget),
   };
 }
 

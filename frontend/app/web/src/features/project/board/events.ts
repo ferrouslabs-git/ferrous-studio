@@ -22,6 +22,7 @@ export type EventVerb = "created" | "updated" | "deleted" | "shipped" | "unshipp
 
 export function eventVerb(action: string): EventVerb {
   if (action === "comment.created" || action === "commented") return "commented";
+  if (action === "comment.edited") return "updated";
   const verb = action.includes(".") ? action.split(".")[1] : action;
   if (
     verb === "created" ||
@@ -75,6 +76,7 @@ export function evSummary(e: BoardEvent, resolveValue?: (field: string, v: unkno
   const kind = e.entity_type;
   const verb = eventVerb(e.action);
   const name = String(d.title ?? d.name ?? d.text ?? d.excerpt ?? "");
+  if (e.action === "comment.edited") return `edited a comment${d.excerpt ? `: ${String(d.excerpt)}` : ""}`;
   if (verb === "created") return `created ${kind}${name ? ` — ${name}` : ""}`;
   if (verb === "deleted") return `deleted ${kind}${name ? ` — ${name}` : ""}`;
   if (verb === "commented") return `commented${d.excerpt ? `: ${String(d.excerpt)}` : ""}`;

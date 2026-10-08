@@ -18,7 +18,7 @@ import { deviceMinWidth } from "./components/Canvas";
 import { PreviewCanvas } from "./components/PreviewCanvas";
 import { CustomDef } from "./model/actions";
 import { BACK_PAGE_ID, LinkTarget } from "./model/types";
-import { Stage, useStageFit } from "./stage";
+import { DESKTOP_DESIGN_W, DESKTOP_FLEX_FLOOR, Stage, useDesktopFit, useStageFit } from "./stage";
 import { useHostChain } from "./useHostChain";
 import { useNavLanding } from "./useNavLanding";
 import { PageFetcher, usePageDocument } from "./usePageDocument";
@@ -121,6 +121,11 @@ export function PreviewShell({
   // On a phone a framed device fits the width and the mat scrolls to the rest.
   const isPhone = useIsPhone();
   const stageFit = useStageFit(canvasWrap, interfaceType, isPhone);
+  // As in the studio: a desktop page scales down whole to fit (FS-REQ-37).
+  const desktopDesignW = page
+    ? Math.max(DESKTOP_DESIGN_W, deviceMinWidth(page.document, host, page.presentation, DESKTOP_FLEX_FLOOR))
+    : DESKTOP_DESIGN_W;
+  const desktopFit = useDesktopFit(canvasWrap, desktopDesignW, !framed && !!page);
   // Desktop pages widen for their fixed-px columns and the canvas scrolls to
   // them; a framed device keeps its screen width, like the hardware it draws.
   const minDeviceWidth = !framed && page ? deviceMinWidth(page.document, host, page.presentation) : 0;
@@ -154,8 +159,11 @@ export function PreviewShell({
 
       <div className="preview-body">
         <div className={`canvas-wrap${framed ? " framed" : ""}`} ref={canvasWrap}>
-          <Stage fit={stageFit}>
-          <div className={`device ${device}${pageSwitching ? " page-switching" : ""}`} style={stageFit ? stageFit.device : minDeviceWidth > 0 ? { minWidth: minDeviceWidth } : undefined}>
+          <Stage fit={stageFit ?? desktopFit} desktop={!framed}>
+          <div
+            className={`device ${device}${pageSwitching ? " page-switching" : ""}`}
+            style={stageFit ? stageFit.device : desktopFit ? desktopFit.device : minDeviceWidth > 0 ? { minWidth: minDeviceWidth } : undefined}
+          >
             {page ? (
               <PreviewCanvas
                 doc={page.document}

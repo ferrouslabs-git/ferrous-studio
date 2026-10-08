@@ -60,6 +60,7 @@ from .schemas import (
     BurndownRead,
     CommentCreate,
     CommentRead,
+    CommentUpdate,
     DocCreate,
     DocRead,
     DocUpdate,
@@ -1559,6 +1560,51 @@ async def _live_comment(db: AsyncSession, board: Board, comment_id: UUID) -> Com
     if comment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
     return comment
+
+
+@router.patch("/projects/{project_id}/board/comments/{comment_id}", response_model=CommentRead)
+async def update_comment(
+    project_id: UUID,
+    comment_id: UUID,
+    payload: CommentUpdate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> CommentRead:
+    """Change what a comment says. Only its author may -- the same identity
+    rule as delete_comment, for the same reason: write access to the board is
+    not licence to put words in a colleague's mouth."""
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    comment = await _live_comment(db, board, comment_id)
+    if not await _is_comment_author(db, board, ctx, comment):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own comments")
+    body = payload.body.strip()
+    if body == comment.body:
+        return (await _with_attachments(db, board, [comment]))[0]
+    if not body:
+        # A comment may be files alone, but never nothing at all.
+        has_files = (
+            await db.execute(
+                select(Attachment.id).where(
+                    Attachment.board_id == board.id,
+                    Attachment.entity_type == "comment",
+                    Attachment.entity_id == comment.id,
+                    Attachment.status == "uploaded",
+                    Attachment.deleted_at.is_(None),
+                ).limit(1)
+            )
+        ).first()
+        if has_files is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A comment needs text or files")
+    comment.body = body
+    comment.edited_at = utc_now()
+    await service.write_event(
+        db, board, ctx.user_id, "comment.edited", comment.entity_type, comment.entity_id,
+        {"comment_id": str(comment.id), "excerpt": _clip(comment.body)},
+    )
+    await db.commit()
+    await db.refresh(comment)
+    return (await _with_attachments(db, board, [comment]))[0]
 
 
 @router.delete("/projects/{project_id}/board/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)

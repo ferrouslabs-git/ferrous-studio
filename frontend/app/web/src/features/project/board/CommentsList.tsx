@@ -1,8 +1,8 @@
 // A comment thread on one board entity, with a composer. Reads the thread
 // from the shared board (loaded once for the whole board), so it is in step
-// with the comment counts on cards. Delete is offered only on your own human
-// comments, and only to writers: an agent's comment (attributed to whoever
-// minted its token) is never deletable from here.
+// with the comment counts on cards. Edit and delete are offered only on your
+// own human comments, and only to writers: an agent's comment (attributed to
+// whoever minted its token) is never editable or deletable from here.
 //
 // A comment can carry files -- a screenshot of what is wrong, the marked-up
 // document -- attached from the button, dropped on the composer or pasted
@@ -50,6 +50,27 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
   // A screenshot on the clipboard becomes an attachment; text pastes as text.
   const onPaste = pasteFiles(addFiles);
 
+  // One comment at a time is open for editing, in place of its text.
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const saveEdit = async (c: BoardComment) => {
+    if (!editing) return;
+    const body = editing.text.trim();
+    if (body === c.body) {
+      setEditing(null);
+      return;
+    }
+    setSaving(true);
+    try {
+      await mutations.editComment(c.id, body);
+      setEditing(null);
+    } catch {
+      // The mutation layer has already shown the server's reason.
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const remove = async (id: string) => {
     if (!(await dialogs.confirm({ title: "Delete comment", message: "Delete this comment?", ok: "Delete comment" }))) return;
     await mutations.deleteComment(id).catch(() => undefined);
@@ -71,13 +92,48 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
             <div className="cmt-h">
               <b>{c.agent_id ? `${index.agentById.get(c.agent_id)?.name ?? "agent"} (agent)` : index.memberName(c.author_id)}</b>
               <span>{formatDateTime(c.created_at)}</span>
-              {mine && (
-                <button type="button" className="cmt-x" title="delete comment" onClick={() => void remove(c.id)}>
-                  ✕
-                </button>
+              {c.edited_at && <span title={`Edited ${formatDateTime(c.edited_at)}`}>(edited)</span>}
+              {mine && editing?.id !== c.id && (
+                <span className="cmt-tools">
+                  <button type="button" className="cmt-edit" title="edit comment" onClick={() => setEditing({ id: c.id, text: c.body })}>
+                    Edit
+                  </button>
+                  <button type="button" className="cmt-x" title="delete comment" onClick={() => void remove(c.id)}>
+                    ✕
+                  </button>
+                </span>
               )}
             </div>
-            {c.body && <div className="cmt-b">{c.body}</div>}
+            {editing?.id === c.id ? (
+              <div className="cmt-editing">
+                <textarea
+                  className="rqp-cmt"
+                  autoFocus
+                  value={editing.text}
+                  disabled={saving}
+                  onChange={(e) => setEditing({ id: c.id, text: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setEditing(null);
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void saveEdit(c);
+                  }}
+                />
+                <div className="cmt-actions">
+                  <button
+                    type="button"
+                    className="btn mini-x"
+                    disabled={saving || (!editing.text.trim() && !atts.length)}
+                    onClick={() => void saveEdit(c)}
+                  >
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                  <button type="button" className="btn mini-x" disabled={saving} onClick={() => setEditing(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              c.body && <div className="cmt-b">{c.body}</div>
+            )}
             {atts.length > 0 && (
               <div className="cmt-files">
                 {atts.map((a, i) => (

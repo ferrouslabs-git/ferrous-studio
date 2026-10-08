@@ -332,6 +332,15 @@ def test_only_the_author_deletes_a_comment():
     assert "You can only delete your own comments" in source
 
 
+def test_only_the_author_edits_a_comment():
+    """Editing is the same identity rule as deleting: board:write lets you
+    write to the board, not rewrite what a colleague (or an agent) said."""
+    source = inspect.getsource(routes.update_comment)
+    assert "_is_comment_author(" in source
+    assert "You can only edit your own comments" in source
+    assert "comment.edited_at = utc_now()" in source
+
+
 def test_only_a_comments_author_adds_or_removes_its_files():
     """A comment's files are part of what its author said -- the same rule as
     deleting the comment, applied where files come and go."""

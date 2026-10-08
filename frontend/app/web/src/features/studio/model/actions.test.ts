@@ -95,6 +95,75 @@ describe("layout actions", () => {
   });
 });
 
+describe("adding after the selection (FS-REQ-39, FS-REQ-47)", () => {
+  const form = (): ComponentNode => ({
+    id: "f", type: "form", label: "Client", pos: "a0",
+    elements: [el("a", "text-input", "Name", "a0"), el("b", "text-input", "Email", "a1"), el("c", "text-input", "Phone", "a2")],
+  });
+
+  it("lands straight after the named sibling", () => {
+    const p = page([form()]);
+    const result = addElement(p, ctx, "f", "select", null, "a");
+    const added = result!.selectElement!.key.slice(3);
+    expect(byPos(listOf(p)[0].elements!).map((e) => e.id)).toEqual(["a", added, "b", "c"]);
+  });
+
+  it("after the last sibling is the end; an unknown id falls back to appending", () => {
+    const p = page([form()]);
+    addElement(p, ctx, "f", "select", null, "c");
+    addElement(p, ctx, "f", "toggle", null, "nope");
+    expect(byPos(listOf(p)[0].elements!).map((e) => e.type)).toEqual(["text-input", "text-input", "text-input", "select", "toggle"]);
+  });
+});
+
+describe("dataset auto-binding (FS-REQ-44)", () => {
+  const withSets: ActionContext = {
+    customComponents: [],
+    datasets: [
+      { id: "ds-ind", name: "Industries", scope: "project" },
+      { id: "ds-cty", name: "Countries", scope: "platform" },
+      { id: "ds-ord", name: "Order statuses", scope: "platform" },
+      { id: "ds-rec", name: "Record status", scope: "platform" },
+    ],
+  };
+  const form = (elements: ElementNode[]): ComponentNode => ({ id: "f", type: "form", label: "Client", pos: "a0", elements });
+
+  it("a field turned into a dropdown binds the dataset its label names", () => {
+    const p = page([form([el("a", "text-input", "Industry", "a0")])]);
+    setElementType(p, withSets, "f", "a", "select");
+    expect(listOf(p)[0].elements![0].data?.dataset).toBe("ds-ind");
+  });
+
+  it("renaming an untouched dropdown binds; typed options are left alone", () => {
+    const p = page([
+      form([el("a", "select", "Choice", "a0", { options: "Option A, Option B" }), el("b", "select", "Choice", "a1", { options: "UK, France" })]),
+    ]);
+    setElementText(p, withSets, "f", elKey("a"), null, "Country");
+    setElementText(p, withSets, "f", elKey("b"), null, "Country");
+    const [a, b] = listOf(p)[0].elements!;
+    expect(a.data?.dataset).toBe("ds-cty");
+    expect(b.data?.dataset).toBeUndefined();
+  });
+
+  it("an ambiguous label binds nothing", () => {
+    const p = page([form([el("a", "text-input", "Status", "a0")])]);
+    setElementType(p, withSets, "f", "a", "select");
+    expect(listOf(p)[0].elements![0].data?.dataset).toBeUndefined();
+  });
+});
+
+describe("filter kinds (FS-REQ-40)", () => {
+  it("a multi-select turned single keeps only its first pick", () => {
+    const list: ComponentNode = {
+      id: "l", type: "list", label: "Clients", pos: "a0",
+      elements: [el("f", "filter-multi", "Status", "a0", { options: "Active, Archived, All", selected: "Active, Archived" })],
+    };
+    const p = page([list]);
+    setElementType(p, ctx, "l", "f", "filter");
+    expect(listOf(p)[0].elements![0].data?.selected).toBe("Active");
+  });
+});
+
 describe("element CRUD", () => {
   const navbar = (): ComponentNode => ({
     id: "n", type: "navbar", label: "App", pos: "a0", shape: "plain", layout: "horizontal",
@@ -508,8 +577,21 @@ describe("header element", () => {
     const cmp = listOf(p)[0];
     const header = cmp.elements!.find((e) => e.type === "header")!;
     expect(header.label).toBe("Team members");
-    expect(header.data?.placement).toBe("inline");
     expect(byPos(cmp.elements!)[0].type).toBe("header");
+  });
+
+  it("a list's header starts on its own line at 36px; other hosts keep inline (FS-REQ-38)", () => {
+    const p = page([]);
+    appendComponent(p, ctx, { type: "list", label: "Clients" });
+    appendComponent(p, ctx, { type: "form", label: "Client" });
+    const [listCmp, formCmp] = listOf(p);
+    const listHeader = listCmp.elements!.find((e) => e.type === "header")!;
+    expect(listHeader.data).toMatchObject({ placement: "above", fontSize: "36" });
+    expect(formCmp.elements!.find((e) => e.type === "header")!.data?.placement).toBe("inline");
+    // Re-adding a removed header gets the list's look again.
+    removeElement(p, ctx, listCmp.id, listHeader.id);
+    addElement(p, ctx, listCmp.id, "header");
+    expect(listCmp.elements!.find((e) => e.type === "header")!.data).toMatchObject({ placement: "above", fontSize: "36" });
   });
 
   it("an explicit header seed replaces the default one (max 1)", () => {

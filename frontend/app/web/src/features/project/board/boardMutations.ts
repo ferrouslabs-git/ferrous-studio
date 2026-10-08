@@ -10,7 +10,7 @@ import { deleteAttachment, uploadAll } from "../attachmentsApi";
 import { Agent, createAgent, deleteAgent, updateAgent } from "./agentsApi";
 import { useBoard } from "./boardData";
 import { reorderPatches, sameRef, spOrdered } from "./boardModel";
-import { BoardComment, BoardEntityType, createBoardComment, deleteBoardComment } from "./commentsApi";
+import { BoardComment, BoardEntityType, createBoardComment, deleteBoardComment, updateBoardComment } from "./commentsApi";
 import { DELIVERY_STATUS_LABEL } from "./constants";
 import { BoardDoc, BoardDocInput, createBoardDoc, deleteBoardDoc, updateBoardDoc } from "./docsApi";
 import { createEpic, deleteEpic, Epic, EpicInput, EpicPatch, updateEpic } from "./epicsApi";
@@ -373,6 +373,16 @@ export function useBoardMutations() {
       }
     }
 
+    async function editCommentM(commentId: string, body: string): Promise<BoardComment> {
+      try {
+        const it = await updateBoardComment(projectId, commentId, body);
+        b().replace("comments", it);
+        return it;
+      } catch (err) {
+        return fail(err);
+      }
+    }
+
     async function deleteCommentM(commentId: string): Promise<void> {
       try {
         await deleteBoardComment(projectId, commentId);
@@ -440,6 +450,7 @@ export function useBoardMutations() {
       deleteDoc: deleteDocM,
       postComment,
       removeCommentAttachment,
+      editComment: editCommentM,
       deleteComment: deleteCommentM,
       createAgent: createAgentM,
       patchAgent,

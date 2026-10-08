@@ -684,7 +684,10 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
 .board-page .cmt, .board-drawer .cmt { border: 1px solid var(--b-line); border-radius: var(--b-radius-lg); padding: 8px 10px; margin-bottom: 8px; font-size: 12px; }
 .board-page .cmt-h, .board-drawer .cmt-h { display: flex; gap: 8px; align-items: center; color: var(--b-ink3); font-size: 11px; margin-bottom: 4px; }
 .board-page .cmt-h b, .board-drawer .cmt-h b { color: var(--b-ink2); }
-.board-page .cmt-x, .board-drawer .cmt-x { margin-left: auto; border: none; background: none; color: var(--b-serious); cursor: pointer; font-size: 11px; padding: 0; }
+.board-page .cmt-tools, .board-drawer .cmt-tools { margin-left: auto; display: inline-flex; gap: 10px; align-items: center; }
+.board-page .cmt-x, .board-drawer .cmt-x { border: none; background: none; color: var(--b-serious); cursor: pointer; font-size: 11px; padding: 0; }
+.board-page .cmt-edit, .board-drawer .cmt-edit { border: none; background: none; color: var(--b-ink3); cursor: pointer; font: inherit; font-size: 11px; padding: 0; }
+.board-page .cmt-edit:hover, .board-drawer .cmt-edit:hover { color: var(--b-accent-text); }
 .board-page .cmt-b, .board-drawer .cmt-b { white-space: pre-wrap; }
 /* A comment's files: image thumbnails and named documents, in one wrapping row. */
 .board-page .cmt-files, .board-drawer .cmt-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: flex-start; }

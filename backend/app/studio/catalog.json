@@ -368,6 +368,26 @@
           "shapeable": true,
           "fillable": true
         },
+        "filter-multi": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "filter-multi-search": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
         "pagination": {
           "fields": [
             "pageSize"
@@ -375,6 +395,15 @@
           "max": 1,
           "shapeable": false,
           "fillable": false
+        },
+        "button": {
+          "fields": [
+            "style",
+            "placement"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
         }
       }
     },
@@ -454,6 +483,14 @@
           "max": null,
           "shapeable": true,
           "fillable": true
+        },
+        "read-only": {
+          "fields": [
+            "value"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
         },
         "file-upload": {
           "fields": [],
@@ -686,6 +723,14 @@
           "shapeable": true,
           "fillable": true
         },
+        "read-only": {
+          "fields": [
+            "value"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
         "file-upload": {
           "fields": [],
           "max": null,
@@ -745,6 +790,26 @@
           "fillable": true
         },
         "filter": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "filter-multi": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "filter-multi-search": {
           "fields": [
             "dataset",
             "options",

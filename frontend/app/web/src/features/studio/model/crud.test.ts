@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DATA_KINDS } from "../catalog";
 import {
+  addButtonLabel,
+  addButtonSeed,
   ARCHIVE_ACTION_LABEL,
   buildEditDocument,
   crudDisabledReason,
@@ -171,7 +173,18 @@ describe("crudGaps", () => {
   };
 
   it("reports everything missing on a bare list", () => {
-    expect(crudGaps(list([col("e1", "Name")]))).toEqual({ edit: true, archive: true, filter: true });
+    expect(crudGaps(list([col("e1", "Name")]))).toEqual({ edit: true, archive: true, filter: true, add: true });
+  });
+
+  it("counts a multi-select filter as the status filter too", () => {
+    const c = list([col("e1", "Name"), el("ef", "filter-multi", "Owner", "a1")]);
+    expect(crudGaps(c).filter).toBe(false);
+  });
+
+  it("finds the create button by its link to the Edit drawer, whatever it says", () => {
+    const c = list([col("e1", "Name"), el("ea", "row-action", "Edit", "a1"), el("eb", "button", "New", "a2")]);
+    c.props = { links: { [elKey("ea")]: { pageId: "p-1" }, [elKey("eb")]: { pageId: "p-1" } } };
+    expect(crudGaps(c).add).toBe(false);
   });
 
   it("treats an unlinked Edit action as still needing wiring", () => {
@@ -198,9 +211,27 @@ describe("crudGaps", () => {
       el("ea", "row-action", EDIT_ACTION_LABEL, "a1"),
       el("eb", "row-action", ARCHIVE_ACTION_LABEL, "a2"),
       el("ef", "filter", "Status", "a3"),
+      el("eb2", "button", "+ User", "a4"),
     ]);
     c.props = { links: { [elKey("ea")]: { pageId: "p-1" } } };
-    expect(crudGaps(c)).toEqual({ edit: false, archive: false, filter: false });
+    expect(crudGaps(c)).toEqual({ edit: false, archive: false, filter: false, add: false });
+  });
+});
+
+describe("the create button (FS-REQ-43)", () => {
+  it("is the singular of the list's title", () => {
+    const titled = (t: string) => list([el("h", "header", t, "a0")], t);
+    expect(addButtonLabel(titled("Clients"))).toBe("+ Client");
+    expect(addButtonLabel(titled("Companies"))).toBe("+ Company");
+    expect(addButtonLabel(titled("Active addresses"))).toBe("+ Address");
+    expect(addButtonLabel(list([el("h", "header", "", "a0")], ""))).toBe("+ Add");
+  });
+
+  it("sits right-aligned on the title line when the title has its own line", () => {
+    const above = list([el("h", "header", "Clients", "a0", { placement: "above" })], "Clients");
+    const inline = list([el("h", "header", "Clients", "a0", { placement: "inline" })], "Clients");
+    expect(addButtonSeed(above).data).toMatchObject({ placement: "above", align: "right" });
+    expect(addButtonSeed(inline).data).toMatchObject({ placement: "inline", align: "right" });
   });
 });
 

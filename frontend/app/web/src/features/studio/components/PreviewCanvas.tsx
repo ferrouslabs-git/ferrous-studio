@@ -8,7 +8,7 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { CustomDef, elementLink } from "../model/actions";
 import { cmpSize } from "../model/tree";
 import { ComponentNode, LayoutNode, LinkTarget, PageDocument, PagePresentation, Size } from "../model/types";
-import { cmpSizeStyle, fillsHeight, fillsRegion, floatCmpStyle, freeBodyMinHeight, freeCmpStyle, HostLevel, isFloating } from "./Canvas";
+import { cmpSizeStyle, fillsHeight, fillsRegion, floatCmpStyle, freeBodyMinHeight, freeCmpStyle, HostLevel, isFloating, overlayPanelStyle } from "./Canvas";
 import { CmpBoundary } from "./CmpBoundary";
 import { Schematic, SchematicChrome, styleData } from "./Schematic";
 
@@ -161,7 +161,7 @@ export function PreviewCanvas({ doc, host, presentation, activePageIds, defs, da
             if (e.target === e.currentTarget) onDismiss();
           }}
         >
-          <div className="overlay-panel">
+          <div className="overlay-panel" style={overlayPanelStyle(presentation, doc.root)}>
             <button
               type="button"
               className="overlay-close"

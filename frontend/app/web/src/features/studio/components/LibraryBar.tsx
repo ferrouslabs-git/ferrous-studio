@@ -24,6 +24,9 @@ const SHORT_NAMES: Record<string, string> = {
   "row-action": "Action",
   "select-column": "Bulk select",
   filter: "Filter",
+  "filter-multi": "Multi-filter",
+  "filter-multi-search": "Multi + search",
+  "read-only": "Read-only",
   pagination: "Pages",
   "text-input": "Input",
   "radio-group": "Radio",
@@ -56,7 +59,7 @@ export const RECIPES: RecipeMeta[] = [
   {
     id: "crud",
     label: "CRUD",
-    desc: "Add Edit and Archive row actions, a status filter, and an edit drawer whose inputs mirror the columns",
+    desc: "Add Edit and Archive row actions, a status filter, a create button, and an edit drawer whose inputs mirror the columns",
     hostType: "list",
   },
 ];
