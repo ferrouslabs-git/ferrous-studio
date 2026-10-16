@@ -387,6 +387,15 @@ describe("element type change", () => {
     expect(listOf(picked)[0].elements![0].data?.selected).toBe("Gold");
   });
 
+  it("a read-only field falls back to the first option or custom value (FS-REQ-55)", () => {
+    const opts = form([el("e1", "select", "Tier", "a0", { options: "Gold, Silver" })]);
+    setElementType(opts, ctx, "f", "e1", "read-only");
+    expect(listOf(opts)[0].elements![0].data).toEqual({ value: "Gold" });
+    const custom = form([el("e1", "text-input", "Company", "a0", { kind: "text", samples: "Acme Ltd, Globex" })]);
+    setElementType(custom, ctx, "f", "e1", "read-only");
+    expect(listOf(custom)[0].elements![0].data).toEqual({ value: "Acme Ltd" });
+  });
+
   it("swaps a still-default label for the new type's default", () => {
     const p = form([el("e1", "text-input", "Field", "a0")]);
     setElementType(p, ctx, "f", "e1", "date-picker");

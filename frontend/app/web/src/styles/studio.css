@@ -1597,6 +1597,10 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   white-space: nowrap; font-size: 12px; border-radius: 4px;
 }
 .ui-card-free-el.movable { cursor: grab; }
+/* A stacked card's fields drag too; the first drop frees the card (FS-REQ-69). */
+.ui-card-item-head > [data-card-field]:first-child { flex: 1 1 auto; min-width: 0; }
+.ui-card-item [data-card-field] { cursor: grab; }
+.ui-card-item [data-card-field]:hover { outline: 1px dashed var(--border-strong); outline-offset: 2px; }
 .ui-card-free-el.movable:hover { outline: 1px dashed var(--border-strong); outline-offset: 2px; }
 .ui-card-free-el.sel { outline: 1.5px solid var(--edit-accent); outline-offset: 2px; }
 .ui-card-free-el.dragging { cursor: grabbing; opacity: .85; z-index: 3; }

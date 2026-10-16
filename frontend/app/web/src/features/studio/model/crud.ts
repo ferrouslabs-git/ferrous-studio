@@ -86,6 +86,11 @@ export function fieldSeedForColumn(col: ElementNode): ElementSeed | null {
   const dataset = col.data?.dataset;
   if (dataset) return { type: "select", label, data: { dataset } };
 
+  // A column's custom values ride along on the field (FS-REQ-55): an input
+  // never shows them, but a field later turned read-only reads its first one
+  // rather than a stock reference number.
+  const samples = col.data?.samples ? { samples: col.data.samples } : {};
+
   switch (kind) {
     case "status":
       // The column's own samples are the closest thing to its value set.
@@ -100,13 +105,13 @@ export function fieldSeedForColumn(col: ElementNode): ElementSeed | null {
     case "phone":
     case "url":
     case "number":
-      return { type: "text-input", label, data: { kind } };
+      return { type: "text-input", label, data: { kind, ...samples } };
     case "currency":
     case "percentage":
-      return { type: "text-input", label, data: { kind: "number" } };
+      return { type: "text-input", label, data: { kind: "number", ...samples } };
     default:
       // text, person, tags, time — a plain line of text stands in fine.
-      return { type: "text-input", label, data: { kind: "text" } };
+      return { type: "text-input", label, data: { kind: "text", ...samples } };
   }
 }
 

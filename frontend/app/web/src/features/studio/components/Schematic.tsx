@@ -33,7 +33,7 @@ export interface SchematicEdit {
   /** Canvas free placement; one call per completed drag. A multi-selection
    *  drag moves several elements, so this takes them as one batch — one
    *  history step, one undo. */
-  moveElementsTo(moves: readonly { id: string; x: number; y: number }[]): void;
+  moveElementsTo(moves: readonly { id: string; x: number; y: number }[], props?: Record<string, string>): void;
   /** Canvas free sizing (corner drag); one call per completed drag. */
   resizeElementTo(id: string, w: number, h: number): void;
   /** Drag-and-drop reorder within this component. */
@@ -1714,6 +1714,48 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     }
 
     if (shape === "cards") {
+      /** A stacked card's fields drag too (FS-REQ-69): the first drop turns
+       *  the card into a free layout, every field stamped where it sits now
+       *  and the dragged one where it was dropped — one commit, so the card
+       *  never jumps and the switch undoes as one step. */
+      const startStackedDrag = (col: ElementNode) => (e: ReactPointerEvent) => {
+        if (!edit || e.button !== 0) return;
+        if ((e.target as HTMLElement).closest(".inline-edit-input, .ui-cell-img-resize, .ui-select-menu")) return;
+        e.preventDefault();
+        const node = e.currentTarget as HTMLElement;
+        const card = node.closest(".ui-card-item") as HTMLElement | null;
+        if (!card) return;
+        const scale = scaleOf(card);
+        let delta = { x: 0, y: 0 };
+        trackDrag(
+          e,
+          scale,
+          (dx, dy) => {
+            delta = { x: dx, y: dy };
+            node.style.transform = `translate(${dx}px, ${dy}px)`;
+          },
+          (moved) => {
+            node.style.transform = "";
+            if (!moved) return;
+            const box = card.getBoundingClientRect();
+            const stamps = [...card.querySelectorAll<HTMLElement>("[data-card-field]")].map((f) => {
+              const r = f.getBoundingClientRect();
+              const id = f.dataset.cardField!;
+              const shift = id === col.id ? delta : { x: 0, y: 0 };
+              return {
+                id,
+                x: Math.max(0, Math.round((r.left - box.left) / scale - card.clientLeft + shift.x)),
+                y: Math.max(0, Math.round((r.top - box.top) / scale - card.clientTop + shift.y)),
+              };
+            });
+            edit.moveElementsTo(stamps, { cardLayout: "free" });
+          },
+          4,
+        );
+      };
+      /** Drag wiring for one stacked field (editor only). */
+      const stackedField = (col: ElementNode) =>
+        edit ? { "data-card-field": col.id, onPointerDown: startStackedDrag(col), onClickCapture: swallowDragClick } : {};
       return (
         <div className="ui-listwrap">
           {head}
@@ -1721,11 +1763,17 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {rows.map((_, ri) => (
               <div key={ri} className="ui-card ui-card-item">
                 <div className="ui-card-item-head">
-                  <span className="ui-card-item-title">{titleCol ? cell(titleCol, ri, "") : null}</span>
-                  {statusCol && cell(statusCol, ri)}
+                  {titleCol ? (
+                    <span {...stackedField(titleCol)}>
+                      <span className="ui-card-item-title">{cell(titleCol, ri, "")}</span>
+                    </span>
+                  ) : (
+                    <span className="ui-card-item-title" />
+                  )}
+                  {statusCol && <span {...stackedField(statusCol)}>{cell(statusCol, ri)}</span>}
                 </div>
                 {rest.map((col) => (
-                  <div key={col.id} className="ui-card-line">
+                  <div key={col.id} className="ui-card-line" {...stackedField(col)}>
                     <span className="ui-card-line-label">{elTok(col, "")}</span>
                     {cell(col, ri)}
                   </div>

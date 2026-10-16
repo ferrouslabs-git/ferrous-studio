@@ -810,12 +810,16 @@ export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, 
     if (keep) data[key] = value;
   }
   // A shown value survives the change (FS-REQ-55): a picked option becomes a
-  // read-only field's value and back again; a dataset binding is already kept
+  // read-only field's value and back again; with nothing picked, the first of
+  // its options or custom values stands in. A dataset binding is already kept
   // by the field filter above when the new type declares one.
-  const carried = old.selected ?? old.value;
-  if (carried && !data.dataset) {
-    if (to.dataFields.some((f) => f.key === "value") && !data.value) data.value = carried;
-    else if (to.dataFields.some((f) => f.key === "selected") && !data.selected) data.selected = carried;
+  const firstOf = (list?: string) => list?.split(",").map((v) => v.trim()).find(Boolean);
+  const picked = old.selected ?? old.value;
+  if (!data.dataset) {
+    const shown = picked ?? firstOf(old.options) ?? firstOf(old.samples);
+    if (shown && to.dataFields.some((f) => f.key === "value") && !data.value) data.value = shown;
+    // A pick moves between pickers, never into a date picker's ISO slot.
+    else if (picked && to.type !== "date-picker" && to.dataFields.some((f) => f.key === "selected") && !data.selected) data.selected = picked;
   }
   // A carried dataset stands in for the sample its field supersedes.
   const superseded = data.dataset ? to.dataFields.find((f) => f.kind === "dataset")?.supersedes : undefined;

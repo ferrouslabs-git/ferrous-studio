@@ -1187,9 +1187,10 @@ function StudioEditor() {
     addRow: () => runCmp(id, (d, c) => A.addListRow(d, c, id)),
     setListCell: (row, columnId, text) => runCmp(id, (d, c) => A.setListCell(d, c, id, row, columnId, text)),
     // One commit for the whole batch: a multi-selection drag undoes as one.
-    moveElementsTo: (moves) =>
+    moveElementsTo: (moves, props) =>
       runCmp(id, (d, c) => {
         for (const m of moves) A.setElementPosition(d, c, id, m.id, m.x, m.y);
+        for (const [key, value] of Object.entries(props ?? {})) A.setPropValue(d, c, id, key, value);
       }),
     resizeElementTo: (elId, w, h) => runCmp(id, (d, c) => A.setElementSize(d, c, id, elId, w, h)),
     reorderElement: (srcId, targetId, before) => runCmp(id, (d, c) => A.reorderElement(d, c, id, srcId, targetId, before)),
