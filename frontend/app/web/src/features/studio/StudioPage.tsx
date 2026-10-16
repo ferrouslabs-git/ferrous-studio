@@ -73,7 +73,7 @@ import {
 import { diffPage } from "./model/diff";
 import { usePageHistory } from "./model/history";
 import { ComposedLevel, composeRegionOptions } from "./model/linkRegions";
-import { firstNavTarget, navLinkedPageIds, orderPagesByNav } from "./model/navOrder";
+import { firstNavTarget, navLinkedPageIds, navRouteLabel, orderPagesByNav } from "./model/navOrder";
 import { byPos, isLegacyDocument, posAfterLast } from "./model/positions";
 import { blankDocument, contentRegionFor, fallbackRegionId, findNode, regionDisplayName } from "./model/tree";
 import { BACK_PAGE_ID, ComponentNode, LayoutNode, LinkTarget, Op, PageDocument, PagePresentation, PageRecord } from "./model/types";
@@ -1053,13 +1053,20 @@ function StudioEditor() {
    *  content added beside a new nav is never stranded behind it. */
   const addComponentOn = (
     record: PageRecord | null,
-    seed: { type: string; shape?: string },
+    seed: { type: string; shape?: string; label?: string },
     regionId: string | null,
     index: number | null,
     customId: string | null,
     at: { x: number; y: number } | null,
   ) => {
     let added: { cmp: ComponentNode; region: string } | null = null;
+    // A titled component on a page a nav item routes to is titled after
+    // that route: "Clients", not "Records" (FS-REQ-58).
+    if (record && !seed.label && COMPONENTS[seed.type]?.elements.some((e) => e.type === "header")) {
+      const docs = [...hostChain.records, ...(page ? [page] : []), ...doc.cache.current.values()].map((r) => r.document);
+      const route = navRouteLabel(record.id, docs);
+      if (route) seed = { ...seed, label: route };
+    }
     runOn(record, (d, c) => {
       const result = A.appendComponent(d, c, seed, regionId, index, customId, at);
       const loc = result?.selectCmpId ? locateCmp(d.document, result.selectCmpId) : null;

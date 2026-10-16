@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { elKey, LinksProp } from "./actions";
-import { defaultChildPage, firstNavTarget, navEffectiveLink, navLinkedPageIds, navSubItems, orderPagesByNav } from "./navOrder";
+import { defaultChildPage, firstNavTarget, navEffectiveLink, navLinkedPageIds, navRouteLabel, navSubItems, orderPagesByNav } from "./navOrder";
 import { BACK_PAGE_ID, ComponentNode, ElementNode, PageDocument } from "./types";
 
 const el = (id: string, type: string, label: string, pos: string, data?: Record<string, string>): ElementNode =>
@@ -133,6 +133,14 @@ describe("nested nav items (FS-REQ-64)", () => {
 
   it("lists sub-item targets after their parent", () => {
     expect(navLinkedPageIds(doc({ r1: [nav()] }))).toEqual(["kid1", "kid2", "solo"]);
+  });
+});
+
+describe("navRouteLabel (FS-REQ-58)", () => {
+  it("is the label of the nav item routing to the page", () => {
+    const d = doc({ r1: [navbar("n", "a0", [["Clients", "p1"], ["Users", "p2"]])] });
+    expect(navRouteLabel("p2", [d])).toBe("Users");
+    expect(navRouteLabel("p3", [d])).toBeNull();
   });
 });
 

@@ -104,6 +104,23 @@ export function defaultChildPage(
   return null;
 }
 
+/** The label of the nav item that routes to `pageId` (FS-REQ-58), searched
+ *  across the given documents (the page's shells); null when no nav bar
+ *  links to it. A component added to the page takes it as its title. */
+export function navRouteLabel(pageId: string, docs: readonly PageDocument[]): string | null {
+  for (const doc of docs) {
+    for (const regionId of regionIds(doc.root)) {
+      for (const cmp of doc.regions[regionId] ?? []) {
+        if (cmp.type !== "navbar") continue;
+        for (const el of navItemsInDrawOrder(cmp)) {
+          if (elementLink(cmp, elKey(el.id), null)?.pageId === pageId && el.label.trim()) return el.label.trim();
+        }
+      }
+    }
+  }
+  return null;
+}
+
 /** Reorder pages so the nav-linked ones appear in nav order. Only they move:
  *  each takes a slot the group already held in the incoming (pos) order, so
  *  the shell page stays first and unlinked pages keep their place. */
