@@ -486,6 +486,7 @@
         },
         "read-only": {
           "fields": [
+            "dataset",
             "value"
           ],
           "max": null,
@@ -725,6 +726,7 @@
         },
         "read-only": {
           "fields": [
+            "dataset",
             "value"
           ],
           "max": null,

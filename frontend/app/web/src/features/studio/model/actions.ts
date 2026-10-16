@@ -771,7 +771,17 @@ export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, 
       (!!field && (field.kind !== "select" || (field.options ?? []).includes(value)));
     if (keep) data[key] = value;
   }
-  for (const [key, value] of Object.entries(elementDefaultData(cmp.type, type))) data[key] ??= value;
+  // A shown value survives the change (FS-REQ-55): a picked option becomes a
+  // read-only field's value and back again; a dataset binding is already kept
+  // by the field filter above when the new type declares one.
+  const carried = old.selected ?? old.value;
+  if (carried && !data.dataset) {
+    if (to.dataFields.some((f) => f.key === "value") && !data.value) data.value = carried;
+    else if (to.dataFields.some((f) => f.key === "selected") && !data.selected) data.selected = carried;
+  }
+  // A carried dataset stands in for the sample its field supersedes.
+  const superseded = data.dataset ? to.dataFields.find((f) => f.kind === "dataset")?.supersedes : undefined;
+  for (const [key, value] of Object.entries(elementDefaultData(cmp.type, type))) if (key !== superseded) data[key] ??= value;
   // A multi-select becoming a single-select keeps its first pick only.
   if (isMultiFilter(element.type) && !isMultiFilter(type) && data.selected) {
     const firstPick = data.selected.split(",")[0].trim();

@@ -375,8 +375,11 @@
   background: var(--panel); color: var(--text);
 }
 
+/* Hangs outside the component, over its top-right corner, so it never covers
+   the component's own content (a nav item, a heading); flips below when a
+   clipping edge leaves no room above (Canvas sets .below). */
 .cmp-actions {
-  position: absolute; top: 6px; right: 6px; z-index: 5;
+  position: absolute; bottom: calc(100% + 4px); right: 0; z-index: 8;
   display: flex; gap: 2px; padding: 2px;
   border-radius: var(--radius-lg);
   background: var(--chrome-panel); border: 1px solid var(--chrome-line); box-shadow: var(--shadow);
@@ -385,6 +388,7 @@
 /* The component toolbar shows only when the COMPONENT itself is selected —
    with an element selected, its controls are the ones on show. */
 .cmp.selected > .cmp-actions { opacity: 1; pointer-events: auto; }
+.cmp-actions.below { bottom: auto; top: calc(100% + 4px); }
 .cmp-actions button {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
   border: 0; border-radius: var(--radius); background: transparent; color: var(--chrome-ink-dim); cursor: pointer;

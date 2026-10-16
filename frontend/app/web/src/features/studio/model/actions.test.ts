@@ -375,6 +375,17 @@ describe("element type change", () => {
     expect(listOf(p)[0].elements![0].data).toEqual({ options: "Option A, Option B" });
   });
 
+  it("a read-only field keeps the dataset or picked value it came with (FS-REQ-55)", () => {
+    const bound = form([el("e1", "select", "Country", "a0", { dataset: "ds1", selected: "UK" })]);
+    setElementType(bound, ctx, "f", "e1", "read-only");
+    expect(listOf(bound)[0].elements![0].data).toEqual({ dataset: "ds1" });
+    const picked = form([el("e1", "select", "Tier", "a0", { options: "Gold, Silver", selected: "Gold" })]);
+    setElementType(picked, ctx, "f", "e1", "read-only");
+    expect(listOf(picked)[0].elements![0].data).toEqual({ value: "Gold" });
+    setElementType(picked, ctx, "f", "e1", "select");
+    expect(listOf(picked)[0].elements![0].data?.selected).toBe("Gold");
+  });
+
   it("swaps a still-default label for the new type's default", () => {
     const p = form([el("e1", "text-input", "Field", "a0")]);
     setElementType(p, ctx, "f", "e1", "date-picker");

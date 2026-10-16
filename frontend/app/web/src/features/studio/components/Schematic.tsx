@@ -800,7 +800,12 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "file-upload": return body("file");
       // Shown, not editable: the value reads as plain text on a quiet ground,
       // with no input frame to suggest it can be typed into (FS-REQ-45).
-      case "read-only": return <div className="ui-readonly">{dataTok(el, "value", "REF-00421")}</div>;
+      case "read-only": {
+        // A bound dataset supersedes the typed value: show its first entry.
+        const ds = datasetOf(el);
+        if (ds?.values.length) return <div className="ui-readonly">{ds.values[0]}</div>;
+        return <div className="ui-readonly">{dataTok(el, "value", "REF-00421")}</div>;
+      }
       case "select": {
         const value = selectedValue(el);
         return body(
@@ -1399,13 +1404,18 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const legendEl = first("legend");
     const rangeEl = first("range-selector");
     const stats = byType("stat");
+    // Each part of the chart exists only while its element does (FS-REQ-66):
+    // no header band unless something visible sits in it, and no category
+    // labels without a category axis. A pie has no value axis to show.
+    const radial = shape === "pie" || shape === "donut";
+    const headUnit = !radial ? valueAxis : undefined;
 
-    const head = headerInline || legendEl || valueAxis || rangeEl ? (
+    const head = headerInline || legendEl || headUnit || rangeEl ? (
       <div className="ui-card-head">
         {headerInline && elTok(headerInline, "ui-card-title")}
         <div className="ui-row">
           {legendEl && elBox(legendEl, "ui-legend-box", series.map((sr) => <Fragment key={sr.id}>{elTok(sr, "ui-chip sm")}</Fragment>))}
-          {valueAxis && dataTok(valueAxis, "unit", "", "ui-chip sm")}
+          {headUnit && dataTok(headUnit, "unit", "", "ui-chip sm")}
           {rangeEl && elTok(rangeEl, "ui-chip sm")}
         </div>
       </div>
@@ -1474,7 +1484,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {values.map((_, i) => (
               <span key={i} className="ui-pie-key">
                 <i style={{ background: PIE_COLOURS[i % PIE_COLOURS.length] }} aria-hidden />
-                {categoryTok(i, `Slice ${i + 1}`)}
+                {catAxis && categoryTok(i, `Slice ${i + 1}`)}
                 <b>{seriesTok(rawValues[i] ?? null, String(values[i]), primary ? (t) => setSeriesValue(i, t) : undefined)}</b>
               </span>
             ))}
@@ -1506,11 +1516,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               })}
             </svg>
           </div>
-          <div className="ui-chart-x">
-            {Array.from({ length: n }, (_, i) => (
-              <Fragment key={i}>{categoryTok(i)}</Fragment>
-            ))}
-          </div>
+          {catAxis && (
+            <div className="ui-chart-x">
+              {Array.from({ length: n }, (_, i) => (
+                <Fragment key={i}>{categoryTok(i)}</Fragment>
+              ))}
+            </div>
+          )}
         </div>
       );
     } else {
@@ -1528,11 +1540,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               ))}
             </div>
           </div>
-          <div className="ui-chart-x">
-            {Array.from({ length: n }, (_, i) => (
-              <Fragment key={i}>{categoryTok(i)}</Fragment>
-            ))}
-          </div>
+          {catAxis && (
+            <div className="ui-chart-x">
+              {Array.from({ length: n }, (_, i) => (
+                <Fragment key={i}>{categoryTok(i)}</Fragment>
+              ))}
+            </div>
+          )}
         </div>
       );
     }

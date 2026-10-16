@@ -256,7 +256,10 @@ const DATE_PICKER = el({
  *  value set elsewhere. The label is the field name; `value` is what it reads. */
 const READ_ONLY = el({
   type: "read-only", label: "Read-only field", desc: "A value shown but not editable", icon: "RO",
-  dataFields: [{ key: "value", label: "Value", kind: "text" }],
+  dataFields: [
+    { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "value" },
+    { key: "value", label: "Value", kind: "text" },
+  ],
   defaultLabel: "Reference", defaultData: { value: "REF-00421" },
 });
 const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", shapeable: true, fillable: true, defaultFill: "outline" });

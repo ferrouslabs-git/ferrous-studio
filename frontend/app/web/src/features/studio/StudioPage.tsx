@@ -528,7 +528,8 @@ function StudioEditor() {
           if (key === "c" ? !!copySelection() : cutSelection()) e.preventDefault();
         }
       }
-      else if ((e.key === "Enter" || e.key === "F2") && selection?.kind === "element" && canWrite) {
+      else if ((e.key === "Enter" || e.key === "F2" || (key === "t" && !mod && !e.altKey)) && selection?.kind === "element" && canWrite) {
+        // T is the label shortcut (FS-REQ-60); Enter and F2 are its synonyms.
         setEditingElement(selection);
         e.preventDefault();
       } else if ((e.key === "Delete" || e.key === "Backspace") && selection?.kind === "element" && isElKey(selection.key) && canWrite) {
@@ -1033,6 +1034,9 @@ function StudioEditor() {
         : null;
     const result = runCmp(cmpId, (d, c) => A.addElement(d, c, cmpId, type, null, afterId));
     const created = result?.selectElement;
+    // A new labelled element opens straight into its label editor, so the
+    // first keystrokes name it (FS-REQ-65).
+    if (created && hostCmp && elementMeta(hostCmp.type, type)?.defaultLabel) setEditingElement(created);
     if (!created || !owner || !loc || hostCmp?.type !== "navbar" || type !== "nav-item") return;
     const regionId = contentRegionFor(owner.document.root, loc.region);
     if (!regionId) return;

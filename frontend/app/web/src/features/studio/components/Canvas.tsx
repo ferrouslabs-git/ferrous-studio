@@ -6,7 +6,7 @@
 // Selection is three-level: a region (click its background), a component
 // (click it), or a single element inside one (click a nav item / button —
 // see selection.ts). Double-clicking a linked element follows its link.
-import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useState } from "react";
+import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useLayoutEffect, useState } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import { elementHosts } from "../catalog";
 import { CustomDef, elementLink, locateCmp } from "../model/actions";
@@ -280,6 +280,9 @@ const Glyph = ({ d }: { d: string }) => (
   </svg>
 );
 
+/** Height the component toolbar needs above a component (its 28px + gap). */
+const TOOLBAR_ROOM = 34;
+
 export function Canvas(props: Props) {
   const { doc, host, presentation, canWrite, selection, editingElement } = props;
   const [hint, setHint] = useState<DropHint | null>(null);
@@ -292,6 +295,23 @@ export function Canvas(props: Props) {
   const [liveCmp, setLiveCmp] = useState<Record<string, { w?: number; h?: number }>>({});
   /** Live x/y override while a free-region component drag is in flight. */
   const [liveCmpPos, setLiveCmpPos] = useState<Record<string, { x: number; y: number }>>({});
+  /** The selected component's toolbar hangs outside it, above — or below
+   *  when the nearest clipping edge leaves no room above (FS-REQ-67). */
+  const [toolsBelow, setToolsBelow] = useState(false);
+  const selectedCmpId = selection?.kind === "cmp" ? selection.id : null;
+  useLayoutEffect(() => {
+    if (!selectedCmpId) return;
+    const node = document.querySelector<HTMLElement>(`[data-cmp-id="${CSS.escape(selectedCmpId)}"]`);
+    if (!node) return;
+    let limit = 0;
+    for (let p = node.parentElement; p; p = p.parentElement) {
+      if (getComputedStyle(p).overflowY !== "visible") {
+        limit = p.getBoundingClientRect().top;
+        break;
+      }
+    }
+    setToolsBelow(node.getBoundingClientRect().top - limit < TOOLBAR_ROOM);
+  }, [selectedCmpId, doc]);
   const clear = () => {
     setHint(null);
     setOverRegion(null);
@@ -873,7 +893,7 @@ export function Canvas(props: Props) {
             !!props.marks?.tasks.cmps.has(cmp.id),
           )}
           {editable && (
-            <div className="cmp-actions" role="toolbar" aria-label={`${cmp.label} controls`} title={`${cmp.type} · ${cmp.label}`}>
+            <div className={`cmp-actions${toolsBelow ? " below" : ""}`} role="toolbar" aria-label={`${cmp.label} controls`} title={`${cmp.type} · ${cmp.label}`}>
               {structural && (
                 <button type="button" title="Edit structure" aria-label="Edit structure" onClick={action(() => props.onEditStructure(cmp.id))}>
                   <Glyph d={ICON.pencil} />
