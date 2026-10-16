@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  chargedWork,
   contractedIn,
   currentMonth,
   fmtDay,
@@ -132,5 +133,28 @@ describe("formatting", () => {
     expect(fmtDuration((3 * 24 + 4) * 60 * min)).toBe("3d 4h");
     expect(fmtDuration(2 * 24 * 60 * min)).toBe("2d");
     expect(fmtDuration(-1)).toBe("—");
+  });
+});
+
+describe("chargedWork (FS-REQ-54)", () => {
+  const report = (id: string, estimate: number | null) => ({ id, resolved_at: "2026-03-10T09:00:00", estimate_hours: estimate });
+
+  it("charges a report its own estimate until requirements are raised from it", () => {
+    expect(chargedWork([report("a", 3)], [{ feedback_id: "other", estimate_hours: 8 }])).toEqual([
+      { resolved_at: "2026-03-10T09:00:00", estimate_hours: 3 },
+    ]);
+  });
+
+  it("then charges the sum of those requirements' estimates instead", () => {
+    const reqs = [
+      { feedback_id: "a", estimate_hours: 2.5 },
+      { feedback_id: "a", estimate_hours: null },
+      { feedback_id: "a", estimate_hours: 4 },
+    ];
+    expect(chargedWork([report("a", 3)], reqs)[0].estimate_hours).toBe(6.5);
+  });
+
+  it("has nothing to charge when no raised requirement is estimated", () => {
+    expect(chargedWork([report("a", 3)], [{ feedback_id: "a", estimate_hours: null }])[0].estimate_hours).toBeNull();
   });
 });

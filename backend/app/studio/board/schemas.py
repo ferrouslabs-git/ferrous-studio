@@ -352,6 +352,7 @@ class RequirementRead(BaseModel):
     sprint_id: UUID | None
     estimate_hours: float | None = None
     queue_position: int | None = None
+    feedback_id: UUID | None = None
     effective_epic_id: UUID | None = None
     effective_release_id: UUID | None = None
     created_at: datetime

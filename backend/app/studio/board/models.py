@@ -309,6 +309,9 @@ class Requirement(Base):
     assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)
     sprint_id = Column(UUID(as_uuid=True), ForeignKey("board_sprints.id", ondelete="SET NULL"), nullable=True)
+    # The feedback report this was raised from (FS-REQ-51/54). A report may
+    # raise several; the maintenance log charges it their summed estimates.
+    feedback_id = Column(UUID(as_uuid=True), ForeignKey("board_feedback.id", ondelete="SET NULL"), nullable=True)
     # Effort estimate, in HOURS. Nullable on purpose: NULL means "not estimated
     # yet", which is a real state and must never be conflated with zero.
     # ``Float`` (double precision), deliberately not ``Numeric``: psycopg maps

@@ -199,15 +199,17 @@ def test_severity_becomes_priority(severity, priority):
     assert service.requirement_from_feedback(_report(severity=severity), "UAT")["priority"] == priority
 
 
-def test_raising_a_requirement_is_board_write_and_refuses_a_second():
+def test_raising_a_requirement_is_board_write_and_may_repeat():
     from tests.test_role_permissions import required_permissions
 
     assert required_permissions(routes.create_requirement_from_feedback) == {"board:write"}
     src = inspect.getsource(routes.create_requirement_from_feedback)
-    assert "HTTP_409_CONFLICT" in src
-    assert "Requirement.deleted_at.is_(None)" in src
+    # A report may raise several requirements (FS-REQ-54): no 409, and each
+    # requirement points back at the report it came from.
+    assert "HTTP_409_CONFLICT" not in src
     assert "create_requirement_content(" in src
     assert "_copy_screenshots(" in src
+    assert "requirement.feedback_id = item.id" in src
     assert "item.requirement_id = requirement.id" in src
 
 

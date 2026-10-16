@@ -19,6 +19,7 @@ const sprint = (id: string, start: string | null, end: string | null): Sprint =>
 });
 const req = (id: string, sprintId: string | null): Requirement => ({
   id,
+  feedback_id: null,
   human_id: id,
   title: "",
   body: "",

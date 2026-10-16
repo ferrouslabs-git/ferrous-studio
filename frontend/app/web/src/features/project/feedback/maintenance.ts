@@ -9,11 +9,13 @@
 //     date's month inclusive (or for ever, with no end). A month it covers
 //     gets its full hours -- no proration for a contract starting mid-month.
 //     Overlapping contracts add up: two running at once is two lots of hours.
-//   * Hours used in a month are the estimates of the reports resolved in it.
-//     The estimate is the figure the client confirmed (the status flow has an
-//     "Estimated – to confirm" step), so it is what the work is charged at. A
-//     resolved report with no estimate uses nothing, and is counted so the
-//     page can say so rather than quietly under-reporting.
+//   * Hours used in a month are what the reports resolved in it are charged
+//     at (chargedWork). A report is charged its own estimate -- the figure the
+//     client confirmed at "Estimated – to confirm" -- until requirements are
+//     raised from it; from then on the sum of those requirements' estimates
+//     supersedes it, since the work is planned and estimated there. A resolved
+//     report with nothing to charge uses nothing, and is counted so the page
+//     can say so rather than quietly under-reporting.
 //   * Unused hours roll over into the next month, without limit. An overspend
 //     rolls over too, as a negative balance, so a heavy month is paid back by
 //     the next rather than forgotten.
@@ -51,6 +53,39 @@ export interface MonthRow {
   resolved: number;
   /** Of those, how many had no estimate and so used nothing. */
   unestimated: number;
+}
+
+/** What chargedWork needs of a report and of a requirement raised from it. */
+export interface ChargeableReport {
+  id: string;
+  resolved_at: string | null;
+  estimate_hours: number | null;
+}
+export interface RaisedRequirement {
+  feedback_id: string | null;
+  estimate_hours: number | null;
+}
+
+/**
+ * Each report with the hours it is charged at: the summed estimates of the
+ * requirements raised from it once it has any, else its own estimate. Null
+ * when there is nothing to charge -- no requirement carries an estimate, or
+ * (with none raised) the report has none.
+ */
+export function chargedWork(reports: ChargeableReport[], requirements: RaisedRequirement[]): ResolvedWork[] {
+  const raised = new Map<string, (number | null)[]>();
+  for (const r of requirements) {
+    if (!r.feedback_id) continue;
+    const list = raised.get(r.feedback_id) ?? [];
+    list.push(r.estimate_hours);
+    raised.set(r.feedback_id, list);
+  }
+  return reports.map((report) => {
+    const estimates = raised.get(report.id);
+    if (!estimates) return { resolved_at: report.resolved_at, estimate_hours: report.estimate_hours };
+    const known = estimates.filter((e): e is number => e != null);
+    return { resolved_at: report.resolved_at, estimate_hours: known.length ? round2(known.reduce((a, b) => a + b, 0)) : null };
+  });
 }
 
 /** The month a date or timestamp falls in: "2026-03-14T09:00:00" -> "2026-03". */

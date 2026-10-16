@@ -41,6 +41,8 @@ export interface Requirement {
   // The agent work order within its sprint: null = not ordered, lower = earlier.
   // Positions repeat across sprints and are cleared when a requirement leaves one.
   queue_position: number | null;
+  /** The feedback report this was raised from, if any (FS-REQ-51/54). */
+  feedback_id: string | null;
   effective_epic_id: string | null;
   effective_release_id: string | null;
   created_at: string;

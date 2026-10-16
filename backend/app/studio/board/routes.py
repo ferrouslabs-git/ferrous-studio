@@ -2078,30 +2078,17 @@ async def create_requirement_from_feedback(
     The requirement starts from the report -- its title, its words, where and
     by whom it was seen, a priority matching its severity, its assignee and
     estimate -- and its screenshots are copied across, so the requirement
-    stands on its own if the report is later deleted. The report remembers the
-    requirement; a report whose requirement is still live is refused (409),
-    one whose requirement was deleted may raise another.
+    stands on its own if the report is later deleted. A report may raise as
+    many requirements as the fix needs: each remembers the report
+    (``feedback_id``), and once it has any the maintenance log charges the
+    report at their summed estimates instead of its own (FS-REQ-54).
 
-    Answers with the report, which now carries ``requirement_id``; the client
-    loads the requirement itself through the board.
+    Answers with the report, whose ``requirement_id`` is the requirement just
+    raised; the client loads the requirements themselves through the board.
     """
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     item = await _get_feedback(db, board, feedback_id)
-    if item.requirement_id is not None:
-        live = (
-            await db.execute(
-                select(Requirement.id).where(
-                    Requirement.id == item.requirement_id,
-                    Requirement.board_id == board.id,
-                    Requirement.deleted_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-        if live is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=f"{item.human_id} already has a requirement"
-            )
     environment = (
         await db.execute(
             select(Environment.label).where(Environment.board_id == board.id, Environment.slug == item.environment)
@@ -2116,6 +2103,7 @@ async def create_requirement_from_feedback(
         fields["assignee_id"] = None
     _, requirement = await create_requirement_content(db, project, ctx, RequirementCreate(**fields))
     await _copy_screenshots(db, board, item, requirement, ctx.user_id)
+    requirement.feedback_id = item.id
     item.requirement_id = requirement.id
     item.updated_at = utc_now()
     await service.write_event(

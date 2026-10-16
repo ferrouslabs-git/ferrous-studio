@@ -22,7 +22,7 @@ import {
   MaintenanceContractInput,
   updateMaintenanceContract,
 } from "./feedbackApi";
-import { currentMonth, fmtDay, fmtHours, fmtMonth, maintenanceLedger, monthOf, MonthRow } from "./maintenance";
+import { chargedWork, currentMonth, fmtDay, fmtHours, fmtMonth, maintenanceLedger, monthOf, MonthRow, RaisedRequirement } from "./maintenance";
 
 type Phase = "current" | "upcoming" | "ended";
 
@@ -40,12 +40,16 @@ const EMPTY_FORM = { start_date: "", end_date: "", hours_per_month: "" };
 export function MaintenanceLog({
   projectId,
   reports,
+  requirements,
   canWrite,
   creating,
 }: {
   projectId: string;
   /** Every report on the board; only resolved ones count. */
   reports: Feedback[];
+  /** The board's requirements: those raised from a report replace its
+   *  estimate with theirs (chargedWork). */
+  requirements: RaisedRequirement[];
   canWrite: boolean;
   /** Bumped by the page head's "Add contract" to open the form. */
   creating: number;
@@ -82,7 +86,10 @@ export function MaintenanceLog({
   };
 
   const list = contracts.data ?? [];
-  const ledger = useMemo(() => maintenanceLedger(list, reports, month), [list, reports, month]);
+  const ledger = useMemo(
+    () => maintenanceLedger(list, chargedWork(reports, requirements), month),
+    [list, reports, requirements, month],
+  );
   const thisMonth: MonthRow | undefined = ledger[ledger.length - 1];
   const months = useMemo(() => [...ledger].reverse(), [ledger]);
 

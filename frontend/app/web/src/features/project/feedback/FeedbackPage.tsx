@@ -185,13 +185,13 @@ export function FeedbackPage() {
   /** The published address of an environment, "" when it has none. */
   const addressOf = (slug: string) => envs.find((e) => e.slug === slug)?.url ?? "";
 
-  /** The live requirement raised from a report, if it still exists on the board. */
-  const requirementOf = (item: Feedback) =>
-    item.requirement_id ? board.index.requirementById.get(item.requirement_id) ?? null : null;
-  // Until the board has loaded, a linked id cannot be told from a deleted one;
-  // offering "Create requirement" then would only earn a 409.
-  const canRaiseRequirement = (item: Feedback) =>
-    canWrite && board.data !== null && requirementOf(item) === null;
+  /** The live requirements raised from a report, oldest first. A report may
+   *  raise several; together their estimates replace its own in the
+   *  maintenance log (FS-REQ-54). */
+  const requirementsOf = (item: Feedback) =>
+    (board.data?.requirements ?? []).filter((r) => r.feedback_id === item.id);
+  // Until the board has loaded there is nothing to link the new requirement to.
+  const canRaiseRequirement = () => canWrite && board.data !== null;
 
   const openDrawer = (item: Feedback | null) => {
     setEditing(item);
@@ -391,8 +391,7 @@ export function FeedbackPage() {
     severityFilter !== "" ||
     statusFilter !== DEFAULT_STATUS_FILTER;
 
-  const linked = editing ? requirementOf(editing) : null;
-  const linkedHref = linked ? hrefFor("requirement", linked.id) : null;
+  const linked = editing ? requirementsOf(editing) : [];
   const tookToResolve = editing ? resolutionTime(editing) : null;
 
   return (
@@ -431,6 +430,7 @@ export function FeedbackPage() {
         <MaintenanceLog
           projectId={project.id}
           reports={rows}
+          requirements={board.data?.requirements ?? []}
           canWrite={canWrite}
           creating={addContract}
         />
@@ -495,7 +495,7 @@ export function FeedbackPage() {
                 className: "primary",
                 render: (item) => {
                   const comments = board.index.commentCount(item.id);
-                  const requirement = requirementOf(item);
+                  const raised = requirementsOf(item);
                   return (
                     <NameCell sub={item.detail || undefined} onOpen={() => openDrawer(item)}>
                       {item.human_id} · {item.title}
@@ -509,11 +509,11 @@ export function FeedbackPage() {
                           {comments} comment{comments === 1 ? "" : "s"}
                         </span>
                       )}
-                      {requirement && (
-                        <span className="badge accent" title={`Requirement ${requirement.human_id} raised from it`}>
-                          {requirement.human_id}
+                      {raised.map((r) => (
+                        <span key={r.id} className="badge accent" title={`Requirement ${r.human_id} raised from it`}>
+                          {r.human_id}
                         </span>
-                      )}
+                      ))}
                     </NameCell>
                   );
                 },
@@ -572,7 +572,7 @@ export function FeedbackPage() {
               canWrite
                 ? [
                     { label: "Triage", onSelect: () => openDrawer(item) },
-                    ...(canRaiseRequirement(item)
+                    ...(canRaiseRequirement()
                       ? [{ label: "Create requirement", onSelect: () => void raiseRequirement(item, false) }]
                       : []),
                     { label: "Delete", danger: true, onSelect: () => setDeleting(item) },
@@ -740,25 +740,30 @@ export function FeedbackPage() {
                 </span>
               </Field>
             )}
-            {(linked || canRaiseRequirement(editing)) && (
-              <Group label="Requirement">
-                <span className="fb-requirement">
-                  {linked ? (
-                    <>
-                      <IdChip of={{ type: "requirement", id: linked.id }}>{linked.human_id}</IdChip>
-                      {linkedHref ? <Link to={linkedHref}>{linked.title}</Link> : <span>{linked.title}</span>}
-                    </>
-                  ) : (
+            {(linked.length > 0 || canRaiseRequirement()) && (
+              <Group label={linked.length > 1 ? "Requirements" : "Requirement"}>
+                {linked.map((r) => {
+                  const href = hrefFor("requirement", r.id);
+                  return (
+                    <span key={r.id} className="fb-requirement">
+                      <IdChip of={{ type: "requirement", id: r.id }}>{r.human_id}</IdChip>
+                      {href ? <Link to={href}>{r.title}</Link> : <span>{r.title}</span>}
+                      <span className="badge muted">{r.estimate_hours != null ? `${r.estimate_hours}h` : "No estimate"}</span>
+                    </span>
+                  );
+                })}
+                {canRaiseRequirement() && (
+                  <span className="fb-requirement">
                     <button
                       type="button"
                       className="btn"
                       disabled={saving || !form.title.trim()}
                       onClick={() => void raiseRequirement(editing, true)}
                     >
-                      Create requirement
+                      {linked.length ? "Create another requirement" : "Create requirement"}
                     </button>
-                  )}
-                </span>
+                  </span>
+                )}
               </Group>
             )}
           </>
