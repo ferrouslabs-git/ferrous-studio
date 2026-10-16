@@ -43,13 +43,16 @@ QueuePosition = Annotated[
     BeforeValidator(_not_a_bool),
 ]
 
-EntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc"]
+EntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc", "feedback"]
 AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc", "feedback", "comment"]
 # An environment's stable key: minted from its first label, never changed.
 EnvironmentSlug = Annotated[str, Field(pattern=r"^[a-z0-9](?:[a-z0-9-]{0,14}[a-z0-9])?$")]
 FeedbackKind = Literal["feedback", "bug", "requirement"]
 FeedbackSeverity = Literal["low", "medium", "high", "critical"]
-FeedbackStatus = Literal["New", "Triaged", "Accepted", "Declined", "Done"]
+#: statuses.FEEDBACK_STATUSES, spelt out for pydantic.
+FeedbackStatus = Literal[
+    "New", "EstimatedToConfirm", "OnHold", "NotABug", "Confirmed", "InProgress", "Resolved"
+]
 
 # ── Releases ─────────────────────────────────────────────────────────────
 
@@ -573,6 +576,10 @@ class FeedbackUpdate(BaseModel):
     detail: str | None = None
     page_url: str | None = None
     status: FeedbackStatus | None = None
+    assignee_id: UUID | None = None
+    clear_assignee: bool = False
+    # Null clears it back to "not estimated", as on RequirementUpdate.
+    estimate_hours: EstimateHours = None
 
     @field_validator("page_url")
     @classmethod
@@ -601,6 +608,54 @@ class FeedbackRead(BaseModel):
     #: 0, which is right for create and stale-by-one-render for update, where
     #: the drawer holds the real list anyway.
     screenshot_count: int = 0
+    assignee_id: UUID | None = None
+    estimate_hours: float | None = None
+    #: When it last became Resolved; None while it is not resolved.
+    resolved_at: datetime | None = None
+    #: The board requirement raised from it, if any (it may since have been deleted).
+    requirement_id: UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Maintenance contracts ────────────────────────────────────────────────
+
+
+#: Hours bought per month. Same bool guard as EstimateHours; the bound sits
+#: on the float member for the same reason.
+MonthlyHours = Annotated[Annotated[float, Field(ge=0, le=10_000, allow_inf_nan=False)], BeforeValidator(_not_a_bool)]
+
+
+class MaintenanceContractCreate(BaseModel):
+    start_date: date
+    end_date: date | None = None
+    hours_per_month: MonthlyHours
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> "MaintenanceContractCreate":
+        if self.end_date is not None and self.end_date < self.start_date:
+            raise ValueError("A contract cannot end before it starts")
+        return self
+
+
+class MaintenanceContractUpdate(BaseModel):
+    """Only what is sent changes. ``end_date: null`` makes it open-ended, so
+    whether it was sent is read from ``model_fields_set``; the route checks
+    the resulting dates in order, as it needs the stored ones."""
+
+    start_date: date | None = None
+    end_date: date | None = None
+    hours_per_month: MonthlyHours | None = None
+
+
+class MaintenanceContractRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    start_date: date
+    end_date: date | None
+    hours_per_month: float
+    created_by: UUID | None
     created_at: datetime
     updated_at: datetime
 

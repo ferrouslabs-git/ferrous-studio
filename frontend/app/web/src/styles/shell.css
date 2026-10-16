@@ -464,6 +464,14 @@
 .env-card.unset { border-style: dashed; box-shadow: none; }
 .env-card.unset h3 { color: var(--text-dim); }
 
+/* Feedback > Maintenance log: four headline figures above the lists. */
+.maint-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.maint-card .maint-figure { margin-top: 6px; font-size: 22px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.maint-neg { color: var(--bad); }
+.card .maint-figure.maint-neg { color: var(--bad); }
+/* The report a requirement was raised from links to it beside the action. */
+.fb-requirement { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
 /* ── Linked GitHub repository (project details) ─────────────────────────── */
 /* The section reuses .details-grid for the repository itself; these cover the
    states around it -- not connected, the connection footer, and the picker. */

@@ -398,22 +398,22 @@ DOCS: list[dict[str, Any]] = [
 FEEDBACK: list[tuple[str, str, str, str, str, str, str]] = [
     ("uat", "bug", "high", "Check-in search misses double-barrelled surnames",
      "Searching for 'Adeyemi-Cole' finds nothing; searching 'Adeyemi' finds the booking. Stewards will type the full name.",
-     "https://uat.harboursidehub.example.org/events/summer-regatta-dinner/check-in", "Triaged"),
+     "https://uat.harboursidehub.example.org/events/summer-regatta-dinner/check-in", "EstimatedToConfirm"),
     ("uat", "feedback", "low", "Show the day of the week on event cards",
      "Margaret reads dates as 'this Saturday'. '18 Jul' on its own makes her look at a calendar.",
-     "https://uat.harboursidehub.example.org/events", "Accepted"),
+     "https://uat.harboursidehub.example.org/events", "Confirmed"),
     ("staging", "bug", "critical", "Successful Stripe test payment leaves the booking on the waiting list",
      "Paid with the 4242 test card for a published event with places free. Stripe shows the payment; the booking shows Waiting list.",
      "https://staging.harboursidehub.example.org/events/autumn-quiz-night", "New"),
     ("production", "requirement", "medium", "Add a 'give in memory' option to the donate page",
      "Three families asked for it after the regatta dinner. Needs a name to remember and an optional message to the family.",
-     "https://www.harboursidetrust.example.org/donate", "Accepted"),
+     "https://www.harboursidetrust.example.org/donate", "Confirmed"),
     ("production", "feedback", "medium", "Newsletter confirmation email landing in spam",
      "Two supporters at the food bank said they never got the confirmation. Both found it in spam. Check the sending domain's DMARC record.",
-     "https://www.harboursidetrust.example.org/", "Done"),
+     "https://www.harboursidetrust.example.org/", "Resolved"),
     ("uat", "bug", "medium", "Rota week view overflows on the front-desk iPad",
      "In landscape the Saturday column is cut off and there is no horizontal scroll.",
-     "https://uat.harboursidehub.example.org/rota", "Triaged"),
+     "https://uat.harboursidehub.example.org/rota", "EstimatedToConfirm"),
 ]
 #: The first report gets a screenshot attached, if document storage is configured.
 FEEDBACK_SCREENSHOT_INDEX = 0
