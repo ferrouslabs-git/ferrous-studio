@@ -214,7 +214,7 @@ async def copy_project(
 
     dataset_map: dict[str, str] = {}
     for row in await _rows(db, Dataset, source, Dataset.pos.asc()):
-        new = child(Dataset, name=row.name, kind=row.kind, values=row.values, pos=row.pos, created_by=row.created_by)
+        new = child(Dataset, name=row.name, kind=row.kind, values=row.values, match_terms=row.match_terms, pos=row.pos, created_by=row.created_by)
         dataset_map[str(row.id)] = str(new.id)
         db.add(new)
 

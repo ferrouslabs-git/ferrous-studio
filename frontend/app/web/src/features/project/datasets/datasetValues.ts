@@ -23,3 +23,13 @@ export function normaliseDatasetValues(values: readonly string[]): string[] {
   }
   return [...values];
 }
+
+/** A dataset's matching terms (FS-REQ-61) from their comma-separated field:
+ *  trimmed, blanks and repeats (ignoring case) dropped. */
+export function splitTerms(text: string): string[] {
+  const seen = new Set<string>();
+  return text
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()));
+}

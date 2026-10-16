@@ -18,7 +18,7 @@ import {
   listPlatformDatasets,
   updatePlatformDataset,
 } from "../project/datasets/datasetsApi";
-import { parseDatasetValues } from "../project/datasets/datasetValues";
+import { parseDatasetValues, splitTerms } from "../project/datasets/datasetValues";
 import { DATA_KINDS, DataKind } from "../studio/catalog";
 
 /** The first few values, as the line beneath a dataset's name. */
@@ -144,6 +144,7 @@ function EditDatasetDrawer({
   const [name, setName] = useState("");
   const [kind, setKind] = useState<DataKind>("text");
   const [values, setValues] = useState("");
+  const [terms, setTerms] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -153,11 +154,13 @@ function EditDatasetDrawer({
       setName("");
       setKind("text");
       setValues("");
+      setTerms("");
       setError(null);
     } else if (dataset) {
       setName(dataset.name);
       setKind(dataset.kind);
       setValues(dataset.values.join("\n"));
+      setTerms((dataset.match_terms ?? []).join(", "));
       setError(null);
     }
   }, [dataset]);
@@ -172,6 +175,7 @@ function EditDatasetDrawer({
       name: name.trim(),
       kind,
       values: parseDatasetValues(values),
+      match_terms: splitTerms(terms),
     };
     try {
       if (dataset === "new") await createPlatformDataset(input);
@@ -216,6 +220,9 @@ function EditDatasetDrawer({
           value={values}
           onChange={(e) => setValues(e.target.value)}
         />
+      </Field>
+      <Field label="Matching terms">
+        <input className="input" value={terms} onChange={(e) => setTerms(e.target.value)} />
       </Field>
       {error && <div className="status-banner warn">{error}</div>}
     </Drawer>

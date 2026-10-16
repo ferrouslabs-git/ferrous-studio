@@ -5,7 +5,7 @@
 // page inside a region of this one (the outlet model).
 import { useEffect, useRef, useState } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { parseDatasetValues } from "../../project/datasets/datasetValues";
+import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
   COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, imageList, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
@@ -70,6 +70,7 @@ interface Props {
   /** Open the new-dataset drawer; on save the element's `fieldKey` binds to it. */
   onCreateDataset(sel: ElementSel, fieldKey: string): void;
   onUpdateDatasetValues(id: string, values: string[]): void;
+  onUpdateDatasetTerms(id: string, terms: string[]): void;
   /** Delete a project dataset and clear this element's binding to it. */
   onDeleteDataset(sel: ElementSel, fieldKey: string, id: string): void;
 }
@@ -556,6 +557,16 @@ export function Inspector(props: Props) {
                                 parseDatasetValues(text),
                               )
                             }
+                          />
+                        </div>
+                      )}
+                      {bound && (
+                        <div className="field">
+                          <label>Matching terms</label>
+                          <CommitInput
+                            value={(bound.match_terms ?? []).join(", ")}
+                            disabled={ro || bound.scope === "platform"}
+                            onCommit={(text) => props.onUpdateDatasetTerms(bound.id, splitTerms(text))}
                           />
                         </div>
                       )}

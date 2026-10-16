@@ -684,6 +684,11 @@ function StudioEditor() {
       .then(() => datasetsLoad.reload())
       .catch((err) => setNotice(errorMessage(err)));
   };
+  const updateDatasetTerms = (id: string, match_terms: string[]) => {
+    updateDataset(projectId, id, { match_terms })
+      .then(() => datasetsLoad.reload())
+      .catch((err) => setNotice(errorMessage(err)));
+  };
 
   /** Delete a project dataset and unbind the element it was edited from;
    *  other elements referencing it fall back to their own sample values. */
@@ -1724,6 +1729,7 @@ function StudioEditor() {
               }}
               onCreateDataset={openCreateDataset}
               onUpdateDatasetValues={updateDatasetValues}
+              onUpdateDatasetTerms={updateDatasetTerms}
               onDeleteDataset={removeDataset}
             />
               ) : (

@@ -14,6 +14,8 @@ export interface Dataset {
   name: string;
   kind: DataKind;
   values: string[];
+  /** Other words an element label may use for this list (FS-REQ-61). */
+  match_terms: string[];
   pos: string;
   scope: DatasetScope;
   created_at: string;
@@ -24,6 +26,7 @@ export interface DatasetInput {
   name: string;
   kind: DataKind;
   values: string[];
+  match_terms?: string[];
 }
 
 const base = (projectId: string) => `/studio/projects/${projectId}/datasets`;
