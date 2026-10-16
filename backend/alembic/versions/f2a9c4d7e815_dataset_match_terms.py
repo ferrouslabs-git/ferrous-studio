@@ -6,7 +6,7 @@ one of them binds the dataset automatically, exactly as a label naming the
 dataset does. Both project and platform datasets carry the list.
 
 Revision ID: f2a9c4d7e815
-Revises: e8b4c1f7a352
+Revises: f5c2a8d1e937
 Create Date: 2026-10-16
 """
 from typing import Sequence, Union
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision: str = 'f2a9c4d7e815'
-down_revision: Union[str, None] = 'e8b4c1f7a352'
+down_revision: Union[str, None] = 'f5c2a8d1e937'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
