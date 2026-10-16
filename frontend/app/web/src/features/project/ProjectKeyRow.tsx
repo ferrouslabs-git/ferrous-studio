@@ -5,44 +5,27 @@
 // Like an environment address it belongs to the lineage, not the version, so
 // it reads the organisation role rather than useProject().canWrite and stays
 // editable on a locked version (set_board_key is lock-exempt on the server).
-import { FormEvent, useState } from "react";
+//
+// The key saves itself like every other edit, but only on leaving the field
+// (or Enter), never mid-word: each save renames every id in the project.
+import { useState } from "react";
 import { useSession } from "../../app/session";
+import { AutosaveFooter, closeAfterSave } from "../../components/AutosaveStatus";
 import { Drawer, Field } from "../../components/Drawer";
-import { errorMessage } from "../../core/api";
+import { useAutosave } from "../../core/useAutosave";
 import { useLoad } from "../../core/useLoad";
 import { getBoardKey, setBoardKey } from "./board/boardKeyApi";
 import { useProject } from "./ProjectLayout";
+
+/** The server's rule (BoardKeyWrite): a letter, then one to five letters or digits. */
+const KEY_RE = /^[A-Z][A-Z0-9]{1,5}$/;
 
 export function ProjectKeyRow() {
   const { project } = useProject();
   const { canWrite } = useSession();
   const current = useLoad(() => getBoardKey(project.id), [project.id]);
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const key = current.data?.key ?? null;
-
-  const open = () => {
-    setValue(key ?? "");
-    setError(null);
-    setEditing(true);
-  };
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await setBoardKey(project.id, value.trim().toUpperCase());
-      setEditing(false);
-      await current.reload();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <>
@@ -57,45 +40,80 @@ export function ProjectKeyRow() {
         )}
         <span className="shell-spacer" />
         {canWrite && key && (
-          <button type="button" className="btn small ghost" onClick={open}>
+          <button type="button" className="btn small ghost" onClick={() => setEditing(true)}>
             Change
           </button>
         )}
       </div>
 
-      <Drawer
-        open={editing}
-        title="Project key"
-        onClose={() => setEditing(false)}
-        onSubmit={save}
-        footer={
-          <>
-            <button type="button" className="btn ghost" onClick={() => setEditing(false)}>
-              Cancel
-            </button>
-            <button className="btn primary" disabled={saving || !value.trim() || value.trim().toUpperCase() === key}>
-              {saving ? "Saving…" : "Save key"}
-            </button>
-          </>
-        }
-      >
-        <Field label="Key">
-          <input
-            className="input"
-            maxLength={6}
-            autoCapitalize="characters"
-            spellCheck={false}
-            value={value}
-            onChange={(e) => setValue(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-          />
-        </Field>
-        {value.trim() && value.trim() !== key && (
-          <div className="status-banner">
-            Every id in this project will change: {key}-REQ-1 becomes {value.trim()}-REQ-1.
-          </div>
-        )}
-        {error && <div className="status-banner warn">{error}</div>}
-      </Drawer>
+      {editing && key && (
+        <KeyDrawer
+          projectId={project.id}
+          initial={key}
+          onSaved={current.reload}
+          onClose={() => setEditing(false)}
+        />
+      )}
     </>
+  );
+}
+
+function KeyDrawer({
+  projectId,
+  initial,
+  onSaved,
+  onClose,
+}: {
+  projectId: string;
+  initial: string;
+  onSaved: () => Promise<unknown>;
+  onClose: () => void;
+}) {
+  // The key the server last confirmed, for the "every id will change" warning.
+  const [savedKey, setSavedKey] = useState(initial);
+  const form = useAutosave(
+    { key: initial },
+    {
+      delay: null,
+      validate: (v) =>
+        KEY_RE.test(v.key) ? null : { key: "2 to 6 letters or digits, starting with a letter." },
+      save: async (v) => {
+        const res = await setBoardKey(projectId, v.key);
+        setSavedKey(res.key);
+        await onSaved();
+      },
+    },
+  );
+  const value = form.value.key;
+
+  return (
+    <Drawer
+      open
+      title="Project key"
+      onClose={() => void closeAfterSave(form, onClose)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void form.flush();
+      }}
+      footer={<AutosaveFooter auto={form} onClose={onClose} />}
+    >
+      <Field label="Key" error={form.fieldErrors.key}>
+        <input
+          className="input"
+          maxLength={6}
+          autoCapitalize="characters"
+          spellCheck={false}
+          aria-invalid={!!form.fieldErrors.key}
+          value={value}
+          onChange={(e) => form.set({ key: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })}
+          onBlur={() => void form.flush()}
+        />
+      </Field>
+      {value && value !== savedKey && KEY_RE.test(value) && (
+        <div className="status-banner">
+          Every id in this project will change: {savedKey}-REQ-1 becomes {value}-REQ-1.
+        </div>
+      )}
+    </Drawer>
   );
 }

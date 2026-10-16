@@ -61,7 +61,9 @@ export function ListTable<Row>({ columns, rows, rowKey, rowLabel, actions, loadi
           <h2>{title}</h2>
         </div>
       )}
-      {loading ? (
+      {/* A reload with rows already on show keeps them: a form that saves as
+          it goes refreshes the list under it, which should not blink. */}
+      {loading && rows.length === 0 ? (
         <div className="empty">Loading…</div>
       ) : error ? (
         <div className="empty error">{error}</div>
