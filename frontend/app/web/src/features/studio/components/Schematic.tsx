@@ -10,7 +10,7 @@
 // keep a blank label. With no `edit` handlers everything is read-only.
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
@@ -140,6 +140,36 @@ const numberOf = (v: unknown, fallback: number) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+// ── List grips (column width, image size, free cards) ──────────────────────
+const MIN_COL_W = 32;
+const MAX_COL_W = 1200;
+const MIN_IMG = 16;
+const MAX_IMG = 600;
+const DEFAULT_IMG = 40;
+
+/** An image column's picture size, stored as "WxH" (`data.imageSize`);
+ *  unset or unreadable keeps the 40px square. */
+export function parseImageSize(v: unknown): { w: number; h: number } {
+  const hit = /^\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*$/i.exec(String(v ?? ""));
+  const clamp = (n: number) => Math.max(MIN_IMG, Math.min(MAX_IMG, Math.round(n)));
+  return hit ? { w: clamp(Number(hit[1])), h: clamp(Number(hit[2])) } : { w: DEFAULT_IMG, h: DEFAULT_IMG };
+}
+
+/** Where a free card's field sits before it has been dragged: the i-th field
+ *  in reading order, stacked down the card's left edge (FS-REQ-69). */
+export const FREE_CARD_PAD = 14;
+export const FREE_CARD_STEP = 30;
+export const freeCardSpot = (i: number): { x: number; y: number } => ({ x: FREE_CARD_PAD, y: 12 + i * FREE_CARD_STEP });
+
+/** Screen pixels per layout pixel for a box: a fitted stage renders the
+ *  device scaled, so a drag's screen distance must be divided by this. */
+function scaleOf(node: Element | null): number {
+  const h = node as HTMLElement | null;
+  if (!h || !h.offsetWidth) return 1;
+  const s = h.getBoundingClientRect().width / h.offsetWidth;
+  return s > 0 && Number.isFinite(s) ? s : 1;
+}
+
 // ── Dates (the date picker) ────────────────────────────────────────────────
 // A picked date is stored as yyyy-mm-dd and shown the British way
 // ("4 Mar 2026"). Anything else typed into the Inspector shows as typed.
@@ -230,6 +260,11 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const [dragSize, setDragSize] = useState<Record<string, { w: number; h: number }>>({});
   /** Live height override while the canvas resize handle is being dragged. */
   const [liveHeight, setLiveHeight] = useState<number | null>(null);
+  /** Live list overrides while a grip is dragged: a column's width, an image
+   *  column's picture size, a free card's height. */
+  const [liveColW, setLiveColW] = useState<Record<string, number>>({});
+  const [liveImg, setLiveImg] = useState<Record<string, { w: number; h: number }>>({});
+  const [liveCardH, setLiveCardH] = useState<number | null>(null);
   /** Dropdown whose option menu is expanded (chevron click), like a real
    *  select. One per component; closes on outside pointerdown. */
   const [openSelect, setOpenSelect] = useState<string | null>(null);
@@ -1223,6 +1258,170 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     );
   };
 
+  /** Follow one pointer gesture on window until release. Deltas come back in
+   *  layout pixels: the stage may be fitted (scaled), and `scaleOf` turns the
+   *  screen distance the pointer travelled into the size it means. Movement
+   *  under `threshold` px is not a drag, so clicks still select. */
+  const trackDrag = (
+    e: ReactPointerEvent,
+    scale: number,
+    move: (dx: number, dy: number) => void,
+    end: (moved: boolean) => void,
+    threshold = 0,
+  ) => {
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let started = threshold === 0;
+    const prevUserSelect = document.body.style.userSelect;
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!started) {
+        if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return;
+        started = true;
+      }
+      document.body.style.userSelect = "none";
+      move(dx / scale, dy / scale);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.body.style.userSelect = prevUserSelect;
+      if (started) {
+        // The click this release fires must not reselect anything.
+        suppressClick.current = true;
+        window.setTimeout(() => {
+          suppressClick.current = false;
+        });
+      }
+      end(started);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+    window.addEventListener("pointercancel", onUp, { once: true });
+  };
+  /** Swallows the click a list grip/drag gesture ends with. */
+  const swallowDragClick = (e: ReactMouseEvent) => {
+    if (!suppressClick.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  /** A column's set width (FS-REQ-59), live while its grip is dragged. */
+  const colWidth = (col: ElementNode): number | null =>
+    liveColW[col.id] ?? (col.data?.w ? numberOf(col.data.w, 0) || null : null);
+  const colStyle = (col: ElementNode): CSSProperties | undefined => {
+    const w = colWidth(col);
+    return w ? { width: w, maxWidth: w } : undefined;
+  };
+  /** A sized column's cell content in a box of exactly that width: a table
+   *  cell grows to fit unbreakable content, so the clipping box is what lets
+   *  a column go narrower than its text (which then ends in an ellipsis). */
+  const fitCol = (col: ElementNode, content: ReactNode): ReactNode => {
+    const w = colWidth(col);
+    return w ? <div className="ui-col-fit" style={{ width: w }}>{content}</div> : content;
+  };
+  /** Drag a header cell's trailing edge to set its column's width; one
+   *  commit (one undo step) on release. A double click goes back to auto. */
+  const startColResize = (col: ElementNode) => (e: ReactPointerEvent) => {
+    if (!edit || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).closest("th");
+    const from = Math.round(th?.offsetWidth ?? 120);
+    let latest = from;
+    trackDrag(
+      e,
+      scaleOf(th),
+      (dx) => {
+        latest = Math.max(MIN_COL_W, Math.min(MAX_COL_W, Math.round(from + dx)));
+        setLiveColW((s) => ({ ...s, [col.id]: latest }));
+      },
+      (moved) => {
+        setLiveColW((s) => {
+          const next = { ...s };
+          delete next[col.id];
+          return next;
+        });
+        if (moved && latest !== from) edit.setElementData(col.id, "w", String(latest));
+      },
+    );
+  };
+  const colGrip = (col: ElementNode): ReactNode =>
+    edit ? (
+      <span
+        className="ui-col-resize"
+        title="Drag to resize"
+        aria-label={`Resize ${col.label || "column"}`}
+        onPointerDown={startColResize(col)}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (col.data?.w) edit.setElementData(col.id, "w", "");
+        }}
+      />
+    ) : null;
+
+  /** An image column's picture size (FS-REQ-70), live while dragged. */
+  const imageSize = (col: ElementNode): { w: number; h: number } => liveImg[col.id] ?? parseImageSize(col.data?.imageSize);
+  /** Corner drag on a cell image: sets the whole column's picture size, one
+   *  commit on release (stored as "WxH" so it is one data key, one step). */
+  const startImgResize = (col: ElementNode) => (e: ReactPointerEvent) => {
+    if (!edit || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const box = (e.currentTarget as HTMLElement).closest(".ui-cell-img");
+    const from = parseImageSize(col.data?.imageSize);
+    let latest = from;
+    trackDrag(
+      e,
+      scaleOf(box),
+      (dx, dy) => {
+        latest = {
+          w: Math.max(MIN_IMG, Math.min(MAX_IMG, Math.round(from.w + dx))),
+          h: Math.max(MIN_IMG, Math.min(MAX_IMG, Math.round(from.h + dy))),
+        };
+        setLiveImg((s) => ({ ...s, [col.id]: latest }));
+      },
+      (moved) => {
+        setLiveImg((s) => {
+          const next = { ...s };
+          delete next[col.id];
+          return next;
+        });
+        if (moved && (latest.w !== from.w || latest.h !== from.h)) {
+          edit.setElementData(col.id, "imageSize", `${latest.w}x${latest.h}`);
+        }
+      },
+    );
+  };
+  /** One cell of an image column: row i shows the column's image i mod n,
+   *  or a placeholder until any are uploaded. */
+  const imageCell = (col: ElementNode, ri: number): ReactNode => {
+    const images = imageList(col.data?.images);
+    const src = images.length ? images[ri % images.length] : null;
+    const { w, h } = imageSize(col);
+    return (
+      <span
+        className={`ui-cell-img${src ? "" : " empty"}${liveImg[col.id] ? " resizing" : ""}${isSelected(col) ? " sel" : ""}`}
+        style={{ width: w, height: h }}
+        onClick={selectClick(col)}
+        onClickCapture={swallowDragClick}
+      >
+        {src ? <img src={src} alt="" draggable={false} /> : <ImageIcon />}
+        {edit && (
+          <span
+            className="ui-cell-img-resize"
+            title="Drag to resize"
+            aria-label={`Resize ${col.label || "column"} images`}
+            onPointerDown={startImgResize(col)}
+          />
+        )}
+      </span>
+    );
+  };
+
   const renderList = (): ReactNode => {
     const columns = byType("column");
     const headerEl = first("column-header");
@@ -1232,6 +1431,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const rows: Record<string, string>[] = Array.isArray(cmp.props?.rows) ? (cmp.props.rows as Record<string, string>[]) : [{}, {}, {}];
 
     const cell = (col: ElementNode, ri: number, className?: string) => {
+      if (col.data?.kind === "image") return imageCell(col, ri);
       const own = rows[ri]?.[col.id];
       // A bound dataset wins, then the column's own sample values, then the
       // per-kind pool, offset per column so twins differ.
@@ -1289,6 +1489,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                   <tr
                     className={`${isSelected(headerEl) ? "el-sel-row" : ""}${markCls(headerEl)}`.trim() || undefined}
                     onClick={selectClick(headerEl)}
+                    onClickCapture={swallowDragClick}
                     {...markHoverProps(headerEl)}
                   >
                     {selectEl && (
@@ -1300,7 +1501,16 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                         <i className="ui-checkbox" aria-hidden />
                       </th>
                     )}
-                    {columns.map((col) => <th key={col.id} className={isSelected(col) ? "el-sel-cell" : undefined}>{elTok(col, "")}</th>)}
+                    {columns.map((col) => (
+                      <th
+                        key={col.id}
+                        className={`${isSelected(col) ? "el-sel-cell" : ""}${colWidth(col) ? " sized" : ""}`.trim() || undefined}
+                        style={colStyle(col)}
+                      >
+                        {fitCol(col, elTok(col, ""))}
+                        {colGrip(col)}
+                      </th>
+                    ))}
                     {rowActions.length > 0 && <th />}
                   </tr>
                 </thead>
@@ -1314,8 +1524,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                       </td>
                     )}
                     {columns.map((col) => (
-                      <td key={col.id} className={isSelected(col) ? "el-sel-cell" : undefined} onClick={selectClick(col)}>
-                        {cell(col, ri)}
+                      <td
+                        key={col.id}
+                        className={`${isSelected(col) ? "el-sel-cell" : ""}${colWidth(col) ? " sized" : ""}`.trim() || undefined}
+                        style={colStyle(col)}
+                        onClick={selectClick(col)}
+                      >
+                        {fitCol(col, cell(col, ri))}
                       </td>
                     ))}
                     {rowActions.length > 0 && (
@@ -1362,6 +1577,140 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const titleCol = columns[0];
     const statusCol = colOfKind("status");
     const rest = columns.filter((c) => c !== titleCol && c !== statusCol);
+
+    if (shape === "cards" && cmp.props?.cardLayout === "free") {
+      // FS-REQ-69: the card is a small freeform canvas. Every card is the
+      // same template, so a field dragged in any card moves in all of them;
+      // positions live on the column element (data.x / data.y).
+      const fields = [titleCol, statusCol, ...rest].filter(
+        (c, i, all): c is ElementNode => !!c && all.indexOf(c) === i,
+      );
+      const spot = (col: ElementNode, i: number): { x: number; y: number } => {
+        const live = dragPos[col.id];
+        if (live) return live;
+        const dflt = freeCardSpot(i);
+        return { x: numberOf(col.data?.x ?? "", dflt.x), y: numberOf(col.data?.y ?? "", dflt.y) };
+      };
+      const spots = fields.map(spot);
+      const actionsH = rowActions.length ? 40 : 0;
+      // Tall enough for the lowest field (and the actions under it); a
+      // dragged height (props.cardH) only ever adds room.
+      const need = Math.max(12, ...spots.map((p) => p.y)) + FREE_CARD_STEP + actionsH + 4;
+      const height = liveCardH ?? Math.max(numberOf(scalarOf("cardH") ?? "", 0), need);
+
+      const startFieldDrag = (col: ElementNode) => (e: ReactPointerEvent) => {
+        if (!edit || e.button !== 0) return;
+        if ((e.target as HTMLElement).closest(".inline-edit-input, .ui-cell-img-resize, .ui-select-menu")) return;
+        // Cancelling pointerdown keeps the draggable ancestors (the .cmp,
+        // the label token) from starting a native HTML5 drag midway.
+        e.preventDefault();
+        const card = (e.currentTarget as HTMLElement).closest(".ui-card-item") as HTMLElement | null;
+        const maxX = Math.max(0, (card?.offsetWidth ?? 220) - 24);
+        const from = new Map(fields.map((c, i) => [c.id, spot(c, i)] as const));
+        const p0 = from.get(col.id) ?? freeCardSpot(0);
+        let latest = p0;
+        trackDrag(
+          e,
+          scaleOf(card),
+          (dx, dy) => {
+            latest = { x: Math.round(Math.max(0, Math.min(maxX, p0.x + dx))), y: Math.round(Math.max(0, p0.y + dy)) };
+            setDragPos((s) => ({ ...s, [col.id]: latest }));
+          },
+          (moved) => {
+            setDragPos((s) => {
+              const next = { ...s };
+              delete next[col.id];
+              return next;
+            });
+            if (!moved || (latest.x === p0.x && latest.y === p0.y)) return;
+            // Fields still on their default spot are stamped in the same
+            // commit, so adding or removing a column later cannot shuffle
+            // the ones arranged around them. One commit, one undo step.
+            const stamps = fields
+              .filter((c) => c.id !== col.id && (c.data?.x == null || c.data?.y == null))
+              .map((c) => ({ id: c.id, ...(from.get(c.id) ?? freeCardSpot(0)) }));
+            edit.moveElementsTo([...stamps, { id: col.id, ...latest }]);
+          },
+          4,
+        );
+      };
+
+      /** The card's bottom edge: drag for more (or less) room. */
+      const startCardResize = (e: ReactPointerEvent) => {
+        if (!edit || e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const card = (e.currentTarget as HTMLElement).closest(".ui-card-item") as HTMLElement | null;
+        const from = Math.round(card?.offsetHeight ?? height);
+        let latest = from;
+        trackDrag(
+          e,
+          scaleOf(card),
+          (_dx, dy) => {
+            latest = Math.max(need, Math.min(2000, Math.round(from + dy)));
+            setLiveCardH(latest);
+          },
+          (moved) => {
+            setLiveCardH(null);
+            if (moved && latest !== from) edit.setPropValue("cardH", String(latest));
+          },
+        );
+      };
+
+      return (
+        <div className="ui-listwrap">
+          {head}
+          <div className={`ui-cards${layout === "horizontal" ? " scroll" : layout === "vertical" ? " one-col" : ""}`}>
+            {rows.map((_, ri) => (
+              <div key={ri} className="ui-card ui-card-item free" style={{ height }}>
+                {fields.map((col, i) => {
+                  const p = spots[i];
+                  const body =
+                    col === titleCol ? (
+                      <span className="ui-card-item-title">{cell(col, ri, "")}</span>
+                    ) : col === statusCol ? (
+                      cell(col, ri)
+                    ) : (
+                      <>
+                        <span className="ui-card-line-label">{elTok(col, "")}</span>
+                        {cell(col, ri)}
+                      </>
+                    );
+                  const cls = [
+                    "ui-card-free-el",
+                    edit ? "movable" : "",
+                    dragPos[col.id] ? "dragging" : "",
+                    isSelected(col) ? "sel" : "",
+                  ].filter(Boolean).join(" ");
+                  return (
+                    <div
+                      key={col.id}
+                      className={cls}
+                      style={{ left: p.x, top: p.y }}
+                      onPointerDown={edit ? startFieldDrag(col) : undefined}
+                      onClickCapture={swallowDragClick}
+                      onClick={selectClick(col)}
+                    >
+                      {body}
+                    </div>
+                  );
+                })}
+                {rowActions.length > 0 && (
+                  <div className="ui-row end ui-card-free-actions">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</div>
+                )}
+                {edit && (
+                  <div className="ui-card-free-resize" title="Drag to resize" onPointerDown={startCardResize} onClick={(e) => e.stopPropagation()}>
+                    <span aria-hidden />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {foot}
+          {addBar}
+        </div>
+      );
+    }
 
     if (shape === "cards") {
       return (

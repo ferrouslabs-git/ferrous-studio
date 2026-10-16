@@ -24,15 +24,41 @@ export type DataKind = (typeof DATA_KINDS)[number];
  *  built-in icon picker + image upload (stored as an icon name, a data URL,
  *  or "none"); `image` is a plain image upload (stored as a data URL);
  *  `dataset` binds the element to a reusable value list (stored as the
- *  dataset's id) — the Inspector renders all three specially. */
+ *  dataset's id); `images` is several uploads (stored as a JSON array of
+ *  data URLs — see imageList) — the Inspector renders these specially. */
 export interface DataFieldMeta {
   key: string;
   label: string;
-  kind: "text" | "select" | "logo" | "image" | "dataset";
+  kind: "text" | "select" | "logo" | "image" | "dataset" | "images";
   options?: readonly string[];
   /** dataset fields only: the manual text field this binding replaces
    *  (hidden in the Inspector while a dataset is chosen). */
   supersedes?: string;
+  /** Offered only while the element's `data.kind` is one of these; absent
+   *  means always. */
+  forKinds?: readonly string[];
+  /** Other fields hidden while this one is offered (an image column has no
+   *  use for sample text or a dataset). */
+  replaces?: readonly string[];
+}
+
+/** An `images` field's stored value as a list of image URLs. Stored as a
+ *  JSON array (data URLs contain commas, so comma-separated text cannot
+ *  hold them); an imported bundle may carry a real array or a lone URL. */
+export function imageList(v: unknown): string[] {
+  const keep = (a: unknown[]): string[] => a.map((s) => String(s ?? "").trim()).filter(Boolean);
+  if (Array.isArray(v)) return keep(v);
+  const s = String(v ?? "").trim();
+  if (!s) return [];
+  if (s.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(s);
+      return Array.isArray(parsed) ? keep(parsed) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [s];
 }
 
 /** The built-in logo marks a brand element can use (drawn in Schematic). */
@@ -160,6 +186,8 @@ const COLUMN = el({
     { key: "kind", label: "Data kind", kind: "select", options: DATA_KINDS },
     { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "samples" },
     { key: "samples", label: "Sample values", kind: "text" },
+    // An image column's pictures (FS-REQ-70): row i shows image i mod n.
+    { key: "images", label: "Images", kind: "images", forKinds: ["image"], replaces: ["dataset", "samples"] },
   ],
   defaultLabel: "Column", defaultData: { kind: "text" },
 });
