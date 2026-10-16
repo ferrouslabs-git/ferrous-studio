@@ -5,9 +5,10 @@
 //
 // Every write here is also enforced server-side; the `can*` flags only hide
 // controls that would fail.
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useSession } from "../../app/session";
+import { AutosaveFooter, closeAfterSave } from "../../components/AutosaveStatus";
 import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
 import { ListTable, NameCell } from "../../components/ListTable";
@@ -29,6 +30,7 @@ import {
   TenantUser,
   updateTenantUser,
 } from "../../core/umApi";
+import { useAutosave } from "../../core/useAutosave";
 import { useLoad } from "../../core/useLoad";
 import { RoleName, useRoles } from "./roleLabels";
 
@@ -266,16 +268,16 @@ function UsersSection({
       {notice && <div className="status-banner">{notice}</div>}
       {error && <div className="status-banner warn">{error}</div>}
 
-      <EditUserDrawer
-        orgId={orgId}
-        user={editing}
-        canChangeRole={editing !== null && editing.user_id !== currentUserId}
-        onClose={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null);
-          void reload();
-        }}
-      />
+      {editing && (
+        <EditUserDrawer
+          key={editing.user_id}
+          orgId={orgId}
+          user={editing}
+          canChangeRole={editing.user_id !== currentUserId}
+          onClose={() => setEditing(null)}
+          onSaved={reload}
+        />
+      )}
 
       <ListTable
         columns={[
@@ -335,6 +337,11 @@ function legacyOf(roleName: string): LegacyAccountRole {
 
 // ── Edit user ──────────────────────────────────────────────────────────────
 
+/**
+ * Edit a member's name and role, saved as you go: the name after a pause in
+ * typing, the role as soon as it is picked. Each save sends only what
+ * changed. Mounted only while open, so closing flushes a pending save.
+ */
 function EditUserDrawer({
   orgId,
   user,
@@ -343,69 +350,49 @@ function EditUserDrawer({
   onSaved,
 }: {
   orgId: string;
-  user: TenantUser | null;
+  user: TenantUser;
   /** You cannot change your own role (an admin could lock themselves out). */
   canChangeRole: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => Promise<unknown>;
 }) {
-  const [name, setName] = useState("");
-  const [role, setRole] = useState<LegacyAccountRole>("member");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Reset the form each time a different user is opened.
-  useEffect(() => {
-    if (user) {
-      setName(user.name ?? "");
-      setRole(legacyOf(user.role));
-      setError(null);
-    }
-  }, [user]);
-
-  if (!user) return null;
-
-  const nameChanged = name.trim() !== (user.name ?? "");
-  const roleChanged = canChangeRole && role !== legacyOf(user.role);
-  const unchanged = !nameChanged && !roleChanged;
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
+  const initial = { name: user.name ?? "", role: legacyOf(user.role) };
+  const sentRef = useRef(initial);
+  const auto = useAutosave(initial, {
+    save: async (v) => {
+      const nameChanged = v.name.trim() !== sentRef.current.name.trim();
+      const roleChanged = canChangeRole && v.role !== sentRef.current.role;
+      if (!nameChanged && !roleChanged) return;
       await updateTenantUser(orgId, user.user_id, {
-        ...(nameChanged ? { name: name.trim() } : {}),
-        ...(roleChanged ? { role } : {}),
+        ...(nameChanged ? { name: v.name.trim() } : {}),
+        ...(roleChanged ? { role: v.role } : {}),
       });
-      onSaved();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+      sentRef.current = v;
+      await onSaved();
+    },
+  });
+  const { name, role } = auto.value;
 
   return (
     <Drawer
       open
       title="Edit user"
       description={user.email}
-      onClose={onClose}
-      onSubmit={save}
-      footer={
-        <>
-          <button type="button" className="btn ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn primary" disabled={saving || unchanged}>
-            {saving ? "Saving…" : "Save changes"}
-          </button>
-        </>
-      }
+      onClose={() => void closeAfterSave(auto, onClose)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void auto.flush();
+      }}
+      footer={<AutosaveFooter auto={auto} onClose={onClose} />}
     >
       <Field label="Name" hint="Shown wherever this user appears. Leave blank to clear.">
-        <input className="input" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          className="input"
+          autoComplete="off"
+          value={name}
+          onChange={(e) => auto.set({ name: e.target.value })}
+          onBlur={() => void auto.flush()}
+        />
       </Field>
       <Field
         label="Role"
@@ -419,7 +406,7 @@ function EditUserDrawer({
           className="select"
           value={role}
           disabled={!canChangeRole}
-          onChange={(e) => setRole(e.target.value as LegacyAccountRole)}
+          onChange={(e) => auto.set({ role: e.target.value as LegacyAccountRole }, { immediate: true })}
         >
           {(Object.keys(LEGACY_TO_ACCOUNT_ROLE) as LegacyAccountRole[]).map((lr) => (
             <option key={lr} value={lr}>
@@ -428,7 +415,6 @@ function EditUserDrawer({
           ))}
         </select>
       </Field>
-      {error && <div className="status-banner warn">{error}</div>}
     </Drawer>
   );
 }

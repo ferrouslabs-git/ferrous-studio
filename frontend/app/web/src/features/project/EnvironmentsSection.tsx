@@ -17,10 +17,12 @@
 // version while the Edit button above it does not.
 import { FormEvent, useState } from "react";
 import { useSession } from "../../app/session";
+import { AutosaveFooter, closeAfterSave } from "../../components/AutosaveStatus";
 import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
 import { errorMessage } from "../../core/api";
 import { formatDateTime } from "../../core/format";
+import { FieldErrors, useAutosave } from "../../core/useAutosave";
 import { useLoad } from "../../core/useLoad";
 import {
   createEnvironment,
@@ -52,10 +54,6 @@ export function EnvironmentsSection() {
 
   const environments = useLoad(() => listEnvironments(project.id), [project.id]);
   const [editing, setEditing] = useState<Editing | null>(null);
-  const [label, setLabel] = useState("");
-  const [url, setUrl] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Confirmation | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
@@ -64,34 +62,7 @@ export function EnvironmentsSection() {
   const folds = rows.length > FOLD_OVER;
   const shown = folds && !expanded ? rows.slice(0, FOLDED_ROWS) : rows;
 
-  const openDrawer = (env: Environment | null) => {
-    setEditing({ env });
-    setLabel(env?.label ?? "");
-    setUrl(env?.url ?? "");
-    setFormError(null);
-  };
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!editing) return;
-    setSaving(true);
-    setFormError(null);
-    try {
-      if (editing.env) {
-        await setEnvironment(project.id, editing.env.slug, { label: label.trim(), url: url.trim() });
-      } else {
-        await createEnvironment(project.id, { label: label.trim(), url: url.trim() });
-        // A new one lands at the end, which a folded list would hide.
-        setExpanded(true);
-      }
-      setEditing(null);
-      await environments.reload();
-    } catch (err) {
-      setFormError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const openDrawer = (env: Environment | null) => setEditing({ env });
 
   const move = async (from: number, to: number) => {
     const slugs = rows.map((r) => r.slug);
@@ -172,38 +143,132 @@ export function EnvironmentsSection() {
         )}
       </div>
 
-      <Drawer
-        open={editing !== null}
-        title={editing?.env ? editing.env.label : "New environment"}
-        onClose={() => setEditing(null)}
-        onSubmit={save}
-        footer={
+      {editing && (
+        <EnvironmentDrawer
+          key={editing.env?.slug ?? "new"}
+          projectId={project.id}
+          env={editing.env}
+          onSaved={environments.reload}
+          // A new one lands at the end, which a folded list would hide.
+          onCreated={() => setExpanded(true)}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      <ConfirmationDrawer pending={confirming} onClose={() => setConfirming(null)} />
+    </section>
+  );
+}
+
+interface EnvironmentDraft {
+  label: string;
+  url: string;
+}
+
+/** The server's rules (EnvironmentCreate): a name, and an http(s) address or none. */
+function validateEnvironment(d: EnvironmentDraft): FieldErrors<EnvironmentDraft> {
+  const url = d.url.trim();
+  return {
+    label: d.label.trim() ? undefined : "An environment needs a name.",
+    url: url && !/^https?:\/\//.test(url) ? "Start the address with http:// or https://." : undefined,
+  };
+}
+
+/**
+ * Add an environment (with an Add button) or edit one (saved as you go).
+ * Mounted only while open, so closing flushes a pending save.
+ */
+function EnvironmentDrawer({
+  projectId,
+  env,
+  onSaved,
+  onCreated,
+  onClose,
+}: {
+  projectId: string;
+  env: Environment | null;
+  onSaved: () => Promise<unknown>;
+  onCreated: () => void;
+  onClose: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const form = useAutosave<EnvironmentDraft>(
+    { label: env?.label ?? "", url: env?.url ?? "" },
+    {
+      enabled: env !== null,
+      validate: validateEnvironment,
+      save: async (d) => {
+        if (!env) return;
+        await setEnvironment(projectId, env.slug, { label: d.label.trim(), url: d.url.trim() });
+        await onSaved();
+      },
+    },
+  );
+  const { label, url } = form.value;
+
+  const create = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      await createEnvironment(projectId, { label: label.trim(), url: url.trim() });
+      onCreated();
+      onClose();
+      await onSaved();
+    } catch (err) {
+      setFormError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const flush = () => void form.flush();
+
+  return (
+    <Drawer
+      open
+      title={env ? env.label : "New environment"}
+      onClose={env ? () => void closeAfterSave(form, onClose) : onClose}
+      onSubmit={env ? (e) => e.preventDefault() : create}
+      footer={
+        env ? (
+          <AutosaveFooter auto={form} onClose={onClose} />
+        ) : (
           <>
-            <button type="button" className="btn ghost" onClick={() => setEditing(null)}>
+            <button type="button" className="btn ghost" onClick={onClose}>
               Cancel
             </button>
             <button className="btn primary" disabled={saving || !label.trim()}>
-              {saving ? "Saving…" : editing?.env ? "Save" : "Add environment"}
+              {saving ? "Saving…" : "Add environment"}
             </button>
           </>
-        }
-      >
-        <Field label="Name">
-          <input className="input" placeholder="e.g. Demo" maxLength={64} value={label} onChange={(e) => setLabel(e.target.value)} />
-        </Field>
-        <Field label="Address">
-          <input
-            className="input"
-            type="url"
-            placeholder="https://uat.example.com"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
-        </Field>
-        {formError && <div className="status-banner warn">{formError}</div>}
-      </Drawer>
-      <ConfirmationDrawer pending={confirming} onClose={() => setConfirming(null)} />
-    </section>
+        )
+      }
+    >
+      <Field label="Name" error={form.fieldErrors.label}>
+        <input
+          className="input"
+          placeholder="e.g. Demo"
+          maxLength={64}
+          aria-invalid={!!form.fieldErrors.label}
+          value={label}
+          onChange={(e) => form.set({ label: e.target.value })}
+          onBlur={flush}
+        />
+      </Field>
+      <Field label="Address" error={form.fieldErrors.url}>
+        <input
+          className="input"
+          type="url"
+          placeholder="https://uat.example.com"
+          aria-invalid={!!form.fieldErrors.url}
+          value={url}
+          onChange={(e) => form.set({ url: e.target.value })}
+          onBlur={flush}
+        />
+      </Field>
+      {formError && <div className="status-banner warn">{formError}</div>}
+    </Drawer>
   );
 }
 

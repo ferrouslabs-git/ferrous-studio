@@ -1,18 +1,20 @@
 // A project's wireframes: name, user types and personas it is designed for,
 // interface type. Opening one takes you into the studio.
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { AutosaveFooter, closeAfterSave } from "../../../components/AutosaveStatus";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { RowMenu } from "../../../components/RowMenu";
 import { errorMessage } from "../../../core/api";
 import { useIsPhone } from "../../../core/breakpoints";
 import { formatDateTime } from "../../../core/format";
+import { useAutosave } from "../../../core/useAutosave";
 import { useLoad } from "../../../core/useLoad";
 import { ImportBundleDrawer } from "../ImportBundleDrawer";
-import { listPersonas } from "../personas/personasApi";
+import { listPersonas, Persona } from "../personas/personasApi";
 import { useProject } from "../ProjectLayout";
-import { listActors } from "../usecases/useCasesApi";
+import { listActors, UseCaseActor } from "../usecases/useCasesApi";
 import { snapshotNumbers, snapshotTitle } from "./snapshots";
 import {
   copyWireframeVersion,
@@ -31,6 +33,177 @@ import {
   Wireframe,
 } from "./wireframesApi";
 
+interface WireframeDraft {
+  name: string;
+  interface_type: InterfaceType;
+  persona_ids: string[];
+  actor_ids: string[];
+}
+
+const toggled = (ids: string[], id: string) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
+
+/**
+ * Create a wireframe (with a Create button) or edit one (saved as you go;
+ * each save sends only the parts that changed, as they are separate calls).
+ * Mounted only while open, so closing flushes a pending save.
+ */
+function WireframeDrawer({
+  projectId,
+  wireframe,
+  actors,
+  personas,
+  onSaved,
+  onClose,
+}: {
+  projectId: string;
+  wireframe: Wireframe | null;
+  actors: UseCaseActor[];
+  personas: Persona[];
+  onSaved: () => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const initial: WireframeDraft = {
+    name: wireframe?.name ?? "",
+    interface_type: wireframe?.interface_type ?? "desktop",
+    persona_ids: wireframe?.persona_ids ?? [],
+    actor_ids: wireframe?.actor_ids ?? [],
+  };
+  const sentRef = useRef(initial);
+  const auto = useAutosave<WireframeDraft>(initial, {
+    enabled: wireframe !== null,
+    validate: (d) => (d.name.trim() ? null : { name: "A wireframe needs a name." }),
+    save: async (d) => {
+      if (!wireframe) return;
+      const sent = sentRef.current;
+      if (d.name !== sent.name || d.interface_type !== sent.interface_type) {
+        await updateWireframe(projectId, wireframe.id, { name: d.name.trim(), interface_type: d.interface_type });
+        sentRef.current = { ...sentRef.current, name: d.name, interface_type: d.interface_type };
+      }
+      if (!sameIds(d.persona_ids, sent.persona_ids)) {
+        await setWireframePersonas(projectId, wireframe.id, d.persona_ids);
+        sentRef.current = { ...sentRef.current, persona_ids: d.persona_ids };
+      }
+      if (!sameIds(d.actor_ids, sent.actor_ids)) {
+        await setWireframeActors(projectId, wireframe.id, d.actor_ids);
+        sentRef.current = { ...sentRef.current, actor_ids: d.actor_ids };
+      }
+      await onSaved();
+    },
+  });
+  const { name, interface_type: interfaceType, persona_ids: personaIds, actor_ids: actorIds } = auto.value;
+
+  const create = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      await createWireframe(projectId, {
+        name: name.trim(),
+        interface_type: interfaceType,
+        persona_ids: personaIds,
+        actor_ids: actorIds,
+      });
+      onClose();
+      await onSaved();
+    } catch (err) {
+      setFormError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Drawer
+      open
+      title={wireframe ? "Edit wireframe" : "New wireframe"}
+      description={wireframe ? "Pages are unaffected." : "Starts with a blank Home page."}
+      onClose={wireframe ? () => void closeAfterSave(auto, onClose) : onClose}
+      onSubmit={wireframe ? (e) => e.preventDefault() : create}
+      footer={
+        wireframe ? (
+          <AutosaveFooter auto={auto} onClose={onClose} />
+        ) : (
+          <>
+            <button type="button" className="btn ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn primary" disabled={saving || !name.trim()}>
+              {saving ? "Saving…" : "Create wireframe"}
+            </button>
+          </>
+        )
+      }
+    >
+      <Field label="Name" error={auto.fieldErrors.name}>
+        <input
+          className="input"
+          required
+          placeholder="e.g. Customer onboarding"
+          aria-invalid={!!auto.fieldErrors.name}
+          value={name}
+          onChange={(e) => auto.set({ name: e.target.value })}
+          onBlur={() => void auto.flush()}
+        />
+      </Field>
+      <Field label="Interface type">
+        <select
+          className="select"
+          value={interfaceType}
+          onChange={(e) => auto.set({ interface_type: e.target.value as InterfaceType }, { immediate: true })}
+        >
+          {INTERFACE_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field
+        label="User types"
+        hint={
+          actors.length
+            ? "Which user types from the use case diagram this wireframe serves."
+            : "No user types yet — add them in the Use case diagram section."
+        }
+      >
+        <div className="check-list">
+          {actors.map((a) => (
+            <label key={a.id} className="check-item">
+              <input
+                type="checkbox"
+                checked={actorIds.includes(a.id)}
+                onChange={() => auto.set((d) => ({ ...d, actor_ids: toggled(d.actor_ids, a.id) }), { immediate: true })}
+              />
+              <span>{a.name}</span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      <Field label="Personas" hint={personas.length ? "Who this wireframe is designed for." : "No personas yet — add them in the Personas section."}>
+        <div className="check-list">
+          {personas.map((p) => (
+            <label key={p.id} className="check-item">
+              <input
+                type="checkbox"
+                checked={personaIds.includes(p.id)}
+                onChange={() => auto.set((d) => ({ ...d, persona_ids: toggled(d.persona_ids, p.id) }), { immediate: true })}
+              />
+              <span>
+                {p.name}
+                {p.role && <span className="muted"> · {p.role}</span>}
+              </span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      {formError && <div className="status-banner warn">{formError}</div>}
+    </Drawer>
+  );
+}
+
 export function WireframesPage() {
   const { project, orgId, canWrite } = useProject();
   const navigate = useNavigate();
@@ -42,16 +215,10 @@ export function WireframesPage() {
     () => Promise.all([listWireframes(project.id), listPersonas(project.id), listActors(project.id)]),
     [project.id],
   );
-  const [editing, setEditing] = useState<Wireframe | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  /** The drawer's subject: a wireframe being edited, or null for a new one. */
+  const [drawer, setDrawer] = useState<{ wireframe: Wireframe | null } | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"active" | "archived" | "all">("active");
-  const [name, setName] = useState("");
-  const [interfaceType, setInterfaceType] = useState<InterfaceType>("desktop");
-  const [personaIds, setPersonaIds] = useState<string[]>([]);
-  const [actorIds, setActorIds] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
   // Row actions outside the drawers (Copy JSON, Archive/Restore): success
   // feedback as a toast, failures in the banner.
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -94,41 +261,7 @@ export function WireframesPage() {
   }, [wireframes, actorNames, personaNames, query, statusFilter]);
   const previewTarget = wireframes.find((w) => w.status !== "archived") ?? wireframes[0];
 
-  const openDrawer = (w: Wireframe | null) => {
-    setEditing(w);
-    setName(w?.name ?? "");
-    setInterfaceType(w?.interface_type ?? "desktop");
-    setPersonaIds(w?.persona_ids ?? []);
-    setActorIds(w?.actor_ids ?? []);
-    setFormError(null);
-    setDrawerOpen(true);
-  };
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setFormError(null);
-    try {
-      if (editing) {
-        await updateWireframe(project.id, editing.id, { name: name.trim(), interface_type: interfaceType });
-        await setWireframePersonas(project.id, editing.id, personaIds);
-        await setWireframeActors(project.id, editing.id, actorIds);
-      } else {
-        await createWireframe(project.id, {
-          name: name.trim(),
-          interface_type: interfaceType,
-          persona_ids: personaIds,
-          actor_ids: actorIds,
-        });
-      }
-      setDrawerOpen(false);
-      await data.reload();
-    } catch (err) {
-      setFormError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const openDrawer = (w: Wireframe | null) => setDrawer({ wireframe: w });
 
   const toast = (msg: string) => {
     setToastMsg(msg);
@@ -160,9 +293,6 @@ export function WireframesPage() {
     }
   };
 
-  const toggle = (id: string) => (ids: string[]) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
-  const togglePersona = (id: string) => setPersonaIds(toggle(id));
-  const toggleActor = (id: string) => setActorIds(toggle(id));
 
   const openSnapshots = (w: Wireframe) => {
     setSnapsFor(w);
@@ -285,7 +415,7 @@ export function WireframesPage() {
       )}
 
       <section className="section">
-        {data.loading ? (
+        {data.loading && !data.data ? (
           <div className="empty">Loading…</div>
         ) : data.error ? (
           <div className="empty error">{data.error}</div>
@@ -366,67 +496,17 @@ export function WireframesPage() {
         )}
       </section>
 
-      <Drawer
-        open={drawerOpen}
-        title={editing ? "Edit wireframe" : "New wireframe"}
-        description={editing ? "Pages are unaffected." : "Starts with a blank Home page."}
-        onClose={() => setDrawerOpen(false)}
-        onSubmit={save}
-        footer={
-          <>
-            <button type="button" className="btn ghost" onClick={() => setDrawerOpen(false)}>
-              Cancel
-            </button>
-            <button className="btn primary" disabled={saving || !name.trim()}>
-              {saving ? "Saving…" : editing ? "Save changes" : "Create wireframe"}
-            </button>
-          </>
-        }
-      >
-        <Field label="Name">
-          <input className="input" required placeholder="e.g. Customer onboarding" value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Interface type">
-          <select className="select" value={interfaceType} onChange={(e) => setInterfaceType(e.target.value as InterfaceType)}>
-            {INTERFACE_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field
-          label="User types"
-          hint={
-            actors.length
-              ? "Which user types from the use case diagram this wireframe serves."
-              : "No user types yet — add them in the Use case diagram section."
-          }
-        >
-          <div className="check-list">
-            {actors.map((a) => (
-              <label key={a.id} className="check-item">
-                <input type="checkbox" checked={actorIds.includes(a.id)} onChange={() => toggleActor(a.id)} />
-                <span>{a.name}</span>
-              </label>
-            ))}
-          </div>
-        </Field>
-        <Field label="Personas" hint={personas.length ? "Who this wireframe is designed for." : "No personas yet — add them in the Personas section."}>
-          <div className="check-list">
-            {personas.map((p) => (
-              <label key={p.id} className="check-item">
-                <input type="checkbox" checked={personaIds.includes(p.id)} onChange={() => togglePersona(p.id)} />
-                <span>
-                  {p.name}
-                  {p.role && <span className="muted"> · {p.role}</span>}
-                </span>
-              </label>
-            ))}
-          </div>
-        </Field>
-        {formError && <div className="status-banner warn">{formError}</div>}
-      </Drawer>
+      {drawer && (
+        <WireframeDrawer
+          key={drawer.wireframe?.id ?? "new"}
+          projectId={project.id}
+          wireframe={drawer.wireframe}
+          actors={actors}
+          personas={personas}
+          onSaved={data.reload}
+          onClose={() => setDrawer(null)}
+        />
+      )}
 
       <Drawer open={snapsFor !== null} title="Snapshots" description={snapsFor?.name} onClose={closeSnapshots} width={560}>
         {snapsError ? (

@@ -6,9 +6,10 @@
 // admin, who is a flag on the user rather than a member of anywhere.
 //
 // Every write here is also enforced server-side (platform admin only).
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSession } from "../../app/session";
+import { AutosaveFooter, closeAfterSave } from "../../components/AutosaveStatus";
 import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
 import { ListTable, NameCell } from "../../components/ListTable";
@@ -36,6 +37,7 @@ import {
   unsuspendUser,
   updatePlatformUser,
 } from "../../core/umApi";
+import { useAutosave } from "../../core/useAutosave";
 import { useLoad } from "../../core/useLoad";
 import { RoleName, useRoles } from "../orgs/roleLabels";
 
@@ -323,15 +325,15 @@ export function AdminUsersPage() {
       {notice && <div className="status-banner">{notice}</div>}
       {error && <div className="status-banner warn">{error}</div>}
 
-      <EditUserDrawer
-        user={editing}
-        isSelf={editing !== null && editing.user_id === me?.id}
-        onClose={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null);
-          void reload();
-        }}
-      />
+      {editing && (
+        <EditUserDrawer
+          key={editing.user_id}
+          user={editing}
+          isSelf={editing.user_id === me?.id}
+          onClose={() => setEditing(null)}
+          onSaved={reload}
+        />
+      )}
 
       <ListTable
         columns={[
@@ -420,74 +422,63 @@ function RoleList({ orgs }: { orgs: OrgLink[] }) {
 
 // ── Edit user ──────────────────────────────────────────────────────────────
 
+/**
+ * Edit a user's name and platform role, saved as you go: the name after a
+ * pause in typing, the role as soon as it is picked. Mounted only while open,
+ * so closing flushes a pending save.
+ */
 function EditUserDrawer({
   user,
   isSelf,
   onClose,
   onSaved,
 }: {
-  user: PlatformUser | null;
+  user: PlatformUser;
   /** You cannot change your own platform role (you could lock yourself out). */
   isSelf: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => Promise<unknown>;
 }) {
-  const [name, setName] = useState("");
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Reset the form each time a different user is opened.
-  useEffect(() => {
-    if (user) {
-      setName(user.name ?? "");
-      setIsAdmin(user.is_platform_admin);
-      setError(null);
-    }
-  }, [user]);
-
-  if (!user) return null;
-
-  const nameChanged = name.trim() !== (user.name ?? "");
-  const adminChanged = !isSelf && isAdmin !== user.is_platform_admin;
-  const unchanged = !nameChanged && !adminChanged;
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
+  const initial = { name: user.name ?? "", isAdmin: user.is_platform_admin };
+  // What the server holds, so each save makes only the calls it needs.
+  const sentRef = useRef(initial);
+  const auto = useAutosave(initial, {
+    save: async (v) => {
+      const sent = sentRef.current;
       // Two endpoints, applied in order so a failed promotion still keeps the name edit.
-      if (nameChanged) await updatePlatformUser(user.user_id, { name: name.trim() });
-      if (adminChanged) await (isAdmin ? promoteUser(user.user_id) : demoteUser(user.user_id));
-      onSaved();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+      if (v.name.trim() !== sent.name.trim()) {
+        await updatePlatformUser(user.user_id, { name: v.name.trim() });
+        sentRef.current = { ...sentRef.current, name: v.name };
+      }
+      if (!isSelf && v.isAdmin !== sent.isAdmin) {
+        await (v.isAdmin ? promoteUser(user.user_id) : demoteUser(user.user_id));
+        sentRef.current = { ...sentRef.current, isAdmin: v.isAdmin };
+      }
+      await onSaved();
+    },
+  });
+  const { name, isAdmin } = auto.value;
 
   return (
     <Drawer
       open
       title="Edit user"
       description={user.email}
-      onClose={onClose}
-      onSubmit={save}
-      footer={
-        <>
-          <button type="button" className="btn ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn primary" disabled={saving || unchanged}>
-            {saving ? "Saving…" : "Save changes"}
-          </button>
-        </>
-      }
+      onClose={() => void closeAfterSave(auto, onClose)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void auto.flush();
+      }}
+      footer={<AutosaveFooter auto={auto} onClose={onClose} />}
     >
       <Field label="Name" hint="Shown wherever this user appears. Leave blank to clear.">
-        <input className="input" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          className="input"
+          autoComplete="off"
+          value={name}
+          onChange={(e) => auto.set({ name: e.target.value })}
+          onBlur={() => void auto.flush()}
+        />
       </Field>
       <Field
         label="Platform role"
@@ -501,13 +492,12 @@ function EditUserDrawer({
           className="select"
           value={isAdmin ? "admin" : "user"}
           disabled={isSelf}
-          onChange={(e) => setIsAdmin(e.target.value === "admin")}
+          onChange={(e) => auto.set({ isAdmin: e.target.value === "admin" }, { immediate: true })}
         >
           <option value="user">User</option>
           <option value="admin">Super admin</option>
         </select>
       </Field>
-      {error && <div className="status-banner warn">{error}</div>}
     </Drawer>
   );
 }

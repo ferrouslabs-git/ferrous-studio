@@ -4,12 +4,14 @@
 // under "Standard"; projects cannot edit them, only bind to them.
 //
 // Every write here is also enforced server-side (platform admin only).
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
+import { AutosaveFooter, closeAfterSave } from "../../components/AutosaveStatus";
 import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
 import { ListTable, NameCell } from "../../components/ListTable";
 import { ListToolbar, matches } from "../../components/ListToolbar";
 import { errorMessage } from "../../core/api";
+import { useAutosave } from "../../core/useAutosave";
 import { useLoad } from "../../core/useLoad";
 import {
   createPlatformDataset,
@@ -115,14 +117,14 @@ export function AdminDatasetsPage() {
         }
       />
 
-      <EditDatasetDrawer
-        dataset={editing}
-        onClose={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null);
-          void datasets.reload();
-        }}
-      />
+      {editing && (
+        <EditDatasetDrawer
+          key={editing === "new" ? "new" : editing.id}
+          dataset={editing}
+          onClose={() => setEditing(null)}
+          onSaved={datasets.reload}
+        />
+      )}
 
       <ConfirmationDrawer pending={confirming} onClose={() => setConfirming(null)} />
     </div>
@@ -131,51 +133,59 @@ export function AdminDatasetsPage() {
 
 // ── Create / edit ──────────────────────────────────────────────────────────
 
+interface DatasetDraft {
+  name: string;
+  kind: DataKind;
+  values: string;
+}
+
+const toInput = (d: DatasetDraft) => ({
+  name: d.name.trim(),
+  kind: d.kind,
+  values: d.values.split("\n").map((v) => v.trim()).filter(Boolean),
+});
+
+/**
+ * Create a dataset (with a Create button) or edit one (saved as you go).
+ * Mounted only while open, so closing flushes a pending save.
+ */
 function EditDatasetDrawer({
   dataset,
   onClose,
   onSaved,
 }: {
-  dataset: Dataset | "new" | null;
+  dataset: Dataset | "new";
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => Promise<unknown>;
 }) {
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<DataKind>("text");
-  const [values, setValues] = useState("");
+  const existing = dataset === "new" ? null : dataset;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const auto = useAutosave<DatasetDraft>(
+    existing
+      ? { name: existing.name, kind: existing.kind, values: existing.values.join("\n") }
+      : { name: "", kind: "text", values: "" },
+    {
+      enabled: existing !== null,
+      validate: (d) => (d.name.trim() ? null : { name: "A dataset needs a name." }),
+      save: async (d) => {
+        if (!existing) return;
+        await updatePlatformDataset(existing.id, toInput(d));
+        await onSaved();
+      },
+    },
+  );
+  const { name, kind, values } = auto.value;
+  const flush = () => void auto.flush();
 
-  // Reset the form each time the drawer opens on a different dataset.
-  useEffect(() => {
-    if (dataset === "new") {
-      setName("");
-      setKind("text");
-      setValues("");
-      setError(null);
-    } else if (dataset) {
-      setName(dataset.name);
-      setKind(dataset.kind);
-      setValues(dataset.values.join("\n"));
-      setError(null);
-    }
-  }, [dataset]);
-
-  if (!dataset) return null;
-
-  const save = async (e: FormEvent) => {
+  const create = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const input = {
-      name: name.trim(),
-      kind,
-      values: values.split("\n").map((v) => v.trim()).filter(Boolean),
-    };
     try {
-      if (dataset === "new") await createPlatformDataset(input);
-      else await updatePlatformDataset(dataset.id, input);
-      onSaved();
+      await createPlatformDataset(toInput(auto.value));
+      onClose();
+      await onSaved();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -186,24 +196,39 @@ function EditDatasetDrawer({
   return (
     <Drawer
       open
-      title={dataset === "new" ? "New dataset" : "Edit dataset"}
+      title={existing ? "Edit dataset" : "New dataset"}
       description="Available to every project as a bindable value list."
-      onClose={onClose}
-      onSubmit={save}
+      onClose={existing ? () => void closeAfterSave(auto, onClose) : onClose}
+      onSubmit={existing ? (e) => e.preventDefault() : create}
       footer={
-        <>
-          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={saving || !name.trim()}>
-            {saving ? "Saving…" : dataset === "new" ? "Create dataset" : "Save changes"}
-          </button>
-        </>
+        existing ? (
+          <AutosaveFooter auto={auto} onClose={onClose} />
+        ) : (
+          <>
+            <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+            <button className="btn primary" disabled={saving || !name.trim()}>
+              {saving ? "Saving…" : "Create dataset"}
+            </button>
+          </>
+        )
       }
     >
-      <Field label="Name">
-        <input className="input" required value={name} onChange={(e) => setName(e.target.value)} />
+      <Field label="Name" error={auto.fieldErrors.name}>
+        <input
+          className="input"
+          required
+          aria-invalid={!!auto.fieldErrors.name}
+          value={name}
+          onChange={(e) => auto.set({ name: e.target.value })}
+          onBlur={flush}
+        />
       </Field>
       <Field label="Data kind">
-        <select className="select" value={kind} onChange={(e) => setKind(e.target.value as DataKind)}>
+        <select
+          className="select"
+          value={kind}
+          onChange={(e) => auto.set({ kind: e.target.value as DataKind }, { immediate: true })}
+        >
           {DATA_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
         </select>
       </Field>
@@ -213,7 +238,8 @@ function EditDatasetDrawer({
           rows={10}
           placeholder="One value per line"
           value={values}
-          onChange={(e) => setValues(e.target.value)}
+          onChange={(e) => auto.set({ values: e.target.value })}
+          onBlur={flush}
         />
       </Field>
       {error && <div className="status-banner warn">{error}</div>}

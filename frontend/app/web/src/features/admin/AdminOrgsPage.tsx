@@ -17,9 +17,9 @@ import {
   PlatformTenant,
   suspendTenant,
   unsuspendTenant,
-  updateTenant,
 } from "../../core/umApi";
 import { useLoad } from "../../core/useLoad";
+import { EditOrgDrawer } from "../orgs/EditOrgButton";
 
 type DrawerMode = { kind: "closed" } | { kind: "create" } | { kind: "edit"; tenant: PlatformTenant };
 
@@ -56,25 +56,17 @@ export function AdminOrgsPage() {
     setMode({ kind: "create" });
   };
 
-  const openEdit = (tenant: PlatformTenant) => {
-    setName(tenant.name);
-    setFormError(null);
-    setMode({ kind: "edit", tenant });
-  };
+  const openEdit = (tenant: PlatformTenant) => setMode({ kind: "edit", tenant });
 
   // The session's own organisation list mirrors this one, so both re-read.
   const reload = () => Promise.all([tenants.reload(), refresh()]);
 
-  const save = async (e: FormEvent) => {
+  const create = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
     try {
-      if (mode.kind === "edit") {
-        await updateTenant(mode.tenant.tenant_id, { name: name.trim() });
-      } else {
-        await createTenant(name.trim());
-      }
+      await createTenant(name.trim());
       close();
       await reload();
     } catch (err) {
@@ -83,9 +75,6 @@ export function AdminOrgsPage() {
       setSaving(false);
     }
   };
-
-  const isEdit = mode.kind === "edit";
-  const unchanged = isEdit && name.trim() === mode.tenant.name;
 
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -180,23 +169,29 @@ export function AdminOrgsPage() {
         }
       />
 
+      {mode.kind === "edit" && (
+        <EditOrgDrawer
+          key={mode.tenant.tenant_id}
+          tenantId={mode.tenant.tenant_id}
+          name={mode.tenant.name}
+          onSaved={reload}
+          onClose={close}
+        />
+      )}
+
       <Drawer
-        open={mode.kind !== "closed"}
-        title={isEdit ? "Edit organisation" : "New organisation"}
-        description={
-          isEdit
-            ? "Changes apply immediately for every member."
-            : "Organisations are invite-only. Once created, open it and invite its first admin."
-        }
+        open={mode.kind === "create"}
+        title="New organisation"
+        description="Organisations are invite-only. Once created, open it and invite its first admin."
         onClose={close}
-        onSubmit={save}
+        onSubmit={create}
         footer={
           <>
             <button type="button" className="btn ghost" onClick={close}>
               Cancel
             </button>
-            <button className="btn primary" disabled={saving || !name.trim() || unchanged}>
-              {saving ? "Saving…" : isEdit ? "Save changes" : "Create organisation"}
+            <button className="btn primary" disabled={saving || !name.trim()}>
+              {saving ? "Saving…" : "Create organisation"}
             </button>
           </>
         }

@@ -14,11 +14,13 @@
 // record and used to be impossible to create.
 import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { AutosaveFooter, closeAfterSave } from "../../../components/AutosaveStatus";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { Badges, ListTable, NameCell } from "../../../components/ListTable";
 import { ListToolbar, matches } from "../../../components/ListToolbar";
 import { errorMessage } from "../../../core/api";
+import { useAutosave } from "../../../core/useAutosave";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
 import { OtherRequirementsTab } from "./OtherRequirementsTab";
@@ -52,6 +54,249 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "other", label: "Other requirements" },
 ];
 
+/**
+ * Create an actor (with a Create button) or edit one (saved as you go).
+ * Mounted only while open, so closing flushes a pending save.
+ */
+function ActorDrawer({
+  projectId,
+  actor,
+  onSaved,
+  onClose,
+}: {
+  projectId: string;
+  actor: UseCaseActor | null;
+  onSaved: () => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const auto = useAutosave<UseCaseActorInput>(
+    actor ? { name: actor.name, description: actor.description ?? "", kind: actor.kind } : EMPTY_ACTOR,
+    {
+      enabled: actor !== null,
+      validate: (f) => (f.name.trim() ? null : { name: "An actor needs a name." }),
+      save: async (f) => {
+        if (!actor) return;
+        await updateActor(projectId, actor.id, actorBody(f));
+        await onSaved();
+      },
+    },
+  );
+  const form = auto.value;
+  const flush = () => void auto.flush();
+
+  const create = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      await createActor(projectId, actorBody(form));
+      onClose();
+      await onSaved();
+    } catch (err) {
+      setFormError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Drawer
+      open
+      title={actor ? "Edit actor" : "New actor"}
+      description="Anything outside the system that interacts with it."
+      onClose={actor ? () => void closeAfterSave(auto, onClose) : onClose}
+      onSubmit={actor ? (e) => e.preventDefault() : create}
+      footer={
+        actor ? (
+          <AutosaveFooter auto={auto} onClose={onClose} />
+        ) : (
+          <>
+            <button type="button" className="btn ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn primary" disabled={saving || !form.name.trim()}>
+              {saving ? "Saving…" : "Create actor"}
+            </button>
+          </>
+        )
+      }
+    >
+      <Field label="Kind">
+        {/* Each kind is drawn its own way on the diagram, so this is a
+            decision about the picture, not a label. */}
+        <div className="usecase-kinds" role="radiogroup" aria-label="Kind of actor">
+          {ACTOR_KINDS.map((k) => (
+            <label key={k.id} className={`usecase-kind${form.kind === k.id ? " is-on" : ""}`} title={k.hint}>
+              <input
+                type="radio"
+                name="actor-kind"
+                checked={form.kind === k.id}
+                onChange={() => auto.set({ kind: k.id as UseCaseActorKind }, { immediate: true })}
+              />
+              <span>{k.label}</span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      <Field label="Name" error={auto.fieldErrors.name}>
+        <input
+          className="input"
+          required
+          placeholder="e.g. Customer, Payment gateway, Nightly run"
+          aria-invalid={!!auto.fieldErrors.name}
+          value={form.name}
+          onChange={(e) => auto.set({ name: e.target.value })}
+          onBlur={flush}
+        />
+      </Field>
+      <Field label="Description" hint="Who they are and why they use the system.">
+        <textarea
+          className="input textarea"
+          rows={3}
+          value={form.description ?? ""}
+          onChange={(e) => auto.set({ description: e.target.value })}
+          onBlur={flush}
+        />
+      </Field>
+      {formError && <div className="status-banner warn">{formError}</div>}
+    </Drawer>
+  );
+}
+
+const actorBody = (f: UseCaseActorInput): UseCaseActorInput => ({
+  name: f.name.trim(),
+  description: f.description?.trim() || null,
+  kind: f.kind,
+});
+
+const caseBody = (f: UseCaseInput): UseCaseInput => ({
+  name: f.name.trim(),
+  description: f.description?.trim() || null,
+  actor_ids: f.actor_ids,
+});
+
+/**
+ * Create a use case (with a Create button) or edit one (saved as you go).
+ * Mounted only while open, so closing flushes a pending save.
+ */
+function UseCaseDrawer({
+  projectId,
+  useCase,
+  actorList,
+  onSaved,
+  onClose,
+}: {
+  projectId: string;
+  useCase: UseCase | null;
+  actorList: UseCaseActor[];
+  onSaved: () => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const auto = useAutosave<UseCaseInput>(
+    useCase ? { name: useCase.name, description: useCase.description ?? "", actor_ids: useCase.actor_ids } : EMPTY_CASE,
+    {
+      enabled: useCase !== null,
+      validate: (f) => (f.name.trim() ? null : { name: "A use case needs a name." }),
+      save: async (f) => {
+        if (!useCase) return;
+        await updateUseCase(projectId, useCase.id, caseBody(f));
+        await onSaved();
+      },
+    },
+  );
+  const form = auto.value;
+  const flush = () => void auto.flush();
+
+  const toggleActor = (id: string) =>
+    auto.set(
+      (f) => ({
+        ...f,
+        actor_ids: f.actor_ids.includes(id) ? f.actor_ids.filter((x) => x !== id) : [...f.actor_ids, id],
+      }),
+      { immediate: true },
+    );
+
+  const create = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      await createUseCase(projectId, caseBody(form));
+      onClose();
+      await onSaved();
+    } catch (err) {
+      setFormError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Drawer
+      open
+      title={useCase ? "Edit use case" : "New use case"}
+      description="One thing a user can do with the system, named as a verb phrase."
+      onClose={useCase ? () => void closeAfterSave(auto, onClose) : onClose}
+      onSubmit={useCase ? (e) => e.preventDefault() : create}
+      footer={
+        useCase ? (
+          <AutosaveFooter auto={auto} onClose={onClose} />
+        ) : (
+          <>
+            <button type="button" className="btn ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn primary" disabled={saving || !form.name.trim()}>
+              {saving ? "Saving…" : "Create use case"}
+            </button>
+          </>
+        )
+      }
+    >
+      <Field label="Name" error={auto.fieldErrors.name}>
+        <input
+          className="input"
+          required
+          placeholder="e.g. Place an order"
+          aria-invalid={!!auto.fieldErrors.name}
+          value={form.name}
+          onChange={(e) => auto.set({ name: e.target.value })}
+          onBlur={flush}
+        />
+      </Field>
+      <Field label="Description">
+        <textarea
+          className="input textarea"
+          rows={3}
+          value={form.description ?? ""}
+          onChange={(e) => auto.set({ description: e.target.value })}
+          onBlur={flush}
+        />
+      </Field>
+      <Field label="Who performs it">
+        <div className="usecase-checklist">
+          {actorList.length === 0 ? (
+            <span className="muted">No actors yet — leave this and the system performs it itself.</span>
+          ) : (
+            actorList.map((a) => (
+              <label key={a.id} className="usecase-check">
+                <input type="checkbox" checked={form.actor_ids.includes(a.id)} onChange={() => toggleActor(a.id)} />
+                <span>{a.name}</span>
+                <small className="muted">{ACTOR_KIND_LABEL[a.kind]}</small>
+              </label>
+            ))
+          )}
+        </div>
+      </Field>
+      {formError && <div className="status-banner warn">{formError}</div>}
+    </Drawer>
+  );
+}
+
 type Deleting = { kind: "actor"; item: UseCaseActor } | { kind: "usecase"; item: UseCase } | null;
 
 export function UseCaseDiagramPage() {
@@ -64,20 +309,14 @@ export function UseCaseDiagramPage() {
   const tab: Tab = TABS.some((t) => t.id === rawTab) ? (rawTab as Tab) : "diagram";
   const selectTab = (t: Tab) => setParams(t === "diagram" ? {} : { tab: t }, { replace: true });
 
-  const [actorDrawer, setActorDrawer] = useState(false);
-  const [editingActor, setEditingActor] = useState<UseCaseActor | null>(null);
-  const [actorForm, setActorForm] = useState<UseCaseActorInput>(EMPTY_ACTOR);
-
-  const [caseDrawer, setCaseDrawer] = useState(false);
-  const [editingCase, setEditingCase] = useState<UseCase | null>(null);
-  const [caseForm, setCaseForm] = useState<UseCaseInput>(EMPTY_CASE);
+  /** The open drawer's subject: an item being edited, or null for a new one. */
+  const [actorDrawer, setActorDrawer] = useState<{ actor: UseCaseActor | null } | null>(null);
+  const [caseDrawer, setCaseDrawer] = useState<{ useCase: UseCase | null } | null>(null);
 
   const [diagram, setDiagram] = useState<DiagramState>(INITIAL_DIAGRAM_STATE);
   const [diagramWidth, setDiagramWidth] = useState<number | undefined>(undefined);
   const onDiagramWidth = useCallback((w: number | undefined) => setDiagramWidth(w), []);
 
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Deleting>(null);
 
   const actorList = actors.data ?? [];
@@ -85,69 +324,12 @@ export function UseCaseDiagramPage() {
   const actorName = useMemo(() => new Map(actorList.map((a) => [a.id, a.name])), [actorList]);
   const autoColumns = useAutoColumns(actorList, caseList, diagram, diagramWidth);
 
-  const openActor = (a: UseCaseActor | null) => {
-    setEditingActor(a);
-    setActorForm(a ? { name: a.name, description: a.description ?? "", kind: a.kind } : EMPTY_ACTOR);
-    setFormError(null);
-    setActorDrawer(true);
-  };
+  const openActor = (a: UseCaseActor | null) => setActorDrawer({ actor: a });
+  const openCase = (u: UseCase | null) => setCaseDrawer({ useCase: u });
 
-  const openCase = (u: UseCase | null) => {
-    setEditingCase(u);
-    setCaseForm(u ? { name: u.name, description: u.description ?? "", actor_ids: u.actor_ids } : EMPTY_CASE);
-    setFormError(null);
-    setCaseDrawer(true);
-  };
-
-  const saveActor = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setFormError(null);
-    const body: UseCaseActorInput = {
-      name: actorForm.name.trim(),
-      description: actorForm.description?.trim() || null,
-      kind: actorForm.kind,
-    };
-    try {
-      if (editingActor) await updateActor(project.id, editingActor.id, body);
-      else await createActor(project.id, body);
-      setActorDrawer(false);
-      await actors.reload();
-    } catch (err) {
-      setFormError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveCase = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setFormError(null);
-    const body: UseCaseInput = {
-      name: caseForm.name.trim(),
-      description: caseForm.description?.trim() || null,
-      actor_ids: caseForm.actor_ids,
-    };
-    try {
-      if (editingCase) await updateUseCase(project.id, editingCase.id, body);
-      else await createUseCase(project.id, body);
-      setCaseDrawer(false);
-      await useCases.reload();
-    } catch (err) {
-      setFormError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const toggleActor = (id: string) =>
-    setCaseForm((f) => ({
-      ...f,
-      actor_ids: f.actor_ids.includes(id) ? f.actor_ids.filter((x) => x !== id) : [...f.actor_ids, id],
-    }));
-
-  const loading = actors.loading || useCases.loading;
+  // Only the first load blanks the tab; a refresh behind an autosaving
+  // drawer keeps the diagram and lists on screen.
+  const loading = (actors.loading && !actors.data) || (useCases.loading && !useCases.data);
   const error = actors.error ?? useCases.error;
 
   return (
@@ -246,111 +428,26 @@ export function UseCaseDiagramPage() {
         />
       )}
 
-      <Drawer
-        open={actorDrawer}
-        title={editingActor ? "Edit actor" : "New actor"}
-        description="Anything outside the system that interacts with it."
-        onClose={() => setActorDrawer(false)}
-        onSubmit={saveActor}
-        footer={
-          <>
-            <button type="button" className="btn ghost" onClick={() => setActorDrawer(false)}>
-              Cancel
-            </button>
-            <button className="btn primary" disabled={saving || !actorForm.name.trim()}>
-              {saving ? "Saving…" : editingActor ? "Save changes" : "Create actor"}
-            </button>
-          </>
-        }
-      >
-        <Field label="Kind">
-          {/* Each kind is drawn its own way on the diagram, so this is a
-              decision about the picture, not a label. */}
-          <div className="usecase-kinds" role="radiogroup" aria-label="Kind of actor">
-            {ACTOR_KINDS.map((k) => (
-              <label key={k.id} className={`usecase-kind${actorForm.kind === k.id ? " is-on" : ""}`} title={k.hint}>
-                <input
-                  type="radio"
-                  name="actor-kind"
-                  checked={actorForm.kind === k.id}
-                  onChange={() => setActorForm((f) => ({ ...f, kind: k.id as UseCaseActorKind }))}
-                />
-                <span>{k.label}</span>
-              </label>
-            ))}
-          </div>
-        </Field>
-        <Field label="Name">
-          <input
-            className="input"
-            required
-            placeholder="e.g. Customer, Payment gateway, Nightly run"
-            value={actorForm.name}
-            onChange={(e) => setActorForm((f) => ({ ...f, name: e.target.value }))}
-          />
-        </Field>
-        <Field label="Description" hint="Who they are and why they use the system.">
-          <textarea
-            className="input textarea"
-            rows={3}
-            value={actorForm.description ?? ""}
-            onChange={(e) => setActorForm((f) => ({ ...f, description: e.target.value }))}
-          />
-        </Field>
-        {formError && <div className="status-banner warn">{formError}</div>}
-      </Drawer>
+      {actorDrawer && (
+        <ActorDrawer
+          key={actorDrawer.actor?.id ?? "new"}
+          projectId={project.id}
+          actor={actorDrawer.actor}
+          onSaved={actors.reload}
+          onClose={() => setActorDrawer(null)}
+        />
+      )}
 
-      <Drawer
-        open={caseDrawer}
-        title={editingCase ? "Edit use case" : "New use case"}
-        description="One thing a user can do with the system, named as a verb phrase."
-        onClose={() => setCaseDrawer(false)}
-        onSubmit={saveCase}
-        footer={
-          <>
-            <button type="button" className="btn ghost" onClick={() => setCaseDrawer(false)}>
-              Cancel
-            </button>
-            <button className="btn primary" disabled={saving || !caseForm.name.trim()}>
-              {saving ? "Saving…" : editingCase ? "Save changes" : "Create use case"}
-            </button>
-          </>
-        }
-      >
-        <Field label="Name">
-          <input
-            className="input"
-            required
-            placeholder="e.g. Place an order"
-            value={caseForm.name}
-            onChange={(e) => setCaseForm((f) => ({ ...f, name: e.target.value }))}
-          />
-        </Field>
-        <Field label="Description">
-          <textarea
-            className="input textarea"
-            rows={3}
-            value={caseForm.description ?? ""}
-            onChange={(e) => setCaseForm((f) => ({ ...f, description: e.target.value }))}
-          />
-        </Field>
-        <Field label="Who performs it">
-          <div className="usecase-checklist">
-            {actorList.length === 0 ? (
-              <span className="muted">No actors yet — leave this and the system performs it itself.</span>
-            ) : (
-              actorList.map((a) => (
-                <label key={a.id} className="usecase-check">
-                  <input type="checkbox" checked={caseForm.actor_ids.includes(a.id)} onChange={() => toggleActor(a.id)} />
-                  <span>{a.name}</span>
-                  <small className="muted">{ACTOR_KIND_LABEL[a.kind]}</small>
-                </label>
-              ))
-            )}
-          </div>
-        </Field>
-        {formError && <div className="status-banner warn">{formError}</div>}
-      </Drawer>
+      {caseDrawer && (
+        <UseCaseDrawer
+          key={caseDrawer.useCase?.id ?? "new"}
+          projectId={project.id}
+          useCase={caseDrawer.useCase}
+          actorList={actorList}
+          onSaved={useCases.reload}
+          onClose={() => setCaseDrawer(null)}
+        />
+      )}
 
       <ConfirmDrawer
         open={deleting !== null}
