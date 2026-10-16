@@ -42,6 +42,7 @@ from .models import (
     Event,
     Feature,
     Feedback,
+    MaintenanceContract,
     Release,
     Requirement,
     Sprint,
@@ -84,6 +85,9 @@ from .schemas import (
     FeedbackRead,
     FeedbackSeverity,
     FeedbackUpdate,
+    MaintenanceContractCreate,
+    MaintenanceContractRead,
+    MaintenanceContractUpdate,
     ReleaseCreate,
     ReleaseRead,
     ReleaseUpdate,
@@ -2029,18 +2033,149 @@ async def update_feedback(
     item = await _get_feedback(db, board, feedback_id)
     if payload.environment is not None and payload.environment != item.environment:
         await _require_environment(db, board, payload.environment)
-    before = {"status": item.status}
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(item, field, value)
-    item.updated_at = utc_now()
-    # Only the status move is worth an event; correcting a title is not a
-    # triage decision, and logging it would bury the ones that are.
-    changed = _diff(before, {"status": item.status}, ("status",))
+    if payload.assignee_id is not None:
+        await _validate_assignee(db, board, payload.assignee_id)
+    tracked = ("status", "assignee_id", "estimate_hours")
+    before = _snapshot(item, tracked)
+    fields = payload.model_dump(exclude_unset=True, exclude={"clear_assignee", "assignee_id", "estimate_hours"})
+    for field, value in fields.items():
+        if value is not None:
+            setattr(item, field, value)
+    # Same rule as RequirementUpdate: a null id is "not sent", clearing is the
+    # flag; a null estimate is "not estimated", so it needs no flag.
+    if payload.clear_assignee:
+        item.assignee_id = None
+    elif payload.assignee_id is not None:
+        item.assignee_id = payload.assignee_id
+    if "estimate_hours" in payload.model_fields_set:
+        item.estimate_hours = payload.estimate_hours
+    now = utc_now()
+    item.resolved_at = service.resolution_stamp(before["status"], item.status, item.resolved_at, now)
+    item.updated_at = now
+    # Status, assignee and estimate are triage decisions worth an event;
+    # correcting a title is not, and logging it would bury the ones that are.
+    changed = _diff(before, _snapshot(item, tracked), tracked)
     if changed:
         await service.write_event(db, board, ctx.user_id, "feedback.triaged", "feedback", item.id, changed)
     await db.commit()
     await db.refresh(item)
     return item
+
+
+@router.post(
+    "/projects/{project_id}/board/feedback/{feedback_id}/requirement",
+    response_model=FeedbackRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_requirement_from_feedback(
+    project_id: UUID,
+    feedback_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> Feedback:
+    """Raise a board requirement from a report (FS-REQ-51).
+
+    The requirement starts from the report -- its title, its words, where and
+    by whom it was seen, a priority matching its severity, its assignee and
+    estimate -- and its screenshots are copied across, so the requirement
+    stands on its own if the report is later deleted. The report remembers the
+    requirement; a report whose requirement is still live is refused (409),
+    one whose requirement was deleted may raise another.
+
+    Answers with the report, which now carries ``requirement_id``; the client
+    loads the requirement itself through the board.
+    """
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    item = await _get_feedback(db, board, feedback_id)
+    if item.requirement_id is not None:
+        live = (
+            await db.execute(
+                select(Requirement.id).where(
+                    Requirement.id == item.requirement_id,
+                    Requirement.board_id == board.id,
+                    Requirement.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if live is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=f"{item.human_id} already has a requirement"
+            )
+    environment = (
+        await db.execute(
+            select(Environment.label).where(Environment.board_id == board.id, Environment.slug == item.environment)
+        )
+    ).scalar_one_or_none()
+    fields = service.requirement_from_feedback(item, environment or item.environment)
+    # A former member may still be the report's assignee; the requirement
+    # simply starts unassigned rather than failing the whole raise.
+    try:
+        await _validate_assignee(db, board, fields["assignee_id"])
+    except HTTPException:
+        fields["assignee_id"] = None
+    _, requirement = await create_requirement_content(db, project, ctx, RequirementCreate(**fields))
+    await _copy_screenshots(db, board, item, requirement, ctx.user_id)
+    item.requirement_id = requirement.id
+    item.updated_at = utc_now()
+    await service.write_event(
+        db, board, ctx.user_id, "feedback.requirement_created", "feedback", item.id,
+        {"requirement_id": str(requirement.id)},
+    )
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def _copy_screenshots(
+    db: AsyncSession, board: Board, item: Feedback, requirement: Requirement, actor_id: UUID | None
+) -> None:
+    """Copy a report's uploaded screenshots onto a requirement, object and row.
+
+    A copy, not a re-pointed row: deleting the report (or one of its
+    screenshots) must not take the requirement's evidence with it. Without a
+    bucket there is nothing to copy; an object already gone from storage is
+    skipped, as finish_document_copies skips one when a project is versioned.
+    """
+    if not get_settings().documents_bucket:
+        return
+    shots = (
+        await db.execute(
+            select(Attachment)
+            .where(
+                Attachment.board_id == board.id,
+                Attachment.entity_type == "feedback",
+                Attachment.entity_id == item.id,
+                Attachment.status == "uploaded",
+                Attachment.deleted_at.is_(None),
+            )
+            .order_by(Attachment.created_at)
+        )
+    ).scalars().all()
+    for shot in shots:
+        attachment_id = uuid4()
+        key = _attachment_key(board.account_id, board.id, attachment_id, shot.filename)
+        try:
+            await storage.copy_object(shot.s3_key, key)
+        except storage.ObjectMissing:
+            continue
+        except storage.StorageNotConfigured:
+            return
+        db.add(
+            Attachment(
+                id=attachment_id,
+                board_id=board.id,
+                account_id=board.account_id,
+                entity_type="requirement",
+                entity_id=requirement.id,
+                filename=shot.filename,
+                content_type=shot.content_type,
+                size_bytes=shot.size_bytes,
+                s3_key=key,
+                status="uploaded",
+                created_by=actor_id,
+            )
+        )
 
 
 @router.delete("/projects/{project_id}/board/feedback/{feedback_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -2052,7 +2187,149 @@ async def delete_feedback(
 ) -> None:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    await db.delete(await _get_feedback(db, board, feedback_id))
+    item = await _get_feedback(db, board, feedback_id)
+    # Its thread goes with it, as an epic's does: a comment on nothing is
+    # noise in the board-wide comment list.
+    await db.execute(
+        Comment.__table__.update()
+        .where(
+            Comment.board_id == board.id,
+            Comment.entity_type == "feedback",
+            Comment.entity_id == item.id,
+            Comment.deleted_at.is_(None),
+        )
+        .values(deleted_at=utc_now())
+    )
+    await db.delete(item)
+    await db.commit()
+
+
+# ── Maintenance contracts (FS-REQ-54) ────────────────────────────────────
+#
+# What the client buys each month to have reports fixed. Dated rows rather
+# than one editable figure, because the agreement changes over time and the
+# months already gone keep the hours they were sold with. Admin-only in both
+# directions it matters: anyone on the board reads them (members see the
+# balance their reports draw on), only board:write records or changes one.
+# The month-by-month maths is the client's (feedback/maintenance.ts) -- the
+# inputs are these rows and the feedback list it already holds.
+
+
+async def _get_contract(db: AsyncSession, board: Board, contract_id: UUID) -> MaintenanceContract:
+    row = (
+        await db.execute(
+            select(MaintenanceContract).where(
+                MaintenanceContract.id == contract_id, MaintenanceContract.board_id == board.id
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maintenance contract not found")
+    return row
+
+
+def _contract_detail(row: MaintenanceContract) -> dict:
+    """The contract's terms for the feed, dates as ISO strings (JSONB)."""
+    return {f: _jsonable(getattr(row, f)) for f in ("start_date", "end_date", "hours_per_month")}
+
+
+@router.get("/projects/{project_id}/board/maintenance-contracts", response_model=list[MaintenanceContractRead])
+async def list_maintenance_contracts(
+    project_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[MaintenanceContract]:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    rows = await db.execute(
+        select(MaintenanceContract)
+        .where(MaintenanceContract.board_id == board.id)
+        .order_by(MaintenanceContract.start_date, MaintenanceContract.created_at)
+    )
+    return list(rows.scalars().all())
+
+
+@router.post(
+    "/projects/{project_id}/board/maintenance-contracts",
+    response_model=MaintenanceContractRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_maintenance_contract(
+    project_id: UUID,
+    payload: MaintenanceContractCreate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> MaintenanceContract:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    row = MaintenanceContract(
+        board_id=board.id, account_id=board.account_id, created_by=ctx.user_id, **payload.model_dump()
+    )
+    db.add(row)
+    await db.flush()
+    await service.write_event(
+        db, board, ctx.user_id, "maintenance_contract.created", "maintenance_contract", row.id,
+        _contract_detail(row),
+    )
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.patch(
+    "/projects/{project_id}/board/maintenance-contracts/{contract_id}", response_model=MaintenanceContractRead
+)
+async def update_maintenance_contract(
+    project_id: UUID,
+    contract_id: UUID,
+    payload: MaintenanceContractUpdate,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> MaintenanceContract:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    row = await _get_contract(db, board, contract_id)
+    tracked = ("start_date", "end_date", "hours_per_month")
+    before = _snapshot(row, tracked)
+    sent = payload.model_fields_set
+    if "start_date" in sent and payload.start_date is not None:
+        row.start_date = payload.start_date
+    if "end_date" in sent:
+        row.end_date = payload.end_date
+    if "hours_per_month" in sent and payload.hours_per_month is not None:
+        row.hours_per_month = payload.hours_per_month
+    if row.end_date is not None and row.end_date < row.start_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A contract cannot end before it starts"
+        )
+    changed = _diff(before, _snapshot(row, tracked), tracked)
+    if changed:
+        row.updated_at = utc_now()
+        await service.write_event(
+            db, board, ctx.user_id, "maintenance_contract.updated", "maintenance_contract", row.id, changed
+        )
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete(
+    "/projects/{project_id}/board/maintenance-contracts/{contract_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_maintenance_contract(
+    project_id: UUID,
+    contract_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    row = await _get_contract(db, board, contract_id)
+    await service.write_event(
+        db, board, ctx.user_id, "maintenance_contract.deleted", "maintenance_contract", row.id,
+        _contract_detail(row),
+    )
+    await db.delete(row)
     await db.commit()
 
 

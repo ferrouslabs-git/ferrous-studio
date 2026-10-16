@@ -211,6 +211,8 @@ async def describe(db, ev: StagedEvent) -> tuple[str, list[dict[str, Any]]] | No
         human_id, title = await _label_for(db, ev.board_id, ev.entity_type, ev.entity_id)
         excerpt = clip(str(ev.detail.get("excerpt") or "(attachment)"), 400)
         url = epics_url if ev.entity_type != "requirement" else None
+        if ev.entity_type == "feedback":
+            url = f"{base}/feedback" if base else None
         if ev.entity_type == "requirement":
             row = (await db.execute(select(Requirement).where(Requirement.id == ev.entity_id))).scalar_one_or_none()
             if row is not None and epics_url:
