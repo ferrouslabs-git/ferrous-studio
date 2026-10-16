@@ -10,6 +10,7 @@ import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import { elementHosts } from "../catalog";
 import { CustomDef, elementLink, locateCmp } from "../model/actions";
+import { navEffectiveLink } from "../model/navOrder";
 import { STRUCTURAL_TYPES } from "../model/regions";
 import { cmpFloatPos, cmpFreePos, cmpPos, cmpSize, fixedWidthDemand, nodePath, SplitSide } from "../model/tree";
 import { ComponentNode, LayoutNode, LinkTarget, PageDocument, PagePresentation, Size, SplitNode } from "../model/types";
@@ -752,7 +753,7 @@ export function Canvas(props: Props) {
     const chrome: SchematicChrome = {
       selected: sel,
       editing: level.editable && editingElement?.cmpId === cmp.id ? editingElement : null,
-      linkOf: (key, index) => elementLink(cmp, key, index),
+      linkOf: (key, index) => navEffectiveLink(cmp, key, index),
       activePageIds: props.activePageIds,
       noteEls: props.marks?.notes.els,
       taskEls: props.marks?.tasks.els,

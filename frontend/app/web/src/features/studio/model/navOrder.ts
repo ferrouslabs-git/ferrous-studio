@@ -4,20 +4,56 @@
 // redundant landing), and the page switcher lists nav-linked pages in nav
 // order rather than raw pos order.
 import { NavAlign, navAlign } from "../catalog";
-import { elementLink, elKey } from "./actions";
+import { elementLink, elKey, EL_PREFIX } from "./actions";
 import { byPos } from "./positions";
 import { regionIds } from "./tree";
-import { BACK_PAGE_ID, ComponentNode, ElementNode, PageDocument } from "./types";
+import { BACK_PAGE_ID, ComponentNode, ElementNode, LinkTarget, PageDocument } from "./types";
+
+/** Sub-items (FS-REQ-64) by the nav item they nest under: each belongs to
+ *  the nearest nav item before it in pos order. A sub-item with no item
+ *  before it has no parent and draws as an ordinary item. */
+export function navSubItems(elements: readonly ElementNode[]): Map<string, ElementNode[]> {
+  const out = new Map<string, ElementNode[]>();
+  let parent: ElementNode | null = null;
+  for (const el of byPos(elements)) {
+    if (el.type === "nav-item") parent = el;
+    else if (el.type === "nav-sub-item" && parent) {
+      const list = out.get(parent.id) ?? [];
+      list.push(el);
+      out.set(parent.id, list);
+    }
+  }
+  return out;
+}
+
+/** Where a nav bar's element goes: its own link, or — for a parent item
+ *  with none — its first linked sub-item's, so the parent opens what its
+ *  first child does. */
+export function navEffectiveLink(cmp: ComponentNode, key: string, index: number | null): LinkTarget | null {
+  const own = elementLink(cmp, key, index);
+  if (own || cmp.type !== "navbar" || index != null || !key.startsWith(EL_PREFIX)) return own;
+  const id = key.slice(EL_PREFIX.length);
+  for (const sub of navSubItems(cmp.elements ?? []).get(id) ?? []) {
+    const link = elementLink(cmp, elKey(sub.id), null);
+    if (link) return link;
+  }
+  return null;
+}
 
 /** Nav-item elements of one nav bar in the order the bar draws them: pos
  *  order down a vertical rail; left → centre → right zones, each in pos
- *  order, across a horizontal bar (mirrors the Schematic's zoning). */
+ *  order, across a horizontal bar (mirrors the Schematic's zoning). Sub-items
+ *  follow their parent wherever it sits. */
 function navItemsInDrawOrder(cmp: ComponentNode): ElementNode[] {
   const els = byPos(cmp.elements ?? []);
-  if (cmp.layout === "vertical") return els.filter((e) => e.type === "nav-item");
-  const zones: Record<NavAlign, ElementNode[]> = { left: [], centre: [], right: [] };
-  for (const el of els) zones[navAlign(el)].push(el);
-  return [...zones.left, ...zones.centre, ...zones.right].filter((e) => e.type === "nav-item");
+  const subs = navSubItems(els);
+  const nested = new Set([...subs.values()].flat().map((e) => e.id));
+  const top = els.filter((e) => (e.type === "nav-item" || e.type === "nav-sub-item") && !nested.has(e.id));
+  const ordered =
+    cmp.layout === "vertical"
+      ? top
+      : (["left", "centre", "right"] as NavAlign[]).flatMap((zone) => top.filter((e) => navAlign(e) === zone));
+  return ordered.flatMap((e) => [e, ...(subs.get(e.id) ?? [])]);
 }
 
 /** Every page the document's nav bars link to, in draw order: regions in
@@ -47,6 +83,25 @@ export function navLinkedPageIds(doc: PageDocument): string[] {
 export function firstNavTarget(doc: PageDocument, pages: readonly { id: string }[]): string | null {
   const alive = new Set(pages.map((p) => p.id));
   return navLinkedPageIds(doc).find((id) => alive.has(id)) ?? null;
+}
+
+/** The page a page opens onto (FS-REQ-57, FS-REQ-62): the first page its own
+ *  nav bars link to that is placed inside it. A page whose region is an
+ *  outlet for its nav never shows that region bare — following a link to
+ *  it, or to a level-one nav item, lands on the first child the nav names,
+ *  so content is never added to (or shown from) an orphaned region. Overlay
+ *  pages float rather than fill a region, so they are never the default. */
+export function defaultChildPage(
+  doc: PageDocument,
+  pageId: string,
+  pages: readonly { id: string; placement: { page_id: string } | null; presentation?: string | null }[],
+): string | null {
+  const byId = new Map(pages.map((p) => [p.id, p]));
+  for (const id of navLinkedPageIds(doc)) {
+    const target = byId.get(id);
+    if (target && target.placement?.page_id === pageId && !target.presentation) return id;
+  }
+  return null;
 }
 
 /** Reorder pages so the nav-linked ones appear in nav order. Only they move:

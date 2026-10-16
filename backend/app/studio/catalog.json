@@ -250,6 +250,12 @@
           "shapeable": false,
           "fillable": false
         },
+        "nav-sub-item": {
+          "fields": [],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
         "group-heading": {
           "fields": [],
           "max": null,

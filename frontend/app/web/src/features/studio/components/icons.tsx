@@ -89,6 +89,7 @@ export const LIB_ICONS: Record<string, ReactNode> = {
   // Nav bar elements
   brand: navSvg(<><rect x="2.5" y="2.5" width="11" height="11" rx="3" /><circle cx="8" cy="8" r="2" /></>),
   "nav-item": navSvg(<path d="M2.5 8H12M9 4.5 12.5 8 9 11.5" />),
+  "nav-sub-item": navSvg(<path d="M3 3v5h9M9.5 5.5 12 8l-2.5 2.5" />),
   "group-heading": navSvg(<path d="M2.5 3.5h6M2.5 7.5h11M2.5 11.5h11" />),
   search: NAV_ICON_MARKS.search,
   select: navSvg(<><rect x="2" y="4" width="12" height="8" rx="1.5" /><path d="m9.75 7.25 1.5 1.5 1.5-1.5" /></>),

@@ -125,6 +125,10 @@ const BRAND = el({
   defaultLabel: "Acme", max: 1,
 });
 const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item", blankRemoves: true });
+/** A nav item nested under the nav item before it (FS-REQ-64): a side rail
+ *  draws it as an accordion under its parent, a top bar as the parent's
+ *  dropdown. A parent with no link of its own follows its first sub-item. */
+const NAV_SUB_ITEM = el({ type: "nav-sub-item", label: "Sub-item", desc: "A destination nested under the item before it", icon: "NS", dataFields: [], defaultLabel: "Sub-item", blankRemoves: true });
 const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
 const SEARCH = el({ type: "search", label: "Search box", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1, shapeable: true, fillable: true, defaultFill: "outline" });
 const BUTTON = el({
@@ -417,7 +421,7 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
     defaultLayout: "horizontal",
     // SELECT is the bar's dropdown: an environment/team/filter picker showing
     // its first option as the chosen value (see Schematic's ui-nav-select).
-    elements: [BRAND, NAV_ITEM, GROUP_HEADING, SEARCH, SELECT, BUTTON, AVATAR, WORKSPACE, DIVIDER],
+    elements: [BRAND, NAV_ITEM, NAV_SUB_ITEM, GROUP_HEADING, SEARCH, SELECT, BUTTON, AVATAR, WORKSPACE, DIVIDER],
     defaultElements: [
       { type: "brand" },
       { type: "nav-item", label: "Overview" },

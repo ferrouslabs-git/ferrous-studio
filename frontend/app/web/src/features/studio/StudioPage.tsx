@@ -81,6 +81,7 @@ import { defaultBatchId } from "./sync/outbox";
 import { useWireframeSync } from "./sync/useWireframeSync";
 import { useHostChain } from "./useHostChain";
 import { useNavLanding } from "./useNavLanding";
+import { useLandingVisit } from "./useLandingVisit";
 import { useLivePages, usePageDocument } from "./usePageDocument";
 import { usePageNav } from "./usePageNav";
 
@@ -192,7 +193,9 @@ function StudioEditor() {
   // nav-order below, and seeds the page cache — the shell is almost always
   // the first host chain's outermost level.
   const pinnedLandingId = wireframe.data?.landing_page_id ?? null;
-  const landingDoc = useNavLanding(fetchPage, pages, activePageId, nav.visit, pinnedLandingId, doc.cache);
+  /** Navigation lands on a page's nav-driven default child (FS-REQ-57/62). */
+  const go = useLandingVisit(nav.visit, pages, fetchPage, doc.cache);
+  const landingDoc = useNavLanding(fetchPage, pages, activePageId, go, pinnedLandingId, doc.cache);
 
   // Leaving a page abandons its selection, and a different page's document
   // arriving drops any pick made against the outgoing copy mid-switch. (A
@@ -721,12 +724,12 @@ function StudioEditor() {
         if (nav.canBack) nav.back();
         else toast("No previous page to go back to");
       } else if (pages.some((p) => p.id === target.pageId)) {
-        nav.visit(target.pageId);
+        go(target.pageId);
       } else {
         toast("The linked page no longer exists");
       }
     },
-    [pages, toast, nav.visit, nav.back, nav.canBack],
+    [pages, toast, go, nav.back, nav.canBack],
   );
 
   /** Setting a link takes you to what you linked. The target's document is
@@ -1037,10 +1040,10 @@ function StudioEditor() {
     // A new labelled element opens straight into its label editor, so the
     // first keystrokes name it (FS-REQ-65).
     if (created && hostCmp && elementMeta(hostCmp.type, type)?.defaultLabel) setEditingElement(created);
-    if (!created || !owner || !loc || hostCmp?.type !== "navbar" || type !== "nav-item") return;
+    if (!created || !owner || !loc || hostCmp?.type !== "navbar" || (type !== "nav-item" && type !== "nav-sub-item")) return;
     const regionId = contentRegionFor(owner.document.root, loc.region);
     if (!regionId) return;
-    void createLinkedPage(created, regionId, elementMeta("navbar", "nav-item")?.defaultLabel ?? "Item");
+    void createLinkedPage(created, regionId, elementMeta("navbar", type)?.defaultLabel ?? "Item");
   };
 
   /** Add a component from the library (bar click or canvas drop). A nav bar
@@ -1460,7 +1463,7 @@ function StudioEditor() {
           canWrite={canWrite}
           landingId={landingId}
           landingPinned={landingPinned}
-          onSelect={nav.visit}
+          onSelect={go}
           onAdd={openAddPage}
           onDelete={removePage}
           onSetLanding={setLanding}

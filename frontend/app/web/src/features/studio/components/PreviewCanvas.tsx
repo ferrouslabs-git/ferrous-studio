@@ -5,7 +5,8 @@
 // on a single click, so the page behaves like the screen it describes.
 import { CSSProperties, ReactNode } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { CustomDef, elementLink } from "../model/actions";
+import { CustomDef } from "../model/actions";
+import { navEffectiveLink } from "../model/navOrder";
 import { cmpSize } from "../model/tree";
 import { ComponentNode, LayoutNode, LinkTarget, PageDocument, PagePresentation, Size } from "../model/types";
 import { cmpSizeStyle, fillsHeight, fillsRegion, floatCmpStyle, freeBodyMinHeight, freeCmpStyle, HostLevel, isFloating, overlayPanelStyle } from "./Canvas";
@@ -55,7 +56,7 @@ export function PreviewCanvas({ doc, host, presentation, activePageIds, defs, da
     const chrome: SchematicChrome = {
       selected: null,
       editing: null,
-      linkOf: (key, index) => elementLink(cmp, key, index),
+      linkOf: (key, index) => navEffectiveLink(cmp, key, index),
       activePageIds,
       followOnClick: true,
       onFollow,

@@ -12,6 +12,7 @@ import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
+import { navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
 import { getDefaultProps } from "../model/regions";
 import { ComponentNode, ElementNode, LinkTarget } from "../model/types";
@@ -232,6 +233,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   /** Dropdown whose option menu is expanded (chevron click), like a real
    *  select. One per component; closes on outside pointerdown. */
   const [openSelect, setOpenSelect] = useState<string | null>(null);
+  /** Side-rail parents the user expanded or collapsed (FS-REQ-64); unset
+   *  ones follow the default — open while editing, else open on the active
+   *  group only. View state, never persisted. */
+  const [railOpen, setRailOpen] = useState<Record<string, boolean>>({});
   /** Ephemeral picks made by viewers (no edit handlers): the menu still works
    *  and the face updates, it just isn't persisted. */
   const [chosen, setChosen] = useState<Record<string, string>>({});
@@ -932,7 +937,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const workspaceEl = first("workspace-switcher");
     const buttons = byType("button");
     const selects = byType("select");
-    const flow = els.filter((e) => e.type === "nav-item" || e.type === "group-heading" || e.type === "divider");
+    // Sub-items draw under their parent (accordion on a rail, dropdown on a
+    // bar), so the flow holds only top-level entries (FS-REQ-64).
+    const subs = navSubItems(els);
+    const nested = new Set([...subs.values()].flat().map((e) => e.id));
+    const flow = els.filter(
+      (e) => (e.type === "nav-item" || e.type === "nav-sub-item" || e.type === "group-heading" || e.type === "divider") && !nested.has(e.id),
+    );
 
     /** A dropdown in the bar. No label text: it reads "Select" until an
      *  option is picked from its expanded menu (chevron click). */
@@ -952,19 +963,41 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     // The item drawn as current: the one whose link target is the open page
     // (or one of its ancestor shells). With no such link, the first item
     // stays active as representative styling, as before.
-    const navItems = flow.filter((e) => e.type === "nav-item");
+    const navItems = els.filter((e) => e.type === "nav-item" || e.type === "nav-sub-item");
+    const linkedHere = (e: ElementNode) => {
+      const link = chrome?.linkOf(elKey(e.id), null);
+      return !!link && !!chrome?.activePageIds?.includes(link.pageId);
+    };
+    // A parent borrows its first sub-item's link, so prefer the leaf: the
+    // parent then reads active through its child.
     const activeNav =
-      navItems.find((e) => {
-        const link = chrome?.linkOf(elKey(e.id), null);
-        return !!link && !!chrome?.activePageIds?.includes(link.pageId);
-      }) ?? navItems[0];
+      navItems.find((e) => !subs.has(e.id) && linkedHere(e)) ?? navItems.find(linkedHere) ?? navItems.find((e) => !nested.has(e.id));
+    /** Drawn as current: the active item, or the parent of an active sub-item. */
+    const isActive = (el: ElementNode) => activeNav === el || (!!activeNav && (subs.get(el.id) ?? []).includes(activeNav));
+    /** The parent's chevron: expands its sub-items (rail) or opens its menu (bar). */
+    const subToggle = (open: boolean, onToggle: () => void) => (
+      <button
+        type="button"
+        className="ui-nav-toggle"
+        data-select-ui
+        aria-label={open ? "Collapse" : "Expand"}
+        aria-expanded={open}
+        onClick={(e: ReactMouseEvent) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      >
+        <Chevron />
+      </button>
+    );
+    const selectedNav = navItems.some(isSelected);
 
     if (layout === "vertical") {
       // Side rail: group headings start sections; chrome sits top and bottom.
       // The shape applies here just as it does horizontally: plain labels,
       // tabs (left indicator), icon items, or a stacked crumb trail.
-      const railItem = (el: ElementNode): ReactNode => {
-        const active = activeNav === el;
+      const railLeaf = (el: ElementNode): ReactNode => {
+        const active = isActive(el);
         if (shape === "tabs") return elTok(el, `ui-tab vert${active ? " active" : ""}`);
         if (shape === "breadcrumb") return elTok(el, `ui-crumb vert${navItems[navItems.length - 1] === el ? " current" : ""}`);
         return elTok(
@@ -974,6 +1007,28 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {shape === "icons" && navIconMark(el)}
             <span className="ui-side-label">{el.label}</span>
           </>,
+        );
+      };
+      /** A parent item draws as an accordion over its sub-items. */
+      const railItem = (el: ElementNode): ReactNode => {
+        const kids = subs.get(el.id);
+        if (!kids?.length) return railLeaf(el);
+        const forced = !!edit && (isSelected(el) || kids.some(isSelected));
+        const open = forced || (railOpen[el.id] ?? (edit ? true : isActive(el)));
+        return (
+          <div className={`ui-side-group${open ? " open" : ""}`}>
+            <div className="ui-side-parent">
+              {railLeaf(el)}
+              {subToggle(open, () => setRailOpen((o) => ({ ...o, [el.id]: !open })))}
+            </div>
+            {open && (
+              <div className="ui-side-sub">
+                {kids.map((k) => (
+                  <Fragment key={k.id}>{railLeaf(k)}</Fragment>
+                ))}
+              </div>
+            )}
+          </div>
         );
       };
       const sections: ReactNode[][] = [[]];
@@ -1023,7 +1078,12 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               )}
             </div>
           )}
-          {addCluster(addEl("nav-item", "Add navigation item", "+ Item", "text"))}
+          {addCluster(
+            <>
+              {addEl("nav-item", "Add navigation item", "+ Item", "text")}
+              {selectedNav && addEl("nav-sub-item", "Add a sub-item under the selected item", "+ Sub-item", "text")}
+            </>,
+          )}
         </aside>
       );
     }
@@ -1039,13 +1099,32 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       if (el.type === "divider") return elBox(el, "divider-box", <span className="ui-nav-divider" aria-hidden />);
       if (el.type === "group-heading") return <Fragment key={el.id}>{elTok(el, "ui-side-title inline")}</Fragment>;
       const cls =
-        shape === "tabs" ? `ui-tab${activeNav === el ? " active" : ""}` :
+        shape === "tabs" ? `ui-tab${isActive(el) ? " active" : ""}` :
         shape === "breadcrumb" ? `ui-crumb${el === crumbCurrent ? " current" : ""}` :
-        `ui-nav-link${activeNav === el ? " active" : ""}`;
+        `ui-nav-link${isActive(el) ? " active" : ""}`;
+      const label = elTok(el, cls, shape === "icons" ? <>{navIconMark(el)}{el.label}</> : undefined);
+      const kids = subs.get(el.id);
+      // A parent opens its sub-items as a dropdown under it; editing keeps
+      // the menu open while the parent or one of its items is selected.
+      const open = !!kids?.length && (openSelect === el.id || (!!edit && (isSelected(el) || kids.some(isSelected))));
       return (
         <Fragment key={el.id}>
           {shape === "breadcrumb" && sepBefore && <span className="ui-crumb-sep" aria-hidden>/</span>}
-          {elTok(el, cls, shape === "icons" ? <>{navIconMark(el)}{el.label}</> : undefined)}
+          {kids?.length ? (
+            <span className={`ui-nav-parent${open ? " open" : ""}`}>
+              {label}
+              {subToggle(open, () => setOpenSelect((cur) => (cur === el.id ? null : el.id)))}
+              {open && (
+                <div className="ui-select-menu ui-nav-menu" data-select-ui>
+                  {kids.map((k) => (
+                    <Fragment key={k.id}>{elTok(k, `ui-select-option${activeNav === k ? " on" : ""}`)}</Fragment>
+                  ))}
+                </div>
+              )}
+            </span>
+          ) : (
+            label
+          )}
         </Fragment>
       );
     };
@@ -1107,12 +1186,15 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         {zones.centre.length > 0 && <div className="ui-nav-zone centre">{zoneBody(zones.centre)}</div>}
         <div className="ui-nav-zone right">{zoneBody(zones.right)}</div>
         {addCluster(
-          addEl(
-            "nav-item",
-            shape === "breadcrumb" ? "Add crumb" : shape === "tabs" ? "Add tab" : "Add link",
-            shape === "breadcrumb" ? "+ Crumb" : shape === "tabs" ? "+ Tab" : "+ Link",
-            "text",
-          ),
+          <>
+            {addEl(
+              "nav-item",
+              shape === "breadcrumb" ? "Add crumb" : shape === "tabs" ? "Add tab" : "Add link",
+              shape === "breadcrumb" ? "+ Crumb" : shape === "tabs" ? "+ Tab" : "+ Link",
+              "text",
+            )}
+            {selectedNav && shape !== "breadcrumb" && addEl("nav-sub-item", "Add a sub-item under the selected item", "+ Sub-item", "text")}
+          </>,
           true,
         )}
       </header>

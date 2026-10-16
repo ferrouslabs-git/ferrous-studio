@@ -734,6 +734,17 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim); text-align: left;
 }
 .ui-side-item.active { background: var(--wf-soft); color: var(--text); }
+/* Nested nav (FS-REQ-64): a rail parent is an accordion over its sub-items;
+   a bar parent opens them as a dropdown (.ui-nav-menu rides .ui-select-menu,
+   inheriting its overflow escapes). */
+.ui-side-group { display: flex; flex-direction: column; }
+.ui-side-parent { display: flex; align-items: center; }
+.ui-side-parent > :first-child { flex: 1 1 auto; min-width: 0; }
+.ui-side-sub { display: flex; flex-direction: column; padding-left: 14px; }
+.ui-nav-toggle { border: 0; background: transparent; color: inherit; padding: 0 4px; cursor: pointer; display: inline-grid; place-items: center; flex: none; }
+.ui-nav-toggle[aria-expanded="true"] .ui-chevron { transform: rotate(180deg); }
+.ui-nav-parent { position: relative; display: inline-flex; align-items: center; }
+.ui-nav-menu { min-width: 160px; }
 .ui-side-item.active .ui-icon { color: var(--wf-ink); opacity: 1; }
 .ui-side-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-side-user {

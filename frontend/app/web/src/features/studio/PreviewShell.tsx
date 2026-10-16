@@ -21,6 +21,7 @@ import { BACK_PAGE_ID, LinkTarget } from "./model/types";
 import { DESKTOP_DESIGN_W, DESKTOP_FLEX_FLOOR, Stage, useDesktopFit, useStageFit } from "./stage";
 import { useHostChain } from "./useHostChain";
 import { useNavLanding } from "./useNavLanding";
+import { useLandingVisit } from "./useLandingVisit";
 import { PageFetcher, usePageDocument } from "./usePageDocument";
 import { usePageNav } from "./usePageNav";
 
@@ -65,10 +66,12 @@ export function PreviewShell({
   // clicking through links never blanks the canvas (see usePageDocument).
   const doc = usePageDocument(fetchPage, activePageId, { onError: setNotice });
   const { page, pendingPageId } = doc;
+  /** Navigation lands on a page's nav-driven default child (FS-REQ-57/62). */
+  const go = useLandingVisit(nav.visit, pages, fetchPage, doc.cache);
 
   // Land on the pinned landing page, else where the shell's nav points
   // first, else on the first page.
-  useNavLanding(fetchPage, pages, activePageId, nav.visit, landingPageId, doc.cache);
+  useNavLanding(fetchPage, pages, activePageId, go, landingPageId, doc.cache);
 
   // Ancestor shells for a child page: walk placements upwards. The preview
   // only reads the rendered levels; the records exist for the editor.
@@ -85,12 +88,12 @@ export function PreviewShell({
         if (nav.canBack) nav.back();
         else toast("No previous page to go back to");
       } else if (pages.some((p) => p.id === target.pageId)) {
-        nav.visit(target.pageId);
+        go(target.pageId);
       } else {
         toast("The linked page no longer exists");
       }
     },
-    [pages, toast, nav.visit, nav.back, nav.canBack], // eslint-disable-line react-hooks/exhaustive-deps
+    [pages, toast, go, nav.back, nav.canBack], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const activePageIds = useMemo(
