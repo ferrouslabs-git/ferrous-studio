@@ -9,7 +9,7 @@ import { CustomDef } from "../model/actions";
 import { navEffectiveLink } from "../model/navOrder";
 import { cmpSize } from "../model/tree";
 import { ComponentNode, LayoutNode, LinkTarget, PageDocument, PagePresentation, Size } from "../model/types";
-import { cmpSizeStyle, fillsHeight, fillsRegion, floatCmpStyle, freeBodyMinHeight, freeCmpStyle, HostLevel, isFloating, overlayPanelStyle } from "./Canvas";
+import { canvasChildren, cmpSizeStyle, fillsHeight, fillsRegion, floatCmpStyle, freeBodyMinHeight, freeCmpStyle, HostLevel, isFloating, overlayPanelStyle } from "./Canvas";
 import { CmpBoundary } from "./CmpBoundary";
 import { Schematic, SchematicChrome, styleData } from "./Schematic";
 
@@ -52,7 +52,7 @@ export function PreviewCanvas({ doc, host, presentation, activePageIds, defs, da
   const fixedCls = (node: LayoutNode, parentDir: "row" | "col" | null): string =>
     parentDir != null && typeof node.size === "number" ? " fixed" : "";
 
-  const renderComponent = (cmp: ComponentNode, row: boolean, free: boolean, index: number) => {
+  const renderComponent = (cmp: ComponentNode, row: boolean, free: boolean, index: number, kids?: ComponentNode[]): ReactNode => {
     const chrome: SchematicChrome = {
       selected: null,
       editing: null,
@@ -81,6 +81,7 @@ export function PreviewCanvas({ doc, host, presentation, activePageIds, defs, da
         <CmpBoundary cmpId={cmp.id} cmpType={cmp.type}>
           <Schematic cmp={cmp} defs={defs} datasets={datasets} chrome={chrome} />
         </CmpBoundary>
+        {kids && kids.length > 0 && <div className="cnv-cmps">{kids.map((k, i) => renderComponent(k, false, true, i))}</div>}
       </div>
     );
   };
@@ -97,7 +98,13 @@ export function PreviewCanvas({ doc, host, presentation, activePageIds, defs, da
         style={{ ...sizeStyle(region, parentDir), ...styleData(region.bg ? { bg: region.bg } : undefined) }}
       >
         <div className={`rg-body${row ? " row" : ""}${free ? " free" : ""}`} style={free && !isOutlet ? { minHeight: freeBodyMinHeight(list) } : undefined}>
-          {isOutlet ? level.outletContent : list.map((c, i) => renderComponent(c, row, free, i))}
+          {isOutlet
+            ? level.outletContent
+            : (() => {
+                const kidsOf = canvasChildren(list);
+                const placed = new Set([...kidsOf.values()].flat().map((c) => c.id));
+                return list.map((c, i) => (placed.has(c.id) ? null : renderComponent(c, row, free, i, kidsOf.get(c.id))));
+              })()}
         </div>
       </div>
     );

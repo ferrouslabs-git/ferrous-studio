@@ -18,6 +18,7 @@ import {
   setComponentPosition,
   setComponentShape,
   setComponentSize,
+  setComponentCanvas,
   setComponentType,
   setComponentWidth,
   setRegionDirAction,
@@ -701,5 +702,24 @@ describe("relabelLinkedRegion", () => {
     };
     expect(relabelLinkedRegion(d, nav, "Item", "Dashboard")).toBe(true);
     expect(regionIds(d.root).map((id) => regionDisplayName(d.root, id))).toEqual(["Dashboard > Content", "Content"]);
+  });
+});
+
+describe("components inside a canvas (FS-REQ-68)", () => {
+  it("places a component in a canvas of its region and takes it back out", () => {
+    const p = page([
+      { id: "cv", type: "canvas", label: "Canvas", pos: "a0" },
+      { id: "g", type: "graph", label: "Graph", pos: "a1", props: { float: true, size: "fill" } },
+    ]);
+    setComponentCanvas(p, ctx, "g", "cv", { x: 40.4, y: 12 });
+    expect(listOf(p)[1].props).toEqual({ inCanvas: "cv", x: 40, y: 12 });
+    setComponentCanvas(p, ctx, "g", null);
+    expect(listOf(p)[1].props).toEqual({});
+  });
+
+  it("refuses a canvas that is not in the region, and canvases in canvases", () => {
+    const p = page([{ id: "cv", type: "canvas", label: "Canvas", pos: "a0" }, { id: "cv2", type: "canvas", label: "Canvas", pos: "a1" }]);
+    setComponentCanvas(p, ctx, "cv2", "cv");
+    expect(listOf(p)[1].props).toBeUndefined();
   });
 });

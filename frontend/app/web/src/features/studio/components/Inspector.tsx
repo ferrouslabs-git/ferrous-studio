@@ -44,6 +44,9 @@ interface Props {
   onCmpWidth(id: string, w: number | null): void;
   /** Float the component over its region (stacking) or return it to the flow. */
   onCmpFloat(id: string, floating: boolean): void;
+  /** Canvases in the selected component's region it can be placed inside. */
+  canvasesBeside: { id: string; label: string }[];
+  onCmpCanvas(id: string, canvasId: string | null): void;
   onRegionLabel(id: string, label: string): void;
   onRegionBg(id: string, bg: string): void;
   onRegionSize(id: string, size: Size): void;
@@ -835,12 +838,29 @@ export function Inspector(props: Props) {
                 <div className="field">
                   <label>Placement</label>
                   <select
-                    value={selectedCmp.props?.float === true ? "float" : "flow"}
+                    value={
+                      typeof selectedCmp.props?.inCanvas === "string" && props.canvasesBeside.some((c) => c.id === selectedCmp.props?.inCanvas)
+                        ? `canvas:${selectedCmp.props.inCanvas}`
+                        : selectedCmp.props?.float === true
+                          ? "float"
+                          : "flow"
+                    }
                     disabled={ro}
-                    onChange={(e) => props.onCmpFloat(selectedCmp.id, e.target.value === "float")}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v.startsWith("canvas:")) {
+                        props.onCmpCanvas(selectedCmp.id, v.slice("canvas:".length));
+                        return;
+                      }
+                      if (typeof selectedCmp.props?.inCanvas === "string") props.onCmpCanvas(selectedCmp.id, null);
+                      props.onCmpFloat(selectedCmp.id, v === "float");
+                    }}
                   >
                     <option value="flow">In flow</option>
                     <option value="float">Float over region</option>
+                    {props.canvasesBeside.map((c) => (
+                      <option key={c.id} value={`canvas:${c.id}`}>Inside {c.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="field">

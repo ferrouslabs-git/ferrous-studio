@@ -441,6 +441,8 @@ export function moveToRegion(
   const src = locateCmp(doc, srcId);
   if (!src || src.region === regionId) return;
   const [item] = src.list.splice(src.index, 1);
+  // A canvas is region-local: leaving the region leaves the canvas too.
+  if (item.props) delete item.props.inCanvas;
   if (at) {
     const props = ensureProps(item);
     props.x = Math.max(0, Math.round(at.x));
@@ -449,6 +451,37 @@ export function moveToRegion(
   const list = doc.regions[regionId];
   item.pos = posAfterLast(list);
   list.push(item);
+}
+
+/** Put a component inside a canvas in its own region (FS-REQ-68), placed
+ *  freely at `at` in the canvas's coordinates — or, with `canvasId` null,
+ *  take it back out into the region's flow. A canvas never nests in another,
+ *  and a float gives up floating: the canvas is now what it sits over. */
+export function setComponentCanvas(
+  draft: Draft,
+  _ctx: ActionContext,
+  id: string,
+  canvasId: string | null,
+  at: { x: number; y: number } | null = null,
+): ActionResult | void {
+  const loc = locateCmp(draft.document, id);
+  if (!loc) return;
+  const cmp = loc.list[loc.index];
+  if (cmp.type === "canvas") return;
+  const props = ensureProps(cmp);
+  if (canvasId) {
+    if (!loc.list.some((c) => c.id === canvasId && c.type === "canvas")) return;
+    props.inCanvas = canvasId;
+    delete props.float;
+    if (props.size === "fill") delete props.size;
+    props.x = Math.max(0, Math.round(at?.x ?? 16));
+    props.y = Math.max(0, Math.round(at?.y ?? 16));
+  } else {
+    delete props.inCanvas;
+    delete props.x;
+    delete props.y;
+  }
+  return { selectCmpId: id };
 }
 
 /** Change a component's type. This is a reset: the new type's default shape,

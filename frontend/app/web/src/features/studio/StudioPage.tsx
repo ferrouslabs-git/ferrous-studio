@@ -382,6 +382,11 @@ function StudioEditor() {
   const selectedCmpLoc = selectedCmpRecord && selectedCmpId ? locateCmp(selectedCmpRecord.document, selectedCmpId) : null;
   const selectedCmp = selectedCmpLoc ? selectedCmpLoc.list[selectedCmpLoc.index] : null;
   const selectedCmpType = selectedCmp?.type ?? null;
+  /** Canvases sharing the selected component's region (Inspector → Placement). */
+  const canvasesBeside =
+    selectedCmpLoc && selectedCmpType !== "canvas"
+      ? selectedCmpLoc.list.filter((c) => c.type === "canvas").map((c) => ({ id: c.id, label: c.label || "Canvas" }))
+      : [];
 
   /** Where a library click lands: the selected region, the selected component's region, else the first region. */
   const targetRegionId = (): string | null => {
@@ -1064,6 +1069,8 @@ function StudioEditor() {
     index: number | null,
     customId: string | null,
     at: { x: number; y: number } | null,
+    /** Land inside this canvas of the region instead (FS-REQ-68). */
+    canvas?: { id: string; at: { x: number; y: number } },
   ) => {
     let added: { cmp: ComponentNode; region: string } | null = null;
     // A titled component on a page a nav item routes to is titled after
@@ -1075,6 +1082,7 @@ function StudioEditor() {
     }
     runOn(record, (d, c) => {
       const result = A.appendComponent(d, c, seed, regionId, index, customId, at);
+      if (canvas && result?.selectCmpId) A.setComponentCanvas(d, c, result.selectCmpId, canvas.id, canvas.at);
       const loc = result?.selectCmpId ? locateCmp(d.document, result.selectCmpId) : null;
       // A plain copy: the draft is only valid inside this callback.
       if (loc) added = { cmp: JSON.parse(JSON.stringify(loc.list[loc.index])) as ComponentNode, region: loc.region };
@@ -1580,6 +1588,21 @@ function StudioEditor() {
                     }}
                     onResizeCmp={(id, size, grow) => runCmp(id, (d, c) => A.setComponentSize(d, c, id, size, grow))}
                     onMoveCmp={(id, pos, grow, stamp) => runCmp(id, (d, c) => A.setComponentPosition(d, c, id, pos.x, pos.y, grow, stamp ?? null))}
+                    onDropIntoCanvas={(payload, canvasId, regionId, at) => {
+                      const rec = recordOfNode(regionId);
+                      if (payload.kind === "component") {
+                        addComponentOn(rec, { type: payload.type, shape: payload.shape }, regionId, null, payload.customId ?? null, null, { id: canvasId, at });
+                        return;
+                      }
+                      // An existing component: from this region it moves in
+                      // one step; from elsewhere it joins the region first.
+                      const srcRec = recordOfCmp(payload.id);
+                      if (!srcRec || !rec || srcRec.id !== rec.id) return;
+                      runOn(rec, (d, c) => {
+                        A.moveToRegion(d, c, payload.id, regionId);
+                        return A.setComponentCanvas(d, c, payload.id, canvasId, at);
+                      });
+                    }}
                   />
                 ) : (
                   <div className="frame-body flat"><div className="empty-hint">Loading page…</div></div>
@@ -1680,6 +1703,8 @@ function StudioEditor() {
               onCmpProp={(id, key, value) => runCmp(id, (d, c) => A.setPropValue(d, c, id, key, value), `prop.${id}.${key}`)}
               onCmpHeight={(id, mode) => runCmp(id, (d, c) => A.setComponentHeight(d, c, id, mode))}
               onCmpWidth={(id, w) => runCmp(id, (d, c) => A.setComponentWidth(d, c, id, w))}
+              canvasesBeside={canvasesBeside}
+              onCmpCanvas={(id, canvasId) => runCmp(id, (d, c) => A.setComponentCanvas(d, c, id, canvasId))}
               onCmpFloat={(id, floating) => {
                 // Floating freezes the rendered box; measure before the
                 // commit re-renders it.

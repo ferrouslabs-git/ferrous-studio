@@ -389,6 +389,11 @@
    with an element selected, its controls are the ones on show. */
 .cmp.selected > .cmp-actions { opacity: 1; pointer-events: auto; }
 .cmp-actions.below { bottom: auto; top: calc(100% + 4px); }
+/* Components placed inside a canvas (FS-REQ-68): a layer over the canvas's
+   own elements, each component absolutely placed in canvas coordinates. The
+   layer itself lets clicks through to the canvas. */
+.cnv-cmps { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.cnv-cmps > * > .cmp { pointer-events: auto; }
 .cmp-actions button {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
   border: 0; border-radius: var(--radius); background: transparent; color: var(--chrome-ink-dim); cursor: pointer;
