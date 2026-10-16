@@ -5,6 +5,7 @@
 // /admin routes manage the platform defaults and need no organisation scope.
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
 import type { DataKind } from "../../studio/catalog";
+import { normaliseDatasetValues } from "./datasetValues";
 
 export type DatasetScope = "platform" | "project";
 
@@ -27,7 +28,12 @@ export interface DatasetInput {
 
 const base = (projectId: string) => `/studio/projects/${projectId}/datasets`;
 
-export const listDatasets = (projectId: string) => apiGet<Dataset[]>(base(projectId));
+/** Listings pass through normaliseDatasetValues, so a dataset saved as one
+ *  comma-joined value reaches every element as separate values (FS-REQ-63). */
+const normalised = (rows: Dataset[]): Dataset[] =>
+  rows.map((d) => ({ ...d, values: normaliseDatasetValues(d.values ?? []) }));
+
+export const listDatasets = (projectId: string) => apiGet<Dataset[]>(base(projectId)).then(normalised);
 export const createDataset = (projectId: string, input: DatasetInput) =>
   apiPost<Dataset>(base(projectId), input);
 export const updateDataset = (projectId: string, datasetId: string, patch: Partial<DatasetInput>) =>
@@ -39,7 +45,7 @@ export const deleteDataset = (projectId: string, datasetId: string) =>
 
 const ADMIN = "/studio/admin/datasets";
 
-export const listPlatformDatasets = () => apiGet<Dataset[]>(ADMIN, { scope: null });
+export const listPlatformDatasets = () => apiGet<Dataset[]>(ADMIN, { scope: null }).then(normalised);
 export const createPlatformDataset = (input: DatasetInput) => apiPost<Dataset>(ADMIN, input, { scope: null });
 export const updatePlatformDataset = (datasetId: string, patch: Partial<DatasetInput>) =>
   apiPatch<Dataset>(`${ADMIN}/${datasetId}`, patch, { scope: null });

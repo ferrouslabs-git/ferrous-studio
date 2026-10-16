@@ -328,7 +328,8 @@
           "fields": [
             "kind",
             "dataset",
-            "samples"
+            "samples",
+            "images"
           ],
           "max": null,
           "shapeable": false,
@@ -759,7 +760,8 @@
           "fields": [
             "kind",
             "dataset",
-            "samples"
+            "samples",
+            "images"
           ],
           "max": null,
           "shapeable": false,

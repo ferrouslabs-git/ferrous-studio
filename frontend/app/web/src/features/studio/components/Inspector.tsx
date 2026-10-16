@@ -5,9 +5,10 @@
 // page inside a region of this one (the outlet model).
 import { useEffect, useRef, useState } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
+import { parseDatasetValues } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, imageList, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
@@ -241,6 +242,65 @@ function ImageField({ value, onCommit, disabled }: { value: string; onCommit(v: 
   );
 }
 
+/** Several images (an image column's pictures, FS-REQ-70): thumbnails to
+ *  remove one by one, and an upload that takes any number at once. Each is
+ *  downscaled to 320px and stored inline; the field holds a JSON array. */
+function ImagesField({ value, onCommit, disabled }: { value: string; onCommit(v: string): void; disabled?: boolean }) {
+  const images = imageList(value);
+  const save = (next: string[]) => onCommit(next.length ? JSON.stringify(next) : "");
+  const upload = (files: File[]) => {
+    const read: string[] = new Array(files.length);
+    let left = files.length;
+    files.forEach((f, i) =>
+      readImageFile(f, 320, (url) => {
+        read[i] = url;
+        if (--left === 0) save([...images, ...read.filter(Boolean)]);
+      }),
+    );
+  };
+  return (
+    <div className="insp-images">
+      {images.length > 0 && (
+        <div className="insp-image-grid">
+          {images.map((src, i) => (
+            <div key={i} className="insp-image-thumb">
+              <img src={src} alt={`Image ${i + 1}`} />
+              {!disabled && (
+                <button
+                  type="button"
+                  className="insp-image-x"
+                  title="Remove image"
+                  aria-label={`Remove image ${i + 1}`}
+                  onClick={() => save(images.filter((_, j) => j !== i))}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {!disabled && (
+        <label className="btn small ghost insp-upload">
+          {images.length ? "Add images…" : "Upload images…"}
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/"));
+              if (files.length) upload(files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      )}
+      {disabled && <span className="insp-hint">{images.length ? `${images.length} image${images.length === 1 ? "" : "s"}` : "No images"}</span>}
+    </div>
+  );
+}
+
 /** Brand logo: a built-in icon, an uploaded image (downscaled to 240px and
  *  stored inline as PNG — enough for a wide logo sized up in the bar), or no
  *  logo at all. */
@@ -387,8 +447,12 @@ function visibleDataFields(
   datasets: readonly Dataset[],
 ): DataFieldMeta[] {
   if (!meta) return [];
+  const offered = (f: DataFieldMeta) => !f.forKinds || f.forKinds.includes(data?.kind ?? "");
+  const replaced = new Set(meta.dataFields.filter(offered).flatMap((f) => f.replaces ?? []));
   return meta.dataFields.filter(
     (f) =>
+      offered(f) &&
+      !replaced.has(f.key) &&
       !meta.dataFields.some(
         (dsf) => dsf.kind === "dataset" && dsf.supersedes === f.key && datasets.some((d) => d.id === data?.[dsf.key]),
       ),
@@ -489,7 +553,7 @@ export function Inspector(props: Props) {
                             onCommit={(text) =>
                               props.onUpdateDatasetValues(
                                 bound.id,
-                                text.split("\n").map((v) => v.trim()).filter(Boolean),
+                                parseDatasetValues(text),
                               )
                             }
                           />
@@ -516,6 +580,12 @@ export function Inspector(props: Props) {
                   <label>{f.label}</label>
                   {f.kind === "logo" ? (
                     <LogoField
+                      value={elementNode.data?.[f.key] ?? ""}
+                      onCommit={(v) => props.onElementData(elementSel, f.key, v)}
+                      disabled={ro}
+                    />
+                  ) : f.kind === "images" ? (
+                    <ImagesField
                       value={elementNode.data?.[f.key] ?? ""}
                       onCommit={(v) => props.onElementData(elementSel, f.key, v)}
                       disabled={ro}
@@ -730,6 +800,21 @@ export function Inspector(props: Props) {
                   {cmpMeta.layouts.map((l) => (
                     <option key={l.id} value={l.id}>{l.label}</option>
                   ))}
+                </select>
+              </div>
+            )}
+            {/* A card list's fields stack, or sit wherever they are dragged
+                within the card (FS-REQ-69). */}
+            {selectedCmp.type === "list" && (selectedCmp.shape ?? cmpMeta?.defaultShape) === "cards" && (
+              <div className="field">
+                <label>Card fields</label>
+                <select
+                  value={selectedCmp.props?.cardLayout === "free" ? "free" : ""}
+                  disabled={ro}
+                  onChange={(e) => props.onCmpProp(selectedCmp.id, "cardLayout", e.target.value)}
+                >
+                  <option value="">Stacked</option>
+                  <option value="free">Position freely</option>
                 </select>
               </div>
             )}

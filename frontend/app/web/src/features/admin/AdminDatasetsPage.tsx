@@ -18,6 +18,7 @@ import {
   listPlatformDatasets,
   updatePlatformDataset,
 } from "../project/datasets/datasetsApi";
+import { parseDatasetValues } from "../project/datasets/datasetValues";
 import { DATA_KINDS, DataKind } from "../studio/catalog";
 
 /** The first few values, as the line beneath a dataset's name. */
@@ -170,7 +171,7 @@ function EditDatasetDrawer({
     const input = {
       name: name.trim(),
       kind,
-      values: values.split("\n").map((v) => v.trim()).filter(Boolean),
+      values: parseDatasetValues(values),
     };
     try {
       if (dataset === "new") await createPlatformDataset(input);

@@ -20,6 +20,7 @@ import { errorMessage } from "../../core/api";
 import { useIsPhone } from "../../core/breakpoints";
 import { useLoad } from "../../core/useLoad";
 import { createDataset, deleteDataset, listDatasets, updateDataset } from "../project/datasets/datasetsApi";
+import { parseDatasetValues } from "../project/datasets/datasetValues";
 import { useProject } from "../project/ProjectLayout";
 import {
   AnnotationKind,
@@ -658,7 +659,7 @@ function StudioEditor() {
       const created = await createDataset(projectId, {
         name: datasetDraft.name.trim(),
         kind: datasetDraft.kind,
-        values: datasetDraft.values.split("\n").map((v) => v.trim()).filter(Boolean),
+        values: parseDatasetValues(datasetDraft.values),
       });
       await datasetsLoad.reload();
       const { sel, fieldKey } = datasetDraft;

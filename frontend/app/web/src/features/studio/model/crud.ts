@@ -138,8 +138,34 @@ function formComponent(type: string, label: string, layout: string, seeds: Eleme
   };
 }
 
-/** What the edit drawer is called: "Edit Users" for a list titled Users. */
-export const editPageName = (list: ComponentNode): string => `Edit ${componentTitle(list) || "record"}`.trim();
+/** A title made singular on its last word, keeping the user's casing:
+ *  "Contacts" -> "Contact", "Team members" -> "Team member", "COMPANIES" ->
+ *  "COMPANY". Words that are not plural ("Staff", "Status") come back as they
+ *  were (FS-REQ-56). */
+export function singularTitle(title: string): string {
+  const m = /^(.*?)([A-Za-z]+)([^A-Za-z]*)$/s.exec(title);
+  if (!m) return title;
+  const [, head, word, tail] = m;
+  const lower = word.toLowerCase();
+  const one = singular(lower);
+  if (one === lower) return title;
+  let cased = "";
+  if (word.length > 1 && word === word.toUpperCase()) cased = one.toUpperCase();
+  else {
+    // Each surviving letter keeps its case; a new final letter ("ies" -> "y")
+    // takes the case of the letter it replaces.
+    for (let i = 0; i < one.length; i++) {
+      const src = word[Math.min(i, word.length - 1)];
+      cased += src !== src.toLowerCase() ? one[i].toUpperCase() : one[i];
+    }
+  }
+  return `${head}${cased}${tail}`;
+}
+
+/** What the edit drawer is called: "Edit User" for a list titled Users — the
+ *  form edits one record, so the list's title goes singular (FS-REQ-56). */
+export const editPageName = (list: ComponentNode): string =>
+  `Edit ${singularTitle(componentTitle(list)) || "record"}`.trim();
 
 /** The whole drawer page: a form whose inputs mirror the list's columns, and
  *  Cancel / Save buttons that return to the page it was opened from. */

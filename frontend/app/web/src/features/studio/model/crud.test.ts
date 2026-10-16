@@ -11,6 +11,7 @@ import {
   EDIT_ACTION_LABEL,
   editPageName,
   fieldSeedForColumn,
+  singularTitle,
   TWO_COLUMN_THRESHOLD,
 } from "./crud";
 import { elKey } from "./actions";
@@ -91,6 +92,29 @@ describe("fieldSeedForColumn", () => {
   });
 });
 
+describe("singularTitle", () => {
+  it("makes the last word singular and keeps the casing (FS-REQ-56)", () => {
+    const cases: [string, string][] = [
+      ["Contacts", "Contact"],
+      ["Companies", "Company"],
+      ["COMPANIES", "COMPANY"],
+      ["Addresses", "Address"],
+      ["Branches", "Branch"],
+      ["Wishes", "Wish"],
+      ["Boxes", "Box"],
+      ["Team members", "Team member"],
+      ["Open cases", "Open case"],
+      ["Staff", "Staff"],
+      ["Status", "Status"],
+      ["People", "Person"],
+      ["Inbox", "Inbox"],
+      ["", ""],
+      ["Clients:", "Client:"],
+    ];
+    for (const [plural, one] of cases) expect(singularTitle(plural), plural).toBe(one);
+  });
+});
+
 describe("dataColumns", () => {
   it("keeps only real columns, in document order", () => {
     const c = list([
@@ -107,10 +131,11 @@ describe("dataColumns", () => {
 describe("buildEditDocument", () => {
   const threeCols = list([col("e1", "Name"), col("e2", "Email", { kind: "email" }), col("e3", "Joined", { kind: "date" })]);
 
-  it("names the page after the list", () => {
-    expect(editPageName(threeCols)).toBe("Edit Users");
+  it("names the page after the list, in the singular", () => {
+    expect(editPageName(threeCols)).toBe("Edit User");
     // A header element wins over the component label (componentTitle's rule).
-    expect(editPageName(list([el("e0", "header", "Team members", "a0"), col("e1", "Name")]))).toBe("Edit Team members");
+    expect(editPageName(list([el("e0", "header", "Team members", "a0"), col("e1", "Name")]))).toBe("Edit Team member");
+    expect(editPageName(list([col("e1", "Name")], "Contacts"))).toBe("Edit Contact");
   });
 
   it("builds one input per data column, plus a header and two buttons", () => {
@@ -125,7 +150,7 @@ describe("buildEditDocument", () => {
       "button",
       "button",
     ]);
-    expect(form.elements?.map((e) => e.label)).toEqual(["Edit Users", "Name", "Email", "Joined", "Cancel", "Save"]);
+    expect(form.elements?.map((e) => e.label)).toEqual(["Edit User", "Name", "Email", "Joined", "Cancel", "Save"]);
   });
 
   it("carries none of the form type's own default elements", () => {
