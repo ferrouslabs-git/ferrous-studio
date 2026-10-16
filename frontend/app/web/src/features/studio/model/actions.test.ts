@@ -712,9 +712,9 @@ describe("components inside a canvas (FS-REQ-68)", () => {
       { id: "g", type: "graph", label: "Graph", pos: "a1", props: { float: true, size: "fill" } },
     ]);
     setComponentCanvas(p, ctx, "g", "cv", { x: 40.4, y: 12 });
-    expect(listOf(p)[1].props).toEqual({ inCanvas: "cv", x: 40, y: 12 });
+    expect(listOf(p)[1].props).toEqual({ inCanvas: "cv", x: 40, y: 12, w: 360 });
     setComponentCanvas(p, ctx, "g", null);
-    expect(listOf(p)[1].props).toEqual({});
+    expect(listOf(p)[1].props).toEqual({ w: 360 });
   });
 
   it("refuses a canvas that is not in the region, and canvases in canvases", () => {

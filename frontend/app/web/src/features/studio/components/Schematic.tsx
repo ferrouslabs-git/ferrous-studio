@@ -1127,7 +1127,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     // An element's zone is its data.align, defaulting by type (navAlign), so
     // dragging and the Inspector's Alignment control genuinely rearrange the
     // bar rather than fighting a fixed brand → items → chrome order.
-    const flowTypes = new Set(["nav-item", "group-heading", "divider"]);
+    const flowTypes = new Set(["nav-item", "nav-sub-item", "group-heading", "divider"]);
     const crumbCurrent = flow[flow.length - 1];
 
     const navItem = (el: ElementNode, sepBefore: boolean) => {
@@ -1205,6 +1205,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         run = [];
       };
       for (const el of list) {
+        if (nested.has(el.id)) continue; // drawn in its parent's menu
         if (flowTypes.has(el.type)) run.push(el);
         else {
           flush();

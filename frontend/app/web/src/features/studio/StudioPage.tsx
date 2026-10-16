@@ -124,7 +124,7 @@ function StudioEditor() {
    *  selection is applied once the page arrives (the page-change effect
    *  clears selection first). A null `sel` means "whatever region this page
    *  lands in", resolvable only after its document has loaded. */
-  const [pendingReveal, setPendingReveal] = useState<{ pageId: string; sel: Selection | null } | null>(null);
+  const [pendingReveal, setPendingReveal] = useState<{ pageId: string; sel: Selection | null; edit?: ElementSel } | null>(null);
   /** The annotation target hovered on either side (a panel row or a canvas
    *  badge); both sides emphasise whatever matches it. */
   const [hotMark, setHotMark] = useState<HotMark | null>(null);
@@ -747,9 +747,11 @@ function StudioEditor() {
    *  not loaded yet (a fresh page, or one only ever seen in the page list),
    *  so the landing region resolves in the reveal effect once it arrives. */
   const openLinkedPage = useCallback(
-    (pageId: string) => {
+    /** `edit`: an element (on a shell) whose label editor opens on arrival —
+     *  a nav item just added keeps its name editor across the switch. */
+    (pageId: string, edit?: ElementSel) => {
       nav.visit(pageId);
-      setPendingReveal({ pageId, sel: null });
+      setPendingReveal({ pageId, sel: null, edit });
     },
     [nav.visit], // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -763,6 +765,8 @@ function StudioEditor() {
     nameOverride?: string,
     presentation?: PagePresentation,
     just?: { owner: PageRecord; cmp: ComponentNode },
+    /** Reopen the linking element's label editor on the new page (FS-REQ-65). */
+    editLabel = false,
   ) => {
     // Settled only: the link-back edit below would be dropped mid-switch,
     // leaving an orphaned page behind.
@@ -838,7 +842,7 @@ function StudioEditor() {
         return A.setElementLink(d, c, sel.cmpId, sel.key, sel.index, { pageId: created.id });
       });
       if (!together && moved.size) runOn(regionOwner, (d) => void release(d));
-      openLinkedPage(created.id);
+      openLinkedPage(created.id, editLabel ? sel : undefined);
       toast(
         presentation
           ? `Created ${presentation} "${name}"`
@@ -1054,7 +1058,7 @@ function StudioEditor() {
     if (!created || !owner || !loc || hostCmp?.type !== "navbar" || (type !== "nav-item" && type !== "nav-sub-item")) return;
     const regionId = contentRegionFor(owner.document.root, loc.region);
     if (!regionId) return;
-    void createLinkedPage(created, regionId, elementMeta("navbar", type)?.defaultLabel ?? "Item");
+    void createLinkedPage(created, regionId, elementMeta("navbar", type)?.defaultLabel ?? "Item", undefined, undefined, true);
   };
 
   /** Add a component from the library (bar click or canvas drop). A nav bar
@@ -1385,6 +1389,12 @@ function StudioEditor() {
     if (!pageSettled || !page || page.id !== pendingReveal.pageId) return;
     const { sel } = pendingReveal;
     if (!sel) {
+      if (pendingReveal.edit) {
+        setSelection({ kind: "element", ...pendingReveal.edit });
+        setEditingElement(pendingReveal.edit);
+        setPendingReveal(null);
+        return;
+      }
       // Arrived from a link: land on the page's main content region, ready
       // to build in it.
       setSelection({ kind: "region", id: fallbackRegionId(page.document.root) });

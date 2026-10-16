@@ -704,7 +704,9 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-nav-zone.right { flex: 1 1 0; justify-content: flex-end; }
 /* overflow keeps a long link list inside the bar; the padding/margin pair
    moves the clip edge outward so the 2px selection ring is not cut off. */
-.ui-nav-links { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 3px; margin: -3px; }
+/* clip, not hidden: a hidden box is still a scroll container, so focusing a
+   label editor near its edge scrolled the links sideways and left them so. */
+.ui-nav-links { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: clip; padding: 3px; margin: -3px; }
 .ui-nav-link {
   height: 32px; padding: 0 10px; border-radius: var(--radius-lg); flex-shrink: 0;
   font-size: 13px; color: var(--text-dim); display: inline-flex; align-items: center; white-space: nowrap;
@@ -750,6 +752,8 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-nav-toggle[aria-expanded="true"] .ui-chevron { transform: rotate(180deg); }
 .ui-nav-parent { position: relative; display: inline-flex; align-items: center; }
 .ui-nav-menu { min-width: 160px; }
+/* The link row clips long bars; an open sub-item menu must hang out of it. */
+.ui-nav-links:has(.ui-nav-menu) { overflow: visible; }
 .ui-side-item.active .ui-icon { color: var(--wf-ink); opacity: 1; }
 .ui-side-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-side-user {

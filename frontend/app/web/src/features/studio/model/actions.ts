@@ -453,6 +453,9 @@ export function moveToRegion(
   list.push(item);
 }
 
+/** Starting width of a component placed in a canvas without one of its own. */
+const CANVAS_CHILD_W = 360;
+
 /** Put a component inside a canvas in its own region (FS-REQ-68), placed
  *  freely at `at` in the canvas's coordinates — or, with `canvasId` null,
  *  take it back out into the region's flow. A canvas never nests in another,
@@ -472,6 +475,8 @@ export function setComponentCanvas(
   if (canvasId) {
     if (!loc.list.some((c) => c.id === canvasId && c.type === "canvas")) return;
     props.inCanvas = canvasId;
+    // Absolutely placed, an unsized component would shrink to its content.
+    if (cmpSize(cmp).w == null) props.w = CANVAS_CHILD_W;
     delete props.float;
     if (props.size === "fill") delete props.size;
     props.x = Math.max(0, Math.round(at?.x ?? 16));
