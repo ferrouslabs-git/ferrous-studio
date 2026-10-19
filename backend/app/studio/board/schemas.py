@@ -335,6 +335,17 @@ class RequirementUpdate(BaseModel):
     queue_position: QueuePosition = None
 
 
+class AssigneeRead(BaseModel):
+    """Someone board work can be assigned to: an organisation member, or a
+    super admin (who need not be one). Only what assigning needs -- any board
+    reader (viewers included) gets this list, so no emails or roles; a super
+    admin is never shown by email to a customer organisation."""
+
+    user_id: UUID
+    name: str
+    super_admin: bool = False
+
+
 class RequirementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -450,6 +461,14 @@ class CommentRead(BaseModel):
 
 
 # ── Project key ──────────────────────────────────────────────────────────
+
+
+class BoardTeam(BaseModel):
+    """The project's product manager and support developer: super admins, or
+    None when unset. A PUT replaces both."""
+
+    product_manager_id: UUID | None = None
+    support_dev_id: UUID | None = None
 
 
 class BoardKeyRead(BaseModel):

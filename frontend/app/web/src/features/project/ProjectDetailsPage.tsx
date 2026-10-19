@@ -7,6 +7,7 @@ import { BoardTokensSection } from "./BoardTokensSection";
 import { EnvironmentsSection } from "./EnvironmentsSection";
 import { ImportBundleDrawer } from "./ImportBundleDrawer";
 import { ProjectKeyRow } from "./ProjectKeyRow";
+import { ProjectTeamRows } from "./ProjectTeamRows";
 import { RepositorySection } from "./RepositorySection";
 import { useProject } from "./ProjectLayout";
 
@@ -49,6 +50,7 @@ export function ProjectDetailsPage() {
         <div className="section-body details-grid">
           <DetailRow label="Name">{project.name}</DetailRow>
           <ProjectKeyRow />
+          <ProjectTeamRows />
           <DetailRow label="Description">
             {project.description ? <Prose text={project.description} /> : <span className="muted">Not set</span>}
           </DetailRow>

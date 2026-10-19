@@ -75,6 +75,9 @@ class Board(Base):
     sprint_seq = Column(Integer, nullable=False, default=0)
     doc_seq = Column(Integer, nullable=False, default=0)
     feedback_seq = Column(Integer, nullable=False, default=0)
+    # Super admins the project's feedback is routed to on Slack (b4e8d2f6a913).
+    product_manager_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    support_dev_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 

@@ -58,6 +58,8 @@ EXEMPT = {
     # An agent asking a human a question is board activity like a comment.
     "request_approval",
     "set_board_key",
+    # The team feedback is routed to: lineage state like the key.
+    "set_board_team",
     "create_environment", "set_environment", "reorder_environments", "delete_environment",
     "create_feedback", "update_feedback", "delete_feedback", "create_requirement_from_feedback",
     # Maintenance contracts are what the live product is supported under --

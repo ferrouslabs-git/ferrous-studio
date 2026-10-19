@@ -46,8 +46,12 @@ AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
 
 #: ``chat:write`` posts as the bot; ``chat:write.public`` lets it post to a
 #: public channel it has not been invited to; ``channels:read`` lists the
-#: public channels for the picker.
-SCOPES = ("chat:write", "chat:write.public", "channels:read")
+#: public channels for the picker; ``users:read`` + ``users:read.email`` find
+#: an assignee's Slack account by email so they can be messaged directly.
+#: A workspace connected before the last two were added keeps working -- the
+#: lookup fails and assignments fall back to the channel -- until it is
+#: reconnected.
+SCOPES = ("chat:write", "chat:write.public", "channels:read", "users:read", "users:read.email")
 
 #: Slack rejects requests whose timestamp is more than five minutes from now,
 #: and so do we.
@@ -274,6 +278,18 @@ async def list_channels(token: str) -> list[dict[str, str]]:
         if not cursor:
             break
     return sorted(channels, key=lambda c: c["name"])
+
+
+async def lookup_user_id(token: str, email: str) -> str | None:
+    """The Slack user id for ``email`` in the token's workspace, or None when
+    nobody there has it -- or the connection predates the users:read.email
+    scope (``missing_scope``), which the caller treats the same way."""
+    try:
+        body = await _call("users.lookupByEmail", token=token, data={"email": email})
+    except SlackError:
+        return None
+    user = body.get("user") or {}
+    return str(user["id"]) if user.get("id") and not user.get("deleted") else None
 
 
 async def post_message(token: str, channel: str, text: str, blocks: list[dict[str, Any]] | None = None) -> str:

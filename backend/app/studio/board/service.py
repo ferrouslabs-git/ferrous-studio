@@ -460,6 +460,59 @@ async def write_event(
     ))
     # Announced to Slack only once this transaction commits (slack_notify).
     slack_notify.stage(db.sync_session, board, actor_id, action, entity_type, entity_id, detail)
+    # Every requirement status change, whatever route made it (a person, the
+    # board MCP, an agent), passes through here -- the one place feedback can
+    # follow the work raised from it.
+    if action == "requirement.updated" and isinstance((detail or {}).get("status"), dict):
+        await feedback_follows_requirement(db, board, actor_id, entity_id, detail["status"].get("to"))
+
+
+#: A requirement past this point means the fix has started.
+_STARTED = ("InProgress", "ToTest", "Done")
+#: Statuses a report cannot be pulled out of by its requirements' progress.
+_REPORT_SETTLED = ("InProgress", "Resolved")
+
+
+async def feedback_follows_requirement(
+    db: AsyncSession, board: Board, actor_id: UUID | None, requirement_id: UUID, new_status: str | None
+) -> None:
+    """Keep a report in step with the requirements raised from it.
+
+    * The first of them to reach In progress (or later) moves the report to
+      "Fix in progress" -- unless it is already there or resolved.
+    * When the last of them reaches To test (Done counts as past it), the
+      report's product manager is told (``feedback.ready_to_test``).
+    """
+    requirement = (
+        await db.execute(select(Requirement).where(Requirement.id == requirement_id, Requirement.board_id == board.id))
+    ).scalar_one_or_none()
+    if requirement is None or requirement.feedback_id is None or new_status not in _STARTED:
+        return
+    report = (
+        await db.execute(select(Feedback).where(Feedback.id == requirement.feedback_id, Feedback.board_id == board.id))
+    ).scalar_one_or_none()
+    if report is None:
+        return
+    if report.status not in _REPORT_SETTLED:
+        before = report.status
+        report.status = "InProgress"
+        report.updated_at = utc_now()
+        await write_event(
+            db, board, actor_id, "feedback.triaged", "feedback", report.id,
+            {"status": {"from": before, "to": "InProgress"}, "via_requirement": str(requirement.id)},
+        )
+    if new_status == "ToTest":
+        statuses = (
+            await db.execute(
+                select(Requirement.status).where(
+                    Requirement.feedback_id == report.id,
+                    Requirement.board_id == board.id,
+                    Requirement.deleted_at.is_(None),
+                )
+            )
+        ).scalars().all()
+        if statuses and all(s in ("ToTest", "Done") for s in statuses):
+            await write_event(db, board, actor_id, "feedback.ready_to_test", "feedback", report.id, {"requirements": len(statuses)})
 
 
 # ── Sprint membership history (burndown input) ───────────────────────────
