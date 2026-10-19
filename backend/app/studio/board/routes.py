@@ -1010,6 +1010,10 @@ async def _get_requirement(db: AsyncSession, board: Board, requirement_id: UUID)
     return r
 
 
+#: How an unnamed super admin is shown to a customer organisation.
+SUPPORT_LABEL = "Ferrous Labs support"
+
+
 def _super_admins_query():
     """Active super admins (platform admins): Ferrous Labs staff who may be
     assigned work on any organisation's board without being one of its
@@ -1064,7 +1068,7 @@ async def list_assignees(
     board = await _board(db, project, ctx)
     members = (
         await db.execute(
-            select(User, Membership.role_name)
+            select(User)
             .join(Membership, Membership.user_id == User.id)
             .where(
                 Membership.scope_type == "account",
@@ -1074,17 +1078,23 @@ async def list_assignees(
             )
             .order_by(func.lower(func.coalesce(User.name, User.email)))
         )
-    ).all()
+    ).scalars().all()
+    # A member is shown as the rest of their organisation already knows them;
+    # a super admin only by name, never by email.
     out = [
-        AssigneeRead(user_id=u.id, email=u.email, name=u.name, role=role, super_admin=bool(u.is_platform_admin))
-        for u, role in members
+        AssigneeRead(
+            user_id=u.id,
+            name=u.name or (SUPPORT_LABEL if u.is_platform_admin else u.email),
+            super_admin=bool(u.is_platform_admin),
+        )
+        for u in members
     ]
     seen = {a.user_id for a in out}
     admins = (
         await db.execute(_super_admins_query().order_by(func.lower(func.coalesce(User.name, User.email))))
     ).scalars().all()
     out += [
-        AssigneeRead(user_id=u.id, email=u.email, name=u.name, role="super_admin", super_admin=True)
+        AssigneeRead(user_id=u.id, name=u.name or SUPPORT_LABEL, super_admin=True)
         for u in admins
         if u.id not in seen
     ]

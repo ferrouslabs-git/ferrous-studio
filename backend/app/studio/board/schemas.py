@@ -337,12 +337,12 @@ class RequirementUpdate(BaseModel):
 
 class AssigneeRead(BaseModel):
     """Someone board work can be assigned to: an organisation member, or a
-    super admin (who need not be one)."""
+    super admin (who need not be one). Only what assigning needs -- any board
+    reader (viewers included) gets this list, so no emails or roles; a super
+    admin is never shown by email to a customer organisation."""
 
     user_id: UUID
-    email: str
-    name: str | None = None
-    role: str
+    name: str
     super_admin: bool = False
 
 

@@ -26,8 +26,8 @@ interface AssigneeSelectProps {
 export function AssigneeSelect({ value, onChange, disabled, ariaLabel, id, className }: AssigneeSelectProps) {
   const { members } = useBoard();
   const known = value === null || members.some((m) => m.user_id === value);
-  const orgMembers = members.filter((m) => m.role !== "super_admin");
-  const admins = members.filter((m) => m.role === "super_admin");
+  const orgMembers = members.filter((m) => !m.super_admin);
+  const admins = members.filter((m) => m.super_admin);
 
   return (
     <select
@@ -41,14 +41,14 @@ export function AssigneeSelect({ value, onChange, disabled, ariaLabel, id, class
       <option value="">— unassigned —</option>
       {orgMembers.map((m) => (
         <option key={m.user_id} value={m.user_id}>
-          {m.name || m.email}
+          {m.name}
         </option>
       ))}
       {admins.length > 0 && (
         <optgroup label="Super admins">
           {admins.map((m) => (
             <option key={m.user_id} value={m.user_id}>
-              {m.name || m.email}
+              {m.name}
             </option>
           ))}
         </optgroup>

@@ -184,7 +184,7 @@ function buildIndex(data: BoardData, members: Assignee[]): BoardIndex {
     memberName: (userId) => {
       if (!userId) return "system";
       const m = memberById.get(userId);
-      return m?.name || m?.email || "Someone";
+      return m?.name || "Someone";
     },
     commentsOf: (entityId) => commentsByEntity.get(entityId) ?? none,
     commentCount: (entityId) => commentsByEntity.get(entityId)?.length ?? 0,
