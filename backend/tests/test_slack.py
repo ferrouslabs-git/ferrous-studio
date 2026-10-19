@@ -362,7 +362,7 @@ def test_assigning_a_requirement_stages_an_assignment(session):
     slack_notify.stage(session, board, uuid.UUID(USER), "requirement.updated", "requirement", uuid.uuid4(), detail)
     # The status change still goes to the channel; the assignment beside it.
     assert [e.action for e in _staged(session)] == ["requirement.updated", "assigned"]
-    assert _staged(session)[1].detail == {"assignee_id": ASSIGNEE}
+    assert _staged(session)[1].detail == {"user_id": ASSIGNEE}
 
 
 @pytest.mark.parametrize(
@@ -407,9 +407,9 @@ async def _deliver(monkeypatch, slack_id):
 
     monkeypatch.setattr(slack_notify.slack_client, "lookup_user_id", fake_lookup)
     monkeypatch.setattr(slack_notify.slack_client, "post_message", fake_post)
-    ev = slack_notify.StagedEvent(uuid.UUID(ACCOUNT), uuid.uuid4(), None, "assigned", "requirement", uuid.uuid4(), {"assignee_id": ASSIGNEE})
-    blocks = [slack_notify.section("Bob assigned you the requirement *FS-REQ-1*"), slack_notify.context("x")]
-    await slack_notify._deliver_assignment(FakeDb(), "tok", "C123", ev, "FS-REQ-1 assigned to Ada", blocks)
+    ev = slack_notify.StagedEvent(uuid.UUID(ACCOUNT), uuid.uuid4(), None, "assigned", "requirement", uuid.uuid4(), {"user_id": ASSIGNEE})
+    blocks = [slack_notify.section(f"Bob assigned {slack_notify.RECIPIENT} the requirement *FS-REQ-1*"), slack_notify.context("x")]
+    await slack_notify._deliver_to(FakeDb(), "tok", "C123", ev, "FS-REQ-1 assigned to Ada", blocks)
     return posts
 
 
@@ -423,3 +423,43 @@ async def test_otherwise_the_channel_is_told_and_names_them(monkeypatch):
     posts = await _deliver(monkeypatch, None)
     assert [p[0] for p in posts] == ["C123"]
     assert "assigned *Ada* the requirement" in posts[0][1][0]["text"]["text"]
+
+
+# ── Feedback routed to the project's team ──────────────────────────────────
+
+PM = "44444444-4444-4444-8444-444444444444"
+DEV = "55555555-5555-4555-8555-555555555555"
+
+
+def _team_board():
+    return SimpleNamespace(account_id=uuid.UUID(ACCOUNT), id=uuid.uuid4(), product_manager_id=uuid.UUID(PM), support_dev_id=uuid.UUID(DEV))
+
+
+@pytest.mark.parametrize(
+    "action,detail,user,kind",
+    [
+        ("feedback.created", {"title": "t"}, DEV, "new"),
+        ("feedback.triaged", {"status": {"from": "OnHold", "to": "New"}}, DEV, "status"),
+        ("feedback.triaged", {"status": {"from": "New", "to": "EstimatedToConfirm"}}, PM, "status"),
+        ("feedback.triaged", {"status": {"from": "New", "to": "NotABug"}}, PM, "status"),
+        ("feedback.triaged", {"status": {"from": "EstimatedToConfirm", "to": "Confirmed"}}, DEV, "status"),
+        ("feedback.ready_to_test", {"requirements": 2}, PM, "ready_to_test"),
+    ],
+)
+def test_feedback_reaches_the_right_team_member(session, action, detail, user, kind):
+    slack_notify.stage(session, _team_board(), uuid.UUID(USER), action, "feedback", uuid.uuid4(), detail)
+    notices = [e.detail for e in _staged(session) if e.action == "notify"]
+    assert [(n["user_id"], n["kind"]) for n in notices] == [(user, kind)]
+
+
+@pytest.mark.parametrize("to", ["InProgress", "OnHold", "Resolved"])
+def test_other_feedback_statuses_tell_nobody(session, to):
+    slack_notify.stage(session, _team_board(), uuid.UUID(USER), "feedback.triaged", "feedback", uuid.uuid4(), {"status": {"from": "New", "to": to}})
+    assert not [e for e in _staged(session) if e.action == "notify"]
+
+
+def test_no_team_no_notice_and_never_your_own_change(session):
+    unset = SimpleNamespace(account_id=uuid.UUID(ACCOUNT), id=uuid.uuid4(), product_manager_id=None, support_dev_id=None)
+    slack_notify.stage(session, unset, uuid.UUID(USER), "feedback.created", "feedback", uuid.uuid4(), {})
+    slack_notify.stage(session, _team_board(), uuid.UUID(DEV), "feedback.created", "feedback", uuid.uuid4(), {})
+    assert not [e for e in _staged(session) if e.action == "notify"]

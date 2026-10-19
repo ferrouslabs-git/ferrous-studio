@@ -51,6 +51,7 @@ from .models import (
 from .schemas import (
     AgentRead,
     AssigneeRead,
+    BoardTeam,
     AttachmentDownload,
     AttachmentEntityType,
     AttachmentRead,
@@ -1762,6 +1763,45 @@ async def set_board_key(
         await db.commit()
         remember_board_key(board)
     return BoardKeyRead(key=board.key)
+
+
+# ── Team ─────────────────────────────────────────────────────────────────
+#
+# The product manager and support developer feedback is routed to on Slack
+# (slack_notify). Lineage state like the key: get_project, lock-exempt.
+
+
+@router.get("/projects/{project_id}/board/team", response_model=BoardTeam)
+async def get_board_team(
+    project_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> BoardTeam:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    return BoardTeam(product_manager_id=board.product_manager_id, support_dev_id=board.support_dev_id)
+
+
+@router.put("/projects/{project_id}/board/team", response_model=BoardTeam)
+async def set_board_team(
+    project_id: UUID,
+    payload: BoardTeam,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> BoardTeam:
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    for user_id in (payload.product_manager_id, payload.support_dev_id):
+        if user_id is not None and (await db.execute(_super_admins_query().where(User.id == user_id))).scalar_one_or_none() is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only a super admin can fill this role")
+    before = {"product_manager_id": board.product_manager_id, "support_dev_id": board.support_dev_id}
+    board.product_manager_id = payload.product_manager_id
+    board.support_dev_id = payload.support_dev_id
+    changed = _diff(before, {"product_manager_id": board.product_manager_id, "support_dev_id": board.support_dev_id}, tuple(before))
+    if changed:
+        await service.write_event(db, board, ctx.user_id, "board.team_changed", "board", board.id, changed)
+    await db.commit()
+    return BoardTeam(product_manager_id=board.product_manager_id, support_dev_id=board.support_dev_id)
 
 
 # ── Environments ─────────────────────────────────────────────────────────

@@ -463,6 +463,14 @@ class CommentRead(BaseModel):
 # ── Project key ──────────────────────────────────────────────────────────
 
 
+class BoardTeam(BaseModel):
+    """The project's product manager and support developer: super admins, or
+    None when unset. A PUT replaces both."""
+
+    product_manager_id: UUID | None = None
+    support_dev_id: UUID | None = None
+
+
 class BoardKeyRead(BaseModel):
     key: str
 
