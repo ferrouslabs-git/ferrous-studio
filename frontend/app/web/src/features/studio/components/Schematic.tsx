@@ -1949,7 +1949,29 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       tok("", categories[i] ?? null, sample, catAxis ? (t) => setCategory(i, t) : undefined, undefined, catAxis ? { key: elKey(catAxis.id), index: null } : undefined, true);
 
     let plot: ReactNode;
-    if (shape === "pie" || shape === "donut") {
+    // No series, no data (FS-REQ-66): the plot keeps its frame — gridlines,
+    // and the category labels while that axis exists — but draws no marks,
+    // values or slices.
+    if (series.length === 0) {
+      plot = radial ? (
+        <div className="ui-pie-wrap">
+          <div className={`ui-pie empty${shape === "donut" ? " donut" : ""}`} />
+        </div>
+      ) : (
+        <div className="ui-chart">
+          <div className="ui-chart-plot">
+            <div className="ui-chart-grid" aria-hidden><i /><i /><i /><i /></div>
+          </div>
+          {catAxis && (
+            <div className="ui-chart-x">
+              {Array.from({ length: n }, (_, i) => (
+                <Fragment key={i}>{categoryTok(i)}</Fragment>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    } else if (shape === "pie" || shape === "donut") {
       const total = values.reduce((a, b) => a + b, 0) || 1;
       let acc = 0;
       const stops = values.map((v, i) => {

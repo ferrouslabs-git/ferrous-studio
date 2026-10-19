@@ -89,7 +89,7 @@ export function fieldSeedForColumn(col: ElementNode): ElementSeed | null {
   // A column's custom values ride along on the field (FS-REQ-55): an input
   // never shows them, but a field later turned read-only reads its first one
   // rather than a stock reference number.
-  const samples = col.data?.samples ? { samples: col.data.samples } : {};
+  const samples: Record<string, string> = col.data?.samples ? { samples: col.data.samples } : {};
 
   switch (kind) {
     case "status":
