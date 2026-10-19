@@ -163,3 +163,21 @@ describe("defaultChildPage (FS-REQ-57/62)", () => {
     expect(defaultChildPage(d, "p", pages)).toBeNull();
   });
 });
+
+describe("nav levels up to five (FS-REQ-64)", () => {
+  const deep = (): ComponentNode => {
+    const cmp = navbar("n", "a0", [["a", null], ["b", null], ["c", null], ["d", "deep"], ["e", "two"], ["f", "top"]], "vertical");
+    const lv = { b: "2", c: "3", d: "5", e: "2" } as Record<string, string>;
+    for (const el of cmp.elements!) if (lv[el.id]) Object.assign(el, { type: "nav-sub-item", data: { level: lv[el.id] } });
+    return cmp;
+  };
+
+  it("nests each item under the nearest earlier item of a lower level", () => {
+    const subs = navSubItems(deep().elements!);
+    expect(Object.fromEntries([...subs].map(([k, v]) => [k, v.map((e) => e.id)]))).toEqual({ a: ["b", "e"], b: ["c"], c: ["d"] });
+  });
+
+  it("an unlinked parent follows its first linked descendant, however deep", () => {
+    expect(navEffectiveLink(deep(), elKey("a"), null)).toEqual({ pageId: "deep" });
+  });
+});

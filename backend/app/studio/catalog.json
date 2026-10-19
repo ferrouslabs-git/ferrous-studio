@@ -251,7 +251,9 @@
           "fillable": false
         },
         "nav-sub-item": {
-          "fields": [],
+          "fields": [
+            "level"
+          ],
           "max": null,
           "shapeable": false,
           "fillable": false

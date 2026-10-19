@@ -138,7 +138,9 @@
 .canvas-wrap {
   --mat: #E7EAEE;
   --mat-line: rgba(27,32,39,.05);
-  padding: 16px;
+  /* The top gutter fits a component toolbar over the page's top edge. */
+  padding: 44px 16px 16px;
+  position: relative;
   background-color: var(--mat);
   background-image:
     linear-gradient(var(--mat-line) 1px, transparent 1px),
@@ -309,7 +311,7 @@
    mat. (Bars are hidden — see the scrollport note above.) */
 /* Mobile and tablet get a wider gutter; the mat itself is inherited, so all
    three interface types sit on the same surface. */
-.canvas-wrap.framed { padding: 28px; }
+.canvas-wrap.framed { padding: 44px 28px 28px; }
 /* Auto margins centre the device, and the stage — the device's scaled
    footprint — is what they centre: a transform leaves layout at full size, so
    centring the device itself would push a fitted device off the mat. */
@@ -375,20 +377,15 @@
   background: var(--panel); color: var(--text);
 }
 
-/* Hangs outside the component, over its top-right corner, so it never covers
-   the component's own content (a nav item, a heading); flips below when a
-   clipping edge leaves no room above (Canvas sets .below). */
+/* Drawn on the mat (a portal into .canvas-wrap), anchored by its bottom-right
+   corner just above the selected component's top-right corner: it never covers
+   the component's content and never moves (FS-REQ-67). */
 .cmp-actions {
-  position: absolute; bottom: calc(100% + 4px); right: 0; z-index: 8;
+  position: absolute; transform: translate(-100%, calc(-100% - 4px)); z-index: 30;
   display: flex; gap: 2px; padding: 2px;
   border-radius: var(--radius-lg);
   background: var(--chrome-panel); border: 1px solid var(--chrome-line); box-shadow: var(--shadow);
-  opacity: 0; pointer-events: none; transition: opacity .12s;
 }
-/* The component toolbar shows only when the COMPONENT itself is selected —
-   with an element selected, its controls are the ones on show. */
-.cmp.selected > .cmp-actions { opacity: 1; pointer-events: auto; }
-.cmp-actions.below { bottom: auto; top: calc(100% + 4px); }
 /* Components placed inside a canvas (FS-REQ-68): a layer over the canvas's
    own elements, each component absolutely placed in canvas coordinates. The
    layer itself lets clicks through to the canvas. */

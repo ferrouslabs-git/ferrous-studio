@@ -44,7 +44,7 @@ import {
 import { replaceCustomComponents } from "../projects/projectsApi";
 import { DESKTOP_DESIGN_W, DESKTOP_FLEX_FLOOR, Stage, stageScale, useDesktopFit, useStageFit } from "./stage";
 import { Builder } from "./builder/Builder";
-import { COMPONENTS, DATA_KINDS, DataKind, elementMeta } from "./catalog";
+import { COMPONENTS, DATA_KINDS, DataKind, elementMeta, ElementSeed } from "./catalog";
 import { AnnotationsPanel, ComposerTarget, TargetInfo } from "./components/AnnotationsPanel";
 import { AnnotationMarks, Canvas, deviceMinWidth, HotMark } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
@@ -74,7 +74,7 @@ import {
 import { diffPage } from "./model/diff";
 import { usePageHistory } from "./model/history";
 import { ComposedLevel, composeRegionOptions } from "./model/linkRegions";
-import { firstNavTarget, navLinkedPageIds, navRouteLabel, orderPagesByNav } from "./model/navOrder";
+import { firstNavTarget, navDescendants, navLevel, navLinkedPageIds, navRouteLabel, navSubItems, orderPagesByNav } from "./model/navOrder";
 import { byPos, isLegacyDocument, posAfterLast } from "./model/positions";
 import { blankDocument, contentRegionFor, fallbackRegionId, findNode, regionDisplayName } from "./model/tree";
 import { BACK_PAGE_ID, ComponentNode, LayoutNode, LinkTarget, Op, PageDocument, PagePresentation, PageRecord } from "./model/types";
@@ -1050,7 +1050,19 @@ function StudioEditor() {
       afterSelection && selection?.kind === "element" && selection.cmpId === cmpId && isElKey(selection.key)
         ? selection.key.slice(EL_PREFIX.length)
         : null;
-    const result = runCmp(cmpId, (d, c) => A.addElement(d, c, cmpId, type, null, afterId));
+    // A sub-item added with a nav item selected nests one level under it and
+    // goes after that item's whole branch, as its last child (FS-REQ-64).
+    let seed: string | ElementSeed = type;
+    let after = afterId;
+    if (type === "nav-sub-item" && hostCmp && afterId) {
+      const sel = findElement(hostCmp, afterId);
+      if (sel && (sel.type === "nav-item" || sel.type === "nav-sub-item")) {
+        seed = { type, data: { level: String(Math.min(5, navLevel(sel) + 1)) } };
+        const branch = navDescendants(navSubItems(hostCmp.elements ?? []), sel.id);
+        if (branch.length) after = branch[branch.length - 1].id;
+      }
+    }
+    const result = runCmp(cmpId, (d, c) => A.addElement(d, c, cmpId, seed, null, after));
     const created = result?.selectElement;
     // A new labelled element opens straight into its label editor, so the
     // first keystrokes name it (FS-REQ-65).

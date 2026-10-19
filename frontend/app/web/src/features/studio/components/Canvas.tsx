@@ -7,6 +7,7 @@
 // (click it), or a single element inside one (click a nav item / button —
 // see selection.ts). Double-clicking a linked element follows its link.
 import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useLayoutEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import { elementHosts } from "../catalog";
 import { CustomDef, elementLink, locateCmp } from "../model/actions";
@@ -308,9 +309,6 @@ const Glyph = ({ d }: { d: string }) => (
   </svg>
 );
 
-/** Height the component toolbar needs above a component (its 28px + gap). */
-const TOOLBAR_ROOM = 34;
-
 export function Canvas(props: Props) {
   const { doc, host, presentation, canWrite, selection, editingElement } = props;
   const [hint, setHint] = useState<DropHint | null>(null);
@@ -323,23 +321,40 @@ export function Canvas(props: Props) {
   const [liveCmp, setLiveCmp] = useState<Record<string, { w?: number; h?: number }>>({});
   /** Live x/y override while a free-region component drag is in flight. */
   const [liveCmpPos, setLiveCmpPos] = useState<Record<string, { x: number; y: number }>>({});
-  /** The selected component's toolbar hangs outside it, above — or below
-   *  when the nearest clipping edge leaves no room above (FS-REQ-67). */
-  const [toolsBelow, setToolsBelow] = useState(false);
+  /** Where the selected component's toolbar sits (FS-REQ-67): always just
+   *  above its top-right corner, drawn in a layer on the canvas mat rather
+   *  than inside the page, so no region, scroll box or page edge can clip it
+   *  or push it somewhere else — at the top of the page it rides on the mat
+   *  above the wireframe. Re-measured whenever the box can have moved. */
+  const [toolsAt, setToolsAt] = useState<{ id: string; host: HTMLElement; left: number; top: number } | null>(null);
   const selectedCmpId = selection?.kind === "cmp" ? selection.id : null;
   useLayoutEffect(() => {
-    if (!selectedCmpId) return;
-    const node = document.querySelector<HTMLElement>(`[data-cmp-id="${CSS.escape(selectedCmpId)}"]`);
-    if (!node) return;
-    let limit = 0;
-    for (let p = node.parentElement; p; p = p.parentElement) {
-      if (getComputedStyle(p).overflowY !== "visible") {
-        limit = p.getBoundingClientRect().top;
-        break;
-      }
+    if (!selectedCmpId) {
+      setToolsAt(null);
+      return;
     }
-    setToolsBelow(node.getBoundingClientRect().top - limit < TOOLBAR_ROOM);
-  }, [selectedCmpId, doc]);
+    const node = document.querySelector<HTMLElement>(`[data-cmp-id="${CSS.escape(selectedCmpId)}"]`);
+    const mat = node?.closest(".canvas-wrap") as HTMLElement | null;
+    if (!node || !mat) {
+      setToolsAt(null);
+      return;
+    }
+    const measure = () => {
+      const r = node.getBoundingClientRect();
+      const m = mat.getBoundingClientRect();
+      setToolsAt({
+        id: selectedCmpId,
+        host: mat,
+        left: r.right - m.left + mat.scrollLeft - mat.clientLeft,
+        top: r.top - m.top + mat.scrollTop - mat.clientTop,
+      });
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(node);
+    watch.observe(mat);
+    return () => watch.disconnect();
+  }, [selectedCmpId, doc, host, live, liveCmp, liveCmpPos]);
   const clear = () => {
     setHint(null);
     setOverRegion(null);
@@ -964,8 +979,15 @@ export function Canvas(props: Props) {
             !!props.marks?.notes.cmps.has(cmp.id),
             !!props.marks?.tasks.cmps.has(cmp.id),
           )}
-          {editable && (
-            <div className={`cmp-actions${toolsBelow ? " below" : ""}`} role="toolbar" aria-label={`${cmp.label} controls`} title={`${cmp.type} · ${cmp.label}`}>
+          {editable && toolsAt?.id === cmp.id && createPortal(
+            <div
+              className="cmp-actions"
+              style={{ left: toolsAt.left, top: toolsAt.top }}
+              role="toolbar"
+              aria-label={`${cmp.label} controls`}
+              title={`${cmp.type} · ${cmp.label}`}
+              onClick={(e) => e.stopPropagation()}
+            >
               {structural && (
                 <button type="button" title="Edit structure" aria-label="Edit structure" onClick={action(() => props.onEditStructure(cmp.id))}>
                   <Glyph d={ICON.pencil} />
@@ -995,7 +1017,8 @@ export function Canvas(props: Props) {
               <button type="button" className="danger" title="Remove" aria-label="Remove" onClick={action(() => props.onRemove(cmp.id))}>
                 <Glyph d={ICON.close} />
               </button>
-            </div>
+            </div>,
+            toolsAt.host,
           )}
           {/* Edge/corner grips, shown while selected. On a floating canvas
               they carve the float down from full-region to a placed box. */}

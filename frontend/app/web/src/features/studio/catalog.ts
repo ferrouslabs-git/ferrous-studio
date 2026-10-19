@@ -151,10 +151,17 @@ const BRAND = el({
   defaultLabel: "Acme", max: 1,
 });
 const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item", blankRemoves: true });
-/** A nav item nested under the nav item before it (FS-REQ-64): a side rail
- *  draws it as an accordion under its parent, a top bar as the parent's
- *  dropdown. A parent with no link of its own follows its first sub-item. */
-const NAV_SUB_ITEM = el({ type: "nav-sub-item", label: "Sub-item", desc: "A destination nested under the item before it", icon: "NS", dataFields: [], defaultLabel: "Sub-item", blankRemoves: true });
+/** A nav item nested under an item before it (FS-REQ-64), up to five levels
+ *  deep: its level (2–5) puts it under the nearest earlier item of a lower
+ *  level. A side rail draws the tree as nested accordions, a top bar as the
+ *  parent's dropdown. A parent with no link of its own follows its first
+ *  linked descendant. */
+export const NAV_LEVELS = ["2", "3", "4", "5"] as const;
+const NAV_SUB_ITEM = el({
+  type: "nav-sub-item", label: "Sub-item", desc: "A destination nested under an item before it", icon: "NS",
+  dataFields: [{ key: "level", label: "Level", kind: "select", options: NAV_LEVELS }],
+  defaultLabel: "Sub-item", defaultData: { level: "2" }, blankRemoves: true,
+});
 const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
 const SEARCH = el({ type: "search", label: "Search box", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1, shapeable: true, fillable: true, defaultFill: "outline" });
 const BUTTON = el({

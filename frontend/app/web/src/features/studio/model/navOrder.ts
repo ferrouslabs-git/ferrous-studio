@@ -14,16 +14,33 @@ import { BACK_PAGE_ID, ComponentNode, ElementNode, LinkTarget, PageDocument } fr
  *  before it has no parent and draws as an ordinary item. */
 export function navSubItems(elements: readonly ElementNode[]): Map<string, ElementNode[]> {
   const out = new Map<string, ElementNode[]>();
-  let parent: ElementNode | null = null;
+  // The open branch: each entry is an item a later one may nest under.
+  const branch: { el: ElementNode; level: number }[] = [];
   for (const el of byPos(elements)) {
-    if (el.type === "nav-item") parent = el;
-    else if (el.type === "nav-sub-item" && parent) {
-      const list = out.get(parent.id) ?? [];
+    if (el.type !== "nav-item" && el.type !== "nav-sub-item") continue;
+    const level = navLevel(el);
+    while (branch.length && branch[branch.length - 1].level >= level) branch.pop();
+    const parent = branch[branch.length - 1];
+    if (parent && level > 1) {
+      const list = out.get(parent.el.id) ?? [];
       list.push(el);
-      out.set(parent.id, list);
+      out.set(parent.el.id, list);
     }
+    branch.push({ el, level });
   }
   return out;
+}
+
+/** An item's depth: a nav item is level 1, a sub-item its data.level (2–5). */
+export function navLevel(el: ElementNode): number {
+  if (el.type !== "nav-sub-item") return 1;
+  const n = parseInt(el.data?.level ?? "", 10);
+  return Number.isFinite(n) ? Math.min(5, Math.max(2, n)) : 2;
+}
+
+/** Every item under `id`, depth first in draw order. */
+export function navDescendants(subs: Map<string, ElementNode[]>, id: string): ElementNode[] {
+  return (subs.get(id) ?? []).flatMap((k) => [k, ...navDescendants(subs, k.id)]);
 }
 
 /** Where a nav bar's element goes: its own link, or — for a parent item
@@ -33,7 +50,7 @@ export function navEffectiveLink(cmp: ComponentNode, key: string, index: number 
   const own = elementLink(cmp, key, index);
   if (own || cmp.type !== "navbar" || index != null || !key.startsWith(EL_PREFIX)) return own;
   const id = key.slice(EL_PREFIX.length);
-  for (const sub of navSubItems(cmp.elements ?? []).get(id) ?? []) {
+  for (const sub of navDescendants(navSubItems(cmp.elements ?? []), id)) {
     const link = elementLink(cmp, elKey(sub.id), null);
     if (link) return link;
   }
@@ -53,7 +70,7 @@ function navItemsInDrawOrder(cmp: ComponentNode): ElementNode[] {
     cmp.layout === "vertical"
       ? top
       : (["left", "centre", "right"] as NavAlign[]).flatMap((zone) => top.filter((e) => navAlign(e) === zone));
-  return ordered.flatMap((e) => [e, ...(subs.get(e.id) ?? [])]);
+  return ordered.flatMap((e) => [e, ...navDescendants(subs, e.id)]);
 }
 
 /** Every page the document's nav bars link to, in draw order: regions in

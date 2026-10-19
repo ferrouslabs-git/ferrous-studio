@@ -12,7 +12,7 @@ import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
-import { navSubItems } from "../model/navOrder";
+import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
 import { getDefaultProps } from "../model/regions";
 import { ComponentNode, ElementNode, LinkTarget } from "../model/types";
@@ -1008,7 +1008,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const activeNav =
       navItems.find((e) => !subs.has(e.id) && linkedHere(e)) ?? navItems.find(linkedHere) ?? navItems.find((e) => !nested.has(e.id));
     /** Drawn as current: the active item, or the parent of an active sub-item. */
-    const isActive = (el: ElementNode) => activeNav === el || (!!activeNav && (subs.get(el.id) ?? []).includes(activeNav));
+    const isActive = (el: ElementNode) => activeNav === el || (!!activeNav && navDescendants(subs, el.id).includes(activeNav));
     /** The parent's chevron: expands its sub-items (rail) or opens its menu (bar). */
     const subToggle = (open: boolean, onToggle: () => void) => (
       <button
@@ -1048,7 +1048,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       const railItem = (el: ElementNode): ReactNode => {
         const kids = subs.get(el.id);
         if (!kids?.length) return railLeaf(el);
-        const forced = !!edit && (isSelected(el) || kids.some(isSelected));
+        const forced = !!edit && (isSelected(el) || navDescendants(subs, el.id).some(isSelected));
         const open = forced || (railOpen[el.id] ?? (edit ? true : isActive(el)));
         return (
           <div className={`ui-side-group${open ? " open" : ""}`}>
@@ -1059,7 +1059,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {open && (
               <div className="ui-side-sub">
                 {kids.map((k) => (
-                  <Fragment key={k.id}>{railLeaf(k)}</Fragment>
+                  <Fragment key={k.id}>{railItem(k)}</Fragment>
                 ))}
               </div>
             )}
@@ -1141,7 +1141,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       const kids = subs.get(el.id);
       // A parent opens its sub-items as a dropdown under it; editing keeps
       // the menu open while the parent or one of its items is selected.
-      const open = !!kids?.length && (openSelect === el.id || (!!edit && (isSelected(el) || kids.some(isSelected))));
+      const below = navDescendants(subs, el.id);
+      const open = below.length > 0 && (openSelect === el.id || (!!edit && (isSelected(el) || below.some(isSelected))));
       return (
         <Fragment key={el.id}>
           {shape === "breadcrumb" && sepBefore && <span className="ui-crumb-sep" aria-hidden>/</span>}
@@ -1151,8 +1152,11 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               {subToggle(open, () => setOpenSelect((cur) => (cur === el.id ? null : el.id)))}
               {open && (
                 <div className="ui-select-menu ui-nav-menu" data-select-ui>
-                  {kids.map((k) => (
-                    <Fragment key={k.id}>{elTok(k, `ui-select-option${activeNav === k ? " on" : ""}`)}</Fragment>
+                  {/* Deeper levels indent under their parents in the one menu. */}
+                  {below.map((k) => (
+                    <span key={k.id} className="ui-nav-menu-row" style={{ paddingLeft: (navLevel(k) - 2) * 14 }}>
+                      {elTok(k, `ui-select-option${activeNav === k ? " on" : ""}`)}
+                    </span>
                   ))}
                 </div>
               )}
