@@ -7,7 +7,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { useSession } from "../../../app/session";
-import { getTenantUsers, TenantUser } from "../../../core/umApi";
+import { Assignee, listAssignees } from "./assigneesApi";
 import { useProject } from "../ProjectLayout";
 import { Agent, listAgents } from "./agentsApi";
 import { effectiveEpicId, effectiveReleaseId, sortEpics, sortFeatures, sortReleases, sortRequirements, sortSprints } from "./boardModel";
@@ -94,7 +94,8 @@ export interface BoardContextValue {
   paths: BoardPaths;
   data: BoardData | null;
   error: string | null;
-  members: TenantUser[];
+  /** Everyone assignable: the organisation's members, then super admins. */
+  members: Assignee[];
   currentUserId: string | null;
   /** The organisation role, not narrowed by the version lock (see ProjectLayout). */
   canWrite: boolean;
@@ -123,7 +124,7 @@ function upsert<T extends Entity>(list: T[], item: T): T[] {
   return list.some((x) => x.id === item.id) ? list.map((x) => (x.id === item.id ? item : x)) : [...list, item];
 }
 
-function buildIndex(data: BoardData, members: TenantUser[]): BoardIndex {
+function buildIndex(data: BoardData, members: Assignee[]): BoardIndex {
   const releaseById = new Map(data.releases.map((r) => [r.id, r]));
   const epicById = new Map(data.epics.map((e) => [e.id, e]));
   const featureById = new Map(data.features.map((f) => [f.id, f]));
@@ -220,7 +221,7 @@ export function BoardProvider({ children }: { children?: ReactNode }) {
   const projectId = project.id;
 
   const [data, setData] = useState<BoardData | null>(null);
-  const [members, setMembers] = useState<TenantUser[]>([]);
+  const [members, setMembers] = useState<Assignee[]>([]);
   const [error, setError] = useState<string | null>(null);
   // A project switch while a load is in flight must not land the old
   // project's rows in the new one's state.
@@ -257,12 +258,12 @@ export function BoardProvider({ children }: { children?: ReactNode }) {
     reload().catch((err: unknown) => {
       if (gen === generation.current) setError(err instanceof Error ? err.message : "Could not load the board.");
     });
-    getTenantUsers(orgId, "active")
+    listAssignees(projectId)
       .then((list) => {
         if (gen === generation.current) setMembers(list);
       })
       .catch(() => {
-        // Members are a lookup for names; a viewer may not be allowed the list.
+        // Members are a lookup for names; a failed load only costs the names.
       });
   }, [projectId, orgId, reload]);
 

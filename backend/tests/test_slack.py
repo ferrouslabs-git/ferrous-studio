@@ -345,3 +345,81 @@ async def test_dispatch_never_raises_and_does_nothing_unconfigured(monkeypatch):
     monkeypatch.setattr(slack_notify.slack_client, "configured", lambda: False)
     ev = slack_notify.StagedEvent(uuid.UUID(ACCOUNT), uuid.uuid4(), None, "comment.created", "requirement", uuid.uuid4(), {})
     await slack_notify.dispatch([ev])  # no database, no Slack: must simply return
+
+
+# ── Assignments go to the assignee ─────────────────────────────────────────
+
+ASSIGNEE = "33333333-3333-4333-8333-333333333333"
+
+
+def _staged(session):
+    return session.info.get(slack_notify.STAGED_KEY, [])
+
+
+def test_assigning_a_requirement_stages_an_assignment(session):
+    board = SimpleNamespace(account_id=uuid.UUID(ACCOUNT), id=uuid.uuid4())
+    detail = {"assignee_id": {"from": None, "to": ASSIGNEE}, "status": {"from": "NotStarted", "to": "InProgress"}}
+    slack_notify.stage(session, board, uuid.UUID(USER), "requirement.updated", "requirement", uuid.uuid4(), detail)
+    # The status change still goes to the channel; the assignment beside it.
+    assert [e.action for e in _staged(session)] == ["requirement.updated", "assigned"]
+    assert _staged(session)[1].detail == {"assignee_id": ASSIGNEE}
+
+
+@pytest.mark.parametrize(
+    "action,detail",
+    [
+        ("feedback.triaged", {"assignee_id": {"from": None, "to": ASSIGNEE}}),
+        ("requirement.created", {"title": "t", "assignee_id": ASSIGNEE}),
+    ],
+)
+def test_feedback_and_new_requirements_notify_their_assignee(session, action, detail):
+    board = SimpleNamespace(account_id=uuid.UUID(ACCOUNT), id=uuid.uuid4())
+    slack_notify.stage(session, board, uuid.UUID(USER), action, "feedback", uuid.uuid4(), detail)
+    assert [e.action for e in _staged(session)][-1] == "assigned"
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        {"assignee_id": {"from": ASSIGNEE, "to": None}},  # unassigning
+        {"assignee_id": {"from": None, "to": USER}},  # assigning yourself
+    ],
+)
+def test_no_assignment_message_for_unassigning_or_self(session, detail):
+    board = SimpleNamespace(account_id=uuid.UUID(ACCOUNT), id=uuid.uuid4())
+    slack_notify.stage(session, board, uuid.UUID(USER), "feedback.triaged", "feedback", uuid.uuid4(), detail)
+    assert slack_notify.STAGED_KEY not in session.info
+
+
+async def _deliver(monkeypatch, slack_id):
+    posts = []
+
+    async def fake_lookup(token, email):
+        return slack_id
+
+    async def fake_post(token, channel, text, blocks=None):
+        posts.append((channel, blocks))
+        return "1.0"
+
+    class FakeDb:
+        async def get(self, model, key):
+            return SimpleNamespace(email="ada@example.com", name="Ada")
+
+    monkeypatch.setattr(slack_notify.slack_client, "lookup_user_id", fake_lookup)
+    monkeypatch.setattr(slack_notify.slack_client, "post_message", fake_post)
+    ev = slack_notify.StagedEvent(uuid.UUID(ACCOUNT), uuid.uuid4(), None, "assigned", "requirement", uuid.uuid4(), {"assignee_id": ASSIGNEE})
+    blocks = [slack_notify.section("Bob assigned you the requirement *FS-REQ-1*"), slack_notify.context("x")]
+    await slack_notify._deliver_assignment(FakeDb(), "tok", "C123", ev, "FS-REQ-1 assigned to Ada", blocks)
+    return posts
+
+
+async def test_an_assignee_known_to_slack_gets_a_direct_message(monkeypatch):
+    posts = await _deliver(monkeypatch, "U999")
+    assert [p[0] for p in posts] == ["U999"]
+    assert "assigned you" in posts[0][1][0]["text"]["text"]
+
+
+async def test_otherwise_the_channel_is_told_and_names_them(monkeypatch):
+    posts = await _deliver(monkeypatch, None)
+    assert [p[0] for p in posts] == ["C123"]
+    assert "assigned *Ada* the requirement" in posts[0][1][0]["text"]["text"]

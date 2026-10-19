@@ -335,6 +335,17 @@ class RequirementUpdate(BaseModel):
     queue_position: QueuePosition = None
 
 
+class AssigneeRead(BaseModel):
+    """Someone board work can be assigned to: an organisation member, or a
+    super admin (who need not be one)."""
+
+    user_id: UUID
+    email: str
+    name: str | None = None
+    role: str
+    super_admin: bool = False
+
+
 class RequirementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

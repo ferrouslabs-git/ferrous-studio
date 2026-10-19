@@ -50,6 +50,7 @@ from .models import (
 )
 from .schemas import (
     AgentRead,
+    AssigneeRead,
     AttachmentDownload,
     AttachmentEntityType,
     AttachmentRead,
@@ -1009,14 +1010,29 @@ async def _get_requirement(db: AsyncSession, board: Board, requirement_id: UUID)
     return r
 
 
+def _super_admins_query():
+    """Active super admins (platform admins): Ferrous Labs staff who may be
+    assigned work on any organisation's board without being one of its
+    members."""
+    return select(User).where(
+        User.is_platform_admin.is_(True),
+        User.is_active.is_(True),
+        User.suspended_at.is_(None),
+        User.archived_at.is_(None),
+    )
+
+
 async def _validate_assignee(db: AsyncSession, board: Board, assignee_id: UUID | None) -> None:
-    """An assignee must be an active member of the board's organisation.
-    Nothing in the schema can say that -- the FK only constrains "a user
-    exists somewhere" -- so a typo'd or foreign id would otherwise be
-    accepted and shown as a name nobody in the organisation recognises.
-    Shared by requirements, features and epics, which all assign the same
-    way and must refuse the same ids."""
+    """An assignee must be an active member of the board's organisation, or
+    an active super admin. Nothing in the schema can say that -- the FK only
+    constrains "a user exists somewhere" -- so a typo'd or foreign id would
+    otherwise be accepted and shown as a name nobody in the organisation
+    recognises. Shared by requirements, features, epics and feedback, which
+    all assign the same way and must refuse the same ids."""
     if assignee_id is None:
+        return
+    admin = (await db.execute(_super_admins_query().where(User.id == assignee_id))).scalar_one_or_none()
+    if admin is not None:
         return
     member = (
         await db.execute(
@@ -1033,6 +1049,46 @@ async def _validate_assignee(db: AsyncSession, board: Board, assignee_id: UUID |
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="assignee_id is not a member of this organisation",
         )
+
+
+@router.get("/projects/{project_id}/board/assignees", response_model=list[AssigneeRead])
+async def list_assignees(
+    project_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[AssigneeRead]:
+    """Everyone work on this board can be assigned to: the organisation's
+    active members, then the active super admins who are not already among
+    them -- the same set _validate_assignee accepts."""
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    members = (
+        await db.execute(
+            select(User, Membership.role_name)
+            .join(Membership, Membership.user_id == User.id)
+            .where(
+                Membership.scope_type == "account",
+                Membership.scope_id == board.account_id,
+                Membership.status == "active",
+                User.is_active.is_(True),
+            )
+            .order_by(func.lower(func.coalesce(User.name, User.email)))
+        )
+    ).all()
+    out = [
+        AssigneeRead(user_id=u.id, email=u.email, name=u.name, role=role, super_admin=bool(u.is_platform_admin))
+        for u, role in members
+    ]
+    seen = {a.user_id for a in out}
+    admins = (
+        await db.execute(_super_admins_query().order_by(func.lower(func.coalesce(User.name, User.email))))
+    ).scalars().all()
+    out += [
+        AssigneeRead(user_id=u.id, email=u.email, name=u.name, role="super_admin", super_admin=True)
+        for u in admins
+        if u.id not in seen
+    ]
+    return out
 
 
 async def _validate_requirement_refs(
@@ -1140,9 +1196,10 @@ async def create_requirement_content(
     await db.flush()
     # Initial sprint membership, even NULL/backlog -- see service.record_sprint_history.
     await service.record_sprint_history(db, board, requirement)
-    await service.write_event(
-        db, board, ctx.user_id, "requirement.created", "requirement", requirement.id, {"title": requirement.title}
-    )
+    created = {"title": requirement.title}
+    if requirement.assignee_id is not None:
+        created["assignee_id"] = str(requirement.assignee_id)
+    await service.write_event(db, board, ctx.user_id, "requirement.created", "requirement", requirement.id, created)
     if requirement.sprint_id is not None:
         await maybe_wake_agent(db, board, requirement.sprint_id)
     return board, requirement

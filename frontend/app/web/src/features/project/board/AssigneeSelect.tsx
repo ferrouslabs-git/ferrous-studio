@@ -3,11 +3,11 @@
 // gained one on 2026-09-18, and three hand-rolled member <select>s drifting
 // apart was not worth it.
 //
-// The list is the organisation's active members, already loaded by
-// BoardProvider. The server refuses an id that is not one of them, so an
-// assignee left behind by someone who has since left the organisation is
-// shown by id rather than silently dropped -- it is real, and clearing it is
-// the user's call.
+// The list is the organisation's active members, then the super admins
+// (Ferrous Labs staff, assignable on any board), already loaded by
+// BoardProvider. The server refuses an id that is neither, so an assignee left
+// behind by someone who has since left the organisation is shown by id rather
+// than silently dropped -- it is real, and clearing it is the user's call.
 import { useBoard } from "./boardData";
 
 interface AssigneeSelectProps {
@@ -26,6 +26,8 @@ interface AssigneeSelectProps {
 export function AssigneeSelect({ value, onChange, disabled, ariaLabel, id, className }: AssigneeSelectProps) {
   const { members } = useBoard();
   const known = value === null || members.some((m) => m.user_id === value);
+  const orgMembers = members.filter((m) => m.role !== "super_admin");
+  const admins = members.filter((m) => m.role === "super_admin");
 
   return (
     <select
@@ -37,11 +39,20 @@ export function AssigneeSelect({ value, onChange, disabled, ariaLabel, id, class
       onChange={(e) => onChange(e.target.value || null)}
     >
       <option value="">— unassigned —</option>
-      {members.map((m) => (
+      {orgMembers.map((m) => (
         <option key={m.user_id} value={m.user_id}>
           {m.name || m.email}
         </option>
       ))}
+      {admins.length > 0 && (
+        <optgroup label="Super admins">
+          {admins.map((m) => (
+            <option key={m.user_id} value={m.user_id}>
+              {m.name || m.email}
+            </option>
+          ))}
+        </optgroup>
+      )}
       {!known && <option value={value}>Someone no longer in this organisation</option>}
     </select>
   );

@@ -76,13 +76,15 @@
 
 /* ── Row action menu (list tables) ── */
 .row-menu { position: relative; display: inline-block; }
+/* As wide as its longest item (never cut short), right-aligned to the button
+   so it grows leftwards into the page, and never wider than the window. */
 .row-menu-pop {
-  position: fixed; z-index: 45; min-width: 150px;
+  position: fixed; z-index: 45; width: max-content; min-width: 150px; max-width: calc(100vw - 16px);
   background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px;
   box-shadow: var(--shadow); padding: 4px 0; text-align: left;
 }
 .row-menu-item {
-  display: block; width: 100%; text-align: left; padding: 6px 12px; font-size: 12px;
+  display: block; width: 100%; text-align: left; padding: 6px 12px; font-size: 12px; white-space: nowrap;
   background: none; border: 0; color: var(--text); cursor: pointer; font-family: inherit;
 }
 .row-menu-item:hover { background: var(--panel-2); }
