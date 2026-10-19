@@ -1821,6 +1821,13 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .insp-images { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
 .insp-image-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .insp-image-thumb { position: relative; width: 48px; height: 48px; }
+.insp-image-thumb.movable { cursor: grab; }
+.insp-image-thumb.dragging { opacity: .4; }
+.insp-image-thumb.drop { outline: 2px solid var(--edit-accent); outline-offset: 1px; border-radius: 4px; }
+.insp-image-n {
+  position: absolute; left: 2px; bottom: 2px; min-width: 14px; padding: 0 3px; border-radius: 7px;
+  background: rgba(27,32,39,.72); color: #fff; font: 600 10px/14px var(--font-display); text-align: center; pointer-events: none;
+}
 .insp-image-thumb img {
   width: 100%; height: 100%; object-fit: cover; display: block;
   border: 1px solid var(--border); border-radius: var(--radius);

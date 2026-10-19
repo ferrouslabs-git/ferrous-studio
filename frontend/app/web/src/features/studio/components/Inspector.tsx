@@ -246,11 +246,22 @@ function ImageField({ value, onCommit, disabled }: { value: string; onCommit(v: 
   );
 }
 
-/** Several images (an image column's pictures, FS-REQ-70): thumbnails to
- *  remove one by one, and an upload that takes any number at once. Each is
+/** Several images (an image column's pictures, FS-REQ-70): numbered
+ *  thumbnails in the order the rows use them, dragged to reorder and removed
+ *  one by one, and an upload that takes any number at once. Each is
  *  downscaled to 320px and stored inline; the field holds a JSON array. */
 function ImagesField({ value, onCommit, disabled }: { value: string; onCommit(v: string): void; disabled?: boolean }) {
   const images = imageList(value);
+  /** The thumbnail being dragged, and the one it would land before. */
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const move = (from: number, to: number) => {
+    if (from === to) return;
+    const next = [...images];
+    const [src] = next.splice(from, 1);
+    next.splice(to, 0, src);
+    save(next);
+  };
   const save = (next: string[]) => onCommit(next.length ? JSON.stringify(next) : "");
   const upload = (files: File[]) => {
     const read: string[] = new Array(files.length);
@@ -267,8 +278,32 @@ function ImagesField({ value, onCommit, disabled }: { value: string; onCommit(v:
       {images.length > 0 && (
         <div className="insp-image-grid">
           {images.map((src, i) => (
-            <div key={i} className="insp-image-thumb">
-              <img src={src} alt={`Image ${i + 1}`} />
+            <div
+              key={i}
+              className={`insp-image-thumb${!disabled ? " movable" : ""}${dragFrom === i ? " dragging" : ""}${dropAt === i && dragFrom !== i ? " drop" : ""}`}
+              draggable={!disabled}
+              onDragStart={(e) => {
+                setDragFrom(i);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(e) => {
+                if (dragFrom == null) return;
+                e.preventDefault();
+                if (dropAt !== i) setDropAt(i);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragFrom != null) move(dragFrom, i);
+                setDragFrom(null);
+                setDropAt(null);
+              }}
+              onDragEnd={() => {
+                setDragFrom(null);
+                setDropAt(null);
+              }}
+            >
+              <img src={src} alt={`Image ${i + 1}`} draggable={false} />
+              <span className="insp-image-n">{i + 1}</span>
               {!disabled && (
                 <button
                   type="button"
