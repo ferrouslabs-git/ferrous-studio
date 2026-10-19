@@ -1,46 +1,24 @@
 // Small pencil icon that opens the "Edit organisation" drawer. Rendered next
 // to the organisation name in the sidebar, and only for organisation admins
 // (the server enforces this too; hiding it just avoids a failing click).
-import { FormEvent, useState } from "react";
+//
+// The drawer saves as you go; the platform admin's organisations list uses
+// the same one.
+import { useState } from "react";
+import { AutosaveFooter, closeAfterSave } from "../../components/AutosaveStatus";
 import { Drawer, Field } from "../../components/Drawer";
-import { errorMessage } from "../../core/api";
+import { useAutosave } from "../../core/useAutosave";
 import { UmTenant, updateTenant } from "../../core/umApi";
 
 export function EditOrgButton({ org, onSaved }: { org: UmTenant; onSaved: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(org.name);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const openDrawer = () => {
-    setName(org.name);
-    setError(null);
-    setOpen(true);
-  };
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await updateTenant(org.id, { name: name.trim() });
-      setOpen(false);
-      await onSaved();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const unchanged = name.trim() === org.name;
 
   return (
     <>
       <button
         type="button"
         className="btn icon"
-        onClick={openDrawer}
+        onClick={() => setOpen(true)}
         aria-label="Edit organisation"
         title="Edit organisation"
       >
@@ -49,28 +27,56 @@ export function EditOrgButton({ org, onSaved }: { org: UmTenant; onSaved: () => 
           <path d="M10 4l2 2" />
         </svg>
       </button>
-      <Drawer
-        open={open}
-        title="Edit organisation"
-        description="Changes apply immediately for every member."
-        onClose={() => setOpen(false)}
-        onSubmit={save}
-        footer={
-          <>
-            <button type="button" className="btn ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </button>
-            <button className="btn primary" disabled={saving || !name.trim() || unchanged}>
-              {saving ? "Saving…" : "Save changes"}
-            </button>
-          </>
-        }
-      >
-        <Field label="Name">
-          <input className="input" required value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        {error && <div className="status-banner warn">{error}</div>}
-      </Drawer>
+      {open && <EditOrgDrawer tenantId={org.id} name={org.name} onSaved={onSaved} onClose={() => setOpen(false)} />}
     </>
+  );
+}
+
+/** Rename an organisation, saved as you go. Mount it only while open. */
+export function EditOrgDrawer({
+  tenantId,
+  name,
+  onSaved,
+  onClose,
+}: {
+  tenantId: string;
+  name: string;
+  onSaved: () => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const auto = useAutosave(
+    { name },
+    {
+      validate: (v) => (v.name.trim() ? null : { name: "An organisation needs a name." }),
+      save: async (v) => {
+        await updateTenant(tenantId, { name: v.name.trim() });
+        await onSaved();
+      },
+    },
+  );
+
+  return (
+    <Drawer
+      open
+      title="Edit organisation"
+      description="Changes apply immediately for every member."
+      onClose={() => void closeAfterSave(auto, onClose)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void auto.flush();
+      }}
+      footer={<AutosaveFooter auto={auto} onClose={onClose} />}
+    >
+      <Field label="Name" error={auto.fieldErrors.name}>
+        <input
+          className="input"
+          required
+          aria-invalid={!!auto.fieldErrors.name}
+          value={auto.value.name}
+          onChange={(e) => auto.set({ name: e.target.value })}
+          onBlur={() => void auto.flush()}
+        />
+      </Field>
+    </Drawer>
   );
 }

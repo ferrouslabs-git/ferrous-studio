@@ -1,27 +1,43 @@
-// Feedback: the deployed environments this project can be reached at, and
-// what people found when they went there.
+// Feedback: the deployed environments this project can be reached at, what
+// people found when they went there, and (the Maintenance log tab) the support
+// hours the fixes are paid for from.
 //
 // This is the one delivery section an organisation *member* can write to. They
 // raise reports; only an admin triages, corrects or deletes one, so the page
 // has two readings of the same table -- see `canWrite` versus
-// `canRaiseFeedback` below. Both come from ProjectLayout, and neither is
-// narrowed by a locked version: an environment stays live whatever a frozen
-// design version says, and freezing v1 must not silence the people testing it.
-import { FormEvent, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+// `canRaiseFeedback` below. Neither is narrowed by a locked version: an
+// environment stays live whatever a frozen design version says, and freezing
+// v1 must not silence the people testing it.
+//
+// Triage gives a report the support-desk half of a requirement (FS-REQ-52):
+// an assignee, an estimate, a comment thread, and a resolution time stamped
+// by the server when it reaches Resolved. The page sits under BoardProvider
+// for those -- the assignee picker, the comment thread and the link to a
+// requirement raised from a report (FS-REQ-51) all read the shared board.
+import { FormEvent, ReactNode, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useSession } from "../../../app/session";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
-import { ListTable, NameCell } from "../../../components/ListTable";
+import { Badges, ListTable, NameCell } from "../../../components/ListTable";
 import { ListToolbar, matches } from "../../../components/ListToolbar";
 import { errorMessage } from "../../../core/api";
-import { formatDateTime } from "../../../core/format";
+import { formatDateTime, parseUtcDate } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import { ScreenshotField, ScreenshotItem } from "../../screenshot/ScreenshotField";
 import { listAttachments, loadAttachmentBitmap } from "../attachmentsApi";
+import { AssigneeSelect } from "../board/AssigneeSelect";
+import { useBoard } from "../board/boardData";
+import { IdChip } from "../board/chips";
+import { CommentsList } from "../board/CommentsList";
+import { EstimateField } from "../board/EstimateField";
+import { useToast } from "../board/toast";
+import { useEntityHref } from "../board/useGoTo";
 import { useProject } from "../ProjectLayout";
 import {
+  CLOSED_STATUSES,
   createFeedback,
+  createRequirementFromFeedback,
   deleteFeedback,
   Environment,
   Feedback,
@@ -34,11 +50,14 @@ import {
   FEEDBACK_STATUSES,
   KIND_LABELS,
   SEVERITY_LABELS,
+  STATUS_LABELS,
   listEnvironments,
   listFeedback,
   updateFeedback,
   uploadFeedbackScreenshots,
 } from "./feedbackApi";
+import { fmtDuration, fmtHours } from "./maintenance";
+import { MaintenanceLog } from "./MaintenanceLog";
 
 // The environment is filled in when the form opens: the first in the list.
 const EMPTY: FeedbackInput = {
@@ -50,13 +69,24 @@ const EMPTY: FeedbackInput = {
   page_url: "",
 };
 
-/** A report that has been dealt with is not news; one that has not is. */
+/** What triage sets, beside the reporter's own fields. */
+interface Triage {
+  status: FeedbackStatus;
+  assignee_id: string | null;
+  estimate_hours: number | null;
+}
+
+const EMPTY_TRIAGE: Triage = { status: "New", assignee_id: null, estimate_hours: null };
+
+/** A report still waiting on someone is news; one with its outcome is not. */
 const STATUS_BADGE: Record<FeedbackStatus, string> = {
   New: "accent",
-  Triaged: "warn",
-  Accepted: "good",
-  Declined: "muted",
-  Done: "muted",
+  EstimatedToConfirm: "warn",
+  OnHold: "muted",
+  NotABug: "muted",
+  Confirmed: "warn",
+  InProgress: "accent",
+  Resolved: "good",
 };
 
 const KIND_BADGE: Record<FeedbackKind, string> = {
@@ -76,34 +106,56 @@ const SEVERITY_BADGE: Record<FeedbackSeverity, string> = {
 
 /**
  * The list opens as a triage queue rather than as a full record: what has been
- * accepted or turned down has already had its decision, and leaving it in the
- * default view buries the reports still waiting for one. Clearing the filter
- * (the toolbar's Clear, or picking "All statuses") shows everything.
+ * resolved or turned into backlog has already had its outcome, and leaving it
+ * in the default view buries the reports still waiting for one. Clearing the
+ * filter (the toolbar's Clear, or picking "All statuses") shows everything.
  */
 const OPEN_ONLY = "open";
 const DEFAULT_STATUS_FILTER = OPEN_ONLY;
 
 function inStatusFilter(item: Feedback, filter: string): boolean {
   if (filter === "") return true;
-  if (filter === OPEN_ONLY) return item.status !== "Declined" && item.status !== "Done";
+  if (filter === OPEN_ONLY) return !CLOSED_STATUSES.has(item.status);
   return item.status === filter;
 }
 
+/** How long a resolved report took, from being raised; null if it is not resolved. */
+function resolutionTime(item: Feedback): string | null {
+  if (!item.resolved_at) return null;
+  return fmtDuration(parseUtcDate(item.resolved_at).getTime() - parseUtcDate(item.created_at).getTime());
+}
+
+type Tab = "reports" | "maintenance";
+const TABS: { id: Tab; label: string }[] = [
+  { id: "reports", label: "Reports" },
+  { id: "maintenance", label: "Maintenance log" },
+];
+
 export function FeedbackPage() {
-  const { project, orgId, canWrite, canRaiseFeedback } = useProject();
+  const { project, orgId, canWriteBoard: canWrite, canRaiseFeedback } = useProject();
   // The organisation role, not the lock-narrowed one: addresses are set on the
   // project details page, which stays open on a frozen version (see
   // EnvironmentsSection). Only used to decide whether an unpublished
   // environment is worth offering a way in to.
   const { canWrite: canPublish } = useSession();
+  const board = useBoard();
+  const toast = useToast();
+  const hrefFor = useEntityHref();
   const environments = useLoad(() => listEnvironments(project.id), [project.id]);
   const reports = useLoad(() => listFeedback(project.id), [project.id]);
+
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get("tab") === "maintenance" ? "maintenance" : "reports";
+  const selectTab = (t: Tab) => setParams(t === "reports" ? {} : { tab: t }, { replace: true });
+  // The Maintenance log's "Add contract" lives in this page head; each click
+  // bumps the counter the tab watches.
+  const [addContract, setAddContract] = useState(0);
 
   const [editing, setEditing] = useState<Feedback | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [deleting, setDeleting] = useState<Feedback | null>(null);
   const [form, setForm] = useState<FeedbackInput>(EMPTY);
-  const [status, setStatus] = useState<FeedbackStatus>("New");
+  const [triage, setTriage] = useState<Triage>(EMPTY_TRIAGE);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   // Screenshots waiting to be attached. A new report cannot own them until it
@@ -128,9 +180,18 @@ export function FeedbackPage() {
   const envs = environments.data ?? [];
   const labelOf = useMemo(() => new Map(envs.map((e) => [e.slug, e.label])), [envs]);
   const patch = (p: Partial<FeedbackInput>) => setForm((f) => ({ ...f, ...p }));
+  const patchTriage = (p: Partial<Triage>) => setTriage((t) => ({ ...t, ...p }));
 
   /** The published address of an environment, "" when it has none. */
   const addressOf = (slug: string) => envs.find((e) => e.slug === slug)?.url ?? "";
+
+  /** The live requirements raised from a report, oldest first. A report may
+   *  raise several; together their estimates replace its own in the
+   *  maintenance log (FS-REQ-54). */
+  const requirementsOf = (item: Feedback) =>
+    (board.data?.requirements ?? []).filter((r) => r.feedback_id === item.id);
+  // Until the board has loaded there is nothing to link the new requirement to.
+  const canRaiseRequirement = () => canWrite && board.data !== null;
 
   const openDrawer = (item: Feedback | null) => {
     setEditing(item);
@@ -147,7 +208,9 @@ export function FeedbackPage() {
         : { ...EMPTY, environment: envs[0]?.slug ?? "", page_url: envs[0]?.url ?? "" },
     );
     setUrlTouched(item !== null && item.page_url !== "");
-    setStatus(item?.status ?? "New");
+    setTriage(
+      item ? { status: item.status, assignee_id: item.assignee_id, estimate_hours: item.estimate_hours } : EMPTY_TRIAGE,
+    );
     setFormError(null);
     for (const shot of shots) shot.bitmap.close();
     setShots([]);
@@ -216,20 +279,35 @@ export function FeedbackPage() {
     return failed;
   };
 
+  /** The form as an update: the reporter's fields plus triage. Clearing an
+   *  assignee is the flag, as on a requirement -- a null id means "unchanged". */
+  const updateBody = (item: Feedback) => ({
+    ...form,
+    title: form.title.trim(),
+    detail: form.detail.trim(),
+    page_url: form.page_url.trim(),
+    status: triage.status,
+    estimate_hours: triage.estimate_hours,
+    ...(triage.assignee_id
+      ? { assignee_id: triage.assignee_id }
+      : item.assignee_id
+        ? { clear_assignee: true }
+        : {}),
+  });
+
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
-    const body = {
-      ...form,
-      title: form.title.trim(),
-      detail: form.detail.trim(),
-      page_url: form.page_url.trim(),
-    };
     try {
       const report = editing
-        ? await updateFeedback(project.id, editing.id, { ...body, status })
-        : await createFeedback(project.id, body);
+        ? await updateFeedback(project.id, editing.id, updateBody(editing))
+        : await createFeedback(project.id, {
+            ...form,
+            title: form.title.trim(),
+            detail: form.detail.trim(),
+            page_url: form.page_url.trim(),
+          });
 
       const pending = shots.filter((s) => s.status !== "done");
       if (pending.length === 0) {
@@ -271,6 +349,28 @@ export function FeedbackPage() {
     }
   };
 
+  /**
+   * Raise a board requirement from a report (FS-REQ-51). From the drawer the
+   * form is saved first, so the requirement starts from what is on screen
+   * rather than from what was last saved.
+   */
+  const raiseRequirement = async (item: Feedback, fromDrawer: boolean) => {
+    setSaving(true);
+    setFormError(null);
+    try {
+      if (fromDrawer) await updateFeedback(project.id, item.id, updateBody(item));
+      const report = await createRequirementFromFeedback(project.id, item.id);
+      await Promise.all([board.reload(["requirements"]), reports.reload()]);
+      if (fromDrawer) setEditing(report);
+      toast(`Requirement raised from ${report.human_id}`);
+    } catch (err) {
+      if (fromDrawer) setFormError(errorMessage(err));
+      else toast(errorMessage(err), { type: "err", ttl: 6000 });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const rows = reports.data ?? [];
   const visible = useMemo(
     () =>
@@ -291,146 +391,218 @@ export function FeedbackPage() {
     severityFilter !== "" ||
     statusFilter !== DEFAULT_STATUS_FILTER;
 
+  const linked = editing ? requirementsOf(editing) : [];
+  const tookToResolve = editing ? resolutionTime(editing) : null;
+
   return (
     <div className="page stack">
       <div className="page-head">
         <h1>Feedback</h1>
         <span className="shell-spacer" />
-        {canRaiseFeedback && (
+        {tab === "reports" && canRaiseFeedback && (
           <button className="btn primary" onClick={() => openDrawer(null)}>
             Raise feedback
           </button>
         )}
+        {tab === "maintenance" && canWrite && (
+          <button className="btn primary" onClick={() => setAddContract((n) => n + 1)}>
+            Add contract
+          </button>
+        )}
       </div>
 
-      <EnvironmentCards
-        environments={envs}
-        loading={environments.loading}
-        error={environments.error}
-        settingsHref={canPublish ? `/orgs/${orgId}/projects/${project.id}/details` : null}
-      />
+      <div className="page-subtabs" role="tablist" aria-label="Feedback">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`page-subtab${tab === t.id ? " active" : ""}`}
+            onClick={() => selectTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      <ListToolbar
-        search={{ value: query, onChange: setQuery, placeholder: "Search feedback", label: "Search feedback" }}
-        filters={[
-          {
-            label: "Filter by environment",
-            value: envFilter,
-            onChange: setEnvFilter,
-            options: [
-              { value: "", label: "All environments" },
-              ...envs.map((e) => ({ value: e.slug, label: e.label })),
-            ],
-          },
-          {
-            label: "Filter by type",
-            value: kindFilter,
-            onChange: setKindFilter,
-            options: [
-              { value: "", label: "All types" },
-              ...FEEDBACK_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k] })),
-            ],
-          },
-          {
-            label: "Filter by severity",
-            value: severityFilter,
-            onChange: setSeverityFilter,
-            options: [
-              { value: "", label: "All severities" },
-              ...FEEDBACK_SEVERITIES.map((s) => ({ value: s, label: SEVERITY_LABELS[s] })),
-            ],
-          },
-          {
-            label: "Filter by status",
-            value: statusFilter,
-            defaultValue: DEFAULT_STATUS_FILTER,
-            onChange: setStatusFilter,
-            options: [
-              { value: OPEN_ONLY, label: "Open" },
-              { value: "", label: "All statuses" },
-              ...FEEDBACK_STATUSES.map((s) => ({ value: s, label: s })),
-            ],
-          },
-        ]}
-        count={{ visible: visible.length, total: rows.length, noun: ["report", "reports"] }}
-      />
+      {tab === "maintenance" ? (
+        <MaintenanceLog
+          projectId={project.id}
+          reports={rows}
+          requirements={board.data?.requirements ?? []}
+          canWrite={canWrite}
+          creating={addContract}
+        />
+      ) : (
+        <>
+          <EnvironmentCards
+            environments={envs}
+            loading={environments.loading}
+            error={environments.error}
+            settingsHref={canPublish ? `/orgs/${orgId}/projects/${project.id}/details` : null}
+          />
 
-      <ListTable
-        columns={[
-          {
-            header: "Report",
-            className: "primary",
-            render: (item) => (
-              <NameCell sub={item.detail || undefined} onOpen={() => openDrawer(item)}>
-                {item.human_id} · {item.title}
-                {item.screenshot_count > 0 && (
-                  <span className="badge muted" title={`${item.screenshot_count} screenshots`}>
-                    {item.screenshot_count} shot{item.screenshot_count === 1 ? "" : "s"}
-                  </span>
-                )}
-              </NameCell>
-            ),
-          },
-          {
-            header: "Environment",
-            render: (item) => labelOf.get(item.environment) ?? item.environment,
-          },
-          {
-            header: "Type",
-            render: (item) => <span className={`badge ${KIND_BADGE[item.kind]}`}>{KIND_LABELS[item.kind]}</span>,
-          },
-          {
-            header: "Severity",
-            render: (item) => (
-              <span className={`badge ${SEVERITY_BADGE[item.severity]}`}>{SEVERITY_LABELS[item.severity]}</span>
-            ),
-          },
-          {
-            header: "Status",
-            render: (item) => <span className={`badge ${STATUS_BADGE[item.status]}`}>{item.status}</span>,
-          },
-          {
-            header: "Raised by",
-            render: (item) => item.raised_by_name ?? item.raised_by_email ?? <span className="muted">Unknown</span>,
-          },
-          {
-            header: "Raised",
-            className: "when muted",
-            render: (item) => formatDateTime(item.created_at),
-          },
-        ]}
-        rows={visible}
-        rowKey={(item) => item.id}
-        rowLabel={(item) => item.title}
-        actions={(item) =>
-          canWrite
-            ? [
-                { label: "Triage", onSelect: () => openDrawer(item) },
-                { label: "Delete", danger: true, onSelect: () => setDeleting(item) },
-              ]
-            : null
-        }
-        loading={reports.loading}
-        error={reports.error}
-        empty={
-          filtered ? (
-            "No feedback matches these filters."
-          ) : canRaiseFeedback ? (
-            <>
-              <b>No feedback yet.</b> Open one of the environments above, then raise what you find against it.
-            </>
-          ) : (
-            <b>No feedback yet.</b>
-          )
-        }
-      />
+          <ListToolbar
+            search={{ value: query, onChange: setQuery, placeholder: "Search feedback", label: "Search feedback" }}
+            filters={[
+              {
+                label: "Filter by environment",
+                value: envFilter,
+                onChange: setEnvFilter,
+                options: [
+                  { value: "", label: "All environments" },
+                  ...envs.map((e) => ({ value: e.slug, label: e.label })),
+                ],
+              },
+              {
+                label: "Filter by type",
+                value: kindFilter,
+                onChange: setKindFilter,
+                options: [
+                  { value: "", label: "All types" },
+                  ...FEEDBACK_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k] })),
+                ],
+              },
+              {
+                label: "Filter by severity",
+                value: severityFilter,
+                onChange: setSeverityFilter,
+                options: [
+                  { value: "", label: "All severities" },
+                  ...FEEDBACK_SEVERITIES.map((s) => ({ value: s, label: SEVERITY_LABELS[s] })),
+                ],
+              },
+              {
+                label: "Filter by status",
+                value: statusFilter,
+                defaultValue: DEFAULT_STATUS_FILTER,
+                onChange: setStatusFilter,
+                options: [
+                  { value: OPEN_ONLY, label: "Open" },
+                  { value: "", label: "All statuses" },
+                  ...FEEDBACK_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] })),
+                ],
+              },
+            ]}
+            count={{ visible: visible.length, total: rows.length, noun: ["report", "reports"] }}
+          />
+
+          <ListTable
+            columns={[
+              {
+                header: "Report",
+                className: "primary",
+                render: (item) => {
+                  const comments = board.index.commentCount(item.id);
+                  const raised = requirementsOf(item);
+                  return (
+                    <NameCell sub={item.detail || undefined} onOpen={() => openDrawer(item)}>
+                      {item.human_id} · {item.title}
+                      {item.screenshot_count > 0 && (
+                        <span className="badge muted" title={`${item.screenshot_count} screenshots`}>
+                          {item.screenshot_count} shot{item.screenshot_count === 1 ? "" : "s"}
+                        </span>
+                      )}
+                      {comments > 0 && (
+                        <span className="badge muted" title={`${comments} comments`}>
+                          {comments} comment{comments === 1 ? "" : "s"}
+                        </span>
+                      )}
+                      {raised.map((r) => (
+                        <span key={r.id} className="badge accent" title={`Requirement ${r.human_id} raised from it`}>
+                          {r.human_id}
+                        </span>
+                      ))}
+                    </NameCell>
+                  );
+                },
+              },
+              {
+                header: "Environment",
+                render: (item) => labelOf.get(item.environment) ?? item.environment,
+              },
+              {
+                header: "Type",
+                render: (item) => (
+                  <Badges>
+                    <span className={`badge ${KIND_BADGE[item.kind]}`}>{KIND_LABELS[item.kind]}</span>
+                    <span className={`badge ${SEVERITY_BADGE[item.severity]}`}>{SEVERITY_LABELS[item.severity]}</span>
+                  </Badges>
+                ),
+              },
+              {
+                header: "Status",
+                render: (item) => {
+                  const took = resolutionTime(item);
+                  return (
+                    <>
+                      <span className={`badge ${STATUS_BADGE[item.status]}`}>{STATUS_LABELS[item.status]}</span>
+                      {took && <span className="sub">in {took}</span>}
+                    </>
+                  );
+                },
+              },
+              {
+                header: "Assignee",
+                render: (item) =>
+                  item.assignee_id ? board.index.memberName(item.assignee_id) : <span className="muted">—</span>,
+              },
+              {
+                header: "Estimate",
+                className: "num",
+                render: (item) =>
+                  item.estimate_hours == null ? <span className="muted">—</span> : fmtHours(item.estimate_hours),
+              },
+              {
+                header: "Raised",
+                className: "when muted",
+                render: (item) => (
+                  <>
+                    {formatDateTime(item.created_at)}
+                    <span className="sub">{item.raised_by_name ?? item.raised_by_email ?? "Unknown"}</span>
+                  </>
+                ),
+              },
+            ]}
+            rows={visible}
+            rowKey={(item) => item.id}
+            rowLabel={(item) => item.title}
+            actions={(item) =>
+              canWrite
+                ? [
+                    { label: "Triage", onSelect: () => openDrawer(item) },
+                    ...(canRaiseRequirement()
+                      ? [{ label: "Create requirement", onSelect: () => void raiseRequirement(item, false) }]
+                      : []),
+                    { label: "Delete", danger: true, onSelect: () => setDeleting(item) },
+                  ]
+                : null
+            }
+            loading={reports.loading}
+            error={reports.error}
+            empty={
+              filtered ? (
+                "No feedback matches these filters."
+              ) : canRaiseFeedback ? (
+                <>
+                  <b>No feedback yet.</b> Open one of the environments above, then raise what you find against it.
+                </>
+              ) : (
+                <b>No feedback yet.</b>
+              )
+            }
+          />
+        </>
+      )}
 
       <Drawer
         open={drawerOpen}
         title={editing ? editing.human_id : raised ? raised.human_id : "Raise feedback"}
         onClose={() => setDrawerOpen(false)}
         onSubmit={save}
-        width={520}
+        width={560}
+        className="board-drawer"
         footer={
           readOnly ? (
             <button type="button" className="btn ghost" onClick={() => setDrawerOpen(false)}>
@@ -530,16 +702,71 @@ export function FeedbackPage() {
             onChange={(e) => patch({ detail: e.target.value })}
           />
         </Field>
-        {editing && canWrite && (
-          <Field label="Status">
-            <select className="select" value={status} onChange={(e) => setStatus(e.target.value as FeedbackStatus)}>
-              {FEEDBACK_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </Field>
+        {editing && (
+          <>
+            <Field label="Status">
+              <select
+                className="select"
+                value={triage.status}
+                disabled={readOnly}
+                onChange={(e) => patchTriage({ status: e.target.value as FeedbackStatus })}
+              >
+                {FEEDBACK_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Assignee">
+              <AssigneeSelect
+                value={triage.assignee_id}
+                disabled={readOnly}
+                onChange={(userId) => patchTriage({ assignee_id: userId })}
+              />
+            </Field>
+            <Group label="Estimate">
+              <EstimateField
+                value={triage.estimate_hours}
+                disabled={readOnly}
+                onChange={(hours) => patchTriage({ estimate_hours: hours })}
+              />
+            </Group>
+            {editing.resolved_at && (
+              <Field label="Resolved">
+                <span className="muted">
+                  {formatDateTime(editing.resolved_at)}
+                  {tookToResolve && ` · took ${tookToResolve}`}
+                </span>
+              </Field>
+            )}
+            {(linked.length > 0 || canRaiseRequirement()) && (
+              <Group label={linked.length > 1 ? "Requirements" : "Requirement"}>
+                {linked.map((r) => {
+                  const href = hrefFor("requirement", r.id);
+                  return (
+                    <span key={r.id} className="fb-requirement">
+                      <IdChip of={{ type: "requirement", id: r.id }}>{r.human_id}</IdChip>
+                      {href ? <Link to={href}>{r.title}</Link> : <span>{r.title}</span>}
+                      <span className="badge muted">{r.estimate_hours != null ? `${r.estimate_hours}h` : "No estimate"}</span>
+                    </span>
+                  );
+                })}
+                {canRaiseRequirement() && (
+                  <span className="fb-requirement">
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={saving || !form.title.trim()}
+                      onClick={() => void raiseRequirement(editing, true)}
+                    >
+                      {linked.length ? "Create another requirement" : "Create requirement"}
+                    </button>
+                  </span>
+                )}
+              </Group>
+            )}
+          </>
         )}
         <Field label="Screenshots">
           <ScreenshotField
@@ -570,6 +797,11 @@ export function FeedbackPage() {
           </Field>
         )}
         {formError && <div className="status-banner warn">{formError}</div>}
+        {editing && (
+          <Group label="Comments">
+            <CommentsList entityType="feedback" entityId={editing.id} />
+          </Group>
+        )}
       </Drawer>
 
       <ConfirmDrawer
@@ -579,14 +811,26 @@ export function FeedbackPage() {
         onConfirm={async () => {
           if (!deleting) return;
           await deleteFeedback(project.id, deleting.id);
-          await reports.reload();
+          await Promise.all([reports.reload(), board.reload(["comments"])]);
         }}
       >
         <p>
-          Delete <b>{deleting?.human_id}</b>? Declining a report keeps the record of it being raised; deleting it
-          does not.
+          Delete <b>{deleting?.human_id}</b>? Marking a report "Not a bug" keeps the record of it being raised;
+          deleting it does not.
         </p>
       </ConfirmDrawer>
+    </div>
+  );
+}
+
+/** A drawer field whose content holds several controls of its own (buttons,
+ *  a thread). Field is a <label>, and a click on a label's text activates its
+ *  first control -- here that would copy an id or open a comment for editing. */
+function Group({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="drawer-field">
+      <span className="drawer-field-label">{label}</span>
+      {children}
     </div>
   );
 }

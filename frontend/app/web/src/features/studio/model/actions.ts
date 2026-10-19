@@ -441,6 +441,8 @@ export function moveToRegion(
   const src = locateCmp(doc, srcId);
   if (!src || src.region === regionId) return;
   const [item] = src.list.splice(src.index, 1);
+  // A canvas is region-local: leaving the region leaves the canvas too.
+  if (item.props) delete item.props.inCanvas;
   if (at) {
     const props = ensureProps(item);
     props.x = Math.max(0, Math.round(at.x));
@@ -449,6 +451,42 @@ export function moveToRegion(
   const list = doc.regions[regionId];
   item.pos = posAfterLast(list);
   list.push(item);
+}
+
+/** Starting width of a component placed in a canvas without one of its own. */
+const CANVAS_CHILD_W = 360;
+
+/** Put a component inside a canvas in its own region (FS-REQ-68), placed
+ *  freely at `at` in the canvas's coordinates — or, with `canvasId` null,
+ *  take it back out into the region's flow. A canvas never nests in another,
+ *  and a float gives up floating: the canvas is now what it sits over. */
+export function setComponentCanvas(
+  draft: Draft,
+  _ctx: ActionContext,
+  id: string,
+  canvasId: string | null,
+  at: { x: number; y: number } | null = null,
+): ActionResult | void {
+  const loc = locateCmp(draft.document, id);
+  if (!loc) return;
+  const cmp = loc.list[loc.index];
+  if (cmp.type === "canvas") return;
+  const props = ensureProps(cmp);
+  if (canvasId) {
+    if (!loc.list.some((c) => c.id === canvasId && c.type === "canvas")) return;
+    props.inCanvas = canvasId;
+    // Absolutely placed, an unsized component would shrink to its content.
+    if (cmpSize(cmp).w == null) props.w = CANVAS_CHILD_W;
+    delete props.float;
+    if (props.size === "fill") delete props.size;
+    props.x = Math.max(0, Math.round(at?.x ?? 16));
+    props.y = Math.max(0, Math.round(at?.y ?? 16));
+  } else {
+    delete props.inCanvas;
+    delete props.x;
+    delete props.y;
+  }
+  return { selectCmpId: id };
 }
 
 /** Change a component's type. This is a reset: the new type's default shape,
@@ -771,7 +809,21 @@ export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, 
       (!!field && (field.kind !== "select" || (field.options ?? []).includes(value)));
     if (keep) data[key] = value;
   }
-  for (const [key, value] of Object.entries(elementDefaultData(cmp.type, type))) data[key] ??= value;
+  // A shown value survives the change (FS-REQ-55): a picked option becomes a
+  // read-only field's value and back again; with nothing picked, the first of
+  // its options or custom values stands in. A dataset binding is already kept
+  // by the field filter above when the new type declares one.
+  const firstOf = (list?: string) => list?.split(",").map((v) => v.trim()).find(Boolean);
+  const picked = old.selected ?? old.value;
+  if (!data.dataset) {
+    const shown = picked ?? firstOf(old.options) ?? firstOf(old.samples);
+    if (shown && to.dataFields.some((f) => f.key === "value") && !data.value) data.value = shown;
+    // A pick moves between pickers, never into a date picker's ISO slot.
+    else if (picked && to.type !== "date-picker" && to.dataFields.some((f) => f.key === "selected") && !data.selected) data.selected = picked;
+  }
+  // A carried dataset stands in for the sample its field supersedes.
+  const superseded = data.dataset ? to.dataFields.find((f) => f.kind === "dataset")?.supersedes : undefined;
+  for (const [key, value] of Object.entries(elementDefaultData(cmp.type, type))) if (key !== superseded) data[key] ??= value;
   // A multi-select becoming a single-select keeps its first pick only.
   if (isMultiFilter(element.type) && !isMultiFilter(type) && data.selected) {
     const firstPick = data.selected.split(",")[0].trim();

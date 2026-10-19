@@ -123,8 +123,10 @@ export function App() {
                 <Route path="roadmap/:releaseId/plan" element={<PlanRedirect />} />
                 <Route path="epics" element={<EpicsPage />} />
                 <Route path="epics/:epicId" element={<EpicDetailPage />} />
+                {/* Feedback shares the board for its assignees, comment
+                    threads and the requirements raised from reports. */}
+                <Route path="feedback" element={<FeedbackPage />} />
               </Route>
-              <Route path="feedback" element={<FeedbackPage />} />
             </Route>
 
             {/* Older links without the organisation. */}

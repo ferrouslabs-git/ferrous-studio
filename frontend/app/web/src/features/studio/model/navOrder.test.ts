@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { elKey, LinksProp } from "./actions";
-import { firstNavTarget, navLinkedPageIds, orderPagesByNav } from "./navOrder";
+import { defaultChildPage, firstNavTarget, navEffectiveLink, navLinkedPageIds, navRouteLabel, navSubItems, orderPagesByNav } from "./navOrder";
 import { BACK_PAGE_ID, ComponentNode, ElementNode, PageDocument } from "./types";
 
 const el = (id: string, type: string, label: string, pos: string, data?: Record<string, string>): ElementNode =>
@@ -111,5 +111,73 @@ describe("orderPagesByNav", () => {
     const pages = [p("home"), p("a"), p("b")];
     expect(orderPagesByNav(pages, ["missing"]).map((x) => x.id)).toEqual(["home", "a", "b"]);
     expect(orderPagesByNav(pages, []).map((x) => x.id)).toEqual(["home", "a", "b"]);
+  });
+});
+
+describe("nested nav items (FS-REQ-64)", () => {
+  const nav = (): ComponentNode => {
+    const cmp = navbar("n", "a0", [["p", null], ["c1", "kid1"], ["c2", "kid2"], ["q", "solo"]], "vertical");
+    cmp.elements![1].type = "nav-sub-item";
+    cmp.elements![2].type = "nav-sub-item";
+    return cmp;
+  };
+
+  it("nests each sub-item under the item before it", () => {
+    expect([...navSubItems(nav().elements!).entries()].map(([k, v]) => [k, v.map((e) => e.id)])).toEqual([["p", ["c1", "c2"]]]);
+  });
+
+  it("an unlinked parent follows its first linked sub-item", () => {
+    expect(navEffectiveLink(nav(), elKey("p"), null)).toEqual({ pageId: "kid1" });
+    expect(navEffectiveLink(nav(), elKey("q"), null)).toEqual({ pageId: "solo" });
+  });
+
+  it("lists sub-item targets after their parent", () => {
+    expect(navLinkedPageIds(doc({ r1: [nav()] }))).toEqual(["kid1", "kid2", "solo"]);
+  });
+});
+
+describe("navRouteLabel (FS-REQ-58)", () => {
+  it("is the label of the nav item routing to the page", () => {
+    const d = doc({ r1: [navbar("n", "a0", [["Clients", "p1"], ["Users", "p2"]])] });
+    expect(navRouteLabel("p2", [d])).toBe("Users");
+    expect(navRouteLabel("p3", [d])).toBeNull();
+  });
+});
+
+describe("defaultChildPage (FS-REQ-57/62)", () => {
+  const page = (id: string, parent: string | null, presentation: string | null = null) => ({
+    id,
+    placement: parent ? { page_id: parent, region_id: "r2" } : null,
+    presentation,
+  });
+
+  it("is the first nav target placed inside the page", () => {
+    const d = doc({ r1: [navbar("n", "a0", [["a", "sib"], ["b", "kid1"], ["c", "kid2"]])], r2: [] });
+    const pages = [page("p", null), page("sib", null), page("kid1", "p"), page("kid2", "p")];
+    expect(defaultChildPage(d, "p", pages)).toBe("kid1");
+  });
+
+  it("skips overlays and returns null when nothing is placed inside", () => {
+    const d = doc({ r1: [navbar("n", "a0", [["a", "modal"], ["b", "elsewhere"]])] });
+    const pages = [page("p", null), page("modal", "p", "modal"), page("elsewhere", "q")];
+    expect(defaultChildPage(d, "p", pages)).toBeNull();
+  });
+});
+
+describe("nav levels up to five (FS-REQ-64)", () => {
+  const deep = (): ComponentNode => {
+    const cmp = navbar("n", "a0", [["a", null], ["b", null], ["c", null], ["d", "deep"], ["e", "two"], ["f", "top"]], "vertical");
+    const lv = { b: "2", c: "3", d: "5", e: "2" } as Record<string, string>;
+    for (const el of cmp.elements!) if (lv[el.id]) Object.assign(el, { type: "nav-sub-item", data: { level: lv[el.id] } });
+    return cmp;
+  };
+
+  it("nests each item under the nearest earlier item of a lower level", () => {
+    const subs = navSubItems(deep().elements!);
+    expect(Object.fromEntries([...subs].map(([k, v]) => [k, v.map((e) => e.id)]))).toEqual({ a: ["b", "e"], b: ["c"], c: ["d"] });
+  });
+
+  it("an unlinked parent follows its first linked descendant, however deep", () => {
+    expect(navEffectiveLink(deep(), elKey("a"), null)).toEqual({ pageId: "deep" });
   });
 });

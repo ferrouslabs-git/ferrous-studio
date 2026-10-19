@@ -10,8 +10,9 @@
 // keep a blank label. With no `edit` handlers everything is read-only.
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
+import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
 import { getDefaultProps } from "../model/regions";
 import { ComponentNode, ElementNode, LinkTarget } from "../model/types";
@@ -32,7 +33,7 @@ export interface SchematicEdit {
   /** Canvas free placement; one call per completed drag. A multi-selection
    *  drag moves several elements, so this takes them as one batch — one
    *  history step, one undo. */
-  moveElementsTo(moves: readonly { id: string; x: number; y: number }[]): void;
+  moveElementsTo(moves: readonly { id: string; x: number; y: number }[], props?: Record<string, string>): void;
   /** Canvas free sizing (corner drag); one call per completed drag. */
   resizeElementTo(id: string, w: number, h: number): void;
   /** Drag-and-drop reorder within this component. */
@@ -139,6 +140,36 @@ const numberOf = (v: unknown, fallback: number) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+// ── List grips (column width, image size, free cards) ──────────────────────
+const MIN_COL_W = 32;
+const MAX_COL_W = 1200;
+const MIN_IMG = 16;
+const MAX_IMG = 600;
+const DEFAULT_IMG = 40;
+
+/** An image column's picture size, stored as "WxH" (`data.imageSize`);
+ *  unset or unreadable keeps the 40px square. */
+export function parseImageSize(v: unknown): { w: number; h: number } {
+  const hit = /^\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*$/i.exec(String(v ?? ""));
+  const clamp = (n: number) => Math.max(MIN_IMG, Math.min(MAX_IMG, Math.round(n)));
+  return hit ? { w: clamp(Number(hit[1])), h: clamp(Number(hit[2])) } : { w: DEFAULT_IMG, h: DEFAULT_IMG };
+}
+
+/** Where a free card's field sits before it has been dragged: the i-th field
+ *  in reading order, stacked down the card's left edge (FS-REQ-69). */
+export const FREE_CARD_PAD = 14;
+export const FREE_CARD_STEP = 30;
+export const freeCardSpot = (i: number): { x: number; y: number } => ({ x: FREE_CARD_PAD, y: 12 + i * FREE_CARD_STEP });
+
+/** Screen pixels per layout pixel for a box: a fitted stage renders the
+ *  device scaled, so a drag's screen distance must be divided by this. */
+function scaleOf(node: Element | null): number {
+  const h = node as HTMLElement | null;
+  if (!h || !h.offsetWidth) return 1;
+  const s = h.getBoundingClientRect().width / h.offsetWidth;
+  return s > 0 && Number.isFinite(s) ? s : 1;
+}
+
 // ── Dates (the date picker) ────────────────────────────────────────────────
 // A picked date is stored as yyyy-mm-dd and shown the British way
 // ("4 Mar 2026"). Anything else typed into the Inspector shows as typed.
@@ -229,9 +260,18 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const [dragSize, setDragSize] = useState<Record<string, { w: number; h: number }>>({});
   /** Live height override while the canvas resize handle is being dragged. */
   const [liveHeight, setLiveHeight] = useState<number | null>(null);
+  /** Live list overrides while a grip is dragged: a column's width, an image
+   *  column's picture size, a free card's height. */
+  const [liveColW, setLiveColW] = useState<Record<string, number>>({});
+  const [liveImg, setLiveImg] = useState<Record<string, { w: number; h: number }>>({});
+  const [liveCardH, setLiveCardH] = useState<number | null>(null);
   /** Dropdown whose option menu is expanded (chevron click), like a real
    *  select. One per component; closes on outside pointerdown. */
   const [openSelect, setOpenSelect] = useState<string | null>(null);
+  /** Side-rail parents the user expanded or collapsed (FS-REQ-64); unset
+   *  ones follow the default — open while editing, else open on the active
+   *  group only. View state, never persisted. */
+  const [railOpen, setRailOpen] = useState<Record<string, boolean>>({});
   /** Ephemeral picks made by viewers (no edit handlers): the menu still works
    *  and the face updates, it just isn't persisted. */
   const [chosen, setChosen] = useState<Record<string, string>>({});
@@ -800,7 +840,12 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "file-upload": return body("file");
       // Shown, not editable: the value reads as plain text on a quiet ground,
       // with no input frame to suggest it can be typed into (FS-REQ-45).
-      case "read-only": return <div className="ui-readonly">{dataTok(el, "value", "REF-00421")}</div>;
+      case "read-only": {
+        // A bound dataset supersedes the typed value: show its first entry.
+        const ds = datasetOf(el);
+        if (ds?.values.length) return <div className="ui-readonly">{ds.values[0]}</div>;
+        return <div className="ui-readonly">{dataTok(el, "value", "REF-00421")}</div>;
+      }
       case "select": {
         const value = selectedValue(el);
         return body(
@@ -927,7 +972,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const workspaceEl = first("workspace-switcher");
     const buttons = byType("button");
     const selects = byType("select");
-    const flow = els.filter((e) => e.type === "nav-item" || e.type === "group-heading" || e.type === "divider");
+    // Sub-items draw under their parent (accordion on a rail, dropdown on a
+    // bar), so the flow holds only top-level entries (FS-REQ-64).
+    const subs = navSubItems(els);
+    const nested = new Set([...subs.values()].flat().map((e) => e.id));
+    const flow = els.filter(
+      (e) => (e.type === "nav-item" || e.type === "nav-sub-item" || e.type === "group-heading" || e.type === "divider") && !nested.has(e.id),
+    );
 
     /** A dropdown in the bar. No label text: it reads "Select" until an
      *  option is picked from its expanded menu (chevron click). */
@@ -947,19 +998,41 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     // The item drawn as current: the one whose link target is the open page
     // (or one of its ancestor shells). With no such link, the first item
     // stays active as representative styling, as before.
-    const navItems = flow.filter((e) => e.type === "nav-item");
+    const navItems = els.filter((e) => e.type === "nav-item" || e.type === "nav-sub-item");
+    const linkedHere = (e: ElementNode) => {
+      const link = chrome?.linkOf(elKey(e.id), null);
+      return !!link && !!chrome?.activePageIds?.includes(link.pageId);
+    };
+    // A parent borrows its first sub-item's link, so prefer the leaf: the
+    // parent then reads active through its child.
     const activeNav =
-      navItems.find((e) => {
-        const link = chrome?.linkOf(elKey(e.id), null);
-        return !!link && !!chrome?.activePageIds?.includes(link.pageId);
-      }) ?? navItems[0];
+      navItems.find((e) => !subs.has(e.id) && linkedHere(e)) ?? navItems.find(linkedHere) ?? navItems.find((e) => !nested.has(e.id));
+    /** Drawn as current: the active item, or the parent of an active sub-item. */
+    const isActive = (el: ElementNode) => activeNav === el || (!!activeNav && navDescendants(subs, el.id).includes(activeNav));
+    /** The parent's chevron: expands its sub-items (rail) or opens its menu (bar). */
+    const subToggle = (open: boolean, onToggle: () => void) => (
+      <button
+        type="button"
+        className="ui-nav-toggle"
+        data-select-ui
+        aria-label={open ? "Collapse" : "Expand"}
+        aria-expanded={open}
+        onClick={(e: ReactMouseEvent) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      >
+        <Chevron />
+      </button>
+    );
+    const selectedNav = navItems.some(isSelected);
 
     if (layout === "vertical") {
       // Side rail: group headings start sections; chrome sits top and bottom.
       // The shape applies here just as it does horizontally: plain labels,
       // tabs (left indicator), icon items, or a stacked crumb trail.
-      const railItem = (el: ElementNode): ReactNode => {
-        const active = activeNav === el;
+      const railLeaf = (el: ElementNode): ReactNode => {
+        const active = isActive(el);
         if (shape === "tabs") return elTok(el, `ui-tab vert${active ? " active" : ""}`);
         if (shape === "breadcrumb") return elTok(el, `ui-crumb vert${navItems[navItems.length - 1] === el ? " current" : ""}`);
         return elTok(
@@ -969,6 +1042,28 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {shape === "icons" && navIconMark(el)}
             <span className="ui-side-label">{el.label}</span>
           </>,
+        );
+      };
+      /** A parent item draws as an accordion over its sub-items. */
+      const railItem = (el: ElementNode): ReactNode => {
+        const kids = subs.get(el.id);
+        if (!kids?.length) return railLeaf(el);
+        const forced = !!edit && (isSelected(el) || navDescendants(subs, el.id).some(isSelected));
+        const open = forced || (railOpen[el.id] ?? (edit ? true : isActive(el)));
+        return (
+          <div className={`ui-side-group${open ? " open" : ""}`}>
+            <div className="ui-side-parent">
+              {railLeaf(el)}
+              {subToggle(open, () => setRailOpen((o) => ({ ...o, [el.id]: !open })))}
+            </div>
+            {open && (
+              <div className="ui-side-sub">
+                {kids.map((k) => (
+                  <Fragment key={k.id}>{railItem(k)}</Fragment>
+                ))}
+              </div>
+            )}
+          </div>
         );
       };
       const sections: ReactNode[][] = [[]];
@@ -1018,7 +1113,12 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               )}
             </div>
           )}
-          {addCluster(addEl("nav-item", "Add navigation item", "+ Item", "text"))}
+          {addCluster(
+            <>
+              {addEl("nav-item", "Add navigation item", "+ Item", "text")}
+              {selectedNav && addEl("nav-sub-item", "Add a sub-item under the selected item", "+ Sub-item", "text")}
+            </>,
+          )}
         </aside>
       );
     }
@@ -1027,20 +1127,43 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     // An element's zone is its data.align, defaulting by type (navAlign), so
     // dragging and the Inspector's Alignment control genuinely rearrange the
     // bar rather than fighting a fixed brand → items → chrome order.
-    const flowTypes = new Set(["nav-item", "group-heading", "divider"]);
+    const flowTypes = new Set(["nav-item", "nav-sub-item", "group-heading", "divider"]);
     const crumbCurrent = flow[flow.length - 1];
 
     const navItem = (el: ElementNode, sepBefore: boolean) => {
       if (el.type === "divider") return elBox(el, "divider-box", <span className="ui-nav-divider" aria-hidden />);
       if (el.type === "group-heading") return <Fragment key={el.id}>{elTok(el, "ui-side-title inline")}</Fragment>;
       const cls =
-        shape === "tabs" ? `ui-tab${activeNav === el ? " active" : ""}` :
+        shape === "tabs" ? `ui-tab${isActive(el) ? " active" : ""}` :
         shape === "breadcrumb" ? `ui-crumb${el === crumbCurrent ? " current" : ""}` :
-        `ui-nav-link${activeNav === el ? " active" : ""}`;
+        `ui-nav-link${isActive(el) ? " active" : ""}`;
+      const label = elTok(el, cls, shape === "icons" ? <>{navIconMark(el)}{el.label}</> : undefined);
+      const kids = subs.get(el.id);
+      // A parent opens its sub-items as a dropdown under it; editing keeps
+      // the menu open while the parent or one of its items is selected.
+      const below = navDescendants(subs, el.id);
+      const open = below.length > 0 && (openSelect === el.id || (!!edit && (isSelected(el) || below.some(isSelected))));
       return (
         <Fragment key={el.id}>
           {shape === "breadcrumb" && sepBefore && <span className="ui-crumb-sep" aria-hidden>/</span>}
-          {elTok(el, cls, shape === "icons" ? <>{navIconMark(el)}{el.label}</> : undefined)}
+          {kids?.length ? (
+            <span className={`ui-nav-parent${open ? " open" : ""}`}>
+              {label}
+              {subToggle(open, () => setOpenSelect((cur) => (cur === el.id ? null : el.id)))}
+              {open && (
+                <div className="ui-select-menu ui-nav-menu" data-select-ui>
+                  {/* Deeper levels indent under their parents in the one menu. */}
+                  {below.map((k) => (
+                    <span key={k.id} className="ui-nav-menu-row" style={{ paddingLeft: (navLevel(k) - 2) * 14 }}>
+                      {elTok(k, `ui-select-option${activeNav === k ? " on" : ""}`)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </span>
+          ) : (
+            label
+          )}
         </Fragment>
       );
     };
@@ -1086,6 +1209,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         run = [];
       };
       for (const el of list) {
+        if (nested.has(el.id)) continue; // drawn in its parent's menu
         if (flowTypes.has(el.type)) run.push(el);
         else {
           flush();
@@ -1102,12 +1226,15 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         {zones.centre.length > 0 && <div className="ui-nav-zone centre">{zoneBody(zones.centre)}</div>}
         <div className="ui-nav-zone right">{zoneBody(zones.right)}</div>
         {addCluster(
-          addEl(
-            "nav-item",
-            shape === "breadcrumb" ? "Add crumb" : shape === "tabs" ? "Add tab" : "Add link",
-            shape === "breadcrumb" ? "+ Crumb" : shape === "tabs" ? "+ Tab" : "+ Link",
-            "text",
-          ),
+          <>
+            {addEl(
+              "nav-item",
+              shape === "breadcrumb" ? "Add crumb" : shape === "tabs" ? "Add tab" : "Add link",
+              shape === "breadcrumb" ? "+ Crumb" : shape === "tabs" ? "+ Tab" : "+ Link",
+              "text",
+            )}
+            {selectedNav && shape !== "breadcrumb" && addEl("nav-sub-item", "Add a sub-item under the selected item", "+ Sub-item", "text")}
+          </>,
           true,
         )}
       </header>
@@ -1136,6 +1263,170 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     );
   };
 
+  /** Follow one pointer gesture on window until release. Deltas come back in
+   *  layout pixels: the stage may be fitted (scaled), and `scaleOf` turns the
+   *  screen distance the pointer travelled into the size it means. Movement
+   *  under `threshold` px is not a drag, so clicks still select. */
+  const trackDrag = (
+    e: ReactPointerEvent,
+    scale: number,
+    move: (dx: number, dy: number) => void,
+    end: (moved: boolean) => void,
+    threshold = 0,
+  ) => {
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let started = threshold === 0;
+    const prevUserSelect = document.body.style.userSelect;
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!started) {
+        if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return;
+        started = true;
+      }
+      document.body.style.userSelect = "none";
+      move(dx / scale, dy / scale);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.body.style.userSelect = prevUserSelect;
+      if (started) {
+        // The click this release fires must not reselect anything.
+        suppressClick.current = true;
+        window.setTimeout(() => {
+          suppressClick.current = false;
+        });
+      }
+      end(started);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+    window.addEventListener("pointercancel", onUp, { once: true });
+  };
+  /** Swallows the click a list grip/drag gesture ends with. */
+  const swallowDragClick = (e: ReactMouseEvent) => {
+    if (!suppressClick.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  /** A column's set width (FS-REQ-59), live while its grip is dragged. */
+  const colWidth = (col: ElementNode): number | null =>
+    liveColW[col.id] ?? (col.data?.w ? numberOf(col.data.w, 0) || null : null);
+  const colStyle = (col: ElementNode): CSSProperties | undefined => {
+    const w = colWidth(col);
+    return w ? { width: w, maxWidth: w } : undefined;
+  };
+  /** A sized column's cell content in a box of exactly that width: a table
+   *  cell grows to fit unbreakable content, so the clipping box is what lets
+   *  a column go narrower than its text (which then ends in an ellipsis). */
+  const fitCol = (col: ElementNode, content: ReactNode): ReactNode => {
+    const w = colWidth(col);
+    return w ? <div className="ui-col-fit" style={{ width: w }}>{content}</div> : content;
+  };
+  /** Drag a header cell's trailing edge to set its column's width; one
+   *  commit (one undo step) on release. A double click goes back to auto. */
+  const startColResize = (col: ElementNode) => (e: ReactPointerEvent) => {
+    if (!edit || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).closest("th");
+    const from = Math.round(th?.offsetWidth ?? 120);
+    let latest = from;
+    trackDrag(
+      e,
+      scaleOf(th),
+      (dx) => {
+        latest = Math.max(MIN_COL_W, Math.min(MAX_COL_W, Math.round(from + dx)));
+        setLiveColW((s) => ({ ...s, [col.id]: latest }));
+      },
+      (moved) => {
+        setLiveColW((s) => {
+          const next = { ...s };
+          delete next[col.id];
+          return next;
+        });
+        if (moved && latest !== from) edit.setElementData(col.id, "w", String(latest));
+      },
+    );
+  };
+  const colGrip = (col: ElementNode): ReactNode =>
+    edit ? (
+      <span
+        className="ui-col-resize"
+        title="Drag to resize"
+        aria-label={`Resize ${col.label || "column"}`}
+        onPointerDown={startColResize(col)}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (col.data?.w) edit.setElementData(col.id, "w", "");
+        }}
+      />
+    ) : null;
+
+  /** An image column's picture size (FS-REQ-70), live while dragged. */
+  const imageSize = (col: ElementNode): { w: number; h: number } => liveImg[col.id] ?? parseImageSize(col.data?.imageSize);
+  /** Corner drag on a cell image: sets the whole column's picture size, one
+   *  commit on release (stored as "WxH" so it is one data key, one step). */
+  const startImgResize = (col: ElementNode) => (e: ReactPointerEvent) => {
+    if (!edit || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const box = (e.currentTarget as HTMLElement).closest(".ui-cell-img");
+    const from = parseImageSize(col.data?.imageSize);
+    let latest = from;
+    trackDrag(
+      e,
+      scaleOf(box),
+      (dx, dy) => {
+        latest = {
+          w: Math.max(MIN_IMG, Math.min(MAX_IMG, Math.round(from.w + dx))),
+          h: Math.max(MIN_IMG, Math.min(MAX_IMG, Math.round(from.h + dy))),
+        };
+        setLiveImg((s) => ({ ...s, [col.id]: latest }));
+      },
+      (moved) => {
+        setLiveImg((s) => {
+          const next = { ...s };
+          delete next[col.id];
+          return next;
+        });
+        if (moved && (latest.w !== from.w || latest.h !== from.h)) {
+          edit.setElementData(col.id, "imageSize", `${latest.w}x${latest.h}`);
+        }
+      },
+    );
+  };
+  /** One cell of an image column: row i shows the column's image i mod n,
+   *  or a placeholder until any are uploaded. */
+  const imageCell = (col: ElementNode, ri: number): ReactNode => {
+    const images = imageList(col.data?.images);
+    const src = images.length ? images[ri % images.length] : null;
+    const { w, h } = imageSize(col);
+    return (
+      <span
+        className={`ui-cell-img${src ? "" : " empty"}${liveImg[col.id] ? " resizing" : ""}${isSelected(col) ? " sel" : ""}`}
+        style={{ width: w, height: h }}
+        onClick={selectClick(col)}
+        onClickCapture={swallowDragClick}
+      >
+        {src ? <img src={src} alt="" draggable={false} /> : <ImageIcon />}
+        {edit && (
+          <span
+            className="ui-cell-img-resize"
+            title="Drag to resize"
+            aria-label={`Resize ${col.label || "column"} images`}
+            onPointerDown={startImgResize(col)}
+          />
+        )}
+      </span>
+    );
+  };
+
   const renderList = (): ReactNode => {
     const columns = byType("column");
     const headerEl = first("column-header");
@@ -1145,6 +1436,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const rows: Record<string, string>[] = Array.isArray(cmp.props?.rows) ? (cmp.props.rows as Record<string, string>[]) : [{}, {}, {}];
 
     const cell = (col: ElementNode, ri: number, className?: string) => {
+      if (col.data?.kind === "image") return imageCell(col, ri);
       const own = rows[ri]?.[col.id];
       // A bound dataset wins, then the column's own sample values, then the
       // per-kind pool, offset per column so twins differ.
@@ -1202,6 +1494,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                   <tr
                     className={`${isSelected(headerEl) ? "el-sel-row" : ""}${markCls(headerEl)}`.trim() || undefined}
                     onClick={selectClick(headerEl)}
+                    onClickCapture={swallowDragClick}
                     {...markHoverProps(headerEl)}
                   >
                     {selectEl && (
@@ -1213,7 +1506,16 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                         <i className="ui-checkbox" aria-hidden />
                       </th>
                     )}
-                    {columns.map((col) => <th key={col.id} className={isSelected(col) ? "el-sel-cell" : undefined}>{elTok(col, "")}</th>)}
+                    {columns.map((col) => (
+                      <th
+                        key={col.id}
+                        className={`${isSelected(col) ? "el-sel-cell" : ""}${colWidth(col) ? " sized" : ""}`.trim() || undefined}
+                        style={colStyle(col)}
+                      >
+                        {fitCol(col, elTok(col, ""))}
+                        {colGrip(col)}
+                      </th>
+                    ))}
                     {rowActions.length > 0 && <th />}
                   </tr>
                 </thead>
@@ -1227,8 +1529,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                       </td>
                     )}
                     {columns.map((col) => (
-                      <td key={col.id} className={isSelected(col) ? "el-sel-cell" : undefined} onClick={selectClick(col)}>
-                        {cell(col, ri)}
+                      <td
+                        key={col.id}
+                        className={`${isSelected(col) ? "el-sel-cell" : ""}${colWidth(col) ? " sized" : ""}`.trim() || undefined}
+                        style={colStyle(col)}
+                        onClick={selectClick(col)}
+                      >
+                        {fitCol(col, cell(col, ri))}
                       </td>
                     ))}
                     {rowActions.length > 0 && (
@@ -1276,7 +1583,183 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const statusCol = colOfKind("status");
     const rest = columns.filter((c) => c !== titleCol && c !== statusCol);
 
+    if (shape === "cards" && cmp.props?.cardLayout === "free") {
+      // FS-REQ-69: the card is a small freeform canvas. Every card is the
+      // same template, so a field dragged in any card moves in all of them;
+      // positions live on the column element (data.x / data.y).
+      const fields = [titleCol, statusCol, ...rest].filter(
+        (c, i, all): c is ElementNode => !!c && all.indexOf(c) === i,
+      );
+      const spot = (col: ElementNode, i: number): { x: number; y: number } => {
+        const live = dragPos[col.id];
+        if (live) return live;
+        const dflt = freeCardSpot(i);
+        return { x: numberOf(col.data?.x ?? "", dflt.x), y: numberOf(col.data?.y ?? "", dflt.y) };
+      };
+      const spots = fields.map(spot);
+      const actionsH = rowActions.length ? 40 : 0;
+      // Tall enough for the lowest field (and the actions under it); a
+      // dragged height (props.cardH) only ever adds room.
+      const need = Math.max(12, ...spots.map((p) => p.y)) + FREE_CARD_STEP + actionsH + 4;
+      const height = liveCardH ?? Math.max(numberOf(scalarOf("cardH") ?? "", 0), need);
+
+      const startFieldDrag = (col: ElementNode) => (e: ReactPointerEvent) => {
+        if (!edit || e.button !== 0) return;
+        if ((e.target as HTMLElement).closest(".inline-edit-input, .ui-cell-img-resize, .ui-select-menu")) return;
+        // Cancelling pointerdown keeps the draggable ancestors (the .cmp,
+        // the label token) from starting a native HTML5 drag midway.
+        e.preventDefault();
+        const card = (e.currentTarget as HTMLElement).closest(".ui-card-item") as HTMLElement | null;
+        const maxX = Math.max(0, (card?.offsetWidth ?? 220) - 24);
+        const from = new Map(fields.map((c, i) => [c.id, spot(c, i)] as const));
+        const p0 = from.get(col.id) ?? freeCardSpot(0);
+        let latest = p0;
+        trackDrag(
+          e,
+          scaleOf(card),
+          (dx, dy) => {
+            latest = { x: Math.round(Math.max(0, Math.min(maxX, p0.x + dx))), y: Math.round(Math.max(0, p0.y + dy)) };
+            setDragPos((s) => ({ ...s, [col.id]: latest }));
+          },
+          (moved) => {
+            setDragPos((s) => {
+              const next = { ...s };
+              delete next[col.id];
+              return next;
+            });
+            if (!moved || (latest.x === p0.x && latest.y === p0.y)) return;
+            // Fields still on their default spot are stamped in the same
+            // commit, so adding or removing a column later cannot shuffle
+            // the ones arranged around them. One commit, one undo step.
+            const stamps = fields
+              .filter((c) => c.id !== col.id && (c.data?.x == null || c.data?.y == null))
+              .map((c) => ({ id: c.id, ...(from.get(c.id) ?? freeCardSpot(0)) }));
+            edit.moveElementsTo([...stamps, { id: col.id, ...latest }]);
+          },
+          4,
+        );
+      };
+
+      /** The card's bottom edge: drag for more (or less) room. */
+      const startCardResize = (e: ReactPointerEvent) => {
+        if (!edit || e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const card = (e.currentTarget as HTMLElement).closest(".ui-card-item") as HTMLElement | null;
+        const from = Math.round(card?.offsetHeight ?? height);
+        let latest = from;
+        trackDrag(
+          e,
+          scaleOf(card),
+          (_dx, dy) => {
+            latest = Math.max(need, Math.min(2000, Math.round(from + dy)));
+            setLiveCardH(latest);
+          },
+          (moved) => {
+            setLiveCardH(null);
+            if (moved && latest !== from) edit.setPropValue("cardH", String(latest));
+          },
+        );
+      };
+
+      return (
+        <div className="ui-listwrap">
+          {head}
+          <div className={`ui-cards${layout === "horizontal" ? " scroll" : layout === "vertical" ? " one-col" : ""}`}>
+            {rows.map((_, ri) => (
+              <div key={ri} className="ui-card ui-card-item free" style={{ height }}>
+                {fields.map((col, i) => {
+                  const p = spots[i];
+                  const body =
+                    col === titleCol ? (
+                      <span className="ui-card-item-title">{cell(col, ri, "")}</span>
+                    ) : col === statusCol ? (
+                      cell(col, ri)
+                    ) : (
+                      <>
+                        <span className="ui-card-line-label">{elTok(col, "")}</span>
+                        {cell(col, ri)}
+                      </>
+                    );
+                  const cls = [
+                    "ui-card-free-el",
+                    edit ? "movable" : "",
+                    dragPos[col.id] ? "dragging" : "",
+                    isSelected(col) ? "sel" : "",
+                  ].filter(Boolean).join(" ");
+                  return (
+                    <div
+                      key={col.id}
+                      className={cls}
+                      style={{ left: p.x, top: p.y }}
+                      onPointerDown={edit ? startFieldDrag(col) : undefined}
+                      onClickCapture={swallowDragClick}
+                      onClick={selectClick(col)}
+                    >
+                      {body}
+                    </div>
+                  );
+                })}
+                {rowActions.length > 0 && (
+                  <div className="ui-row end ui-card-free-actions">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</div>
+                )}
+                {edit && (
+                  <div className="ui-card-free-resize" title="Drag to resize" onPointerDown={startCardResize} onClick={(e) => e.stopPropagation()}>
+                    <span aria-hidden />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {foot}
+          {addBar}
+        </div>
+      );
+    }
+
     if (shape === "cards") {
+      /** A stacked card's fields drag too (FS-REQ-69): the first drop turns
+       *  the card into a free layout, every field stamped where it sits now
+       *  and the dragged one where it was dropped — one commit, so the card
+       *  never jumps and the switch undoes as one step. */
+      const startStackedDrag = (col: ElementNode) => (e: ReactPointerEvent) => {
+        if (!edit || e.button !== 0) return;
+        if ((e.target as HTMLElement).closest(".inline-edit-input, .ui-cell-img-resize, .ui-select-menu")) return;
+        e.preventDefault();
+        const node = e.currentTarget as HTMLElement;
+        const card = node.closest(".ui-card-item") as HTMLElement | null;
+        if (!card) return;
+        const scale = scaleOf(card);
+        let delta = { x: 0, y: 0 };
+        trackDrag(
+          e,
+          scale,
+          (dx, dy) => {
+            delta = { x: dx, y: dy };
+            node.style.transform = `translate(${dx}px, ${dy}px)`;
+          },
+          (moved) => {
+            node.style.transform = "";
+            if (!moved) return;
+            const box = card.getBoundingClientRect();
+            const stamps = [...card.querySelectorAll<HTMLElement>("[data-card-field]")].map((f) => {
+              const r = f.getBoundingClientRect();
+              const id = f.dataset.cardField!;
+              const shift = id === col.id ? delta : { x: 0, y: 0 };
+              return {
+                id,
+                x: Math.max(0, Math.round((r.left - box.left) / scale - card.clientLeft + shift.x)),
+                y: Math.max(0, Math.round((r.top - box.top) / scale - card.clientTop + shift.y)),
+              };
+            });
+            edit.moveElementsTo(stamps, { cardLayout: "free" });
+          },
+          4,
+        );
+      };
+      /** Drag wiring for one stacked field (editor only). */
+      const stackedField = (col: ElementNode) =>
+        edit ? { "data-card-field": col.id, onPointerDown: startStackedDrag(col), onClickCapture: swallowDragClick } : {};
       return (
         <div className="ui-listwrap">
           {head}
@@ -1284,11 +1767,17 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {rows.map((_, ri) => (
               <div key={ri} className="ui-card ui-card-item">
                 <div className="ui-card-item-head">
-                  <span className="ui-card-item-title">{titleCol ? cell(titleCol, ri, "") : null}</span>
-                  {statusCol && cell(statusCol, ri)}
+                  {titleCol ? (
+                    <span {...stackedField(titleCol)}>
+                      <span className="ui-card-item-title">{cell(titleCol, ri, "")}</span>
+                    </span>
+                  ) : (
+                    <span className="ui-card-item-title" />
+                  )}
+                  {statusCol && <span {...stackedField(statusCol)}>{cell(statusCol, ri)}</span>}
                 </div>
                 {rest.map((col) => (
-                  <div key={col.id} className="ui-card-line">
+                  <div key={col.id} className="ui-card-line" {...stackedField(col)}>
                     <span className="ui-card-line-label">{elTok(col, "")}</span>
                     {cell(col, ri)}
                   </div>
@@ -1399,13 +1888,18 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const legendEl = first("legend");
     const rangeEl = first("range-selector");
     const stats = byType("stat");
+    // Each part of the chart exists only while its element does (FS-REQ-66):
+    // no header band unless something visible sits in it, and no category
+    // labels without a category axis. A pie has no value axis to show.
+    const radial = shape === "pie" || shape === "donut";
+    const headUnit = !radial ? valueAxis : undefined;
 
-    const head = headerInline || legendEl || valueAxis || rangeEl ? (
+    const head = headerInline || legendEl || headUnit || rangeEl ? (
       <div className="ui-card-head">
         {headerInline && elTok(headerInline, "ui-card-title")}
         <div className="ui-row">
           {legendEl && elBox(legendEl, "ui-legend-box", series.map((sr) => <Fragment key={sr.id}>{elTok(sr, "ui-chip sm")}</Fragment>))}
-          {valueAxis && dataTok(valueAxis, "unit", "", "ui-chip sm")}
+          {headUnit && dataTok(headUnit, "unit", "", "ui-chip sm")}
           {rangeEl && elTok(rangeEl, "ui-chip sm")}
         </div>
       </div>
@@ -1459,7 +1953,29 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       tok("", categories[i] ?? null, sample, catAxis ? (t) => setCategory(i, t) : undefined, undefined, catAxis ? { key: elKey(catAxis.id), index: null } : undefined, true);
 
     let plot: ReactNode;
-    if (shape === "pie" || shape === "donut") {
+    // No series, no data (FS-REQ-66): the plot keeps its frame — gridlines,
+    // and the category labels while that axis exists — but draws no marks,
+    // values or slices.
+    if (series.length === 0) {
+      plot = radial ? (
+        <div className="ui-pie-wrap">
+          <div className={`ui-pie empty${shape === "donut" ? " donut" : ""}`} />
+        </div>
+      ) : (
+        <div className="ui-chart">
+          <div className="ui-chart-plot">
+            <div className="ui-chart-grid" aria-hidden><i /><i /><i /><i /></div>
+          </div>
+          {catAxis && (
+            <div className="ui-chart-x">
+              {Array.from({ length: n }, (_, i) => (
+                <Fragment key={i}>{categoryTok(i)}</Fragment>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    } else if (shape === "pie" || shape === "donut") {
       const total = values.reduce((a, b) => a + b, 0) || 1;
       let acc = 0;
       const stops = values.map((v, i) => {
@@ -1474,7 +1990,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {values.map((_, i) => (
               <span key={i} className="ui-pie-key">
                 <i style={{ background: PIE_COLOURS[i % PIE_COLOURS.length] }} aria-hidden />
-                {categoryTok(i, `Slice ${i + 1}`)}
+                {catAxis && categoryTok(i, `Slice ${i + 1}`)}
                 <b>{seriesTok(rawValues[i] ?? null, String(values[i]), primary ? (t) => setSeriesValue(i, t) : undefined)}</b>
               </span>
             ))}
@@ -1506,11 +2022,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               })}
             </svg>
           </div>
-          <div className="ui-chart-x">
-            {Array.from({ length: n }, (_, i) => (
-              <Fragment key={i}>{categoryTok(i)}</Fragment>
-            ))}
-          </div>
+          {catAxis && (
+            <div className="ui-chart-x">
+              {Array.from({ length: n }, (_, i) => (
+                <Fragment key={i}>{categoryTok(i)}</Fragment>
+              ))}
+            </div>
+          )}
         </div>
       );
     } else {
@@ -1528,11 +2046,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               ))}
             </div>
           </div>
-          <div className="ui-chart-x">
-            {Array.from({ length: n }, (_, i) => (
-              <Fragment key={i}>{categoryTok(i)}</Fragment>
-            ))}
-          </div>
+          {catAxis && (
+            <div className="ui-chart-x">
+              {Array.from({ length: n }, (_, i) => (
+                <Fragment key={i}>{categoryTok(i)}</Fragment>
+              ))}
+            </div>
+          )}
         </div>
       );
     }

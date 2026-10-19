@@ -397,7 +397,7 @@ def create_doc(title: str, body: str = "", epic_id: str | None = None, tags: lis
 
 @mcp.tool()
 def list_comments(entity_type: str, entity_id: str) -> dict:
-    """entity_type: release | epic | feature | requirement | sprint | doc.
+    """entity_type: release | epic | feature | requirement | sprint | doc | feedback.
     entity_id must be a real id of that type -- get it from the matching
     list_*/get_*/create_* tool first (e.g. list_requirements for
     entity_type="requirement"), never invented.

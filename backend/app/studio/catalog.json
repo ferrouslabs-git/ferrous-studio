@@ -250,6 +250,14 @@
           "shapeable": false,
           "fillable": false
         },
+        "nav-sub-item": {
+          "fields": [
+            "level"
+          ],
+          "max": null,
+          "shapeable": false,
+          "fillable": false
+        },
         "group-heading": {
           "fields": [],
           "max": null,
@@ -328,7 +336,8 @@
           "fields": [
             "kind",
             "dataset",
-            "samples"
+            "samples",
+            "images"
           ],
           "max": null,
           "shapeable": false,
@@ -486,6 +495,7 @@
         },
         "read-only": {
           "fields": [
+            "dataset",
             "value"
           ],
           "max": null,
@@ -725,6 +735,7 @@
         },
         "read-only": {
           "fields": [
+            "dataset",
             "value"
           ],
           "max": null,
@@ -759,7 +770,8 @@
           "fields": [
             "kind",
             "dataset",
-            "samples"
+            "samples",
+            "images"
           ],
           "max": null,
           "shapeable": false,

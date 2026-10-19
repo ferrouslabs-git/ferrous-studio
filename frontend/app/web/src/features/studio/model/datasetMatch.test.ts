@@ -35,3 +35,15 @@ describe("suggestDataset", () => {
     expect(suggestDataset("Choice", sets)).toBeNull();
   });
 });
+
+describe("matching terms (FS-REQ-61)", () => {
+  it("a label naming one of a dataset's terms binds it", () => {
+    const sets = [
+      { id: "org", name: "Organisations", match_terms: ["Company", "Employer"] },
+      { id: "ppl", name: "People" },
+    ];
+    expect(suggestDataset("Company", sets)?.id).toBe("org");
+    expect(suggestDataset("Companies", sets)?.id).toBe("org");
+    expect(suggestDataset("Supplier", sets)).toBeNull();
+  });
+});

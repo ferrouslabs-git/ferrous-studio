@@ -18,6 +18,7 @@ import {
   setComponentPosition,
   setComponentShape,
   setComponentSize,
+  setComponentCanvas,
   setComponentType,
   setComponentWidth,
   setRegionDirAction,
@@ -375,6 +376,26 @@ describe("element type change", () => {
     expect(listOf(p)[0].elements![0].data).toEqual({ options: "Option A, Option B" });
   });
 
+  it("a read-only field keeps the dataset or picked value it came with (FS-REQ-55)", () => {
+    const bound = form([el("e1", "select", "Country", "a0", { dataset: "ds1", selected: "UK" })]);
+    setElementType(bound, ctx, "f", "e1", "read-only");
+    expect(listOf(bound)[0].elements![0].data).toEqual({ dataset: "ds1" });
+    const picked = form([el("e1", "select", "Tier", "a0", { options: "Gold, Silver", selected: "Gold" })]);
+    setElementType(picked, ctx, "f", "e1", "read-only");
+    expect(listOf(picked)[0].elements![0].data).toEqual({ value: "Gold" });
+    setElementType(picked, ctx, "f", "e1", "select");
+    expect(listOf(picked)[0].elements![0].data?.selected).toBe("Gold");
+  });
+
+  it("a read-only field falls back to the first option or custom value (FS-REQ-55)", () => {
+    const opts = form([el("e1", "select", "Tier", "a0", { options: "Gold, Silver" })]);
+    setElementType(opts, ctx, "f", "e1", "read-only");
+    expect(listOf(opts)[0].elements![0].data).toEqual({ value: "Gold" });
+    const custom = form([el("e1", "text-input", "Company", "a0", { kind: "text", samples: "Acme Ltd, Globex" })]);
+    setElementType(custom, ctx, "f", "e1", "read-only");
+    expect(listOf(custom)[0].elements![0].data).toEqual({ value: "Acme Ltd" });
+  });
+
   it("swaps a still-default label for the new type's default", () => {
     const p = form([el("e1", "text-input", "Field", "a0")]);
     setElementType(p, ctx, "f", "e1", "date-picker");
@@ -690,5 +711,24 @@ describe("relabelLinkedRegion", () => {
     };
     expect(relabelLinkedRegion(d, nav, "Item", "Dashboard")).toBe(true);
     expect(regionIds(d.root).map((id) => regionDisplayName(d.root, id))).toEqual(["Dashboard > Content", "Content"]);
+  });
+});
+
+describe("components inside a canvas (FS-REQ-68)", () => {
+  it("places a component in a canvas of its region and takes it back out", () => {
+    const p = page([
+      { id: "cv", type: "canvas", label: "Canvas", pos: "a0" },
+      { id: "g", type: "graph", label: "Graph", pos: "a1", props: { float: true, size: "fill" } },
+    ]);
+    setComponentCanvas(p, ctx, "g", "cv", { x: 40.4, y: 12 });
+    expect(listOf(p)[1].props).toEqual({ inCanvas: "cv", x: 40, y: 12, w: 360 });
+    setComponentCanvas(p, ctx, "g", null);
+    expect(listOf(p)[1].props).toEqual({ w: 360 });
+  });
+
+  it("refuses a canvas that is not in the region, and canvases in canvases", () => {
+    const p = page([{ id: "cv", type: "canvas", label: "Canvas", pos: "a0" }, { id: "cv2", type: "canvas", label: "Canvas", pos: "a1" }]);
+    setComponentCanvas(p, ctx, "cv2", "cv");
+    expect(listOf(p)[1].props).toBeUndefined();
   });
 });

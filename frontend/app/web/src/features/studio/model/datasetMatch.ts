@@ -12,6 +12,9 @@ export interface DatasetRef {
   id: string;
   name: string;
   scope?: "platform" | "project" | string;
+  /** Other names the list answers to (FS-REQ-61): a label matching one of
+   *  them fits exactly as well as one matching the name. */
+  match_terms?: readonly string[];
 }
 
 const IRREGULAR: Record<string, string> = {
@@ -64,7 +67,7 @@ export function suggestDataset(label: string, datasets: readonly DatasetRef[]): 
   let best: DatasetRef[] = [];
   let bestRank = 0;
   for (const ds of datasets) {
-    const score = matchScore(label, ds.name);
+    const score = Math.max(matchScore(label, ds.name), ...(ds.match_terms ?? []).map((t) => matchScore(label, t)));
     if (!score) continue;
     const rank = score * 2 + (ds.scope === "project" ? 1 : 0);
     if (rank > bestRank) {

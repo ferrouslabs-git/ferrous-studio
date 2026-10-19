@@ -234,6 +234,8 @@ class Dataset(Base):
     name = Column(String(255), nullable=False)
     kind = Column(String(24), nullable=False, default="text")
     values = Column(JSONB, nullable=False, default=list)
+    # Other words an element label may use for this list (FS-REQ-61).
+    match_terms = Column(JSONB, nullable=False, default=list, server_default="[]")
     pos = Column(String(64), nullable=False)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
@@ -253,6 +255,8 @@ class PlatformDataset(Base):
     name = Column(String(255), nullable=False)
     kind = Column(String(24), nullable=False, default="text")
     values = Column(JSONB, nullable=False, default=list)
+    # Other words an element label may use for this list (FS-REQ-61).
+    match_terms = Column(JSONB, nullable=False, default=list, server_default="[]")
     pos = Column(String(64), nullable=False)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)

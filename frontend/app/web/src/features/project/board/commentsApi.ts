@@ -2,7 +2,7 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
 import type { BoardAttachment } from "../attachmentsApi";
 
-export type BoardEntityType = "release" | "epic" | "feature" | "requirement" | "sprint" | "doc";
+export type BoardEntityType = "release" | "epic" | "feature" | "requirement" | "sprint" | "doc" | "feedback";
 
 export interface BoardComment {
   id: string;

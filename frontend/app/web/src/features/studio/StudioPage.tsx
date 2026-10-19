@@ -20,6 +20,7 @@ import { errorMessage } from "../../core/api";
 import { useIsPhone } from "../../core/breakpoints";
 import { useLoad } from "../../core/useLoad";
 import { createDataset, deleteDataset, listDatasets, updateDataset } from "../project/datasets/datasetsApi";
+import { parseDatasetValues } from "../project/datasets/datasetValues";
 import { useProject } from "../project/ProjectLayout";
 import {
   AnnotationKind,
@@ -43,7 +44,7 @@ import {
 import { replaceCustomComponents } from "../projects/projectsApi";
 import { DESKTOP_DESIGN_W, DESKTOP_FLEX_FLOOR, Stage, stageScale, useDesktopFit, useStageFit } from "./stage";
 import { Builder } from "./builder/Builder";
-import { COMPONENTS, DATA_KINDS, DataKind, elementMeta } from "./catalog";
+import { COMPONENTS, DATA_KINDS, DataKind, elementMeta, ElementSeed } from "./catalog";
 import { AnnotationsPanel, ComposerTarget, TargetInfo } from "./components/AnnotationsPanel";
 import { AnnotationMarks, Canvas, deviceMinWidth, HotMark } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
@@ -73,7 +74,7 @@ import {
 import { diffPage } from "./model/diff";
 import { usePageHistory } from "./model/history";
 import { ComposedLevel, composeRegionOptions } from "./model/linkRegions";
-import { firstNavTarget, navLinkedPageIds, orderPagesByNav } from "./model/navOrder";
+import { firstNavTarget, navDescendants, navLevel, navLinkedPageIds, navRouteLabel, navSubItems, orderPagesByNav } from "./model/navOrder";
 import { byPos, isLegacyDocument, posAfterLast } from "./model/positions";
 import { blankDocument, contentRegionFor, fallbackRegionId, findNode, regionDisplayName } from "./model/tree";
 import { BACK_PAGE_ID, ComponentNode, LayoutNode, LinkTarget, Op, PageDocument, PagePresentation, PageRecord } from "./model/types";
@@ -81,6 +82,7 @@ import { defaultBatchId } from "./sync/outbox";
 import { useWireframeSync } from "./sync/useWireframeSync";
 import { useHostChain } from "./useHostChain";
 import { useNavLanding } from "./useNavLanding";
+import { useLandingVisit } from "./useLandingVisit";
 import { useLivePages, usePageDocument } from "./usePageDocument";
 import { usePageNav } from "./usePageNav";
 
@@ -122,7 +124,7 @@ function StudioEditor() {
    *  selection is applied once the page arrives (the page-change effect
    *  clears selection first). A null `sel` means "whatever region this page
    *  lands in", resolvable only after its document has loaded. */
-  const [pendingReveal, setPendingReveal] = useState<{ pageId: string; sel: Selection | null } | null>(null);
+  const [pendingReveal, setPendingReveal] = useState<{ pageId: string; sel: Selection | null; edit?: ElementSel } | null>(null);
   /** The annotation target hovered on either side (a panel row or a canvas
    *  badge); both sides emphasise whatever matches it. */
   const [hotMark, setHotMark] = useState<HotMark | null>(null);
@@ -192,7 +194,9 @@ function StudioEditor() {
   // nav-order below, and seeds the page cache — the shell is almost always
   // the first host chain's outermost level.
   const pinnedLandingId = wireframe.data?.landing_page_id ?? null;
-  const landingDoc = useNavLanding(fetchPage, pages, activePageId, nav.visit, pinnedLandingId, doc.cache);
+  /** Navigation lands on a page's nav-driven default child (FS-REQ-57/62). */
+  const go = useLandingVisit(nav.visit, pages, fetchPage, doc.cache);
+  const landingDoc = useNavLanding(fetchPage, pages, activePageId, go, pinnedLandingId, doc.cache);
 
   // Leaving a page abandons its selection, and a different page's document
   // arriving drops any pick made against the outgoing copy mid-switch. (A
@@ -378,6 +382,11 @@ function StudioEditor() {
   const selectedCmpLoc = selectedCmpRecord && selectedCmpId ? locateCmp(selectedCmpRecord.document, selectedCmpId) : null;
   const selectedCmp = selectedCmpLoc ? selectedCmpLoc.list[selectedCmpLoc.index] : null;
   const selectedCmpType = selectedCmp?.type ?? null;
+  /** Canvases sharing the selected component's region (Inspector → Placement). */
+  const canvasesBeside =
+    selectedCmpLoc && selectedCmpType !== "canvas"
+      ? selectedCmpLoc.list.filter((c) => c.type === "canvas").map((c) => ({ id: c.id, label: c.label || "Canvas" }))
+      : [];
 
   /** Where a library click lands: the selected region, the selected component's region, else the first region. */
   const targetRegionId = (): string | null => {
@@ -528,7 +537,8 @@ function StudioEditor() {
           if (key === "c" ? !!copySelection() : cutSelection()) e.preventDefault();
         }
       }
-      else if ((e.key === "Enter" || e.key === "F2") && selection?.kind === "element" && canWrite) {
+      else if ((e.key === "Enter" || e.key === "F2" || (key === "t" && !mod && !e.altKey)) && selection?.kind === "element" && canWrite) {
+        // T is the label shortcut (FS-REQ-60); Enter and F2 are its synonyms.
         setEditingElement(selection);
         e.preventDefault();
       } else if ((e.key === "Delete" || e.key === "Backspace") && selection?.kind === "element" && isElKey(selection.key) && canWrite) {
@@ -658,7 +668,7 @@ function StudioEditor() {
       const created = await createDataset(projectId, {
         name: datasetDraft.name.trim(),
         kind: datasetDraft.kind,
-        values: datasetDraft.values.split("\n").map((v) => v.trim()).filter(Boolean),
+        values: parseDatasetValues(datasetDraft.values),
       });
       await datasetsLoad.reload();
       const { sel, fieldKey } = datasetDraft;
@@ -676,6 +686,11 @@ function StudioEditor() {
 
   const updateDatasetValues = (id: string, values: string[]) => {
     updateDataset(projectId, id, { values })
+      .then(() => datasetsLoad.reload())
+      .catch((err) => setNotice(errorMessage(err)));
+  };
+  const updateDatasetTerms = (id: string, match_terms: string[]) => {
+    updateDataset(projectId, id, { match_terms })
       .then(() => datasetsLoad.reload())
       .catch((err) => setNotice(errorMessage(err)));
   };
@@ -720,21 +735,23 @@ function StudioEditor() {
         if (nav.canBack) nav.back();
         else toast("No previous page to go back to");
       } else if (pages.some((p) => p.id === target.pageId)) {
-        nav.visit(target.pageId);
+        go(target.pageId);
       } else {
         toast("The linked page no longer exists");
       }
     },
-    [pages, toast, nav.visit, nav.back, nav.canBack],
+    [pages, toast, go, nav.back, nav.canBack],
   );
 
   /** Setting a link takes you to what you linked. The target's document is
    *  not loaded yet (a fresh page, or one only ever seen in the page list),
    *  so the landing region resolves in the reveal effect once it arrives. */
   const openLinkedPage = useCallback(
-    (pageId: string) => {
+    /** `edit`: an element (on a shell) whose label editor opens on arrival —
+     *  a nav item just added keeps its name editor across the switch. */
+    (pageId: string, edit?: ElementSel) => {
       nav.visit(pageId);
-      setPendingReveal({ pageId, sel: null });
+      setPendingReveal({ pageId, sel: null, edit });
     },
     [nav.visit], // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -748,6 +765,8 @@ function StudioEditor() {
     nameOverride?: string,
     presentation?: PagePresentation,
     just?: { owner: PageRecord; cmp: ComponentNode },
+    /** Reopen the linking element's label editor on the new page (FS-REQ-65). */
+    editLabel = false,
   ) => {
     // Settled only: the link-back edit below would be dropped mid-switch,
     // leaving an orphaned page behind.
@@ -823,7 +842,7 @@ function StudioEditor() {
         return A.setElementLink(d, c, sel.cmpId, sel.key, sel.index, { pageId: created.id });
       });
       if (!together && moved.size) runOn(regionOwner, (d) => void release(d));
-      openLinkedPage(created.id);
+      openLinkedPage(created.id, editLabel ? sel : undefined);
       toast(
         presentation
           ? `Created ${presentation} "${name}"`
@@ -1031,12 +1050,27 @@ function StudioEditor() {
       afterSelection && selection?.kind === "element" && selection.cmpId === cmpId && isElKey(selection.key)
         ? selection.key.slice(EL_PREFIX.length)
         : null;
-    const result = runCmp(cmpId, (d, c) => A.addElement(d, c, cmpId, type, null, afterId));
+    // A sub-item added with a nav item selected nests one level under it and
+    // goes after that item's whole branch, as its last child (FS-REQ-64).
+    let seed: string | ElementSeed = type;
+    let after = afterId;
+    if (type === "nav-sub-item" && hostCmp && afterId) {
+      const sel = findElement(hostCmp, afterId);
+      if (sel && (sel.type === "nav-item" || sel.type === "nav-sub-item")) {
+        seed = { type, data: { level: String(Math.min(5, navLevel(sel) + 1)) } };
+        const branch = navDescendants(navSubItems(hostCmp.elements ?? []), sel.id);
+        if (branch.length) after = branch[branch.length - 1].id;
+      }
+    }
+    const result = runCmp(cmpId, (d, c) => A.addElement(d, c, cmpId, seed, null, after));
     const created = result?.selectElement;
-    if (!created || !owner || !loc || hostCmp?.type !== "navbar" || type !== "nav-item") return;
+    // A new labelled element opens straight into its label editor, so the
+    // first keystrokes name it (FS-REQ-65).
+    if (created && hostCmp && elementMeta(hostCmp.type, type)?.defaultLabel) setEditingElement(created);
+    if (!created || !owner || !loc || hostCmp?.type !== "navbar" || (type !== "nav-item" && type !== "nav-sub-item")) return;
     const regionId = contentRegionFor(owner.document.root, loc.region);
     if (!regionId) return;
-    void createLinkedPage(created, regionId, elementMeta("navbar", "nav-item")?.defaultLabel ?? "Item");
+    void createLinkedPage(created, regionId, elementMeta("navbar", type)?.defaultLabel ?? "Item", undefined, undefined, true);
   };
 
   /** Add a component from the library (bar click or canvas drop). A nav bar
@@ -1046,15 +1080,25 @@ function StudioEditor() {
    *  content added beside a new nav is never stranded behind it. */
   const addComponentOn = (
     record: PageRecord | null,
-    seed: { type: string; shape?: string },
+    seed: { type: string; shape?: string; label?: string },
     regionId: string | null,
     index: number | null,
     customId: string | null,
     at: { x: number; y: number } | null,
+    /** Land inside this canvas of the region instead (FS-REQ-68). */
+    canvas?: { id: string; at: { x: number; y: number } },
   ) => {
     let added: { cmp: ComponentNode; region: string } | null = null;
+    // A titled component on a page a nav item routes to is titled after
+    // that route: "Clients", not "Records" (FS-REQ-58).
+    if (record && !seed.label && COMPONENTS[seed.type]?.elements.some((e) => e.type === "header")) {
+      const docs = [...hostChain.records, ...(page ? [page] : []), ...doc.cache.current.values()].map((r) => r.document);
+      const route = navRouteLabel(record.id, docs);
+      if (route) seed = { ...seed, label: route };
+    }
     runOn(record, (d, c) => {
       const result = A.appendComponent(d, c, seed, regionId, index, customId, at);
+      if (canvas && result?.selectCmpId) A.setComponentCanvas(d, c, result.selectCmpId, canvas.id, canvas.at);
       const loc = result?.selectCmpId ? locateCmp(d.document, result.selectCmpId) : null;
       // A plain copy: the draft is only valid inside this callback.
       if (loc) added = { cmp: JSON.parse(JSON.stringify(loc.list[loc.index])) as ComponentNode, region: loc.region };
@@ -1155,9 +1199,10 @@ function StudioEditor() {
     addRow: () => runCmp(id, (d, c) => A.addListRow(d, c, id)),
     setListCell: (row, columnId, text) => runCmp(id, (d, c) => A.setListCell(d, c, id, row, columnId, text)),
     // One commit for the whole batch: a multi-selection drag undoes as one.
-    moveElementsTo: (moves) =>
+    moveElementsTo: (moves, props) =>
       runCmp(id, (d, c) => {
         for (const m of moves) A.setElementPosition(d, c, id, m.id, m.x, m.y);
+        for (const [key, value] of Object.entries(props ?? {})) A.setPropValue(d, c, id, key, value);
       }),
     resizeElementTo: (elId, w, h) => runCmp(id, (d, c) => A.setElementSize(d, c, id, elId, w, h)),
     reorderElement: (srcId, targetId, before) => runCmp(id, (d, c) => A.reorderElement(d, c, id, srcId, targetId, before)),
@@ -1357,6 +1402,12 @@ function StudioEditor() {
     if (!pageSettled || !page || page.id !== pendingReveal.pageId) return;
     const { sel } = pendingReveal;
     if (!sel) {
+      if (pendingReveal.edit) {
+        setSelection({ kind: "element", ...pendingReveal.edit });
+        setEditingElement(pendingReveal.edit);
+        setPendingReveal(null);
+        return;
+      }
       // Arrived from a link: land on the page's main content region, ready
       // to build in it.
       setSelection({ kind: "region", id: fallbackRegionId(page.document.root) });
@@ -1456,7 +1507,7 @@ function StudioEditor() {
           canWrite={canWrite}
           landingId={landingId}
           landingPinned={landingPinned}
-          onSelect={nav.visit}
+          onSelect={go}
           onAdd={openAddPage}
           onDelete={removePage}
           onSetLanding={setLanding}
@@ -1560,6 +1611,21 @@ function StudioEditor() {
                     }}
                     onResizeCmp={(id, size, grow) => runCmp(id, (d, c) => A.setComponentSize(d, c, id, size, grow))}
                     onMoveCmp={(id, pos, grow, stamp) => runCmp(id, (d, c) => A.setComponentPosition(d, c, id, pos.x, pos.y, grow, stamp ?? null))}
+                    onDropIntoCanvas={(payload, canvasId, regionId, at) => {
+                      const rec = recordOfNode(regionId);
+                      if (payload.kind === "component") {
+                        addComponentOn(rec, { type: payload.type, shape: payload.shape }, regionId, null, payload.customId ?? null, null, { id: canvasId, at });
+                        return;
+                      }
+                      // An existing component: from this region it moves in
+                      // one step; from elsewhere it joins the region first.
+                      const srcRec = recordOfCmp(payload.id);
+                      if (!srcRec || !rec || srcRec.id !== rec.id) return;
+                      runOn(rec, (d, c) => {
+                        A.moveToRegion(d, c, payload.id, regionId);
+                        return A.setComponentCanvas(d, c, payload.id, canvasId, at);
+                      });
+                    }}
                   />
                 ) : (
                   <div className="frame-body flat"><div className="empty-hint">Loading page…</div></div>
@@ -1660,6 +1726,8 @@ function StudioEditor() {
               onCmpProp={(id, key, value) => runCmp(id, (d, c) => A.setPropValue(d, c, id, key, value), `prop.${id}.${key}`)}
               onCmpHeight={(id, mode) => runCmp(id, (d, c) => A.setComponentHeight(d, c, id, mode))}
               onCmpWidth={(id, w) => runCmp(id, (d, c) => A.setComponentWidth(d, c, id, w))}
+              canvasesBeside={canvasesBeside}
+              onCmpCanvas={(id, canvasId) => runCmp(id, (d, c) => A.setComponentCanvas(d, c, id, canvasId))}
               onCmpFloat={(id, floating) => {
                 // Floating freezes the rendered box; measure before the
                 // commit re-renders it.
@@ -1709,6 +1777,7 @@ function StudioEditor() {
               }}
               onCreateDataset={openCreateDataset}
               onUpdateDatasetValues={updateDatasetValues}
+              onUpdateDatasetTerms={updateDatasetTerms}
               onDeleteDataset={removeDataset}
             />
               ) : (

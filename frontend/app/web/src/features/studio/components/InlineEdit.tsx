@@ -4,13 +4,13 @@
 // Tokens that are addressable elements (nav items, buttons…) also carry
 // `element`: a single click selects the element, and — when it is linked —
 // a double click follows the link instead of opening the text editor
-// (Enter/F2 with the element selected, or the Inspector, edit its text).
+// (T, Enter or F2 with the element selected, or the Inspector, edit its text).
 import { CSSProperties, KeyboardEvent, MouseEvent, ReactNode, useEffect, useRef, useState } from "react";
 
 export interface TokenElement {
   selected: boolean;
   linked: boolean;
-  /** External request (Enter/F2 in the studio) to open the inline editor. */
+  /** External request (T/Enter/F2 in the studio) to open the inline editor. */
   editing: boolean;
   /** Preview mode: a linked read-only token follows on a single click, the
    *  way the real system would. */
@@ -48,7 +48,7 @@ export function EditableToken({ value, onCommit, className, style, title, childr
     setEditing(true);
   };
 
-  // Enter/F2 with the element selected opens the editor from outside.
+  // T/Enter/F2 with the element selected opens the editor from outside.
   useEffect(() => {
     if (element?.editing && onCommit && !editing) begin();
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -103,13 +103,24 @@ export function Drawer({
   );
 }
 
-/** Stacked labelled field for drawer forms. */
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+/** Stacked labelled field for drawer forms; `error` is a validation message. */
+export function Field({
+  label,
+  hint,
+  error,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  error?: string;
+  children: ReactNode;
+}) {
   return (
     <label className="drawer-field">
       <span className="drawer-field-label">{label}</span>
       {children}
       {hint && <span className="drawer-field-hint">{hint}</span>}
+      {error && <span className="drawer-field-error">{error}</span>}
     </label>
   );
 }

@@ -362,10 +362,9 @@ _ENTITY_TABLES = {
     "requirement": Requirement,
     "sprint": Sprint,
     "doc": Doc,
-    # Attachments only -- Comment.ENTITY_TYPES does not list feedback, and its
-    # own CHECK constraint would refuse it. Missing this entry makes every
-    # screenshot upload 422 with "Attachment target does not exist", however
-    # right the CHECK constraint is.
+    # Screenshots, and since f5c2a8d1e937 comments too. Missing this entry
+    # makes every screenshot upload 422 with "Attachment target does not
+    # exist", however right the CHECK constraint is.
     "feedback": Feedback,
     # Attachments only as well: a comment carries files (b2e8c4f7a519) but is
     # never itself commented on.
@@ -384,6 +383,58 @@ async def entity_exists(db: AsyncSession, board_id: UUID, entity_type: str, enti
         conditions.append(model.deleted_at.is_(None))
     result = await db.execute(select(model.id).where(*conditions))
     return result.scalar_one_or_none() is not None
+
+
+# ── Feedback (resolution time, raising a requirement) ────────────────────
+
+
+def resolution_stamp(
+    before: str, after: str, resolved_at: dt.datetime | None, now: dt.datetime
+) -> dt.datetime | None:
+    """What ``resolved_at`` should hold after a status move.
+
+    Stamped on the move *into* Resolved, kept while it stays there (editing a
+    resolved report's title must not move its resolution into this month), and
+    cleared on the move out: a reopened report is not resolved, shows no
+    resolution time, and stops drawing on the month it was first closed in.
+    """
+    if after != "Resolved":
+        return None
+    if before == "Resolved" and resolved_at is not None:
+        return resolved_at
+    return now
+
+
+#: A report's severity is the reporter's claim about impact; the requirement
+#: raised from it starts at the matching priority, for whoever plans it to
+#: correct.
+SEVERITY_PRIORITY = {"low": "Low", "medium": "Medium", "high": "High", "critical": "Urgent"}
+
+KIND_LABEL = {"feedback": "Feedback", "bug": "Bug", "requirement": "New requirement"}
+
+
+def requirement_from_feedback(item: Feedback, environment_label: str) -> dict:
+    """The fields of the requirement raised from a report: its words first,
+    then where it came from, so the requirement still says what was seen and
+    where after the report itself is gone."""
+    who = item.raised_by_name or item.raised_by_email or "someone"
+    when = item.created_at.strftime("%d %b %Y") if item.created_at else ""
+    lines = [item.detail.strip()] if item.detail and item.detail.strip() else []
+    if lines:
+        lines.append("")
+    lines.append(
+        f"Raised from {item.human_id} ({KIND_LABEL.get(item.kind, item.kind)}, "
+        f"{item.severity} severity) in {environment_label} by {who}" + (f" on {when}." if when else ".")
+    )
+    if item.page_url:
+        lines.append(f"Page: {item.page_url}")
+    return {
+        "title": item.title,
+        "body": "\n".join(lines),
+        "priority": SEVERITY_PRIORITY.get(item.severity, "Medium"),
+        "assignee_id": item.assignee_id,
+        "estimate_hours": item.estimate_hours,
+    }
 
 
 # ── Events ────────────────────────────────────────────────────────────────

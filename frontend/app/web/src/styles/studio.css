@@ -138,7 +138,9 @@
 .canvas-wrap {
   --mat: #E7EAEE;
   --mat-line: rgba(27,32,39,.05);
-  padding: 16px;
+  /* The top gutter fits a component toolbar over the page's top edge. */
+  padding: 44px 16px 16px;
+  position: relative;
   background-color: var(--mat);
   background-image:
     linear-gradient(var(--mat-line) 1px, transparent 1px),
@@ -309,7 +311,7 @@
    mat. (Bars are hidden — see the scrollport note above.) */
 /* Mobile and tablet get a wider gutter; the mat itself is inherited, so all
    three interface types sit on the same surface. */
-.canvas-wrap.framed { padding: 28px; }
+.canvas-wrap.framed { padding: 44px 28px 28px; }
 /* Auto margins centre the device, and the stage — the device's scaled
    footprint — is what they centre: a transform leaves layout at full size, so
    centring the device itself would push a fitted device off the mat. */
@@ -375,16 +377,20 @@
   background: var(--panel); color: var(--text);
 }
 
+/* Drawn on the mat (a portal into .canvas-wrap), anchored by its bottom-right
+   corner just above the selected component's top-right corner: it never covers
+   the component's content and never moves (FS-REQ-67). */
 .cmp-actions {
-  position: absolute; top: 6px; right: 6px; z-index: 5;
+  position: absolute; transform: translate(-100%, calc(-100% - 4px)); z-index: 30;
   display: flex; gap: 2px; padding: 2px;
   border-radius: var(--radius-lg);
   background: var(--chrome-panel); border: 1px solid var(--chrome-line); box-shadow: var(--shadow);
-  opacity: 0; pointer-events: none; transition: opacity .12s;
 }
-/* The component toolbar shows only when the COMPONENT itself is selected —
-   with an element selected, its controls are the ones on show. */
-.cmp.selected > .cmp-actions { opacity: 1; pointer-events: auto; }
+/* Components placed inside a canvas (FS-REQ-68): a layer over the canvas's
+   own elements, each component absolutely placed in canvas coordinates. The
+   layer itself lets clicks through to the canvas. */
+.cnv-cmps { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.cnv-cmps > * > .cmp { pointer-events: auto; }
 .cmp-actions button {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
   border: 0; border-radius: var(--radius); background: transparent; color: var(--chrome-ink-dim); cursor: pointer;
@@ -695,7 +701,9 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-nav-zone.right { flex: 1 1 0; justify-content: flex-end; }
 /* overflow keeps a long link list inside the bar; the padding/margin pair
    moves the clip edge outward so the 2px selection ring is not cut off. */
-.ui-nav-links { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 3px; margin: -3px; }
+/* clip, not hidden: a hidden box is still a scroll container, so focusing a
+   label editor near its edge scrolled the links sideways and left them so. */
+.ui-nav-links { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: clip; padding: 3px; margin: -3px; }
 .ui-nav-link {
   height: 32px; padding: 0 10px; border-radius: var(--radius-lg); flex-shrink: 0;
   font-size: 13px; color: var(--text-dim); display: inline-flex; align-items: center; white-space: nowrap;
@@ -730,6 +738,19 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim); text-align: left;
 }
 .ui-side-item.active { background: var(--wf-soft); color: var(--text); }
+/* Nested nav (FS-REQ-64): a rail parent is an accordion over its sub-items;
+   a bar parent opens them as a dropdown (.ui-nav-menu rides .ui-select-menu,
+   inheriting its overflow escapes). */
+.ui-side-group { display: flex; flex-direction: column; }
+.ui-side-parent { display: flex; align-items: center; }
+.ui-side-parent > :first-child { flex: 1 1 auto; min-width: 0; }
+.ui-side-sub { display: flex; flex-direction: column; padding-left: 14px; }
+.ui-nav-toggle { border: 0; background: transparent; color: inherit; padding: 0 4px; cursor: pointer; display: inline-grid; place-items: center; flex: none; }
+.ui-nav-toggle[aria-expanded="true"] .ui-chevron { transform: rotate(180deg); }
+.ui-nav-parent { position: relative; display: inline-flex; align-items: center; }
+.ui-nav-menu { min-width: 160px; }
+/* The link row clips long bars; an open sub-item menu must hang out of it. */
+.ui-nav-links:has(.ui-nav-menu) { overflow: visible; }
 .ui-side-item.active .ui-icon { color: var(--wf-ink); opacity: 1; }
 .ui-side-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-side-user {
@@ -802,6 +823,21 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-table tbody tr:last-child td { border-bottom: 0; }
 .ui-table tbody tr:hover td { background: var(--mute-soft); }
 .ui-table td .ui-edit { min-width: 24px; min-height: 16px; }
+/* Column widths (FS-REQ-59): a sized column clips its content to the width
+   it was dragged to; the grip straddles the header cell's trailing edge. */
+.ui-table th { position: relative; }
+.ui-col-fit { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-col-fit > .ui-edit { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.ui-col-resize {
+  position: absolute; top: 0; right: -4px; width: 8px; height: 100%; z-index: 2;
+  cursor: col-resize; touch-action: none;
+}
+.ui-col-resize::after {
+  content: ""; position: absolute; top: 6px; bottom: 6px; left: 3px; width: 2px;
+  border-radius: 1px; background: transparent; transition: background .12s;
+}
+.cmp.selected .ui-col-resize::after { background: var(--border-strong); }
+.ui-col-resize:hover::after, .ui-col-resize:active::after { background: var(--edit-accent); }
 .ui-chart { padding: 16px 16px 10px; }
 .ui-chart-plot { position: relative; height: 170px; }
 .ui-chart-grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; }
@@ -1549,6 +1585,50 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-card-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .ui-card-line-label { color: var(--text-mute); font-size: 11px; }
 
+/* Cards with freely positioned fields (FS-REQ-69): each field sits at its
+   column's x/y inside the card; the card's height comes from props.cardH or
+   the lowest field. Clipped, like the canvas component. */
+.ui-card-item.free { display: block; position: relative; overflow: hidden; padding: 0; }
+.ui-card-free-el {
+  position: absolute; display: flex; align-items: center; gap: 8px;
+  white-space: nowrap; font-size: 12px; border-radius: 4px;
+}
+.ui-card-free-el.movable { cursor: grab; }
+/* A stacked card's fields drag too; the first drop frees the card (FS-REQ-69). */
+.ui-card-item-head > [data-card-field]:first-child { flex: 1 1 auto; min-width: 0; }
+.ui-card-item [data-card-field] { cursor: grab; }
+.ui-card-item [data-card-field]:hover { outline: 1px dashed var(--border-strong); outline-offset: 2px; }
+.ui-card-free-el.movable:hover { outline: 1px dashed var(--border-strong); outline-offset: 2px; }
+.ui-card-free-el.sel { outline: 1.5px solid var(--edit-accent); outline-offset: 2px; }
+.ui-card-free-el.dragging { cursor: grabbing; opacity: .85; z-index: 3; }
+.ui-card-free-actions { position: absolute; right: 12px; bottom: 10px; }
+.ui-card-free-resize {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 8px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: ns-resize; opacity: 0; transition: opacity .12s;
+}
+.cmp.selected .ui-card-free-resize, .ui-card-free-resize:hover { opacity: 1; }
+.ui-card-free-resize span { width: 36px; height: 3px; border-radius: 999px; background: var(--border-strong); }
+.ui-card-free-resize:hover span, .ui-card-free-resize:active span { background: var(--edit-accent); }
+
+/* Image columns (FS-REQ-70): one picture per cell, cycled through the
+   column's uploads by row; the corner grip sizes the whole column's images. */
+.ui-cell-img {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  vertical-align: middle; flex: 0 0 auto; border-radius: 4px;
+  background: var(--panel-2); color: var(--text-mute);
+}
+.ui-cell-img img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
+.ui-cell-img.empty { border: 1px dashed var(--border-strong); }
+.ui-cell-img-resize {
+  position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; z-index: 2;
+  border: 1.5px solid var(--edit-accent); border-radius: 3px; background: var(--chrome-panel);
+  cursor: nwse-resize; display: none;
+}
+.ui-cell-img:hover .ui-cell-img-resize, .ui-cell-img.sel .ui-cell-img-resize,
+.ui-cell-img.resizing .ui-cell-img-resize { display: block; }
+.ui-table td:has(.ui-cell-img) { height: auto; padding-top: 4px; padding-bottom: 4px; }
+
 /* List shape: rows. */
 .ui-rows { list-style: none; margin: 0; padding: 2px 14px; display: flex; flex-direction: column; }
 .ui-rows.scroll { flex-direction: row; overflow-x: auto; gap: 10px; }
@@ -1580,6 +1660,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-chart-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ui-pie-wrap { display: flex; align-items: center; gap: 22px; padding: 16px; flex-wrap: wrap; }
 .ui-pie { width: 130px; height: 130px; border-radius: 50%; flex-shrink: 0; position: relative; }
+.ui-pie.empty { background: transparent; border: 2px dashed var(--border); }
 .ui-pie.donut::after {
   content: ""; position: absolute; inset: 26%; border-radius: 50%; background: var(--panel);
 }
@@ -1736,6 +1817,28 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .insp-logo { display: flex; align-items: center; gap: 6px; }
 .insp-logo select { flex: 1; min-width: 0; }
 .insp-upload { cursor: pointer; flex-shrink: 0; }
+/* An image column's uploads: removable thumbnails above the upload button. */
+.insp-images { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.insp-image-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.insp-image-thumb { position: relative; width: 48px; height: 48px; }
+.insp-image-thumb.movable { cursor: grab; }
+.insp-image-thumb.dragging { opacity: .4; }
+.insp-image-thumb.drop { outline: 2px solid var(--edit-accent); outline-offset: 1px; border-radius: 4px; }
+.insp-image-n {
+  position: absolute; left: 2px; bottom: 2px; min-width: 14px; padding: 0 3px; border-radius: 7px;
+  background: rgba(27,32,39,.72); color: #fff; font: 600 10px/14px var(--font-display); text-align: center; pointer-events: none;
+}
+.insp-image-thumb img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.insp-image-x {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; line-height: 1; cursor: pointer; border-radius: 50%;
+  border: 1px solid var(--border-strong); background: var(--panel); color: var(--text-dim);
+}
+.insp-image-x:hover { border-color: var(--bad); color: var(--bad); }
 
 /* Nav-item icon picker: a link-trigger opening an OVERLAY menu (unlike the
    link picker's in-flow menu — the glyph grid is tall, and shoving the fields

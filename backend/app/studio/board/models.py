@@ -30,7 +30,7 @@ from sqlalchemy import event
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 from ..models import Base, utc_now
-from .statuses import DELIVERY_STATUSES, WORK_STATUSES
+from .statuses import DELIVERY_STATUSES, FEEDBACK_STATUSES, WORK_STATUSES
 
 __all__ = [
     "utc_now",
@@ -44,6 +44,7 @@ __all__ = [
     "Requirement",
     "Environment",
     "Feedback",
+    "MaintenanceContract",
     "RequirementSprintHistory",
     "Doc",
     "Comment",
@@ -308,6 +309,9 @@ class Requirement(Base):
     assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     release_id = Column(UUID(as_uuid=True), ForeignKey("board_releases.id", ondelete="SET NULL"), nullable=True)
     sprint_id = Column(UUID(as_uuid=True), ForeignKey("board_sprints.id", ondelete="SET NULL"), nullable=True)
+    # The feedback report this was raised from (FS-REQ-51/54). A report may
+    # raise several; the maintenance log charges it their summed estimates.
+    feedback_id = Column(UUID(as_uuid=True), ForeignKey("board_feedback.id", ondelete="SET NULL"), nullable=True)
     # Effort estimate, in HOURS. Nullable on purpose: NULL means "not estimated
     # yet", which is a real state and must never be conflated with zero.
     # ``Float`` (double precision), deliberately not ``Numeric``: psycopg maps
@@ -414,7 +418,10 @@ class Feedback(Base):
     Deliberately not a Requirement: this is what was reported, in the words of
     whoever reported it, against the environment they saw it in. An admin
     triages it, and only what survives triage becomes board work -- so a report
-    carries no epic, sprint or assignee of its own.
+    carries no epic or sprint of its own. It does carry the support-desk half
+    of a requirement (f5c2a8d1e937): who is looking at it, how long the fix is
+    estimated at, and when it was resolved, because a maintenance contract is
+    paid for in exactly those hours (see MaintenanceContract).
 
     ``raised_by_name``/``raised_by_email`` snapshot the reporter at write time,
     the same way ``WireframeAuditLog`` does, so a report still says who filed
@@ -429,11 +436,18 @@ class Feedback(Base):
     ``page_url`` is the exact page, the environment being only the base. ``''``
     means "not given" -- unlike ``Environment``, where an absent *row* is the
     unset state and the URL is never blank.
+
+    ``resolved_at`` is stamped by the route when ``status`` becomes
+    ``Resolved`` and cleared if it leaves again (service.resolution_stamp), so
+    a reopened report neither shows a resolution time nor counts against a
+    month's maintenance hours. ``requirement_id`` is the board requirement
+    raised from this report, if any; a soft-deleted requirement leaves it
+    pointing at a row the routes treat as gone, so one can be raised again.
     """
 
     KINDS = ("feedback", "bug", "requirement")
     SEVERITIES = ("low", "medium", "high", "critical")
-    STATUSES = ("New", "Triaged", "Accepted", "Declined", "Done")
+    STATUSES = FEEDBACK_STATUSES
 
     __tablename__ = "board_feedback"
 
@@ -447,10 +461,20 @@ class Feedback(Base):
     title = Column(String(255), nullable=False)
     detail = Column(Text, nullable=False, default="")
     page_url = Column(String(1024), nullable=False, default="")
-    status = Column(String(10), nullable=False, default="New")
+    status = Column(String(32), nullable=False, default="New")
     raised_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     raised_by_name = Column(String(255), nullable=True)
     raised_by_email = Column(String(255), nullable=True)
+    assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Hours, as on Requirement: NULL is "not estimated", never zero. A
+    # resolved report's estimate is what it draws from the maintenance
+    # contract: the estimate is what the client confirms (EstimatedToConfirm),
+    # so it is the agreed charge.
+    estimate_hours = Column(Float, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    requirement_id = Column(
+        UUID(as_uuid=True), ForeignKey("board_requirements.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
@@ -463,6 +487,34 @@ class Feedback(Base):
     @property
     def human_id(self) -> str:
         return keyed(self.board_id, f"FB-{self.seq}")
+
+
+class MaintenanceContract(Base):
+    """One period of a maintenance agreement: from ``start_date`` (to
+    ``end_date``, if it has one) the client buys ``hours_per_month`` of
+    support. Contracts change over time, so each change is a new dated row
+    rather than an edit to the old one -- the months it covered keep the
+    hours they were sold with.
+
+    Lives on the board, beside the feedback the hours are spent on. Hours used
+    are not stored: they are the estimates of the reports resolved in each
+    month, and the month-by-month balance (unused hours rolled over) is
+    derived on read -- see the frontend's feedback/maintenance.ts.
+    """
+
+    __tablename__ = "board_maintenance_contracts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    board_id = Column(UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=True)
+    hours_per_month = Column(Float, nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (Index("ix_board_maintenance_contracts_board", "board_id", "start_date"),)
 
 
 class Doc(Base):
@@ -506,7 +558,7 @@ class Comment(Base):
     NULL for every human comment. ON DELETE SET NULL, so a question stays
     readable after the agent that asked it is deleted."""
 
-    ENTITY_TYPES = ("release", "epic", "feature", "requirement", "sprint", "doc")
+    ENTITY_TYPES = ("release", "epic", "feature", "requirement", "sprint", "doc", "feedback")
 
     __tablename__ = "board_comments"
 

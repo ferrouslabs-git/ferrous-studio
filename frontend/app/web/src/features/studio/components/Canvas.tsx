@@ -6,10 +6,12 @@
 // Selection is three-level: a region (click its background), a component
 // (click it), or a single element inside one (click a nav item / button —
 // see selection.ts). Double-clicking a linked element follows its link.
-import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useState } from "react";
+import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useLayoutEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import { elementHosts } from "../catalog";
 import { CustomDef, elementLink, locateCmp } from "../model/actions";
+import { navEffectiveLink } from "../model/navOrder";
 import { STRUCTURAL_TYPES } from "../model/regions";
 import { cmpFloatPos, cmpFreePos, cmpPos, cmpSize, fixedWidthDemand, nodePath, SplitSide } from "../model/tree";
 import { ComponentNode, LayoutNode, LinkTarget, PageDocument, PagePresentation, Size, SplitNode } from "../model/types";
@@ -41,6 +43,14 @@ export interface CanvasCallbacks {
   onDropElement(type: string, cmpId: string): void;
   onReorder(srcId: string, targetId: string, before: boolean): void;
   onMoveToRegion(srcId: string, regionId: string, at?: { x: number; y: number } | null): void;
+  /** A library component, or an existing one, dropped onto a canvas: it
+   *  lands inside it at `at` (canvas coordinates; FS-REQ-68). */
+  onDropIntoCanvas(
+    payload: { kind: "component"; type: string; customId?: string; shape?: string } | { kind: "reorder"; id: string },
+    canvasId: string,
+    regionId: string,
+    at: { x: number; y: number },
+  ): void;
   onSplit(regionId: string, side: SplitSide): void;
   onRemoveRegion(regionId: string): void;
   onResize(changes: { id: string; size: Size }[]): void;
@@ -123,6 +133,25 @@ export const fillsRegion = (cmp: ComponentNode): boolean =>
  *  Placement), set by setComponentFloat. */
 export const isFloating = (cmp: ComponentNode): boolean =>
   cmp.type === "canvas" ? cmp.layout === "float" : cmp.props?.float === true;
+
+/** Components placed inside a canvas of the same region (FS-REQ-68), by
+ *  canvas id. They render in the canvas's own layer, freely positioned, and
+ *  are left out of the region's flow. A reference to a canvas that is not in
+ *  the list (deleted, or the component moved away) is ignored, so the
+ *  component simply rejoins the flow. Shared with the preview canvas. */
+export function canvasChildren(list: readonly ComponentNode[]): Map<string, ComponentNode[]> {
+  const canvases = new Set(list.filter((c) => c.type === "canvas").map((c) => c.id));
+  const out = new Map<string, ComponentNode[]>();
+  for (const c of list) {
+    const host = c.props?.inCanvas;
+    if (typeof host === "string" && canvases.has(host) && c.type !== "canvas") {
+      const kids = out.get(host) ?? [];
+      kids.push(c);
+      out.set(host, kids);
+    }
+  }
+  return out;
+}
 
 /** Narrowest a drawer page can be dragged to. */
 export const DRAWER_MIN_W = 280;
@@ -292,6 +321,40 @@ export function Canvas(props: Props) {
   const [liveCmp, setLiveCmp] = useState<Record<string, { w?: number; h?: number }>>({});
   /** Live x/y override while a free-region component drag is in flight. */
   const [liveCmpPos, setLiveCmpPos] = useState<Record<string, { x: number; y: number }>>({});
+  /** Where the selected component's toolbar sits (FS-REQ-67): always just
+   *  above its top-right corner, drawn in a layer on the canvas mat rather
+   *  than inside the page, so no region, scroll box or page edge can clip it
+   *  or push it somewhere else — at the top of the page it rides on the mat
+   *  above the wireframe. Re-measured whenever the box can have moved. */
+  const [toolsAt, setToolsAt] = useState<{ id: string; host: HTMLElement; left: number; top: number } | null>(null);
+  const selectedCmpId = selection?.kind === "cmp" ? selection.id : null;
+  useLayoutEffect(() => {
+    if (!selectedCmpId) {
+      setToolsAt(null);
+      return;
+    }
+    const node = document.querySelector<HTMLElement>(`[data-cmp-id="${CSS.escape(selectedCmpId)}"]`);
+    const mat = node?.closest(".canvas-wrap") as HTMLElement | null;
+    if (!node || !mat) {
+      setToolsAt(null);
+      return;
+    }
+    const measure = () => {
+      const r = node.getBoundingClientRect();
+      const m = mat.getBoundingClientRect();
+      setToolsAt({
+        id: selectedCmpId,
+        host: mat,
+        left: r.right - m.left + mat.scrollLeft - mat.clientLeft,
+        top: r.top - m.top + mat.scrollTop - mat.clientTop,
+      });
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(node);
+    watch.observe(mat);
+    return () => watch.disconnect();
+  }, [selectedCmpId, doc, host, live, liveCmp, liveCmpPos]);
   const clear = () => {
     setHint(null);
     setOverRegion(null);
@@ -558,8 +621,11 @@ export function Canvas(props: Props) {
       const stamp = freeze && (set.w == null || set.h == null) ? { w: set.w ?? renderW, h: set.h ?? renderH } : null;
       const availW = body.clientWidth;
       const availH = body.clientHeight;
-      const growX = growNodeFor(level.doc.root, regionId, "row");
-      const growY = growNodeFor(level.doc.root, regionId, "col");
+      // Inside a canvas the offsets are the canvas's, not the region's, so
+      // the region is never grown for them.
+      const nested = !!box.closest(".cnv-cmps");
+      const growX = nested ? null : growNodeFor(level.doc.root, regionId, "row");
+      const growY = nested ? null : growNodeFor(level.doc.root, regionId, "col");
       const measureNode = (node: LayoutNode | null, horizontal: boolean): number => {
         const el = node ? (frame?.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`) as HTMLElement | null) : null;
         if (!el) return 0;
@@ -694,7 +760,18 @@ export function Canvas(props: Props) {
 
   // ── Components ────────────────────────────────────────────────────────────
 
-  const renderComponent = (level: { doc: PageDocument; editable: boolean }, cmp: ComponentNode, regionId: string, row: boolean, free: boolean, index: number) => {
+  const renderComponent = (
+    level: { doc: PageDocument; editable: boolean },
+    cmp: ComponentNode,
+    regionId: string,
+    row: boolean,
+    free: boolean,
+    index: number,
+    /** A canvas's placed components (canvasChildren), drawn in its layer. */
+    kids?: ComponentNode[],
+    /** This component sits inside a canvas's layer. */
+    nested = false,
+  ): ReactNode => {
     const editable = level.editable && canWrite;
     const sel = level.editable && selection?.kind === "element" && selection.cmpId === cmp.id ? selection : null;
     const liveSz = level.editable ? liveCmp[cmp.id] : undefined;
@@ -732,7 +809,7 @@ export function Canvas(props: Props) {
     const chrome: SchematicChrome = {
       selected: sel,
       editing: level.editable && editingElement?.cmpId === cmp.id ? editingElement : null,
-      linkOf: (key, index) => elementLink(cmp, key, index),
+      linkOf: (key, index) => navEffectiveLink(cmp, key, index),
       activePageIds: props.activePageIds,
       noteEls: props.marks?.notes.els,
       taskEls: props.marks?.tasks.els,
@@ -761,12 +838,17 @@ export function Canvas(props: Props) {
           draggable={editable && !freePos && !floating}
           onPointerDown={
             editable && (freePos || floating)
-              ? startCmpMove(level, cmp, regionId, floating ? cmpFloatPos(cmp) : cmpFreePos(cmp, index), floating)
+              ? (e) => {
+                  // A placed component's gesture is its own, not its canvas's.
+                  if (nested) e.stopPropagation();
+                  startCmpMove(level, cmp, regionId, floating ? cmpFloatPos(cmp) : cmpFreePos(cmp, index), floating)(e);
+                }
               : undefined
           }
           onClick={
             level.editable
               ? (e) => {
+                  if (nested) e.stopPropagation();
                   if ((e.target as HTMLElement).closest(".cmp-actions")) return;
                   props.onSelect({ kind: "cmp", id: cmp.id });
                 }
@@ -826,6 +908,16 @@ export function Canvas(props: Props) {
                   e.preventDefault();
                   e.stopPropagation();
                   e.dataTransfer.dropEffect = e.dataTransfer.effectAllowed === "move" ? "move" : "copy";
+                  // A canvas takes components in (FS-REQ-68): it lights up as
+                  // the target rather than showing a before/after line.
+                  if (cmp.type === "canvas") {
+                    if (overElCmp !== cmp.id) {
+                      setHint(null);
+                      setOverRegion(null);
+                      setOverElCmp(cmp.id);
+                    }
+                    return;
+                  }
                   // Free layout has no before/after: the drop lands at the
                   // pointer, so the region highlight is the only cue.
                   if (freePos) {
@@ -853,6 +945,21 @@ export function Canvas(props: Props) {
                     if (elementHosts(data.type).includes(cmp.type)) props.onDropElement(data.type, cmp.id);
                     return;
                   }
+                  if (cmp.type === "canvas" && (data?.kind === "component" || data?.kind === "reorder")) {
+                    clear();
+                    if (data.kind === "reorder" && data.id === cmp.id) return;
+                    const layer = e.currentTarget.querySelector(":scope > .cnv-cmps") as HTMLElement | null;
+                    const r = (layer ?? e.currentTarget).getBoundingClientRect();
+                    const scale = stageScale(e.currentTarget);
+                    const at = { x: Math.max(0, Math.round((e.clientX - r.left) / scale)), y: Math.max(0, Math.round((e.clientY - r.top) / scale)) };
+                    props.onDropIntoCanvas(
+                      data.kind === "component" ? { kind: "component", type: data.type, customId: data.customId, shape: data.shape } : { kind: "reorder", id: data.id },
+                      cmp.id,
+                      regionId,
+                      at,
+                    );
+                    return;
+                  }
                   if (freePos) {
                     dropPayload(e, regionId, null, null, false, dropAt(e, e.currentTarget));
                     return;
@@ -872,8 +979,15 @@ export function Canvas(props: Props) {
             !!props.marks?.notes.cmps.has(cmp.id),
             !!props.marks?.tasks.cmps.has(cmp.id),
           )}
-          {editable && (
-            <div className="cmp-actions" role="toolbar" aria-label={`${cmp.label} controls`} title={`${cmp.type} · ${cmp.label}`}>
+          {editable && toolsAt?.id === cmp.id && createPortal(
+            <div
+              className="cmp-actions"
+              style={{ left: toolsAt.left, top: toolsAt.top }}
+              role="toolbar"
+              aria-label={`${cmp.label} controls`}
+              title={`${cmp.type} · ${cmp.label}`}
+              onClick={(e) => e.stopPropagation()}
+            >
               {structural && (
                 <button type="button" title="Edit structure" aria-label="Edit structure" onClick={action(() => props.onEditStructure(cmp.id))}>
                   <Glyph d={ICON.pencil} />
@@ -903,7 +1017,8 @@ export function Canvas(props: Props) {
               <button type="button" className="danger" title="Remove" aria-label="Remove" onClick={action(() => props.onRemove(cmp.id))}>
                 <Glyph d={ICON.close} />
               </button>
-            </div>
+            </div>,
+            toolsAt.host,
           )}
           {/* Edge/corner grips, shown while selected. On a floating canvas
               they carve the float down from full-region to a placed box. */}
@@ -921,6 +1036,9 @@ export function Canvas(props: Props) {
           <CmpBoundary cmpId={cmp.id} cmpType={cmp.type}>
             <Schematic cmp={cmp} defs={props.defs} datasets={props.datasets} edit={editable ? props.editFor(cmp.id) : undefined} chrome={chrome} />
           </CmpBoundary>
+          {kids && kids.length > 0 && (
+            <div className="cnv-cmps">{kids.map((k, i) => renderComponent(level, k, regionId, false, true, i, undefined, true))}</div>
+          )}
         </div>
         {showHint && !hint.before && <div className="drop-indicator" />}
       </div>
@@ -1049,7 +1167,11 @@ export function Canvas(props: Props) {
               <div className="rg-empty">{canWrite ? "Drag a component here, or split this region" : "Empty region"}</div>
             ) : null
           ) : (
-            list.map((c, i) => renderComponent(level, c, region.id, row, free, i))
+            (() => {
+              const kidsOf = canvasChildren(list);
+              const placed = new Set([...kidsOf.values()].flat().map((c) => c.id));
+              return list.map((c, i) => (placed.has(c.id) ? null : renderComponent(level, c, region.id, row, free, i, kidsOf.get(c.id))));
+            })()
           )}
         </div>
       </div>

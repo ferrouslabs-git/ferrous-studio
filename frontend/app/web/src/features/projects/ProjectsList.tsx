@@ -8,12 +8,14 @@
 // only differences are the admin listing naming an organisation per row, and
 // having to say which organisation each call runs against: `optsOf`.
 import { FormEvent, ReactNode, useMemo, useState } from "react";
+import { AutosaveFooter, closeAfterSave } from "../../components/AutosaveStatus";
 import { ConfirmDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
 import { NameCell } from "../../components/ListTable";
 import { RowMenu, RowMenuItem } from "../../components/RowMenu";
 import { errorMessage, RequestOptions } from "../../core/api";
 import { formatDate } from "../../core/format";
+import { useAutosave } from "../../core/useAutosave";
 import { defaultBatchId } from "../studio/sync/outbox";
 import { ProjectFormDrawer } from "./ProjectFormDrawer";
 import {
@@ -133,7 +135,7 @@ export function ProjectsList<P extends Project>({
       {error && <div className="status-banner warn">{error}</div>}
 
       <section className="section list-panel">
-        {loading ? (
+        {loading && lineages.length === 0 ? (
           <div className="empty">Loading…</div>
         ) : loadError ? (
           <div className="empty error">{loadError}</div>
@@ -233,7 +235,7 @@ export function ProjectsList<P extends Project>({
  * name, description and rationale belong to the project and are part of what a
  * version froze, while the label names this version within the lineage and
  * stays editable even while it is locked -- a frozen version is exactly the one
- * someone later wants to call "As signed off".
+ * someone later wants to call "As signed off". Saved as you go.
  */
 function RenameVersionDrawer<P extends Project>({
   project,
@@ -246,54 +248,40 @@ function RenameVersionDrawer<P extends Project>({
   onClose: () => void;
   onSaved: () => Promise<unknown>;
 }) {
-  const [label, setLabel] = useState(project.version_label ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const next = label.trim() || null;
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await updateProject(project.id, { version_label: next }, opts);
-      onClose();
-      await onSaved();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const auto = useAutosave(
+    { label: project.version_label ?? "" },
+    {
+      // Compared as saved: trailing spaces are not a change worth a request.
+      equals: (a, b) => a.label.trim() === b.label.trim(),
+      save: async (v) => {
+        await updateProject(project.id, { version_label: v.label.trim() || null }, opts);
+        await onSaved();
+      },
+    },
+  );
 
   return (
     <Drawer
       open
       title="Rename version"
       description={`v${project.version_no} of ${project.name}.`}
-      onClose={onClose}
-      onSubmit={save}
+      onClose={() => void closeAfterSave(auto, onClose)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void auto.flush();
+      }}
       width={420}
-      footer={
-        <>
-          <button type="button" className="btn ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button className="btn primary" disabled={saving || next === (project.version_label ?? null)}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </>
-      }
+      footer={<AutosaveFooter auto={auto} onClose={onClose} />}
     >
       <Field label="Label">
         <input
           className="input"
           placeholder="e.g. Post-review"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          value={auto.value.label}
+          onChange={(e) => auto.set({ label: e.target.value })}
+          onBlur={() => void auto.flush()}
         />
       </Field>
-      {error && <div className="status-banner warn">{error}</div>}
     </Drawer>
   );
 }

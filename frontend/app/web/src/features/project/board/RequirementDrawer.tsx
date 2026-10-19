@@ -1,12 +1,15 @@
 // The requirement drawer: opened from a sprint-board card, a backlog or
-// sprint row, or "+ Requirement" on the epic page. Every field, saved
-// together with Save (unlike the epic page's pane, which patches as you
-// go); comments and attachments once the requirement exists. A blank title
-// saves as "Untitled". Ported from the reference app's #drawer
-// (static/js/requirements.js).
+// sprint row, or "+ Requirement" on the epic page. A new requirement is
+// created with its button (a blank title becomes "Untitled"); an existing
+// one saves as you go, like the epic page's pane -- only the fields that
+// changed are sent, so a drag on the board meanwhile is not overwritten.
+// Comments and attachments once the requirement exists. Ported from the
+// reference app's #drawer (static/js/requirements.js).
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { AutosaveFooter, closeAfterSave } from "../../../components/AutosaveStatus";
 import { Drawer, Field } from "../../../components/Drawer";
 import { formatDateTime } from "../../../core/format";
+import { useAutosave } from "../../../core/useAutosave";
 import { AssigneeSelect } from "./AssigneeSelect";
 import { AttachmentsSection } from "./AttachmentsSection";
 import { useBoard } from "./boardData";
@@ -35,9 +38,13 @@ interface RequirementDrawerProps {
   /** The requirement to edit, or null for a new one. */
   requirement: Requirement | null;
   preset?: RequirementPreset;
-  /** Escape, Cancel and the backdrop all land here with unsaved edits dropped; a dialog or lightbox raised over the drawer takes Escape first. */
+  /**
+   * Escape, Close and the backdrop all land here -- for an existing
+   * requirement once any pending edit is saved; a dialog or lightbox raised
+   * over the drawer takes Escape first.
+   */
   onClose: () => void;
-  /** Called with the saved row after Save; onClose follows immediately after, so close-side work runs on every exit. */
+  /** Called with the saved row after a create, and after each save of an edit. */
   onSaved?: (requirement: Requirement) => void;
 }
 
@@ -87,7 +94,7 @@ function DrawerBody({
   // shown, never from a link the form cannot display.
   const shownFeature = (epicId: string | null, featureId: string | null) =>
     epicId && featureId && index.featuresOf(epicId).some((f) => f.id === featureId) ? featureId : null;
-  const [form, setForm] = useState<FormState>(() =>
+  const [initial] = useState<FormState>(() =>
     requirement
       ? {
           title: requirement.title,
@@ -115,7 +122,43 @@ function DrawerBody({
         },
   );
   const [saving, setSaving] = useState(false);
-  const patch = (p: Partial<FormState>) => setForm((f) => ({ ...f, ...p }));
+  // What the server last accepted, so each save sends only what changed.
+  const sentRef = useRef(initial);
+  const auto = useAutosave<FormState>(initial, {
+    enabled: !!requirement && canWrite,
+    validate: (f) => (f.title.trim() ? null : { title: "A requirement needs a title." }),
+    save: async (f) => {
+      if (!requirement) return;
+      const changed: Partial<FormState> = {};
+      for (const key of Object.keys(f) as (keyof FormState)[]) {
+        if (f[key] !== sentRef.current[key]) (changed as Record<string, unknown>)[key] = f[key];
+      }
+      if (changed.title !== undefined) changed.title = changed.title.trim();
+      const saved = await mutations.patchRequirement(requirement.id, {
+        ...changed,
+        epic_id: changed.epic_id ?? undefined,
+        feature_id: changed.feature_id ?? undefined,
+        assignee_id: changed.assignee_id ?? undefined,
+        release_id: changed.release_id ?? undefined,
+        sprint_id: changed.sprint_id ?? undefined,
+        ...("epic_id" in changed && changed.epic_id === null ? { clear_epic: true } : {}),
+        ...("feature_id" in changed && changed.feature_id === null ? { clear_feature: true } : {}),
+        ...("assignee_id" in changed && changed.assignee_id === null ? { clear_assignee: true } : {}),
+        ...("release_id" in changed && changed.release_id === null ? { clear_release: true } : {}),
+        ...("sprint_id" in changed && changed.sprint_id === null ? { clear_sprint: true } : {}),
+      });
+      sentRef.current = f;
+      onSavedRef.current?.(saved);
+    },
+  });
+  const form = auto.value;
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
+  /** Text waits for a pause in typing; a select or the estimate saves at once. */
+  const patch = (p: Partial<FormState>) => auto.set(p, { immediate: true });
+  const type = (p: Partial<FormState>) => auto.set(p);
+  const flush = () => void auto.flush();
+  const close = requirement ? () => void closeAfterSave(auto, onClose) : onClose;
 
   // Escape closes the drawer whichever field holds focus -- a capture-phase
   // listener, as the reference's (static/js/requirements.js), so it runs
@@ -124,8 +167,8 @@ function DrawerBody({
   // closeOnEscape={false} so the two never disagree.
   // Only an open dialog or lightbox pre-empts it: closeOnEscape is false
   // while one is up, and the key is left to it.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const onCloseRef = useRef(close);
+  onCloseRef.current = close;
   const closeOnEscapeRef = useRef(closeOnEscape);
   closeOnEscapeRef.current = closeOnEscape;
   useEffect(() => {
@@ -145,14 +188,15 @@ function DrawerBody({
   const sprints = index.sprints.filter((s) => !s.closed_at || s.id === form.sprint_id);
   const inheritedRelease = epic ? (epic.release_id ? index.releaseById.get(epic.release_id) : null) : undefined;
 
-  const save = async (e: FormEvent) => {
+  const create = async (e: FormEvent) => {
     e.preventDefault();
+    if (requirement) return;
     setSaving(true);
     try {
       const input: RequirementInput = {
         // The reference's server stores a blank title as "Untitled"
         // (backend/main.py); ours refuses one, so the same default is applied
-        // here -- Save is never withheld for want of a title.
+        // here -- Create is never withheld for want of a title.
         title: form.title.trim() || "Untitled",
         body: form.body,
         epic_id: form.epic_id,
@@ -164,20 +208,7 @@ function DrawerBody({
         sprint_id: form.sprint_id,
         estimate_hours: form.estimate_hours,
       };
-      const saved = requirement
-        ? await mutations.patchRequirement(
-            requirement.id,
-            {
-              ...input,
-              clear_epic: input.epic_id === null,
-              clear_feature: input.feature_id === null,
-              clear_assignee: input.assignee_id === null,
-              clear_release: input.release_id === null,
-              clear_sprint: input.sprint_id === null,
-            },
-            { saved: true },
-          )
-        : await mutations.createRequirement(input);
+      const saved = await mutations.createRequirement(input);
       onSaved?.(saved);
       onClose();
     } catch {
@@ -209,8 +240,8 @@ function DrawerBody({
       title={
         requirement ? <IdChip bare of={{ type: "requirement", id: requirement.id }}>{requirement.human_id}</IdChip> : "New requirement"
       }
-      onClose={onClose}
-      onSubmit={canWrite ? save : undefined}
+      onClose={close}
+      onSubmit={canWrite ? (requirement ? (e) => e.preventDefault() : create) : undefined}
       width={560}
       className="board-drawer"
       // Escape is handled above, in the capture phase; the Drawer's own
@@ -219,18 +250,20 @@ function DrawerBody({
       // disagree.
       closeOnEscape={false}
       footer={
-        canWrite ? (
+        canWrite && requirement ? (
           <>
-            {requirement && (
-              <button type="button" className="btn ghost danger" onClick={() => void remove()} style={{ marginRight: "auto" }}>
-                Delete
-              </button>
-            )}
+            <button type="button" className="btn ghost danger" onClick={() => void remove()}>
+              Delete
+            </button>
+            <AutosaveFooter auto={auto} onClose={onClose} />
+          </>
+        ) : canWrite ? (
+          <>
             <button type="button" className="btn ghost" onClick={onClose}>
               Cancel
             </button>
             <button className="btn primary" disabled={saving}>
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : "Create requirement"}
             </button>
           </>
         ) : (
@@ -240,11 +273,25 @@ function DrawerBody({
         )
       }
     >
-      <Field label="Title">
-        <input className="input" value={form.title} disabled={!canWrite} onChange={(e) => patch({ title: e.target.value })} />
+      <Field label="Title" error={auto.fieldErrors.title}>
+        <input
+          className="input"
+          value={form.title}
+          disabled={!canWrite}
+          aria-invalid={!!auto.fieldErrors.title}
+          onChange={(e) => type({ title: e.target.value })}
+          onBlur={flush}
+        />
       </Field>
       <Field label="Description">
-        <textarea className="input textarea" rows={4} value={form.body} disabled={!canWrite} onChange={(e) => patch({ body: e.target.value })} />
+        <textarea
+          className="input textarea"
+          rows={4}
+          value={form.body}
+          disabled={!canWrite}
+          onChange={(e) => type({ body: e.target.value })}
+          onBlur={flush}
+        />
       </Field>
       <div className="rqp-props" style={{ marginTop: 0 }}>
         <div>

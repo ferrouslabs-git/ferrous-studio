@@ -1,10 +1,8 @@
 // Project details: name, description and rationale, with an Edit drawer,
 // followed by the two things filed against the project rather than designed
 // in it -- where it is deployed, and which repository it is built from.
-import { FormEvent, useState } from "react";
-import { Drawer, Field } from "../../components/Drawer";
-import { errorMessage } from "../../core/api";
-import { updateProject } from "../projects/projectsApi";
+import { useState } from "react";
+import { ProjectFormDrawer } from "../projects/ProjectFormDrawer";
 import { BoardTokensSection } from "./BoardTokensSection";
 import { EnvironmentsSection } from "./EnvironmentsSection";
 import { ImportBundleDrawer } from "./ImportBundleDrawer";
@@ -16,43 +14,7 @@ export function ProjectDetailsPage() {
   const { project, orgId, canWrite, reload } = useProject();
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [rationale, setRationale] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const openDrawer = () => {
-    setName(project.name);
-    setDescription(project.description ?? "");
-    setRationale(project.rationale ?? "");
-    setFormError(null);
-    setOpen(true);
-  };
-
-  const unchanged =
-    name.trim() === project.name &&
-    description.trim() === (project.description ?? "") &&
-    rationale.trim() === (project.rationale ?? "");
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setFormError(null);
-    try {
-      await updateProject(project.id, {
-        name: name.trim(),
-        description: description.trim() || null,
-        rationale: rationale.trim() || null,
-      });
-      setOpen(false);
-      await reload();
-    } catch (err) {
-      setFormError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const openDrawer = () => setOpen(true);
 
   const counts = project.counts;
 
@@ -114,34 +76,8 @@ export function ProjectDetailsPage() {
 
       <BoardTokensSection />
 
-      <Drawer
-        open={open}
-        title="Edit project"
-        description="Sections and their contents are unaffected."
-        onClose={() => setOpen(false)}
-        onSubmit={save}
-        footer={
-          <>
-            <button type="button" className="btn ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </button>
-            <button className="btn primary" disabled={saving || !name.trim() || unchanged}>
-              {saving ? "Saving…" : "Save changes"}
-            </button>
-          </>
-        }
-      >
-        <Field label="Name">
-          <input className="input" required value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Description" hint="What the project covers.">
-          <textarea className="input textarea" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
-        </Field>
-        <Field label="Rationale" hint="Why the project exists: the problem, the outcome sought.">
-          <textarea className="input textarea" rows={5} value={rationale} onChange={(e) => setRationale(e.target.value)} />
-        </Field>
-        {formError && <div className="status-banner warn">{formError}</div>}
-      </Drawer>
+      {/* The same drawer the projects list edits with; it saves as you go. */}
+      <ProjectFormDrawer open={open} project={project} onClose={() => setOpen(false)} onSaved={reload} />
     </div>
   );
 }

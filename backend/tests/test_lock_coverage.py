@@ -59,7 +59,10 @@ EXEMPT = {
     "request_approval",
     "set_board_key",
     "create_environment", "set_environment", "reorder_environments", "delete_environment",
-    "create_feedback", "update_feedback", "delete_feedback",
+    "create_feedback", "update_feedback", "delete_feedback", "create_requirement_from_feedback",
+    # Maintenance contracts are what the live product is supported under --
+    # board state like the reports they pay for, not part of a design version.
+    "create_maintenance_contract", "update_maintenance_contract", "delete_maintenance_contract",
     "request_attachment_upload", "confirm_attachment_upload", "delete_attachment",
     "create_board_token", "revoke_board_token_route", "queue_agent_run_route",
     "create_agent_route", "update_agent_route", "delete_agent_route",

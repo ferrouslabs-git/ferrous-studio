@@ -11,6 +11,9 @@ There are exactly two sets, and they answer different questions:
   non-linear: a sprint may go back to ``ToTest`` after ``DeployedToUAT``
   without anything objecting.
 
+Feedback reports carry a third, support-desk vocabulary of their own
+(``FEEDBACK_STATUSES``); nothing rolls up from or into it.
+
 Values are stored in the space-free form (``NotStarted``) and labelled for
 display (``"Not started"``), the convention ``Epic.status`` already used
 for ``ReleasedToUAT``. The stored form is what CSS class names and event
@@ -23,6 +26,10 @@ __all__ = [
     "WORK_STATUS_LABEL",
     "DELIVERY_STATUSES",
     "DELIVERY_STATUS_LABEL",
+    "FEEDBACK_STATUSES",
+    "FEEDBACK_STATUS_LABEL",
+    "LEGACY_FEEDBACK_STATUS",
+    "CLOSED_FEEDBACK_STATUSES",
     "STATUS_WEIGHTS",
     "status_weight",
     "roll_up_status",
@@ -61,6 +68,47 @@ DELIVERY_STATUS_LABEL = {
     "DeployedToStaging": "Deployed to Staging",
     "DeployedToLive": "Deployed to Live",
 }
+
+#: Where a feedback report has got to (FS-REQ-53, f5c2a8d1e937). A third
+#: vocabulary, separate from the two above because it answers a support
+#: desk's question -- has the client agreed the estimate, is it parked, was it
+#: not a bug at all -- rather than a delivery team's. Display order is the
+#: order a report usually moves through.
+FEEDBACK_STATUSES = (
+    "New",
+    "EstimatedToConfirm",
+    "OnHold",
+    "NotABug",
+    "Confirmed",
+    "InProgress",
+    "Resolved",
+)
+
+FEEDBACK_STATUS_LABEL = {
+    "New": "New",
+    "EstimatedToConfirm": "Estimated – to confirm",
+    "OnHold": "On hold – fix later",
+    "NotABug": "Not a bug, added to backlog",
+    "Confirmed": "Confirmed, not started",
+    "InProgress": "Fix in progress",
+    "Resolved": "Resolved",
+}
+
+#: How the five pre-FS-REQ-53 statuses map on. Used by the migration and
+#: pinned by tests/test_feedback.py. Triaged (looked at, no decision yet) is
+#: the step before agreement, which is now "estimated, to confirm"; Accepted
+#: is agreed but not started; Declined is the one closed-without-a-fix outcome
+#: the new set has; Done is Resolved.
+LEGACY_FEEDBACK_STATUS = {
+    "New": "New",
+    "Triaged": "EstimatedToConfirm",
+    "Accepted": "Confirmed",
+    "Declined": "NotABug",
+    "Done": "Resolved",
+}
+
+#: Statuses that close a report -- out of the default "open" queue.
+CLOSED_FEEDBACK_STATUSES = ("NotABug", "Resolved")
 
 #: Status-weighted score: Done = 1, ToTest = 0.75 (implemented, awaiting a
 #: human's approval), InProgress = 0.5, anything else 0. Mirrored exactly by

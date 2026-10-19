@@ -171,12 +171,14 @@ DataKind = Literal[
 ]
 
 DatasetValues = Annotated[list[Annotated[str, Field(max_length=500)]], Field(max_length=200)]
+DatasetTerms = Annotated[list[Annotated[str, Field(min_length=1, max_length=120)]], Field(max_length=50)]
 
 
 class DatasetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     kind: DataKind = "text"
     values: DatasetValues = []
+    match_terms: DatasetTerms = []
     pos: str | None = Field(None, min_length=1, max_length=64)
 
 
@@ -184,6 +186,7 @@ class DatasetUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     kind: DataKind | None = None
     values: DatasetValues | None = None
+    match_terms: DatasetTerms | None = None
     pos: str | None = Field(None, min_length=1, max_length=64)
 
 
@@ -194,6 +197,7 @@ class DatasetRead(BaseModel):
     name: str
     kind: str
     values: list[str]
+    match_terms: list[str] = []
     pos: str
     created_at: datetime
     updated_at: datetime

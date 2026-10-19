@@ -34,6 +34,7 @@ const sprint = (o: Partial<Sprint> & { id: string; human_id: string }): Sprint =
   ...o,
 });
 const req = (o: Partial<Requirement> & { id: string; human_id: string }): Requirement => ({
+  feedback_id: null,
   title: o.id,
   body: "",
   epic_id: null,

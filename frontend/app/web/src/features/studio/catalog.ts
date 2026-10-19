@@ -24,15 +24,41 @@ export type DataKind = (typeof DATA_KINDS)[number];
  *  built-in icon picker + image upload (stored as an icon name, a data URL,
  *  or "none"); `image` is a plain image upload (stored as a data URL);
  *  `dataset` binds the element to a reusable value list (stored as the
- *  dataset's id) — the Inspector renders all three specially. */
+ *  dataset's id); `images` is several uploads (stored as a JSON array of
+ *  data URLs — see imageList) — the Inspector renders these specially. */
 export interface DataFieldMeta {
   key: string;
   label: string;
-  kind: "text" | "select" | "logo" | "image" | "dataset";
+  kind: "text" | "select" | "logo" | "image" | "dataset" | "images";
   options?: readonly string[];
   /** dataset fields only: the manual text field this binding replaces
    *  (hidden in the Inspector while a dataset is chosen). */
   supersedes?: string;
+  /** Offered only while the element's `data.kind` is one of these; absent
+   *  means always. */
+  forKinds?: readonly string[];
+  /** Other fields hidden while this one is offered (an image column has no
+   *  use for sample text or a dataset). */
+  replaces?: readonly string[];
+}
+
+/** An `images` field's stored value as a list of image URLs. Stored as a
+ *  JSON array (data URLs contain commas, so comma-separated text cannot
+ *  hold them); an imported bundle may carry a real array or a lone URL. */
+export function imageList(v: unknown): string[] {
+  const keep = (a: unknown[]): string[] => a.map((s) => String(s ?? "").trim()).filter(Boolean);
+  if (Array.isArray(v)) return keep(v);
+  const s = String(v ?? "").trim();
+  if (!s) return [];
+  if (s.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(s);
+      return Array.isArray(parsed) ? keep(parsed) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [s];
 }
 
 /** The built-in logo marks a brand element can use (drawn in Schematic). */
@@ -125,6 +151,17 @@ const BRAND = el({
   defaultLabel: "Acme", max: 1,
 });
 const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item", blankRemoves: true });
+/** A nav item nested under an item before it (FS-REQ-64), up to five levels
+ *  deep: its level (2–5) puts it under the nearest earlier item of a lower
+ *  level. A side rail draws the tree as nested accordions, a top bar as the
+ *  parent's dropdown. A parent with no link of its own follows its first
+ *  linked descendant. */
+export const NAV_LEVELS = ["2", "3", "4", "5"] as const;
+const NAV_SUB_ITEM = el({
+  type: "nav-sub-item", label: "Sub-item", desc: "A destination nested under an item before it", icon: "NS",
+  dataFields: [{ key: "level", label: "Level", kind: "select", options: NAV_LEVELS }],
+  defaultLabel: "Sub-item", defaultData: { level: "2" }, blankRemoves: true,
+});
 const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
 const SEARCH = el({ type: "search", label: "Search box", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1, shapeable: true, fillable: true, defaultFill: "outline" });
 const BUTTON = el({
@@ -156,6 +193,8 @@ const COLUMN = el({
     { key: "kind", label: "Data kind", kind: "select", options: DATA_KINDS },
     { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "samples" },
     { key: "samples", label: "Sample values", kind: "text" },
+    // An image column's pictures (FS-REQ-70): row i shows image i mod n.
+    { key: "images", label: "Images", kind: "images", forKinds: ["image"], replaces: ["dataset", "samples"] },
   ],
   defaultLabel: "Column", defaultData: { kind: "text" },
 });
@@ -256,7 +295,10 @@ const DATE_PICKER = el({
  *  value set elsewhere. The label is the field name; `value` is what it reads. */
 const READ_ONLY = el({
   type: "read-only", label: "Read-only field", desc: "A value shown but not editable", icon: "RO",
-  dataFields: [{ key: "value", label: "Value", kind: "text" }],
+  dataFields: [
+    { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "value" },
+    { key: "value", label: "Value", kind: "text" },
+  ],
   defaultLabel: "Reference", defaultData: { value: "REF-00421" },
 });
 const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", shapeable: true, fillable: true, defaultFill: "outline" });
@@ -414,7 +456,7 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
     defaultLayout: "horizontal",
     // SELECT is the bar's dropdown: an environment/team/filter picker showing
     // its first option as the chosen value (see Schematic's ui-nav-select).
-    elements: [BRAND, NAV_ITEM, GROUP_HEADING, SEARCH, SELECT, BUTTON, AVATAR, WORKSPACE, DIVIDER],
+    elements: [BRAND, NAV_ITEM, NAV_SUB_ITEM, GROUP_HEADING, SEARCH, SELECT, BUTTON, AVATAR, WORKSPACE, DIVIDER],
     defaultElements: [
       { type: "brand" },
       { type: "nav-item", label: "Overview" },
