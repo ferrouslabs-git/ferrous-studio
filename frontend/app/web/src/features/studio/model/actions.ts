@@ -10,7 +10,7 @@
 // child node (ElementNode) is addressed by the key `el:<id>` with a null
 // index; a scalar prop token (the brand text, a heading) by its prop key.
 // Selection, Inspector editing and link targets all use this addressing.
-import { ComponentSeed, COMPONENTS, elementDefaultData, ElementSeed, elementMeta, isMultiFilter, navAlign, PATTERNS, PatternTemplate } from "../catalog";
+import { ComponentSeed, COMPONENTS, elementDefaultData, ElementSeed, elementMeta, isMultiPick, navAlign, PATTERNS, PatternTemplate } from "../catalog";
 import { PageLike } from "./applyOps";
 import { DatasetRef, suggestDataset } from "./datasetMatch";
 import { byPos, posAfterLast, posAtIndex, posBetween, reposition } from "./positions";
@@ -763,7 +763,7 @@ export function setElementData(draft: Draft, _ctx: ActionContext, cmpId: string,
 /** Data every element type understands: free placement, size, styling and
  *  nav-bar zone. These survive a type change; everything else must be a
  *  data field (or flag) of the new type. */
-const PORTABLE_DATA_KEYS = new Set(["x", "y", "w", "h", "fontSize", "bg", "fg", "font", "caps", "align"]);
+const PORTABLE_DATA_KEYS = new Set(["x", "y", "w", "h", "fontSize", "bg", "fg", "font", "caps", "align", "span"]);
 
 /** The element types `elementId` could become in its component: the host's
  *  whole vocabulary minus its own type and any type already at its `max`. */
@@ -825,7 +825,7 @@ export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, 
   const superseded = data.dataset ? to.dataFields.find((f) => f.kind === "dataset")?.supersedes : undefined;
   for (const [key, value] of Object.entries(elementDefaultData(cmp.type, type))) if (key !== superseded) data[key] ??= value;
   // A multi-select becoming a single-select keeps its first pick only.
-  if (isMultiFilter(element.type) && !isMultiFilter(type) && data.selected) {
+  if (isMultiPick(element.type) && !isMultiPick(type) && data.selected) {
     const firstPick = data.selected.split(",")[0].trim();
     if (firstPick) data.selected = firstPick;
     else delete data.selected;
@@ -860,6 +860,12 @@ export function setElementSize(draft: Draft, _ctx: ActionContext, cmpId: string,
   const element = cmp ? findElement(cmp, elementId) : null;
   if (!element) return;
   const data = (element.data ??= {});
+  // 0 × 0 clears the size: the element fits its content again.
+  if (w <= 0 && h <= 0) {
+    delete data.w;
+    delete data.h;
+    return;
+  }
   data.w = String(Math.max(40, Math.round(w)));
   data.h = String(Math.max(24, Math.round(h)));
 }

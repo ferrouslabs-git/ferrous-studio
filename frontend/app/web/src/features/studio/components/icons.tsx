@@ -110,6 +110,7 @@ export const LIB_ICONS: Record<string, ReactNode> = {
   // Form elements
   "text-input": navSvg(<><rect x="2" y="4.75" width="12" height="6.5" rx="1.25" /><path d="M4.75 7v2" /></>),
   "text-area": navSvg(<><rect x="2" y="3" width="12" height="10" rx="1.25" /><path d="M4.5 6h7M4.5 8.5h4.5" /></>),
+  "multi-select": navSvg(<><rect x="2" y="4.75" width="12" height="6.5" rx="1.25" /><path d="m4 8 1 1 2-2M11 7l1 1 1-1" /></>),
   "radio-group": navSvg(<><circle cx="4.75" cy="5" r="2" /><circle cx="4.75" cy="5" r=".4" /><path d="M9.5 5H14M9.5 11H14" /><circle cx="4.75" cy="11" r="2" /></>),
   checkbox: navSvg(<><rect x="2.75" y="2.75" width="10.5" height="10.5" rx="2" /><path d="m5.25 8.25 2 2L11 6" /></>),
   toggle: navSvg(<><rect x="2" y="4.75" width="12" height="6.5" rx="3.25" /><circle cx="10.75" cy="8" r="1.9" /></>),

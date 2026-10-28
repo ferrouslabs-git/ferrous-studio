@@ -29,6 +29,7 @@ const SHORT_NAMES: Record<string, string> = {
   "read-only": "Read-only",
   pagination: "Pages",
   "text-input": "Input",
+  "multi-select": "Multi-select",
   "radio-group": "Radio",
   "date-picker": "Date",
   "file-upload": "Upload",

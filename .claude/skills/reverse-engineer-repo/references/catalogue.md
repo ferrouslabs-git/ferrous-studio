@@ -44,8 +44,11 @@ Anything that collects input and submits it.
 - **shapes**: `simple`, `sections`, `wizard`, `inline`
 - **layouts**: `one-column`, `two-column`, `horizontal`
 - **elements**: `header`, `text-input`, `text-area`, `select`,
-  `radio-group`, `checkbox`, `toggle`, `date-picker`, `file-upload`,
-  `section-heading`, `step`, `help-text`, `button`
+  `multi-select`, `radio-group`, `checkbox`, `toggle`, `date-picker`,
+  `file-upload`, `section-heading`, `step`, `help-text`, `button`
+- a field may set `data.span` (`full`, `three-quarters`, `two-thirds`,
+  `half`, `third`, `quarter`) to vary how many fields share a row; a
+  button may set `data.w`/`data.h` in px
 
 Use it for: a create/edit form, a settings page, a multi-step wizard
 (`shape: wizard` + `step` elements), a login form. The submit and cancel

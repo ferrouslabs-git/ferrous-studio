@@ -245,6 +245,12 @@ describe("element CRUD", () => {
     expect(box.data!.x).toBe("16"); // position untouched
   });
 
+  it("setElementSize 0 × 0 clears the size so the element fits its content (FS-REQ-73)", () => {
+    const p = page([{ id: "f", type: "form", label: "Form", pos: "a0", shape: "simple", elements: [el("b", "button", "Save", "a0", { w: "180", h: "40", style: "primary" })] }]);
+    setElementSize(p, ctx, "f", "b", 0, 0);
+    expect(listOf(p)[0].elements![0].data).toEqual({ style: "primary" });
+  });
+
   it("setElementLink keeps the linked element selected, not its component", () => {
     const p = page([navbar()]);
     const result = setElementLink(p, ctx, "n", elKey("e2"), null, { pageId: "p1" });
@@ -368,6 +374,18 @@ describe("element type change", () => {
     // kind comes from the new type's defaults; fill and bg carry over.
     expect(e.data).toEqual({ kind: "text", fill: "ghost", bg: "#ffeeee" });
     expect(elementLink(listOf(p)[0], "el:e1", null)).toEqual({ pageId: "p2" });
+  });
+
+  it("a multi-select becoming a dropdown keeps its first pick (FS-REQ-76)", () => {
+    const p = form([el("e1", "multi-select", "Tags", "a0", { options: "A, B, C", selected: "B, C" })]);
+    setElementType(p, ctx, "f", "e1", "select");
+    expect(listOf(p)[0].elements![0].data).toMatchObject({ options: "A, B, C", selected: "B" });
+  });
+
+  it("a field keeps its width through a type change (FS-REQ-74)", () => {
+    const p = form([el("e1", "text-input", "Town", "a0", { kind: "text", span: "third" })]);
+    setElementType(p, ctx, "f", "e1", "select");
+    expect(listOf(p)[0].elements![0].data!.span).toBe("third");
   });
 
   it("carries a select value only when the new type offers it", () => {
