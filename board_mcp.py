@@ -337,7 +337,7 @@ def update_requirement(
     status: str | None = None, priority: str | None = None,
     epic_id: str | None = None, feature_id: str | None = None,
     release_id: str | None = None, sprint_id: str | None = None,
-    queue_position: int | None = None,
+    queue_position: int | None = None, clear: list[str] | None = None,
 ) -> dict:
     """status: NotStarted | InProgress | ToTest | Done | Blocked. Moving
     into Blocked records which of the three in-flight stages to return to
@@ -353,12 +353,25 @@ def update_requirement(
 
     queue_position: the requirement's position within its sprint's work
     order (lower first; unordered ones sort last). It cannot be cleared via
-    this tool -- moving the requirement to another sprint clears it."""
-    return _call("PATCH", f"/requirements/{requirement_id}", _patch_of(
+    this tool -- moving the requirement to another sprint clears it.
+
+    clear: links to remove, any of sprint | release | epic | feature |
+    assignee -- e.g. ["sprint", "release"] takes it out of both. Omitting
+    an id never clears it; this is the only way to."""
+    unknown = sorted(set(clear or ()) - _CLEARABLE)
+    if unknown:
+        raise RuntimeError(f"clear takes {sorted(_CLEARABLE)}, not {unknown}")
+    patch = _patch_of(
         title=title, body=body, status=status, priority=priority,
         epic_id=epic_id, feature_id=feature_id, release_id=release_id, sprint_id=sprint_id,
         queue_position=queue_position,
-    ))
+    )
+    patch.update({f"clear_{name}": True for name in clear or ()})
+    return _call("PATCH", f"/requirements/{requirement_id}", patch)
+
+
+#: The links update_requirement can remove (the API's clear_<name> flags).
+_CLEARABLE = {"sprint", "release", "epic", "feature", "assignee"}
 
 
 @mcp.tool()
@@ -446,7 +459,8 @@ def get_approval(approval_id: str) -> dict:
 # actual spec ("see image"), so an agent must be able to look at them, not
 # just their names. The file bytes live in S3: the API hands out a short-lived
 # presigned URL, fetched here without the board token (the URL is the
-# credential). Read-only by design, like every other file-shaped thing here.
+# credential). add_attachment is the one write: an agent's evidence (a test
+# report, a screenshot) belongs on the item it proves.
 
 #: Largest file returned inline to the model. Anything bigger is still saved
 #: to disk, and the result says where.
@@ -509,9 +523,49 @@ def get_attachment(attachment_id: str, entity_type: str, entity_id: str):
         return [summary]
     if ctype.startswith("image/"):
         return [summary, ImageContent(type="image", data=base64.b64encode(data).decode(), mimeType=ctype)]
-    if ctype.startswith(_TEXT_TYPES) or ctype in _TEXT_TYPES:
+    # An HTML file is a page for a person (usually a multi-MB test report), not
+    # text worth reading token by token: the saved path is enough.
+    if ctype != "text/html" and (ctype.startswith(_TEXT_TYPES) or ctype in _TEXT_TYPES):
         return [summary, TextContent(type="text", text=data.decode("utf-8", errors="replace"))]
     return [summary]
+
+
+#: What add_attachment sends for each extension the board accepts.
+_UPLOAD_TYPES = {
+    "html": "text/html", "htm": "text/html", "json": "application/json",
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+@mcp.tool()
+def add_attachment(entity_type: str, entity_id: str, file_path: str) -> dict:
+    """Attach a local file to an item -- e.g. the HTML test report proving a
+    requirement works. entity_type: release | epic | feature | requirement |
+    doc | comment (only your own comments). Same id rule as list_comments.
+
+    file_path: absolute path. Accepted: .html .json .png .jpg .pdf .txt .md
+    .docx, up to 25 MB. Returns the attachment (id, filename, size). People
+    download it from the item; nothing is rendered inside the studio."""
+    name = os.path.basename(file_path)
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext not in _UPLOAD_TYPES:
+        raise RuntimeError(f"{name}: the board takes {', '.join('.' + e for e in sorted(_UPLOAD_TYPES))}")
+    with open(file_path, "rb") as f:
+        data = f.read()
+    ticket = _call("POST", "/attachments", {
+        "entity_type": entity_type, "entity_id": entity_id, "filename": name,
+        "content_type": _UPLOAD_TYPES[ext], "size_bytes": len(data),
+    })
+    # The presigned URL is the credential: no board token on this request.
+    put = urllib.request.Request(ticket["upload_url"], data=data, method="PUT", headers=ticket.get("headers") or {})
+    try:
+        with urllib.request.urlopen(put, timeout=120):
+            pass
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"upload to storage -> HTTP {e.code}: {e.read().decode(errors='replace')[:300]}") from None
+    return _call("POST", f"/attachments/{ticket['attachment_id']}/confirm")
 
 
 # ── Wireframes & diagrams ───────────────────────────────────────────────────

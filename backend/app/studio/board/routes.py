@@ -26,7 +26,7 @@ from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
 from .. import slack_client, storage
-from ..common import get_project, require_studio_permission as require_permission
+from ..common import get_project, require_any_studio_permission, require_studio_permission as require_permission
 from ..documents import ALLOWED_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
 from . import service
@@ -2464,6 +2464,17 @@ async def list_events(
 #: client can decode and draw.
 SCREENSHOT_TYPES = {"image/png", "image/jpeg"}
 
+#: Board attachments also take an agent's test evidence: a self-contained HTML
+#: report, or the JSON behind it. Safe to store because downloads are always
+#: forced as a file (presign_get), never rendered on the studio's origin.
+#: Board-only, like documents.py's EXTRA_TYPES: the Documents tab is unchanged.
+BOARD_EXTRA_TYPES: dict[str, tuple[str, set[str]]] = {
+    "html": ("text/html", {"text/html", ""}),
+    "htm": ("text/html", {"text/html", ""}),
+    "json": ("application/json", {"application/json", "text/json", "text/plain", ""}),
+}
+ATTACHMENT_TYPES = {**ALLOWED_TYPES, **BOARD_EXTRA_TYPES}
+
 
 def _attachment_key(account_id: UUID, board_id: UUID, attachment_id: UUID, filename: str) -> str:
     return f"board-attachments/{account_id}/{board_id}/{attachment_id}/{filename}"
@@ -2557,7 +2568,7 @@ async def list_attachments(
 async def request_attachment_upload(
     project_id: UUID,
     payload: AttachmentUploadRequest,
-    ctx: ScopeContext = Depends(require_any_permission(["board:write", "feedback:create"])),
+    ctx: ScopeContext = Depends(require_any_studio_permission(["board:write", "feedback:create"])),
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentUploadTicket:
     _require_bucket()
@@ -2579,7 +2590,7 @@ async def request_attachment_upload(
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
 
     ext = payload.filename.rsplit(".", 1)[-1].lower() if "." in payload.filename else ""
-    canonical = ALLOWED_TYPES.get(ext)
+    canonical = ATTACHMENT_TYPES.get(ext)
     if canonical is None or payload.content_type not in canonical[1]:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File type not allowed")
     if payload.entity_type == "feedback" and canonical[0] not in SCREENSHOT_TYPES:
@@ -2620,7 +2631,7 @@ async def request_attachment_upload(
 async def confirm_attachment_upload(
     project_id: UUID,
     attachment_id: UUID,
-    ctx: ScopeContext = Depends(require_any_permission(["board:write", "feedback:create"])),
+    ctx: ScopeContext = Depends(require_any_studio_permission(["board:write", "feedback:create"])),
     db: AsyncSession = Depends(get_db),
 ) -> Attachment:
     _require_bucket()
