@@ -239,6 +239,25 @@ def test_open_is_inline_on_the_bucket_host(signer):
     assert urlparse(url).hostname.startswith("studio-docs.s3.")
 
 
+@pytest.mark.parametrize("content_type", ["image/svg+xml", "application/json", "image/png"])
+def test_only_html_opens_inline(monkeypatch, content_type):
+    """Open is for an HTML report; anything else asked for inline is refused
+    rather than served to render on the bucket's host."""
+    attachment = SimpleNamespace(status="uploaded", content_type=content_type, s3_key="k/f", filename="f")
+
+    async def fake(*_a, **_k):
+        return attachment
+
+    monkeypatch.setattr(routes, "_require_bucket", lambda: None)
+    monkeypatch.setattr(routes, "get_project", fake)
+    monkeypatch.setattr(routes, "_board", fake)
+    monkeypatch.setattr(routes, "_get_attachment", fake)
+    monkeypatch.setattr(storage, "presign_get", lambda *a, **k: pytest.fail("presigned a non-HTML inline URL"))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(routes.download_attachment(uuid4(), uuid4(), inline=True, ctx=None, db=None))
+    assert exc.value.status_code == 422
+
+
 # ── The board tool ───────────────────────────────────────────────────────
 
 

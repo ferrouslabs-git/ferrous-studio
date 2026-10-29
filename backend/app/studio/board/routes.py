@@ -2738,6 +2738,10 @@ async def download_attachment(
     attachment = await _get_attachment(db, board, attachment_id)
     if attachment.status != "uploaded":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+    # Inline only for what "Open" is for -- an HTML report. Everything else
+    # (an uploaded SVG included) stays a forced download.
+    if inline and attachment.content_type != "text/html":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only HTML attachments open inline")
     url = storage.presign_get(
         attachment.s3_key, attachment.filename, PRESIGN_TTL_SECONDS,
         inline_as=attachment.content_type if inline else None,
