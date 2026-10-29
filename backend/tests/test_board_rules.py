@@ -350,6 +350,26 @@ def test_only_a_comments_author_adds_or_removes_its_files():
     assert 'attachment.entity_type == "comment"' in remove and "_is_comment_author(" in remove
 
 
+def test_agents_can_attach_files_with_a_board_token():
+    """An agent attaches its evidence (a test report) to the item it proves,
+    so the upload and its confirm accept a board token, not only a login."""
+    for route in (routes.request_attachment_upload, routes.confirm_attachment_upload):
+        assert "require_any_studio_permission(" in inspect.getsource(route)
+
+
+def test_board_attachments_take_reports_but_documents_do_not():
+    """HTML and JSON are board-only: the Documents tab's types are unchanged,
+    and a report (feedback) still takes screenshots only."""
+    from app.studio.documents import ALLOWED_TYPES
+
+    assert routes.ATTACHMENT_TYPES["html"][0] == "text/html"
+    assert routes.ATTACHMENT_TYPES["json"][0] == "application/json"
+    assert "html" not in ALLOWED_TYPES and "json" not in ALLOWED_TYPES
+    assert "text/html" not in routes.SCREENSHOT_TYPES
+    upload = inspect.getsource(routes.request_attachment_upload)
+    assert "ATTACHMENT_TYPES.get(ext)" in upload and "canonical[0] not in SCREENSHOT_TYPES" in upload
+
+
 def test_deleting_a_comment_takes_its_files_with_it():
     source = inspect.getsource(routes.delete_comment)
     assert 'Attachment.entity_type == "comment"' in source and "deleted_at=comment.deleted_at" in source

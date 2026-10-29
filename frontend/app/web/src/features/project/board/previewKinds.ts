@@ -78,6 +78,9 @@ export function previewKindFor(a: Pick<BoardAttachment, "filename" | "content_ty
   if (ct === "application/pdf") return "pdf";
   if (ct === EXT_MIME.docx) return "docx";
   if (ct === EXT_MIME.xlsx || ct === EXT_MIME.xls) return "xlsx";
+  // An uploaded HTML file (an agent's test report) is a page to open, not
+  // source to read -- and never rendered on our origin.
+  if (ct === "text/html") return null;
   if (ct.startsWith("text/") || /^application\/(json|xml|.*\+xml|x-yaml|yaml|javascript|x-sh|sql)$/.test(ct)) return "text";
   return null;
 }

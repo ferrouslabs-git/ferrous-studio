@@ -168,6 +168,22 @@ def require_studio_permission(permission: str) -> Callable:
     ones -- get_project's own board_id check above is what actually keeps a
     token confined to the one project it was minted for.
     """
+    return require_any_studio_permission([permission])
+
+
+def require_any_studio_permission(permissions: list[str]) -> Callable:
+    """``require_studio_permission`` for a route that admits any one of several
+    permissions (``app.auth.security.require_any_permission``, which is
+    Cognito-only, with the board-token path added).
+    """
+    detail = (
+        f"Access denied. Required permission: {permissions[0]}"
+        if len(permissions) == 1
+        else f"Access denied. Required one of: {', '.join(permissions)}"
+    )
+
+    def deny() -> HTTPException:
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
     async def checker(
         request: Request,
@@ -180,11 +196,8 @@ def require_studio_permission(permission: str) -> Callable:
 
         if raw.startswith(TOKEN_PREFIX):
             ctx, token = await require_board_token(authorization=authorization, db=db)
-            if not ctx.has_permission(permission):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Access denied. Required permission: {permission}",
-                )
+            if not any(ctx.has_permission(p) for p in permissions):
+                raise deny()
             ctx.board_id = token.board_id
             ctx.board_token_id = token.id
             return ctx
@@ -198,11 +211,8 @@ def require_studio_permission(permission: str) -> Callable:
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=raw) if raw else None
         current_user = await get_current_user(credentials=credentials, db=db)
         ctx = await get_scope_context(request=request, current_user=current_user, db=db)
-        if not ctx.has_permission(permission):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied. Required permission: {permission}",
-            )
+        if not any(ctx.has_permission(p) for p in permissions):
+            raise deny()
         return ctx
 
     return checker
