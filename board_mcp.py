@@ -421,10 +421,20 @@ def list_comments(entity_type: str, entity_id: str) -> dict:
 
 
 @mcp.tool()
-def create_comment(entity_type: str, entity_id: str, body: str) -> dict:
+def create_comment(entity_type: str, entity_id: str, body: str, file_paths: list[str] | None = None) -> dict:
     """Same entity_type/entity_id rule as list_comments -- a real id of
-    that type, resolved first, never invented."""
-    return _call("POST", "/comments", {"entity_type": entity_type, "entity_id": entity_id, "body": body})
+    that type, resolved first, never invented.
+
+    file_paths: optional local files to attach to the new comment in the same
+    call -- e.g. the closing comment and its HTML test report. Same types and
+    limit as add_attachment. Each file is checked before the comment is
+    posted; the result's `attachments` lists what was uploaded."""
+    for path in file_paths or []:
+        _check_upload(path)
+    comment = _call("POST", "/comments", {"entity_type": entity_type, "entity_id": entity_id, "body": body})
+    if file_paths:
+        comment["attachments"] = [_upload("comment", comment["id"], p) for p in file_paths]
+    return comment
 
 
 # ── Approvals ────────────────────────────────────────────────────────────
@@ -478,7 +488,7 @@ def _attachment_dir() -> str:
 @mcp.tool()
 def list_attachments(entity_type: str, entity_id: str) -> dict:
     """Files attached directly to one item. entity_type: release | epic |
-    feature | requirement | doc | feedback | comment. Same id rule as
+    feature | requirement | sprint | doc | feedback | comment. Same id rule as
     list_comments -- a real id of that type, resolved first, never invented.
 
     A requirement's screenshots are often on its comments rather than on the
@@ -530,42 +540,89 @@ def get_attachment(attachment_id: str, entity_type: str, entity_id: str):
     return [summary]
 
 
-#: What add_attachment sends for each extension the board accepts.
+#: What add_attachment can upload, by extension -- the type the server
+#: expects for each (app/studio/board/routes.py's ATTACHMENT_TYPES).
 _UPLOAD_TYPES = {
     "html": "text/html", "htm": "text/html", "json": "application/json",
-    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-    "pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown",
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "pdf": "application/pdf",
+    "txt": "text/plain", "md": "text/markdown",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+_UPLOAD_MAX_BYTES = 25 * 1024 * 1024
+
+
+def _check_upload(file_path: str) -> tuple[str, str, str, int]:
+    """(path, filename, content type, size) for a file add_attachment can
+    upload, or a ValueError saying why not -- before anything is sent."""
+    path = os.path.expanduser(file_path)
+    if not os.path.isfile(path):
+        raise ValueError(f"No file at {file_path}")
+    filename = os.path.basename(path)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_type = _UPLOAD_TYPES.get(ext)
+    if content_type is None:
+        raise ValueError(f"Cannot attach .{ext or '(none)'} files; allowed: {', '.join('.' + e for e in _UPLOAD_TYPES)}")
+    size = os.path.getsize(path)
+    if size == 0:
+        raise ValueError(f"{filename} is empty")
+    if size > _UPLOAD_MAX_BYTES:
+        raise ValueError(f"{filename} is {size / (1024 * 1024):.1f} MB; the limit is 25 MB per file")
+    return path, filename, content_type, size
+
+
+def _put_presigned(url: str, data: bytes, headers: dict) -> None:
+    """PUT the bytes straight to S3. No board token: the URL is the credential."""
+    req = urllib.request.Request(url, data=data, method="PUT")
+    for k, v in headers.items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=120):
+            pass
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Upload to storage failed: HTTP {e.code}: {e.read().decode(errors='replace')[:300]}") from None
 
 
 @mcp.tool()
-def add_attachment(entity_type: str, entity_id: str, file_path: str) -> dict:
-    """Attach a local file to an item -- e.g. the HTML test report proving a
-    requirement works. entity_type: release | epic | feature | requirement |
-    doc | comment (only your own comments). Same id rule as list_comments.
+def add_attachment(entity_type: str, entity_id: str, file_path: str, description: str = "") -> dict:
+    """Attach a local file to a board item. entity_type: release | epic |
+    feature | requirement | sprint | doc | comment. Same id rule as
+    list_comments -- a real id of that type, resolved first, never invented.
+    A comment takes files only from whoever wrote it, so attach to a comment
+    this token created (create_comment's file_paths does both in one go).
 
-    file_path: absolute path. Accepted: .html .json .png .jpg .pdf .txt .md
-    .docx, up to 25 MB. Returns the attachment (id, filename, size). People
-    download it from the item; nothing is rendered inside the studio."""
-    name = os.path.basename(file_path)
-    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-    if ext not in _UPLOAD_TYPES:
-        raise RuntimeError(f"{name}: the board takes {', '.join('.' + e for e in sorted(_UPLOAD_TYPES))}")
-    with open(file_path, "rb") as f:
+    Allowed: .html, .json, .png, .jpg/.jpeg, .pdf, .txt, .md, .docx; at most
+    25 MB. The file is uploaded under your agent's name; deleting it is left
+    to a person. HTML is never rendered inside Studio -- people open it in a
+    separate tab from storage.
+
+    description: an optional line saying what the file is, shown beside it.
+
+    Returns the attachment's id, filename, type and size, plus a short-lived
+    download_url."""
+    return _upload(entity_type, entity_id, file_path, description)
+
+
+def _upload(entity_type: str, entity_id: str, file_path: str, description: str = "") -> dict:
+    """Ticket, PUT to S3, confirm -- the same three steps as the app's own
+    uploads (frontend attachmentsApi.ts's uploadAttachment)."""
+    path, filename, content_type, size = _check_upload(file_path)
+    with open(path, "rb") as f:
         data = f.read()
+
     ticket = _call("POST", "/attachments", {
-        "entity_type": entity_type, "entity_id": entity_id, "filename": name,
-        "content_type": _UPLOAD_TYPES[ext], "size_bytes": len(data),
+        "entity_type": entity_type, "entity_id": entity_id,
+        "filename": filename, "content_type": content_type, "size_bytes": size,
+        "description": description.strip(),
     })
-    # The presigned URL is the credential: no board token on this request.
-    put = urllib.request.Request(ticket["upload_url"], data=data, method="PUT", headers=ticket.get("headers") or {})
-    try:
-        with urllib.request.urlopen(put, timeout=120):
-            pass
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"upload to storage -> HTTP {e.code}: {e.read().decode(errors='replace')[:300]}") from None
-    return _call("POST", f"/attachments/{ticket['attachment_id']}/confirm")
+    _put_presigned(ticket["upload_url"], data, ticket.get("headers") or {"Content-Type": content_type})
+    attachment = _call("POST", f"/attachments/{ticket['attachment_id']}/confirm", {})
+    download = _call("GET", f"/attachments/{attachment['id']}/download")
+    return {
+        "id": attachment["id"], "filename": attachment["filename"],
+        "content_type": attachment["content_type"], "size_bytes": attachment["size_bytes"],
+        "description": attachment.get("description") or "",
+        "download_url": download["url"],
+    }
 
 
 # ── Wireframes & diagrams ───────────────────────────────────────────────────

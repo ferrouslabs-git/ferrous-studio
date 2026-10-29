@@ -28,7 +28,7 @@ import {
 import { useAttachmentPreview } from "./AttachmentPreview";
 import { useBoard } from "./boardData";
 import { useDialogs } from "./dialogs";
-import { previewKindFor } from "./previewKinds";
+import { isHtmlAttachment, previewKindFor, uploaderName } from "./previewKinds";
 import { useToast } from "./toast";
 
 /** Drag-and-drop of files onto an element: whether one is over it, and the handlers to spread on it. */
@@ -131,9 +131,9 @@ export function AttachmentsSection({ entityType, entityId }: { entityType: Attac
   };
   const drop = useFileDrop((files) => void onFiles(files), !canWrite);
 
-  const download = async (a: BoardAttachment) => {
+  const download = async (a: BoardAttachment, inline = false) => {
     try {
-      const { url } = await attachmentDownloadUrl(projectId, a.id);
+      const { url } = await attachmentDownloadUrl(projectId, a.id, { inline });
       window.open(url, "_blank", "noopener");
     } catch (err) {
       toast(errorMessage(err), { type: "err" });
@@ -180,10 +180,26 @@ export function AttachmentsSection({ entityType, entityId }: { entityType: Attac
         {!attachments.loading && !attachments.error && rows.length === 0 && <div className="hempty">No attachments yet.</div>}
         {rows.map((a, i) => (
           <div key={a.id} className="hrow" title="click to preview" onClick={() => preview.open(rows, i)}>
-            <span className="t">{a.filename}</span>
-            <span className="r">
-              {formatBytes(a.size_bytes)} · {index.memberName(a.created_by)}
+            <span className="t" title={a.description || undefined}>
+              {a.filename}
+              {a.description && <span className="att-desc"> — {a.description}</span>}
             </span>
+            <span className="r">
+              {formatBytes(a.size_bytes)} · {uploaderName(a, index.memberName)}
+            </span>
+            {isHtmlAttachment(a) && (
+              <button
+                type="button"
+                className="btn mini-x"
+                title="open in a new tab"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void download(a, true);
+                }}
+              >
+                Open
+              </button>
+            )}
             <button
               type="button"
               className="btn mini-x"

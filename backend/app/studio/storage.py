@@ -64,18 +64,21 @@ def presign_put(key: str, content_type: str, content_length: int, expires: int) 
     )
 
 
-def presign_get(key: str, filename: str, expires: int) -> str:
-    """Download URL that forces an attachment so nothing renders inline."""
+def presign_get(key: str, filename: str, expires: int, inline_as: str | None = None) -> str:
+    """Download URL that forces an attachment so nothing renders inline.
+
+    ``inline_as`` (a content type) asks for the one exception, an explicit
+    "Open" in a new tab: served inline as that type. It is still the bucket's
+    own host, never Studio's origin, which is what makes it safe for HTML."""
     safe = filename.replace('"', "")
-    return _client().generate_presigned_url(
-        "get_object",
-        Params={
-            "Bucket": bucket(),
-            "Key": key,
-            "ResponseContentDisposition": f'attachment; filename="{safe}"',
-        },
-        ExpiresIn=expires,
-    )
+    params = {
+        "Bucket": bucket(),
+        "Key": key,
+        "ResponseContentDisposition": f'{"inline" if inline_as else "attachment"}; filename="{safe}"',
+    }
+    if inline_as:
+        params["ResponseContentType"] = inline_as
+    return _client().generate_presigned_url("get_object", Params=params, ExpiresIn=expires)
 
 
 def _is_missing(err: ClientError) -> bool:

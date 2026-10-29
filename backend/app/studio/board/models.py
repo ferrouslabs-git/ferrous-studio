@@ -641,9 +641,16 @@ class Attachment(Base):
     ``feedback`` is the one entity here whose attachments come from an
     untrusted producer: a member may upload a screenshot to a report they
     raised without holding ``board:write``. That is why the routes restrict a
-    feedback attachment to PNG/JPEG and why confirm verifies magic bytes."""
+    feedback attachment to PNG/JPEG and why confirm verifies magic bytes.
 
-    ENTITY_TYPES = ("release", "epic", "feature", "requirement", "doc", "feedback", "comment")
+    ``agent_name`` is set when the file came in through a board token: the
+    agent's name, or the token's label for a token minted by a person.
+    ``created_by`` is then the token's creator (a board-token request is
+    attributed to them), so without it an agent's upload would read as theirs
+    -- the same reason Comment records ``agent_id``. Kept as text rather than
+    a key, so it still reads right after the agent or token is gone."""
+
+    ENTITY_TYPES = ("release", "epic", "feature", "requirement", "sprint", "doc", "feedback", "comment")
     STATUSES = ("pending", "uploaded")
 
     __tablename__ = "board_attachments"
@@ -659,6 +666,9 @@ class Attachment(Base):
     s3_key = Column(String(512), nullable=False, unique=True)
     status = Column(String(10), nullable=False, default="pending")
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    agent_name = Column(String(255), nullable=True)
+    #: One optional line on what the file is; an agent names its report here.
+    description = Column(String(500), nullable=False, default="", server_default="")
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)

@@ -22,7 +22,7 @@ import {
 import { createPortal } from "react-dom";
 import { attachmentDownloadUrl, BoardAttachment } from "../attachmentsApi";
 import { formatBytes } from "../../../core/format";
-import { attExt, attMime, previewKindFor, PREVIEW_TEXT_LIMIT } from "./previewKinds";
+import { attExt, attMime, isHtmlAttachment, previewKindFor, PREVIEW_TEXT_LIMIT, uploaderName } from "./previewKinds";
 import { useBoard } from "./boardData";
 import { useModalHold } from "./dialogs";
 import { renderDocx, renderXlsx } from "./officePreview";
@@ -230,8 +230,8 @@ export function AttachmentPreview({ items, initialIndex, onClose, inline = false
     setI((x) => (dx < 0 ? Math.min(items.length - 1, x + 1) : Math.max(0, x - 1)));
   };
 
-  const download = async () => {
-    const { url } = await attachmentDownloadUrl(projectId, at.id);
+  const download = async (inline = false) => {
+    const { url } = await attachmentDownloadUrl(projectId, at.id, { inline });
     window.open(url, "_blank", "noopener");
   };
 
@@ -273,7 +273,7 @@ export function AttachmentPreview({ items, initialIndex, onClose, inline = false
         <div className="att-view-head">
           <h3>{at.filename}</h3>
           <span className="att-view-meta">
-            {formatBytes(at.size_bytes)} · {index.memberName(at.created_by)}
+            {formatBytes(at.size_bytes)} · {uploaderName(at, index.memberName)}
           </span>
         </div>
         <div className="att-view-body" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
@@ -294,7 +294,12 @@ export function AttachmentPreview({ items, initialIndex, onClose, inline = false
               </span>
             </>
           )}
-          <button type="button" className="btn mini-x sp" onClick={() => void download()}>
+          {isHtmlAttachment(at) && (
+            <button type="button" className="btn mini-x sp" onClick={() => void download(true)}>
+              Open
+            </button>
+          )}
+          <button type="button" className={`btn mini-x${isHtmlAttachment(at) ? "" : " sp"}`} onClick={() => void download()}>
             Download
           </button>
           <button ref={closeBtn} type="button" className="btn mini-x primary" onClick={onClose}>
