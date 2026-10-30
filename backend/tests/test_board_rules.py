@@ -370,6 +370,17 @@ def test_board_attachments_take_reports_but_documents_do_not():
     assert "ATTACHMENT_TYPES.get(ext)" in upload and "canonical[0] not in SCREENSHOT_TYPES" in upload
 
 
+def test_board_attachments_take_csv():
+    """A requirement's sample data, whatever the browser calls a .csv."""
+    from app.studio.documents import ALLOWED_TYPES
+
+    canonical, aliases = routes.ATTACHMENT_TYPES["csv"]
+    assert canonical == "text/csv"
+    assert {"text/csv", "application/vnd.ms-excel", ""} <= aliases
+    assert "csv" not in ALLOWED_TYPES
+    assert "text/csv" not in routes.SCREENSHOT_TYPES
+
+
 def test_deleting_a_comment_takes_its_files_with_it():
     source = inspect.getsource(routes.delete_comment)
     assert 'Attachment.entity_type == "comment"' in source and "deleted_at=comment.deleted_at" in source

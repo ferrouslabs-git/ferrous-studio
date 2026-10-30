@@ -543,7 +543,7 @@ def get_attachment(attachment_id: str, entity_type: str, entity_id: str):
 #: What add_attachment can upload, by extension -- the type the server
 #: expects for each (app/studio/board/routes.py's ATTACHMENT_TYPES).
 _UPLOAD_TYPES = {
-    "html": "text/html", "htm": "text/html", "json": "application/json",
+    "html": "text/html", "htm": "text/html", "json": "application/json", "csv": "text/csv",
     "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "pdf": "application/pdf",
     "txt": "text/plain", "md": "text/markdown",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
