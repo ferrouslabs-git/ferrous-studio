@@ -225,11 +225,12 @@ def required_permissions(endpoint) -> set[str]:
     Matches require_permission/require_any_permission/require_all_permission
     (app/auth/security) and require_studio_permission (app/studio/common.py
     -- the board-token-or-Cognito dual-auth guard, also used by board routes
-    under its require_permission alias), so this backstop still catches a
+    under its require_permission alias, and its any-of-several form
+    require_any_studio_permission), so this backstop still catches a
     route wired to either.
     """
     source = inspect.getsource(endpoint)
-    guard = re.search(r"require_(?:studio_|any_|all_)?permissions?\((.*?)\)\)", source, re.S)
+    guard = re.search(r"require_(?:any_studio_|studio_|any_|all_)?permissions?\((.*?)\)\)", source, re.S)
     return set(re.findall(r"[\"']([a-z_]+:[a-z_]+)[\"']", guard.group(1))) if guard else set()
 
 

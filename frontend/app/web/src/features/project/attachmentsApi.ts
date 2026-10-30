@@ -6,7 +6,7 @@
 import { apiDelete, apiGet, apiPost, errorMessage } from "../../core/api";
 import { putToPresignedUrl } from "../../core/upload";
 
-export type AttachmentEntityType = "release" | "epic" | "feature" | "requirement" | "doc" | "feedback" | "comment";
+export type AttachmentEntityType = "release" | "epic" | "feature" | "requirement" | "sprint" | "doc" | "feedback" | "comment";
 
 export interface BoardAttachment {
   id: string;
@@ -17,6 +17,9 @@ export interface BoardAttachment {
   size_bytes: number;
   status: "pending" | "uploaded";
   created_by: string | null;
+  /** Set when an agent uploaded it through a board token; created_by is then the token's creator. */
+  agent_name?: string | null;
+  description?: string;
   created_at: string;
 }
 
@@ -42,10 +45,11 @@ export const deleteAttachment = (projectId: string, attachmentId: string) =>
   apiDelete(`${base(projectId)}/${attachmentId}`);
 
 /** A short-lived presigned S3 URL. Opening it downloads the file, by design --
- *  presign_get forces Content-Disposition: attachment. */
-export const attachmentDownloadUrl = (projectId: string, attachmentId: string) =>
-  apiGet<{ url: string; expires_in: number }>(`${base(projectId)}/${attachmentId}/download`);
-
+ *  presign_get forces Content-Disposition: attachment. `inline` is for an
+ *  explicit "Open" in a new tab: it renders, but on the bucket's own origin,
+ *  never this app's -- which is what makes it safe for HTML. */
+export const attachmentDownloadUrl = (projectId: string, attachmentId: string, opts: { inline?: boolean } = {}) =>
+  apiGet<{ url: string; expires_in: number }>(`${base(projectId)}/${attachmentId}/download${opts.inline ? "?inline=true" : ""}`);
 /**
  * A saved attachment as a decoded bitmap, ready to draw into a canvas.
  *

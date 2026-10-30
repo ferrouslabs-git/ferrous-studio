@@ -377,6 +377,20 @@
   background: var(--panel); color: var(--text);
 }
 
+/* The component toolbar and add cluster are drawn on the mat, outside
+   .device, so they carry their own copy of the canvas's chrome tokens —
+   without them every var() falls through and the pills lose their dark
+   face, borders and hover states. */
+.cmp-actions, .cmp-adds {
+  --chrome-panel: #2A313A;
+  --chrome-ink: #ffffff;
+  --chrome-ink-dim: #C2C9D1;
+  --chrome-line: rgba(255,255,255,.16);
+  --chrome-hover: rgba(255,255,255,.10);
+  --chrome-danger: #FF7B72;
+  --chrome-danger-soft: rgba(255,123,114,.16);
+  --edit-accent: #1F6FEB;
+}
 /* Drawn on the mat (a portal into .canvas-wrap), anchored by its bottom-right
    corner just above the selected component's top-right corner: it never covers
    the component's content and never moves (FS-REQ-67). */
@@ -480,20 +494,17 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-add:hover { border-color: var(--edit-accent); color: var(--chrome-ink); background: var(--chrome-hover); }
 .ui-add.text { font-size: 11px; padding: 0 8px; }
 
-/* Floating add cluster: a component's add affordances as overlay chrome over
-   its bottom-right corner — or, for short bar components (.bar), hanging just
-   below the bar's left edge — so they never take space in the component's own
-   layout. Shown while the component (or an element inside it) is selected;
-   z 5 keeps it above content but below the resize grips (z 7). */
+/* Add cluster: a component's add affordances, drawn on the mat (a portal into
+   .canvas-wrap) with its top-right corner just below the selected component's
+   bottom-right corner, so it never covers the component's own content
+   (FS-REQ-77). .cmp-adds is the zero-size anchor Canvas places there. */
+.cmp-adds { position: absolute; width: 0; height: 0; z-index: 30; }
 .ui-add-cluster {
-  position: absolute; right: 8px; bottom: 8px; z-index: 5;
+  position: absolute; right: 0; top: 4px; width: max-content;
   display: flex; gap: 4px; padding: 3px;
   border-radius: var(--radius-lg);
   background: var(--chrome-panel); border: 1px solid var(--chrome-line); box-shadow: var(--shadow);
-  opacity: 0; pointer-events: none; transition: opacity .12s;
 }
-.ui-add-cluster.bar { top: calc(100% + 6px); bottom: auto; right: auto; left: 8px; }
-.cmp.selected .ui-add-cluster, .cmp.has-sel .ui-add-cluster { opacity: 1; pointer-events: auto; }
 
 /* ── UI primitives ── */
 .ui-btn {
@@ -506,6 +517,15 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
 .ui-btn.danger { color: var(--bad); }
 .ui-btn.sm { height: 26px; padding: 0 10px; font-size: 12px; }
+/* A resized button (FS-REQ-73): its width/height come inline from data.w/h;
+   a label wider than the box ellipsises rather than spilling out. */
+.ui-btn.sized { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ui-btn.has-grip { position: relative; overflow: visible; }
+.ui-btn-resize {
+  position: absolute; right: -8px; bottom: -8px; width: 9px; height: 9px; z-index: 7;
+  border: 1.5px solid var(--edit-accent); border-radius: 2px; background: var(--chrome-panel);
+  cursor: nwse-resize;
+}
 .ui-input {
   height: 32px; border-radius: var(--el-shape-radius, var(--radius-lg)); border: 1px solid var(--border-strong);
   background: var(--inset-2); padding: 0 10px; min-width: 0;
@@ -544,6 +564,14 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-multi-menu { min-width: max(100%, 200px); }
 .ui-multi-option { display: flex; align-items: center; gap: 8px; }
 .ui-multi-option .ui-checkbox { flex-shrink: 0; }
+/* The form's multi-select dropdown (FS-REQ-76): picks as chips that wrap
+   inside the field, the field growing to hold them. */
+.ui-input.multi { height: auto; min-height: 32px; padding-top: 3px; padding-bottom: 3px; }
+.ui-multi-picks { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1 1 auto; }
+.ui-multi-pick {
+  height: 22px; padding: 0 8px; display: inline-flex; align-items: center;
+  border-radius: var(--radius); background: var(--mute-soft); color: var(--text); font-size: 11.5px; white-space: nowrap;
+}
 .ui-multi-option.on .ui-checkbox { background: var(--wf-solid); border-color: var(--wf-solid); color: var(--on-accent); }
 .ui-select-search {
   flex-shrink: 0; height: 28px; margin: 2px 2px 4px; padding: 0 8px; min-width: 0;
@@ -1645,6 +1673,8 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* Form layouts. The grid now defaults to one column; layouts widen it. */
 .ui-form-grid { grid-template-columns: minmax(0, 1fr); }
 .ui-form-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Per-field widths (FS-REQ-74): twelfths, each field spanning its share. */
+.ui-form-grid.spans { grid-template-columns: repeat(12, minmax(0, 1fr)); }
 .ui-form-grid.labels-beside .ui-field:not(.wide) {
   display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; gap: 10px;
 }

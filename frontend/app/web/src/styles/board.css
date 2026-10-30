@@ -730,6 +730,7 @@ body.board-cpanel-open .shell-main { padding-right: 340px; }
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; border-radius: var(--b-radius);
   background: color-mix(in srgb, var(--b-card) 82%, transparent); color: var(--b-accent-text); font-family: var(--b-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
 }
+.board-page .att-desc, .board-drawer .att-desc { color: var(--b-ink3); }
 .board-page .att-thumbs, .board-drawer .att-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .board-page .att-thumb, .board-drawer .att-thumb {
   padding: 0; border: 1px solid var(--b-line); border-radius: var(--b-radius); background: color-mix(in srgb, var(--b-ink) 4%, transparent); cursor: zoom-in; overflow: hidden; display: block;

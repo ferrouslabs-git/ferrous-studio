@@ -9,8 +9,9 @@
 // pure-text elements (blankRemoves in the catalogue) while widget elements
 // keep a blank label. With no `edit` handlers everything is read-only.
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, formSpan, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
@@ -66,6 +67,10 @@ export interface SchematicChrome {
   onSelectElement?: (key: string, index: number | null) => void;
   onFollow(target: LinkTarget): void;
   onEditEnd?: () => void;
+  /** Where the add cluster is drawn: a layer on the canvas mat just below
+   *  the selected component's bottom-right corner (FS-REQ-77). Null while
+   *  the component isn't selected, so the cluster is absent. */
+  addHost?: HTMLElement | null;
 }
 
 interface Props {
@@ -404,6 +409,43 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
    *  (blankRemoves). Draggable to reorder within the component (elDrag). */
   const elTok = (el: ElementNode, className: string, children?: ReactNode, keep?: ReactNode) =>
     tok(`${className}${variantCls(el)}${markCls(el)}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), { ...elDrag(el), ...markHoverProps(el) }, keep);
+  /** A button in the flow (FS-REQ-73): data.w/h fix its size — the same
+   *  keys a canvas child's box uses, so a button keeps its size when moved
+   *  into a canvas — and while it is selected a corner grip drags them.
+   *  Inside a canvas the child box owns the size, so canvases keep elTok. */
+  const btnTok = (el: ElementNode, size = "") => {
+    const live = dragSize[el.id];
+    const w = live?.w ?? numberOf(el.data?.w, 0);
+    const h = live?.h ?? numberOf(el.data?.h, 0);
+    const grip = !!edit && isSelected(el) && el.label !== "";
+    const sizeStyle: CSSProperties | undefined =
+      w > 0 || h > 0 ? { width: w > 0 ? w : undefined, height: h > 0 ? h : undefined, flexShrink: 0 } : undefined;
+    const style = sizeStyle || fsStyle(el) ? { ...fsStyle(el), ...sizeStyle } : undefined;
+    const children = grip ? (
+      <>
+        {el.label}
+        <span
+          className="ui-btn-resize"
+          title="Drag to resize; double-click to fit the text"
+          onPointerDown={startElResize(el)}
+          onDragStart={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            edit!.resizeElementTo(el.id, 0, 0);
+          }}
+        />
+      </>
+    ) : undefined;
+    return tok(
+      `${btnClass(el, size)}${sizeStyle ? " sized" : ""}${grip ? " has-grip" : ""}${variantCls(el)}${markCls(el)}${dropCls(el)}`,
+      el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, style,
+      { ...elDrag(el), ...markHoverProps(el) },
+    );
+  };
   /** One slot of an element's representative data; blanking restores the
    *  sample. Carries the element's identity so a click selects it. */
   const dataTok = (el: ElementNode, key: string, sample: string, className = "") =>
@@ -475,7 +517,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
    *  selection ring sits on the box; the tokens' own rings are suppressed in
    *  CSS. Every visible part of a component goes through this (or a token),
    *  so nothing on screen is out of reach of the Inspector or Delete. */
-  const elBox = (el: ElementNode, className: string, children: ReactNode) => {
+  const elBox = (el: ElementNode, className: string, children: ReactNode, extraStyle?: CSSProperties) => {
     // Preview: a linked widget (a whole button box, a search field…) is a
     // navigation target in its own right, not just its text token.
     const followLink = chrome?.followOnClick ? chrome.linkOf(elKey(el.id), null) : null;
@@ -483,7 +525,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       <div
         key={el.id}
         className={`el-box ${className}${variantCls(el)}${markCls(el)}${isSelected(el) ? " el-sel" : ""}${followLink ? " el-follow" : ""}${dropCls(el)}`.trim()}
-        style={fsStyle(el)}
+        style={extraStyle ? { ...fsStyle(el), ...extraStyle } : fsStyle(el)}
         onClick={
           followLink
             ? (e) => {
@@ -518,12 +560,11 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     ) : null;
   const addEl = (type: string, label: string, glyph = "+", className = "") =>
     add((e) => e.addElement(type), label, glyph, className);
-  /** A component's add affordances as overlay chrome floating over its
-   *  bottom-right corner — or, for short bar components (bar = true), hanging
-   *  just below its left edge — never in the flow, so they cannot displace
-   *  the component's own elements. */
-  const addCluster = (adds: ReactNode, bar = false) =>
-    edit ? <div className={`ui-add-cluster${bar ? " bar" : ""}`}>{adds}</div> : null;
+  /** A component's add affordances, drawn outside it on the canvas mat just
+   *  below its bottom-right corner (FS-REQ-77): never in the flow, never over
+   *  its content, and never clipped by a region or scroll box. */
+  const addCluster = (adds: ReactNode) =>
+    edit && chrome?.addHost ? createPortal(<div className="ui-add-cluster">{adds}</div>, chrome.addHost) : null;
 
   const btnClass = (el: ElementNode, size = "") => {
     const style = el.data?.style;
@@ -810,7 +851,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "password": return "••••••••";
       case "phone": return "+44 20 7946 0000";
       case "url": return "https://";
-      case "select": return `Select ${n}…`;
+      case "select":
+      case "multi-select": return `Select ${n}…`;
       case "text-area": return `Add ${n}…`;
       case "file-upload": return "Drop a file here or browse";
       case "date-picker": return "DD/MM/YYYY";
@@ -857,6 +899,23 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
           </>,
         );
       }
+      case "multi-select": {
+        const picked = selectedValues(el);
+        return body(
+          `select multi${openSelect === el.id ? " open" : ""}`,
+          <>
+            {picked.length ? (
+              <span className="ui-multi-picks">
+                {picked.map((v) => <span key={v} className="ui-multi-pick">{v}</span>)}
+              </span>
+            ) : (
+              <span className="ui-placeholder">{inputPlaceholder(el)}</span>
+            )}
+            {selectToggle(el)}
+            {openSelect === el.id && multiMenu(el, false)}
+          </>,
+        );
+      }
       case "radio-group": {
         const options = splitList(el.data?.options);
         return (
@@ -882,7 +941,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "text": return <p className="ui-p">{elTok(el, "")}</p>;
       case "label": return elTok(el, "ui-label");
       case "badge": return elTok(el, `ui-badge${statusTone(el.label)}`);
-      case "button": return elTok(el, btnClass(el));
+      case "button": return context === "canvas" ? elTok(el, btnClass(el)) : btnTok(el);
       case "link": return elTok(el, "ui-link");
       case "help-text": return <p className="ui-p ui-help">{elTok(el, "")}</p>;
       case "section-heading": return <div className="ui-h3">{elTok(el, "")}</div>;
@@ -922,6 +981,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "text-input":
       case "text-area":
       case "select":
+      case "multi-select":
       case "date-picker":
       case "read-only":
       case "file-upload":
@@ -1097,7 +1157,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               {section}
             </div>
           ))}
-          {buttons.length > 0 && <div className="ui-side-section"><div className="ui-row">{buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b, "sm"))}</Fragment>)}</div></div>}
+          {buttons.length > 0 && <div className="ui-side-section"><div className="ui-row">{buttons.map((b) => <Fragment key={b.id}>{btnTok(b, "sm")}</Fragment>)}</div></div>}
           {avatarEl && (
             <div className="ui-side-section foot">
               {elBox(
@@ -1193,7 +1253,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               <Chevron />
             </>,
           );
-        default: return <Fragment key={el.id}>{elTok(el, btnClass(el, "sm"))}</Fragment>;
+        default: return <Fragment key={el.id}>{btnTok(el, "sm")}</Fragment>;
       }
     };
 
@@ -1235,7 +1295,6 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             )}
             {selectedNav && shape !== "breadcrumb" && addEl("nav-sub-item", "Add a sub-item under the selected item", "+ Sub-item", "text")}
           </>,
-          true,
         )}
       </header>
     );
@@ -1247,7 +1306,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
    *  list button. */
   const listControl = (e: ElementNode): ReactNode => {
     if (e.type === "search") return searchBox(e, "sm");
-    if (e.type === "button") return <Fragment key={e.id}>{elTok(e, btnClass(e, "sm"))}</Fragment>;
+    if (e.type === "button") return <Fragment key={e.id}>{btnTok(e, "sm")}</Fragment>;
     return <Fragment key={e.id}>{filterChip(e)}</Fragment>;
   };
   /** A line's elements split into its left and right groups (pos order
@@ -1828,13 +1887,19 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             const fw = el.type === "section-heading" || el.type === "help-text" ? null : fieldWidget(el);
             return <Fragment key={el.id}>{fw ? elBox(el, "", fw) : widget(el)}</Fragment>;
           })}
-          {buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b, "sm"))}</Fragment>)}
-          {addCluster(addEl("text-input", "Add field", "+ Field", "text"), true)}
+          {buttons.map((b) => <Fragment key={b.id}>{btnTok(b, "sm")}</Fragment>)}
+          {addCluster(addEl("text-input", "Add field", "+ Field", "text"))}
         </div>
       );
     }
 
-    const gridClass = `ui-form-grid${layout === "two-column" ? " cols-2" : ""}${layout === "horizontal" ? " labels-beside" : ""}`;
+    // Once any field sets its own width (FS-REQ-74) the grid switches to
+    // twelfths and every field spans its share; until then forms keep the
+    // plain one/two-column grid they have always had.
+    const spans = flow.some((e) => e.data?.span);
+    const spanStyle = (el: ElementNode): CSSProperties | undefined =>
+      spans ? { gridColumn: `span ${formSpan(el, layout)}` } : undefined;
+    const gridClass = `ui-form-grid${spans ? " spans" : layout === "two-column" ? " cols-2" : ""}${layout === "horizontal" ? " labels-beside" : ""}`;
     return (
       <div className="ui-card ui-form">
         {headerInline && <div className="ui-card-head">{elTok(headerInline, "ui-card-title")}</div>}
@@ -1851,8 +1916,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         )}
         <div className={gridClass}>
           {flow.map((el) => {
-            if (el.type === "section-heading") return <div key={el.id} className="ui-field wide ui-form-section">{elTok(el, "ui-h3")}</div>;
-            if (el.type === "help-text") return <div key={el.id} className="ui-field wide">{widget(el)}</div>;
+            if (el.type === "section-heading") return <div key={el.id} className={`ui-field ui-form-section${spans ? "" : " wide"}`} style={spanStyle(el)}>{elTok(el, "ui-h3")}</div>;
+            if (el.type === "help-text") return <div key={el.id} className={`ui-field${spans ? "" : " wide"}`} style={spanStyle(el)}>{widget(el)}</div>;
             return elBox(
               el,
               `ui-field${wideField(el) ? " wide" : ""}`,
@@ -1860,12 +1925,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                 {el.type !== "checkbox" && el.type !== "toggle" && fieldLabel(el)}
                 {fieldWidget(el) ?? widget(el)}
               </>,
+              spanStyle(el),
             );
           })}
         </div>
         {buttons.length > 0 && (
           <div className="ui-form-actions">
-            {buttons.map((b) => <Fragment key={b.id}>{elTok(b, btnClass(b))}</Fragment>)}
+            {buttons.map((b) => <Fragment key={b.id}>{btnTok(b)}</Fragment>)}
           </div>
         )}
         {addCluster(
@@ -2307,14 +2373,14 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     window.addEventListener("pointercancel", up, { once: true });
   };
 
-  /** Corner drag on a canvas child: sets its width and height; one commit on
-   *  release. The starting size is the rendered box, so the first resize of
-   *  an auto-sized element feels continuous. */
-  const startCanvasElResize = (el: ElementNode) => (e: ReactPointerEvent) => {
+  /** Corner drag on a canvas child or a flow button: sets its width and
+   *  height; one commit on release. The starting size is the rendered box,
+   *  so the first resize of an auto-sized element feels continuous. */
+  const startElResize = (el: ElementNode) => (e: ReactPointerEvent) => {
     if (!edit || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const box = (e.currentTarget as HTMLElement).closest(".ui-canvas-el");
+    const box = (e.currentTarget as HTMLElement).closest(".ui-canvas-el, .ui-btn");
     const rect = box?.getBoundingClientRect();
     const fromW = numberOf(el.data?.w ?? "", Math.round(rect?.width ?? 120));
     const fromH = numberOf(el.data?.h ?? "", Math.round(rect?.height ?? 40));
@@ -2337,7 +2403,18 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         delete next[el.id];
         return next;
       });
-      if (latest.w !== fromW || latest.h !== fromH) edit.resizeElementTo(el.id, latest.w, latest.h);
+      if (latest.w !== fromW || latest.h !== fromH) {
+        edit.resizeElementTo(el.id, latest.w, latest.h);
+        // The click that ends a drag lands on whatever is under the pointer
+        // (the component, for a flow button) and would select that instead
+        // of the element just resized; swallow it.
+        const swallow = (ev: MouseEvent) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+        };
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+      }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
@@ -2467,7 +2544,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                     className="ui-canvas-el-resize"
                     title="Drag to resize"
                     aria-label={`Resize ${el.label || el.type}`}
-                    onPointerDown={startCanvasElResize(el)}
+                    onPointerDown={startElResize(el)}
                   />
                 )}
               </div>

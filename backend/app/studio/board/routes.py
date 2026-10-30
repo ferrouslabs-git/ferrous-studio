@@ -26,7 +26,7 @@ from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
 from .. import slack_client, storage
-from ..common import get_project, require_studio_permission as require_permission
+from ..common import get_project, require_any_studio_permission, require_studio_permission as require_permission
 from ..documents import ALLOWED_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
 from . import service
@@ -35,6 +35,7 @@ from .models import (
     ApprovalRequest,
     Attachment,
     Board,
+    BoardToken,
     Comment,
     Doc,
     Environment,
@@ -937,6 +938,12 @@ async def delete_sprint(
     await db.execute(
         Comment.__table__.update()
         .where(Comment.board_id == board.id, Comment.entity_id == sprint.id)
+        .values(deleted_at=now)
+    )
+    # Its own files too, since sprints carry them (FS-REQ-78).
+    await db.execute(
+        Attachment.__table__.update()
+        .where(Attachment.board_id == board.id, Attachment.entity_id == sprint.id, Attachment.deleted_at.is_(None))
         .values(deleted_at=now)
     )
     sprint.deleted_at = now
@@ -2464,6 +2471,31 @@ async def list_events(
 #: client can decode and draw.
 SCREENSHOT_TYPES = {"image/png", "image/jpeg"}
 
+#: Board attachments also take an agent's test evidence: a self-contained HTML
+#: report, or the JSON behind it. Safe to store because downloads are always
+#: forced as a file (presign_get), never rendered on the studio's origin.
+#: Board-only, like documents.py's EXTRA_TYPES: the Documents tab is unchanged.
+BOARD_EXTRA_TYPES: dict[str, tuple[str, set[str]]] = {
+    "html": ("text/html", {"text/html", ""}),
+    "htm": ("text/html", {"text/html", ""}),
+    "json": ("application/json", {"application/json", "text/json", "text/plain", ""}),
+}
+ATTACHMENT_TYPES = {**ALLOWED_TYPES, **BOARD_EXTRA_TYPES}
+
+
+async def _acting_token_name(db: AsyncSession, board: Board, ctx: ScopeContext) -> str | None:
+    """Who a board-token request is, by name: the agent that owns the token,
+    else the token's own label. None for a person -- created_by already says
+    who they are, whereas for a token it is only the token's creator."""
+    if ctx.board_token_id is None:
+        return None
+    agent_name = (
+        await db.execute(select(Agent.name).where(Agent.board_id == board.id, Agent.board_token_id == ctx.board_token_id))
+    ).scalar_one_or_none()
+    if agent_name:
+        return agent_name
+    return (await db.execute(select(BoardToken.label).where(BoardToken.id == ctx.board_token_id))).scalar_one_or_none()
+
 
 def _attachment_key(account_id: UUID, board_id: UUID, attachment_id: UUID, filename: str) -> str:
     return f"board-attachments/{account_id}/{board_id}/{attachment_id}/{filename}"
@@ -2557,7 +2589,7 @@ async def list_attachments(
 async def request_attachment_upload(
     project_id: UUID,
     payload: AttachmentUploadRequest,
-    ctx: ScopeContext = Depends(require_any_permission(["board:write", "feedback:create"])),
+    ctx: ScopeContext = Depends(require_any_studio_permission(["board:write", "feedback:create"])),
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentUploadTicket:
     _require_bucket()
@@ -2576,12 +2608,23 @@ async def request_attachment_upload(
     settings = get_settings()
     max_bytes = settings.documents_max_bytes
     if payload.size_bytes > max_bytes:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large: the limit is {max_bytes // (1024 * 1024)} MB per file",
+        )
 
     ext = payload.filename.rsplit(".", 1)[-1].lower() if "." in payload.filename else ""
-    canonical = ALLOWED_TYPES.get(ext)
-    if canonical is None or payload.content_type not in canonical[1]:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File type not allowed")
+    canonical = ATTACHMENT_TYPES.get(ext)
+    if canonical is None:
+        accepted = ", ".join(f".{e}" for e in sorted(ATTACHMENT_TYPES))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"File type not allowed. Accepted: {accepted}"
+        )
+    if payload.content_type not in canonical[1]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Content type {payload.content_type!r} does not match a .{ext} file",
+        )
     if payload.entity_type == "feedback" and canonical[0] not in SCREENSHOT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -2603,6 +2646,8 @@ async def request_attachment_upload(
         s3_key=key,
         status="pending",
         created_by=ctx.user_id,
+        agent_name=await _acting_token_name(db, board, ctx),
+        description=payload.description.strip(),
     )
     db.add(attachment)
     await db.commit()
@@ -2620,7 +2665,7 @@ async def request_attachment_upload(
 async def confirm_attachment_upload(
     project_id: UUID,
     attachment_id: UUID,
-    ctx: ScopeContext = Depends(require_any_permission(["board:write", "feedback:create"])),
+    ctx: ScopeContext = Depends(require_any_studio_permission(["board:write", "feedback:create"])),
     db: AsyncSession = Depends(get_db),
 ) -> Attachment:
     _require_bucket()
@@ -2679,16 +2724,28 @@ async def confirm_attachment_upload(
 async def download_attachment(
     project_id: UUID,
     attachment_id: UUID,
+    inline: bool = Query(False),
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentDownload:
+    """A presigned S3 URL for the file -- the only way its content is ever
+    served. Forced to download by default; ``inline`` is the UI's explicit
+    "Open" for an HTML report, which then renders on the bucket's own host,
+    never Studio's origin, so its scripts get no Studio session."""
     _require_bucket()
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     attachment = await _get_attachment(db, board, attachment_id)
     if attachment.status != "uploaded":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
-    url = storage.presign_get(attachment.s3_key, attachment.filename, PRESIGN_TTL_SECONDS)
+    # Inline only for what "Open" is for -- an HTML report. Everything else
+    # (an uploaded SVG included) stays a forced download.
+    if inline and attachment.content_type != "text/html":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only HTML attachments open inline")
+    url = storage.presign_get(
+        attachment.s3_key, attachment.filename, PRESIGN_TTL_SECONDS,
+        inline_as=attachment.content_type if inline else None,
+    )
     return AttachmentDownload(url=url, expires_in=PRESIGN_TTL_SECONDS)
 
 
@@ -2702,7 +2759,12 @@ async def delete_attachment(
     """Soft-deletes the row (so it can, in principle, still be reasoned
     about/restored later) but the underlying S3 object is genuinely removed
     immediately -- keeping the file itself around isn't free, and there's no
-    restore UI yet to make that trade-off worthwhile."""
+    restore UI yet to make that trade-off worthwhile.
+
+    A person's action only: an agent adds files but never takes one away (the
+    S3 object goes for good), like board_mcp.py's lack of delete tools."""
+    if ctx.board_token_id is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a person can delete attachments")
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     attachment = await _get_attachment(db, board, attachment_id)

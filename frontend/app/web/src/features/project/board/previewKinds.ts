@@ -66,6 +66,18 @@ export function attMime(a: Pick<BoardAttachment, "filename" | "content_type">): 
   return (vague ? EXT_MIME[attExt(a)] : ct) ?? "";
 }
 
+// An HTML page. Never rendered inside the app (previewKindFor gives it no
+// preview) but offered an "Open", which loads it in a new tab from storage's
+// own origin (attachmentDownloadUrl's inline form).
+export function isHtmlAttachment(a: Pick<BoardAttachment, "filename" | "content_type">): boolean {
+  const ct = (a.content_type || "").toLowerCase().split(";")[0].trim();
+  return ct === "text/html" || ["html", "htm"].includes(attExt(a));
+}
+
+/** Who put a file here: the agent for an agent's upload, else the person. */
+export const uploaderName = (a: Pick<BoardAttachment, "agent_name" | "created_by">, memberName: (id: string | null) => string) =>
+  a.agent_name ? `${a.agent_name} (agent)` : memberName(a.created_by);
+
 export type PreviewKind = "image" | "pdf" | "video" | "audio" | "text" | "docx" | "xlsx";
 
 // Null for anything nothing here can render -- it gets a "download to open"
@@ -78,6 +90,9 @@ export function previewKindFor(a: Pick<BoardAttachment, "filename" | "content_ty
   if (ct === "application/pdf") return "pdf";
   if (ct === EXT_MIME.docx) return "docx";
   if (ct === EXT_MIME.xlsx || ct === EXT_MIME.xls) return "xlsx";
+  // An uploaded HTML file (an agent's test report) is a page to open, not
+  // source to read -- and never rendered on our origin.
+  if (ct === "text/html") return null;
   if (ct.startsWith("text/") || /^application\/(json|xml|.*\+xml|x-yaml|yaml|javascript|x-sh|sql)$/.test(ct)) return "text";
   return null;
 }

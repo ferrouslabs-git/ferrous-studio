@@ -21,6 +21,7 @@ import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { Badges, ListTable, NameCell } from "../../../components/ListTable";
 import { ListToolbar, matches } from "../../../components/ListToolbar";
+import { inMonth, monthFilter } from "../../../components/monthFilter";
 import { errorMessage } from "../../../core/api";
 import { formatDateTime, parseUtcDate } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
@@ -176,6 +177,7 @@ export function FeedbackPage() {
   const [kindFilter, setKindFilter] = useState("");
   const [severityFilter, setSeverityFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState(DEFAULT_STATUS_FILTER);
+  const [monthCreated, setMonthCreated] = useState("");
 
   const envs = environments.data ?? [];
   const labelOf = useMemo(() => new Map(envs.map((e) => [e.slug, e.label])), [envs]);
@@ -380,15 +382,17 @@ export function FeedbackPage() {
           (!kindFilter || item.kind === kindFilter) &&
           (!severityFilter || item.severity === severityFilter) &&
           inStatusFilter(item, statusFilter) &&
+          inMonth(item.created_at, monthCreated) &&
           matches(query, item.human_id, item.title, item.detail, item.page_url, item.raised_by_name ?? ""),
       ),
-    [rows, query, envFilter, kindFilter, severityFilter, statusFilter],
+    [rows, query, envFilter, kindFilter, severityFilter, statusFilter, monthCreated],
   );
   const filtered =
     query.trim() !== "" ||
     envFilter !== "" ||
     kindFilter !== "" ||
     severityFilter !== "" ||
+    monthCreated !== "" ||
     statusFilter !== DEFAULT_STATUS_FILTER;
 
   const linked = editing ? requirementsOf(editing) : [];
@@ -484,6 +488,12 @@ export function FeedbackPage() {
                   ...FEEDBACK_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] })),
                 ],
               },
+              monthFilter({
+                label: "Filter by month created",
+                value: monthCreated,
+                onChange: setMonthCreated,
+                timestamps: rows.map((r) => r.created_at),
+              }),
             ]}
             count={{ visible: visible.length, total: rows.length, noun: ["report", "reports"] }}
           />

@@ -464,6 +464,16 @@
           "shapeable": true,
           "fillable": true
         },
+        "multi-select": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
         "radio-group": {
           "fields": [
             "options"
@@ -695,6 +705,16 @@
           "fillable": true
         },
         "select": {
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "shapeable": true,
+          "fillable": true
+        },
+        "multi-select": {
           "fields": [
             "dataset",
             "options",

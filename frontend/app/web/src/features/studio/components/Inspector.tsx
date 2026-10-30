@@ -8,7 +8,7 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, imageList, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
@@ -528,6 +528,9 @@ export function Inspector(props: Props) {
     !!elementNode && selectedCmp?.type === "navbar" && (selectedCmp.layout ?? cmpMeta?.defaultLayout) === "horizontal";
   // A list's filters, search and buttons each pick a side of their line.
   const showListAlign = !!elementNode && selectedCmp?.type === "list" && LIST_ALIGNABLE.has(elementNode.type);
+  // A form field's share of its row (FS-REQ-74); an inline form is one row.
+  const showFormSpan =
+    !!elementNode && selectedCmp?.type === "form" && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && isFormFieldType(elementNode.type);
   const listBesideTitle = !!selectedCmp?.elements?.some((e) => e.type === "header" && e.data?.placement !== "above");
   // Nav items carry an icon only in the Icons shape (it is what draws them).
   const showIcon =
@@ -748,6 +751,21 @@ export function Inspector(props: Props) {
                     >
                       {LIST_ALIGN_OPTIONS.map((a) => (
                         <option key={a} value={a}>{cap(a)}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {showFormSpan && (
+                  <div className="field">
+                    <label>Row width</label>
+                    <select
+                      value={elementNode.data?.span ?? ""}
+                      disabled={ro}
+                      onChange={(e) => props.onElementData(elementSel, "span", e.target.value)}
+                    >
+                      <option value="">Follow layout</option>
+                      {FORM_SPAN_OPTIONS.map((o) => (
+                        <option key={o.id} value={o.id}>{o.label}</option>
                       ))}
                     </select>
                   </div>

@@ -326,8 +326,11 @@ export function Canvas(props: Props) {
    *  than inside the page, so no region, scroll box or page edge can clip it
    *  or push it somewhere else — at the top of the page it rides on the mat
    *  above the wireframe. Re-measured whenever the box can have moved. */
-  const [toolsAt, setToolsAt] = useState<{ id: string; host: HTMLElement; left: number; top: number } | null>(null);
-  const selectedCmpId = selection?.kind === "cmp" ? selection.id : null;
+  // The add cluster (FS-REQ-77) rides the same layer, hanging just below the
+  // bottom-right corner, and stays up while an element inside is selected.
+  const [toolsAt, setToolsAt] = useState<{ id: string; host: HTMLElement; left: number; top: number; bottom: number } | null>(null);
+  const [addHost, setAddHost] = useState<HTMLElement | null>(null);
+  const selectedCmpId = selection?.kind === "cmp" ? selection.id : selection?.kind === "element" ? selection.cmpId : null;
   useLayoutEffect(() => {
     if (!selectedCmpId) {
       setToolsAt(null);
@@ -347,6 +350,7 @@ export function Canvas(props: Props) {
         host: mat,
         left: r.right - m.left + mat.scrollLeft - mat.clientLeft,
         top: r.top - m.top + mat.scrollTop - mat.clientTop,
+        bottom: r.bottom - m.top + mat.scrollTop - mat.clientTop,
       });
     };
     measure();
@@ -608,7 +612,7 @@ export function Canvas(props: Props) {
     (level: { doc: PageDocument }, cmp: ComponentNode, regionId: string, from: { x: number; y: number }, freeze: boolean) => (e: ReactPointerEvent) => {
       if (e.button !== 0) return;
       // Text editing, toolbars, grips and open menus own their own gestures.
-      if ((e.target as HTMLElement).closest(`${EDIT_TOKEN_SELECTOR}, .cmp-actions, .cmp-resize, .ui-select-menu, .ui-canvas-tools, .ui-canvas-el-resize, .ui-canvas-el`)) return;
+      if ((e.target as HTMLElement).closest(`${EDIT_TOKEN_SELECTOR}, .cmp-actions, .cmp-adds, .cmp-resize, .ui-select-menu, .ui-canvas-tools, .ui-canvas-el-resize, .ui-canvas-el`)) return;
       e.preventDefault();
       const box = e.currentTarget as HTMLElement;
       const body = box.closest(".rg-body") as HTMLElement | null;
@@ -820,6 +824,7 @@ export function Canvas(props: Props) {
       onSelectElement: editable ? (key, index) => props.onSelect({ kind: "element", cmpId: cmp.id, key, index }) : undefined,
       onFollow: props.onFollow,
       onEditEnd: props.onEditEnd,
+      addHost: toolsAt?.id === cmp.id ? addHost : null,
     };
     return (
       <div key={cmp.id} style={{ display: "contents" }}>
@@ -849,7 +854,7 @@ export function Canvas(props: Props) {
             level.editable
               ? (e) => {
                   if (nested) e.stopPropagation();
-                  if ((e.target as HTMLElement).closest(".cmp-actions")) return;
+                  if ((e.target as HTMLElement).closest(".cmp-actions, .cmp-adds")) return;
                   props.onSelect({ kind: "cmp", id: cmp.id });
                 }
               : undefined
@@ -980,6 +985,15 @@ export function Canvas(props: Props) {
             !!props.marks?.tasks.cmps.has(cmp.id),
           )}
           {editable && toolsAt?.id === cmp.id && createPortal(
+            <div
+              className="cmp-adds"
+              ref={setAddHost}
+              style={{ left: toolsAt.left, top: toolsAt.bottom }}
+              onClick={(e) => e.stopPropagation()}
+            />,
+            toolsAt.host,
+          )}
+          {editable && toolsAt?.id === cmp.id && selection?.kind === "cmp" && createPortal(
             <div
               className="cmp-actions"
               style={{ left: toolsAt.left, top: toolsAt.top }}

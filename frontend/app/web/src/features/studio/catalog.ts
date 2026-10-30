@@ -231,6 +231,34 @@ const FILTER_MULTI_SEARCH = el({
 export const FILTER_TYPES = [FILTER.type, FILTER_MULTI.type, FILTER_MULTI_SEARCH.type] as const;
 export const isFilterType = (type: string): boolean => (FILTER_TYPES as readonly string[]).includes(type);
 export const isMultiFilter = (type: string): boolean => type === FILTER_MULTI.type || type === FILTER_MULTI_SEARCH.type;
+/** Every picker that keeps several picks (comma-separated in data.selected):
+ *  the multi-select filters and the form's multi-select dropdown. */
+export const isMultiPick = (type: string): boolean => isMultiFilter(type) || type === "multi-select";
+
+/** How much of a form row a field takes (stored as `data.span`; FS-REQ-74).
+ *  Fields fill rows left to right, so a row of three thirds, one of two
+ *  halves and a full-width one can follow each other in the same form.
+ *  Unset follows the form's layout. Spans are twelfths of the row. */
+export const FORM_SPAN_OPTIONS = [
+  { id: "full", label: "Full row", span: 12 },
+  { id: "three-quarters", label: "Three quarters", span: 9 },
+  { id: "two-thirds", label: "Two thirds", span: 8 },
+  { id: "half", label: "Half", span: 6 },
+  { id: "third", label: "Third", span: 4 },
+  { id: "quarter", label: "Quarter", span: 3 },
+] as const;
+/** Form elements that sit in the field grid (and so take a width). */
+export const isFormFieldType = (type: string): boolean =>
+  type !== "header" && type !== "button" && type !== "step";
+/** A form field's span in twelfths: its own width, else what its form's
+ *  layout gives it — a whole row in one column, half in two (wide fields
+ *  and section headings always take the whole row). */
+export function formSpan(el: { type: string; data?: Record<string, string> }, layout: string): number {
+  const own = FORM_SPAN_OPTIONS.find((o) => o.id === el.data?.span);
+  if (own) return own.span;
+  const wide = el.type === "text-area" || el.type === "file-upload" || el.type === "section-heading" || el.type === "help-text";
+  return layout === "two-column" && !wide ? 6 : 12;
+}
 
 /** Where a list's chrome element sits on its line (stored as `data.align`):
  *  filters, search and buttons each choose left or right (FS-REQ-41). */
@@ -274,6 +302,18 @@ const SELECT = el({
     { key: "selected", label: "Selected", kind: "text" },
   ],
   defaultLabel: "Choice", defaultData: { options: "Option A, Option B" }, shapeable: true, fillable: true, defaultFill: "outline",
+});
+/** A dropdown that keeps several picks (FS-REQ-76): a tick-box menu like the
+ *  multi-select filters, the picks shown as chips in the field. */
+const MULTI_SELECT = el({
+  type: "multi-select", label: "Multi-select dropdown", desc: "Several choices from a list", icon: "MS",
+  dataFields: [
+    { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "options" },
+    { key: "options", label: "Options", kind: "text" },
+    // Set by ticking options in the expanded menu on the canvas, comma-separated; blank = none.
+    { key: "selected", label: "Selected", kind: "text" },
+  ],
+  defaultLabel: "Choices", defaultData: { options: "Option A, Option B, Option C" }, shapeable: true, fillable: true, defaultFill: "outline",
 });
 const RADIO_GROUP = el({
   type: "radio-group", label: "Radio group", desc: "One-of-many choice", icon: "RG",
@@ -363,7 +403,7 @@ const CAL_LEGEND = el({
 
 /** Element lists shared between hosts (the canvas hosts everything). */
 export const FORM_ELEMENTS: ElementTypeMeta[] = [
-  TEXT_INPUT, TEXT_AREA, SELECT, RADIO_GROUP, CHECKBOX, TOGGLE, DATE_PICKER,
+  TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, RADIO_GROUP, CHECKBOX, TOGGLE, DATE_PICKER,
   READ_ONLY, FILE_UPLOAD, SECTION_HEADING, STEP, HELP_TEXT, BUTTON,
 ];
 export const LIST_ELEMENTS: ElementTypeMeta[] = [

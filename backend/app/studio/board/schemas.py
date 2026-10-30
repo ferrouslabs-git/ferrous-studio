@@ -44,7 +44,7 @@ QueuePosition = Annotated[
 ]
 
 EntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc", "feedback"]
-AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "doc", "feedback", "comment"]
+AttachmentEntityType = Literal["release", "epic", "feature", "requirement", "sprint", "doc", "feedback", "comment"]
 # An environment's stable key: minted from its first label, never changed.
 EnvironmentSlug = Annotated[str, Field(pattern=r"^[a-z0-9](?:[a-z0-9-]{0,14}[a-z0-9])?$")]
 FeedbackKind = Literal["feedback", "bug", "requirement"]
@@ -704,6 +704,7 @@ class AttachmentUploadRequest(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
     content_type: str
     size_bytes: int = Field(gt=0)
+    description: str = Field("", max_length=500)
 
 
 class AttachmentUploadTicket(BaseModel):
@@ -730,6 +731,10 @@ class AttachmentRead(BaseModel):
     size_bytes: int
     status: str
     created_by: UUID | None
+    #: The agent (or token label) that uploaded it through a board token;
+    #: None for a person's upload. See the Attachment model.
+    agent_name: str | None = None
+    description: str = ""
     created_at: datetime
 
 

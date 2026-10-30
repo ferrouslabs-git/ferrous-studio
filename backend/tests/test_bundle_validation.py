@@ -233,6 +233,29 @@ def test_an_element_type_must_belong_to_its_host_component():
     assert "wireframes[0].pages[0].layout.components[0].elements[0].type" in paths(errors)
 
 
+def _form_with(elements: list[dict]) -> dict:
+    bundle = minimal_bundle()
+    bundle["wireframes"][0]["pages"][0]["layout"]["components"] = [
+        {"id": "c1", "type": "form", "shape": "simple", "elements": elements}
+    ]
+    return bundle
+
+
+def test_a_form_takes_a_multi_select_sized_buttons_and_field_widths():
+    bundle = _form_with([
+        {"id": "e1", "type": "multi-select", "label": "Tags", "data": {"options": "A, B", "selected": "A, B", "span": "half"}},
+        {"id": "e2", "type": "text-input", "label": "Town", "data": {"kind": "text", "span": "third"}},
+        {"id": "e3", "type": "button", "label": "Save", "data": {"style": "primary", "w": "160", "h": "40"}},
+    ])
+    assert validate_bundle(bundle, CATALOG) == []
+
+
+def test_a_button_takes_no_width_share_of_a_form_row():
+    bundle = _form_with([{"id": "e1", "type": "button", "label": "Save", "data": {"span": "half"}}])
+    errors = validate_bundle(bundle, CATALOG)
+    assert "wireframes[0].pages[0].layout.components[0].elements[0].data.span" in paths(errors)
+
+
 def test_an_element_max_count_is_enforced():
     bundle = minimal_bundle()
     bundle["wireframes"][0]["pages"][0]["layout"]["components"][0]["elements"] = [

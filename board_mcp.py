@@ -337,7 +337,7 @@ def update_requirement(
     status: str | None = None, priority: str | None = None,
     epic_id: str | None = None, feature_id: str | None = None,
     release_id: str | None = None, sprint_id: str | None = None,
-    queue_position: int | None = None,
+    queue_position: int | None = None, clear: list[str] | None = None,
 ) -> dict:
     """status: NotStarted | InProgress | ToTest | Done | Blocked. Moving
     into Blocked records which of the three in-flight stages to return to
@@ -353,12 +353,25 @@ def update_requirement(
 
     queue_position: the requirement's position within its sprint's work
     order (lower first; unordered ones sort last). It cannot be cleared via
-    this tool -- moving the requirement to another sprint clears it."""
-    return _call("PATCH", f"/requirements/{requirement_id}", _patch_of(
+    this tool -- moving the requirement to another sprint clears it.
+
+    clear: links to remove, any of sprint | release | epic | feature |
+    assignee -- e.g. ["sprint", "release"] takes it out of both. Omitting
+    an id never clears it; this is the only way to."""
+    unknown = sorted(set(clear or ()) - _CLEARABLE)
+    if unknown:
+        raise RuntimeError(f"clear takes {sorted(_CLEARABLE)}, not {unknown}")
+    patch = _patch_of(
         title=title, body=body, status=status, priority=priority,
         epic_id=epic_id, feature_id=feature_id, release_id=release_id, sprint_id=sprint_id,
         queue_position=queue_position,
-    ))
+    )
+    patch.update({f"clear_{name}": True for name in clear or ()})
+    return _call("PATCH", f"/requirements/{requirement_id}", patch)
+
+
+#: The links update_requirement can remove (the API's clear_<name> flags).
+_CLEARABLE = {"sprint", "release", "epic", "feature", "assignee"}
 
 
 @mcp.tool()
@@ -408,10 +421,20 @@ def list_comments(entity_type: str, entity_id: str) -> dict:
 
 
 @mcp.tool()
-def create_comment(entity_type: str, entity_id: str, body: str) -> dict:
+def create_comment(entity_type: str, entity_id: str, body: str, file_paths: list[str] | None = None) -> dict:
     """Same entity_type/entity_id rule as list_comments -- a real id of
-    that type, resolved first, never invented."""
-    return _call("POST", "/comments", {"entity_type": entity_type, "entity_id": entity_id, "body": body})
+    that type, resolved first, never invented.
+
+    file_paths: optional local files to attach to the new comment in the same
+    call -- e.g. the closing comment and its HTML test report. Same types and
+    limit as add_attachment. Each file is checked before the comment is
+    posted; the result's `attachments` lists what was uploaded."""
+    for path in file_paths or []:
+        _check_upload(path)
+    comment = _call("POST", "/comments", {"entity_type": entity_type, "entity_id": entity_id, "body": body})
+    if file_paths:
+        comment["attachments"] = [_upload("comment", comment["id"], p) for p in file_paths]
+    return comment
 
 
 # ── Approvals ────────────────────────────────────────────────────────────
@@ -446,7 +469,8 @@ def get_approval(approval_id: str) -> dict:
 # actual spec ("see image"), so an agent must be able to look at them, not
 # just their names. The file bytes live in S3: the API hands out a short-lived
 # presigned URL, fetched here without the board token (the URL is the
-# credential). Read-only by design, like every other file-shaped thing here.
+# credential). add_attachment is the one write: an agent's evidence (a test
+# report, a screenshot) belongs on the item it proves.
 
 #: Largest file returned inline to the model. Anything bigger is still saved
 #: to disk, and the result says where.
@@ -464,7 +488,7 @@ def _attachment_dir() -> str:
 @mcp.tool()
 def list_attachments(entity_type: str, entity_id: str) -> dict:
     """Files attached directly to one item. entity_type: release | epic |
-    feature | requirement | doc | feedback | comment. Same id rule as
+    feature | requirement | sprint | doc | feedback | comment. Same id rule as
     list_comments -- a real id of that type, resolved first, never invented.
 
     A requirement's screenshots are often on its comments rather than on the
@@ -509,9 +533,96 @@ def get_attachment(attachment_id: str, entity_type: str, entity_id: str):
         return [summary]
     if ctype.startswith("image/"):
         return [summary, ImageContent(type="image", data=base64.b64encode(data).decode(), mimeType=ctype)]
-    if ctype.startswith(_TEXT_TYPES) or ctype in _TEXT_TYPES:
+    # An HTML file is a page for a person (usually a multi-MB test report), not
+    # text worth reading token by token: the saved path is enough.
+    if ctype != "text/html" and (ctype.startswith(_TEXT_TYPES) or ctype in _TEXT_TYPES):
         return [summary, TextContent(type="text", text=data.decode("utf-8", errors="replace"))]
     return [summary]
+
+
+#: What add_attachment can upload, by extension -- the type the server
+#: expects for each (app/studio/board/routes.py's ATTACHMENT_TYPES).
+_UPLOAD_TYPES = {
+    "html": "text/html", "htm": "text/html", "json": "application/json",
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "pdf": "application/pdf",
+    "txt": "text/plain", "md": "text/markdown",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_UPLOAD_MAX_BYTES = 25 * 1024 * 1024
+
+
+def _check_upload(file_path: str) -> tuple[str, str, str, int]:
+    """(path, filename, content type, size) for a file add_attachment can
+    upload, or a ValueError saying why not -- before anything is sent."""
+    path = os.path.expanduser(file_path)
+    if not os.path.isfile(path):
+        raise ValueError(f"No file at {file_path}")
+    filename = os.path.basename(path)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_type = _UPLOAD_TYPES.get(ext)
+    if content_type is None:
+        raise ValueError(f"Cannot attach .{ext or '(none)'} files; allowed: {', '.join('.' + e for e in _UPLOAD_TYPES)}")
+    size = os.path.getsize(path)
+    if size == 0:
+        raise ValueError(f"{filename} is empty")
+    if size > _UPLOAD_MAX_BYTES:
+        raise ValueError(f"{filename} is {size / (1024 * 1024):.1f} MB; the limit is 25 MB per file")
+    return path, filename, content_type, size
+
+
+def _put_presigned(url: str, data: bytes, headers: dict) -> None:
+    """PUT the bytes straight to S3. No board token: the URL is the credential."""
+    req = urllib.request.Request(url, data=data, method="PUT")
+    for k, v in headers.items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=120):
+            pass
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Upload to storage failed: HTTP {e.code}: {e.read().decode(errors='replace')[:300]}") from None
+
+
+@mcp.tool()
+def add_attachment(entity_type: str, entity_id: str, file_path: str, description: str = "") -> dict:
+    """Attach a local file to a board item. entity_type: release | epic |
+    feature | requirement | sprint | doc | comment. Same id rule as
+    list_comments -- a real id of that type, resolved first, never invented.
+    A comment takes files only from whoever wrote it, so attach to a comment
+    this token created (create_comment's file_paths does both in one go).
+
+    Allowed: .html, .json, .png, .jpg/.jpeg, .pdf, .txt, .md, .docx; at most
+    25 MB. The file is uploaded under your agent's name; deleting it is left
+    to a person. HTML is never rendered inside Studio -- people open it in a
+    separate tab from storage.
+
+    description: an optional line saying what the file is, shown beside it.
+
+    Returns the attachment's id, filename, type and size, plus a short-lived
+    download_url."""
+    return _upload(entity_type, entity_id, file_path, description)
+
+
+def _upload(entity_type: str, entity_id: str, file_path: str, description: str = "") -> dict:
+    """Ticket, PUT to S3, confirm -- the same three steps as the app's own
+    uploads (frontend attachmentsApi.ts's uploadAttachment)."""
+    path, filename, content_type, size = _check_upload(file_path)
+    with open(path, "rb") as f:
+        data = f.read()
+
+    ticket = _call("POST", "/attachments", {
+        "entity_type": entity_type, "entity_id": entity_id,
+        "filename": filename, "content_type": content_type, "size_bytes": size,
+        "description": description.strip(),
+    })
+    _put_presigned(ticket["upload_url"], data, ticket.get("headers") or {"Content-Type": content_type})
+    attachment = _call("POST", f"/attachments/{ticket['attachment_id']}/confirm", {})
+    download = _call("GET", f"/attachments/{attachment['id']}/download")
+    return {
+        "id": attachment["id"], "filename": attachment["filename"],
+        "content_type": attachment["content_type"], "size_bytes": attachment["size_bytes"],
+        "description": attachment.get("description") or "",
+        "download_url": download["url"],
+    }
 
 
 # ── Wireframes & diagrams ───────────────────────────────────────────────────

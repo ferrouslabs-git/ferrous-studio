@@ -188,7 +188,13 @@ def _validate_element(
     if meta.fillable:
         allowed.add("fill")
     if host_component_type == "canvas":
-        allowed |= {"x", "y"}
+        allowed |= {"x", "y", "w", "h"}
+    # A button carries its own size anywhere (FS-REQ-73); a form field its
+    # share of the row (FS-REQ-74).
+    if el_type == "button":
+        allowed |= {"w", "h"}
+    if host_component_type == "form" and el_type not in ("header", "button", "step"):
+        allowed.add("span")
 
     for key, value in data.items():
         if key not in allowed:
