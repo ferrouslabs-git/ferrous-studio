@@ -738,6 +738,7 @@ export function FeedbackPage() {
             <Group label="Estimate">
               <EstimateField
                 value={triage.estimate_hours}
+                step={0.1}
                 disabled={readOnly}
                 onChange={(hours) => patchTriage({ estimate_hours: hours })}
               />
