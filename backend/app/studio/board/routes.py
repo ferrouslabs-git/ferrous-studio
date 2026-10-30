@@ -27,7 +27,7 @@ from app.config import get_settings
 
 from .. import slack_client, storage
 from ..common import get_project, require_any_studio_permission, require_studio_permission as require_permission
-from ..documents import ALLOWED_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
+from ..documents import ALLOWED_TYPES, EXTRA_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
 from . import service
 from .models import (
@@ -2475,10 +2475,13 @@ SCREENSHOT_TYPES = {"image/png", "image/jpeg"}
 #: report, or the JSON behind it. Safe to store because downloads are always
 #: forced as a file (presign_get), never rendered on the studio's origin.
 #: Board-only, like documents.py's EXTRA_TYPES: the Documents tab is unchanged.
+#: A requirement's sample data is usually a CSV, so that is taken here too,
+#: with example data's aliases (Windows browsers call it application/vnd.ms-excel).
 BOARD_EXTRA_TYPES: dict[str, tuple[str, set[str]]] = {
     "html": ("text/html", {"text/html", ""}),
     "htm": ("text/html", {"text/html", ""}),
     "json": ("application/json", {"application/json", "text/json", "text/plain", ""}),
+    "csv": EXTRA_TYPES["example_data"]["csv"],
 }
 ATTACHMENT_TYPES = {**ALLOWED_TYPES, **BOARD_EXTRA_TYPES}
 

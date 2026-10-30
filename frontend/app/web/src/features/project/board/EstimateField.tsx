@@ -9,9 +9,11 @@ interface EstimateFieldProps {
   value: number | null;
   onChange: (hours: number | null) => void;
   disabled?: boolean;
+  /** Smallest increment the number box takes, in hours. */
+  step?: number;
 }
 
-export function EstimateField({ value, onChange, disabled = false }: EstimateFieldProps) {
+export function EstimateField({ value, onChange, disabled = false, step = 0.5 }: EstimateFieldProps) {
   const [text, setText] = useState(value == null ? "" : String(value));
   useEffect(() => setText(value == null ? "" : String(value)), [value]);
 
@@ -40,7 +42,7 @@ export function EstimateField({ value, onChange, disabled = false }: EstimateFie
           type="number"
           className="input est-input"
           min={0}
-          step={0.5}
+          step={step}
           placeholder="—"
           value={text}
           disabled={disabled}
