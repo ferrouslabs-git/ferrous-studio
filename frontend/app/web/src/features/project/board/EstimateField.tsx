@@ -11,9 +11,17 @@ interface EstimateFieldProps {
   disabled?: boolean;
   /** Smallest increment the number box takes, in hours. */
   step?: number;
+  /** The readout while the value is null. */
+  emptyLabel?: string;
 }
 
-export function EstimateField({ value, onChange, disabled = false, step = 0.5 }: EstimateFieldProps) {
+export function EstimateField({
+  value,
+  onChange,
+  disabled = false,
+  step = 0.5,
+  emptyLabel = "not estimated",
+}: EstimateFieldProps) {
   const [text, setText] = useState(value == null ? "" : String(value));
   useEffect(() => setText(value == null ? "" : String(value)), [value]);
 
@@ -56,7 +64,7 @@ export function EstimateField({ value, onChange, disabled = false, step = 0.5 }:
           }}
         />
         <span className={`est-read${value == null ? " est-none" : over ? " est-warn" : ""}`}>
-          {value == null ? "not estimated" : over ? `${fmtEffort(value)} · over a week` : fmtEffort(value)}
+          {value == null ? emptyLabel : over ? `${fmtEffort(value)} · over a week` : fmtEffort(value)}
         </span>
       </div>
       <div className="est-chips">
@@ -74,7 +82,7 @@ export function EstimateField({ value, onChange, disabled = false, step = 0.5 }:
         <button
           type="button"
           className={`est-chip est-clear${value == null ? " on" : ""}`}
-          title="not estimated"
+          title={emptyLabel}
           disabled={disabled}
           onClick={() => pick(null)}
         >

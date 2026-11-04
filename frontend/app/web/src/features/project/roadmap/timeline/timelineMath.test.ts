@@ -32,6 +32,7 @@ const req = (id: string, sprintId: string | null): Requirement => ({
   release_id: null,
   sprint_id: sprintId,
   estimate_hours: null,
+  actual_hours: null,
   queue_position: null,
   effective_epic_id: "e1",
   effective_release_id: null,

@@ -10,10 +10,11 @@
 //     gets its full hours -- no proration for a contract starting mid-month.
 //     Overlapping contracts add up: two running at once is two lots of hours.
 //   * Hours used in a month are what the reports resolved in it are charged
-//     at (chargedWork). A report is charged its own estimate -- the figure the
-//     client confirmed at "Estimated – to confirm" -- until requirements are
-//     raised from it; from then on the sum of those requirements' estimates
-//     supersedes it, since the work is planned and estimated there. A resolved
+//     at (chargedWork). A piece of work is charged its actual hours once they
+//     are recorded, and its estimate -- the figure the client confirmed at
+//     "Estimated – to confirm" -- until then. A report is charged on its own
+//     until requirements are raised from it; from then on the sum of those
+//     requirements' charges supersedes it, since the work is planned there. A resolved
 //     report with nothing to charge uses nothing, and is counted so the page
 //     can say so rather than quietly under-reporting.
 //   * Unused hours roll over into the next month, without limit. An overspend
@@ -45,7 +46,7 @@ export interface MonthRow {
   contracted: number;
   /** The balance carried in from the month before (0 for the first month). */
   rolledOver: number;
-  /** Estimates of the reports resolved this month. */
+  /** Hours charged for the reports resolved this month (actual, else estimate). */
   used: number;
   /** rolledOver + contracted - used: what carries into the next month. */
   balance: number;
@@ -60,16 +61,22 @@ export interface ChargeableReport {
   id: string;
   resolved_at: string | null;
   estimate_hours: number | null;
+  actual_hours?: number | null;
 }
 export interface RaisedRequirement {
   feedback_id: string | null;
   estimate_hours: number | null;
+  actual_hours?: number | null;
 }
 
+/** Actual hours when recorded, else the estimate; null when neither is. */
+const chargeOf = (w: { estimate_hours: number | null; actual_hours?: number | null }) =>
+  w.actual_hours ?? w.estimate_hours;
+
 /**
- * Each report with the hours it is charged at: the summed estimates of the
- * requirements raised from it once it has any, else its own estimate. Null
- * when there is nothing to charge -- no requirement carries an estimate, or
+ * Each report with the hours it is charged at: the summed charges of the
+ * requirements raised from it once it has any, else its own (chargeOf). Null
+ * when there is nothing to charge -- no requirement carries a figure, or
  * (with none raised) the report has none.
  */
 export function chargedWork(reports: ChargeableReport[], requirements: RaisedRequirement[]): ResolvedWork[] {
@@ -77,12 +84,12 @@ export function chargedWork(reports: ChargeableReport[], requirements: RaisedReq
   for (const r of requirements) {
     if (!r.feedback_id) continue;
     const list = raised.get(r.feedback_id) ?? [];
-    list.push(r.estimate_hours);
+    list.push(chargeOf(r));
     raised.set(r.feedback_id, list);
   }
   return reports.map((report) => {
     const estimates = raised.get(report.id);
-    if (!estimates) return { resolved_at: report.resolved_at, estimate_hours: report.estimate_hours };
+    if (!estimates) return { resolved_at: report.resolved_at, estimate_hours: chargeOf(report) };
     const known = estimates.filter((e): e is number => e != null);
     return { resolved_at: report.resolved_at, estimate_hours: known.length ? round2(known.reduce((a, b) => a + b, 0)) : null };
   });
@@ -178,8 +185,15 @@ export function awaitingConfirmation(
   reports: (ChargeableReport & { status: string })[],
   requirements: RaisedRequirement[],
 ): AwaitingConfirmation {
-  const waiting = reports.filter((r) => r.status === "EstimatedToConfirm");
-  const charged = chargedWork(waiting, requirements);
+  // Estimates only: this is the figure being put to the client, before any
+  // work -- an actual recorded early must not quietly change the quote.
+  const waiting = reports
+    .filter((r) => r.status === "EstimatedToConfirm")
+    .map((r) => ({ ...r, actual_hours: null }));
+  const charged = chargedWork(
+    waiting,
+    requirements.map((r) => ({ ...r, actual_hours: null })),
+  );
   let hours = 0;
   let unestimated = 0;
   for (const w of charged) {

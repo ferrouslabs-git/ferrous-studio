@@ -38,6 +38,8 @@ export interface Requirement {
   sprint_id: string | null;
   // Hours; null means "not estimated", which is distinct from zero.
   estimate_hours: number | null;
+  // Hours the work actually took; null means "not recorded".
+  actual_hours: number | null;
   // The agent work order within its sprint: null = not ordered, lower = earlier.
   // Positions repeat across sprints and are cleared when a requirement leaves one.
   queue_position: number | null;
@@ -70,6 +72,7 @@ export interface RequirementPatch extends Partial<RequirementInput> {
   clear_sprint?: boolean;
   // Null is meaningful for both: it clears the value, so neither needs a clear_ flag.
   estimate_hours?: number | null;
+  actual_hours?: number | null;
   queue_position?: number | null;
 }
 

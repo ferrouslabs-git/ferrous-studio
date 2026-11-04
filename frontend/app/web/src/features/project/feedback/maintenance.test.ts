@@ -183,3 +183,34 @@ describe("awaitingConfirmation", () => {
     expect(awaitingConfirmation([report("a", "EstimatedToConfirm", null)], [])).toEqual({ hours: 0, count: 1, unestimated: 1 });
   });
 });
+
+describe("actual hours", () => {
+  it("charges a resolved report its actual hours over its estimate", () => {
+    const [w] = chargedWork([{ id: "a", resolved_at: "2026-10-01", estimate_hours: 2, actual_hours: 3.5 }], []);
+    expect(w.estimate_hours).toBe(3.5);
+  });
+
+  it("falls back to the estimate while no actual is recorded", () => {
+    const [w] = chargedWork([{ id: "a", resolved_at: "2026-10-01", estimate_hours: 2, actual_hours: null }], []);
+    expect(w.estimate_hours).toBe(2);
+  });
+
+  it("charges each raised requirement its actual else its estimate", () => {
+    const [w] = chargedWork(
+      [{ id: "a", resolved_at: "2026-10-01", estimate_hours: 9, actual_hours: 9 }],
+      [
+        { feedback_id: "a", estimate_hours: 2, actual_hours: 1 },
+        { feedback_id: "a", estimate_hours: 3, actual_hours: null },
+      ],
+    );
+    expect(w.estimate_hours).toBe(4);
+  });
+
+  it("keeps the figure awaiting confirmation on estimates", () => {
+    const out = awaitingConfirmation(
+      [{ id: "a", status: "EstimatedToConfirm", resolved_at: null, estimate_hours: 2, actual_hours: 5 }],
+      [],
+    );
+    expect(out.hours).toBe(2);
+  });
+});

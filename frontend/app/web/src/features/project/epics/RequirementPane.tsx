@@ -212,6 +212,16 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
             <label>Estimate</label>
             <EstimateField value={r.estimate_hours} disabled={disabled} onChange={(h) => void patch({ estimate_hours: h })} />
           </div>
+          <div>
+            <label>Actual time</label>
+            <EstimateField
+              value={r.actual_hours}
+              step={0.1}
+              emptyLabel="not recorded"
+              disabled={disabled}
+              onChange={(h) => void patch({ actual_hours: h })}
+            />
+          </div>
         </div>
       </div>
 

@@ -75,9 +75,10 @@ interface Triage {
   status: FeedbackStatus;
   assignee_id: string | null;
   estimate_hours: number | null;
+  actual_hours: number | null;
 }
 
-const EMPTY_TRIAGE: Triage = { status: "New", assignee_id: null, estimate_hours: null };
+const EMPTY_TRIAGE: Triage = { status: "New", assignee_id: null, estimate_hours: null, actual_hours: null };
 
 /** A report still waiting on someone is news; one with its outcome is not. */
 const STATUS_BADGE: Record<FeedbackStatus, string> = {
@@ -211,7 +212,14 @@ export function FeedbackPage() {
     );
     setUrlTouched(item !== null && item.page_url !== "");
     setTriage(
-      item ? { status: item.status, assignee_id: item.assignee_id, estimate_hours: item.estimate_hours } : EMPTY_TRIAGE,
+      item
+        ? {
+            status: item.status,
+            assignee_id: item.assignee_id,
+            estimate_hours: item.estimate_hours,
+            actual_hours: item.actual_hours,
+          }
+        : EMPTY_TRIAGE,
     );
     setFormError(null);
     for (const shot of shots) shot.bitmap.close();
@@ -290,6 +298,7 @@ export function FeedbackPage() {
     page_url: form.page_url.trim(),
     status: triage.status,
     estimate_hours: triage.estimate_hours,
+    actual_hours: triage.actual_hours,
     ...(triage.assignee_id
       ? { assignee_id: triage.assignee_id }
       : item.assignee_id
@@ -565,6 +574,12 @@ export function FeedbackPage() {
                   item.estimate_hours == null ? <span className="muted">—</span> : fmtHours(item.estimate_hours),
               },
               {
+                header: "Actual",
+                className: "num",
+                render: (item) =>
+                  item.actual_hours == null ? <span className="muted">—</span> : fmtHours(item.actual_hours),
+              },
+              {
                 header: "Raised",
                 className: "when muted",
                 render: (item) => (
@@ -743,6 +758,15 @@ export function FeedbackPage() {
                 onChange={(hours) => patchTriage({ estimate_hours: hours })}
               />
             </Group>
+            <Group label="Actual time">
+              <EstimateField
+                value={triage.actual_hours}
+                step={0.1}
+                emptyLabel="not recorded"
+                disabled={readOnly}
+                onChange={(hours) => patchTriage({ actual_hours: hours })}
+              />
+            </Group>
             {editing.resolved_at && (
               <Field label="Resolved">
                 <span className="muted">
@@ -759,7 +783,10 @@ export function FeedbackPage() {
                     <span key={r.id} className="fb-requirement">
                       <IdChip of={{ type: "requirement", id: r.id }}>{r.human_id}</IdChip>
                       {href ? <Link to={href}>{r.title}</Link> : <span>{r.title}</span>}
-                      <span className="badge muted">{r.estimate_hours != null ? `${r.estimate_hours}h` : "No estimate"}</span>
+                      <span className="badge muted">
+                        {r.estimate_hours != null ? `${r.estimate_hours}h` : "No estimate"}
+                        {r.actual_hours != null && ` · ${r.actual_hours}h actual`}
+                      </span>
                     </span>
                   );
                 })}

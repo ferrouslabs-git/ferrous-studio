@@ -46,6 +46,7 @@ const req = (o: Partial<Requirement> & { id: string; human_id: string }): Requir
   release_id: null,
   sprint_id: null,
   estimate_hours: null,
+  actual_hours: null,
   queue_position: null,
   effective_epic_id: null,
   effective_release_id: null,

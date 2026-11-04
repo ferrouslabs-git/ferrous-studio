@@ -74,6 +74,7 @@ interface FormState {
   release_id: string | null;
   sprint_id: string | null;
   estimate_hours: number | null;
+  actual_hours: number | null;
 }
 
 function DrawerBody({
@@ -107,6 +108,7 @@ function DrawerBody({
           release_id: requirement.release_id,
           sprint_id: requirement.sprint_id,
           estimate_hours: requirement.estimate_hours,
+          actual_hours: requirement.actual_hours,
         }
       : {
           title: "",
@@ -119,6 +121,7 @@ function DrawerBody({
           release_id: null,
           sprint_id: null,
           estimate_hours: null,
+          actual_hours: null,
         },
   );
   const [saving, setSaving] = useState(false);
@@ -378,6 +381,18 @@ function DrawerBody({
           <label>Estimate</label>
           <EstimateField value={form.estimate_hours} disabled={!canWrite} onChange={(h) => patch({ estimate_hours: h })} />
         </div>
+        {requirement && (
+          <div>
+            <label>Actual time</label>
+            <EstimateField
+              value={form.actual_hours}
+              step={0.1}
+              emptyLabel="not recorded"
+              disabled={!canWrite}
+              onChange={(h) => patch({ actual_hours: h })}
+            />
+          </div>
+        )}
       </div>
       {requirement && (
         <>

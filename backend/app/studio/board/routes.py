@@ -172,7 +172,7 @@ _SPRINT_EVENT_FIELDS = ("name", "goal", "start_date", "end_date", "status", "rel
 # reconstructs status history from detail["status"]["to"].
 _REQUIREMENT_EVENT_FIELDS = (
     "title", "body", "epic_id", "feature_id", "status", "priority", "assignee_id",
-    "release_id", "sprint_id", "queue_position", "estimate_hours",
+    "release_id", "sprint_id", "queue_position", "estimate_hours", "actual_hours",
 )
 _DOC_EVENT_FIELDS = ("title", "body", "tags", "epic_id")
 
@@ -2149,9 +2149,9 @@ async def update_feedback(
         await _require_environment(db, board, payload.environment)
     if payload.assignee_id is not None:
         await _validate_assignee(db, board, payload.assignee_id)
-    tracked = ("status", "assignee_id", "estimate_hours")
+    tracked = ("status", "assignee_id", "estimate_hours", "actual_hours")
     before = _snapshot(item, tracked)
-    fields = payload.model_dump(exclude_unset=True, exclude={"clear_assignee", "assignee_id", "estimate_hours"})
+    fields = payload.model_dump(exclude_unset=True, exclude={"clear_assignee", "assignee_id", "estimate_hours", "actual_hours"})
     for field, value in fields.items():
         if value is not None:
             setattr(item, field, value)
@@ -2163,6 +2163,8 @@ async def update_feedback(
         item.assignee_id = payload.assignee_id
     if "estimate_hours" in payload.model_fields_set:
         item.estimate_hours = payload.estimate_hours
+    if "actual_hours" in payload.model_fields_set:
+        item.actual_hours = payload.actual_hours
     now = utc_now()
     item.resolved_at = service.resolution_stamp(before["status"], item.status, item.resolved_at, now)
     item.updated_at = now

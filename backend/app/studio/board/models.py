@@ -326,6 +326,10 @@ class Requirement(Base):
     # surfaces it yet -- it exists so estimates survive the import rather than
     # being silently dropped.
     estimate_hours = Column(Float, nullable=True)
+    # Hours the work actually took (d4b8e1f6a352). NULL is "not recorded",
+    # never zero. Once recorded it is what a report raised into this
+    # requirement is charged against its maintenance contract.
+    actual_hours = Column(Float, nullable=True)
     # Work order within the requirement's sprint -- what an agent picks
     # work by, and the sprint board's row order. NULL = not ordered (sorts
     # last). Scoped to a sprint, so it is cleared whenever the requirement
@@ -474,6 +478,9 @@ class Feedback(Base):
     # contract: the estimate is what the client confirms (EstimatedToConfirm),
     # so it is the agreed charge.
     estimate_hours = Column(Float, nullable=True)
+    # Hours the fix actually took; NULL is "not recorded". When recorded it
+    # replaces the estimate as the report's charge (feedback/maintenance.ts).
+    actual_hours = Column(Float, nullable=True)
     resolved_at = Column(DateTime, nullable=True)
     requirement_id = Column(
         UUID(as_uuid=True), ForeignKey("board_requirements.id", ondelete="SET NULL"), nullable=True
