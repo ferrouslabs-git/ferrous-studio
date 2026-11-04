@@ -160,6 +160,35 @@ export function maintenanceLedger(contracts: ContractTerms[], work: ResolvedWork
   return rows;
 }
 
+export interface AwaitingConfirmation {
+  /** Summed charge of the reports at "Estimated – to confirm". */
+  hours: number;
+  /** How many reports are at that status. */
+  count: number;
+  /** Of those, how many have nothing to charge yet. */
+  unestimated: number;
+}
+
+/**
+ * What the reports waiting for the client's go-ahead would draw from the
+ * balance once resolved, charged the same way as resolved work (chargedWork)
+ * so the figure the client confirms is the one the log will later use.
+ */
+export function awaitingConfirmation(
+  reports: (ChargeableReport & { status: string })[],
+  requirements: RaisedRequirement[],
+): AwaitingConfirmation {
+  const waiting = reports.filter((r) => r.status === "EstimatedToConfirm");
+  const charged = chargedWork(waiting, requirements);
+  let hours = 0;
+  let unestimated = 0;
+  for (const w of charged) {
+    if (w.estimate_hours == null) unestimated += 1;
+    else hours += w.estimate_hours;
+  }
+  return { hours: round2(hours), count: waiting.length, unestimated };
+}
+
 /** "12h", "7.5h", "-3h" -- hours, never converted to days: a contract is
  *  sold in hours, and the log has to read in the same unit. */
 export function fmtHours(h: number): string {

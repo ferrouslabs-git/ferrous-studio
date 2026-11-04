@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  awaitingConfirmation,
   chargedWork,
   contractedIn,
   currentMonth,
@@ -156,5 +157,29 @@ describe("chargedWork (FS-REQ-54)", () => {
 
   it("has nothing to charge when no raised requirement is estimated", () => {
     expect(chargedWork([report("a", 3)], [{ feedback_id: "a", estimate_hours: null }])[0].estimate_hours).toBeNull();
+  });
+});
+
+describe("awaitingConfirmation", () => {
+  const report = (id: string, status: string, estimate_hours: number | null) => ({ id, status, resolved_at: null, estimate_hours });
+
+  it("sums only the reports waiting for the client to confirm", () => {
+    const out = awaitingConfirmation(
+      [report("a", "EstimatedToConfirm", 1.5), report("b", "EstimatedToConfirm", 0.2), report("c", "New", 9), report("d", "Resolved", 4)],
+      [],
+    );
+    expect(out).toEqual({ hours: 1.7, count: 2, unestimated: 0 });
+  });
+
+  it("charges raised requirements in place of the report, as the log will", () => {
+    const out = awaitingConfirmation(
+      [report("a", "EstimatedToConfirm", 1)],
+      [{ feedback_id: "a", estimate_hours: 3 }, { feedback_id: "a", estimate_hours: 2 }],
+    );
+    expect(out.hours).toBe(5);
+  });
+
+  it("counts a waiting report with nothing to charge", () => {
+    expect(awaitingConfirmation([report("a", "EstimatedToConfirm", null)], [])).toEqual({ hours: 0, count: 1, unestimated: 1 });
   });
 });

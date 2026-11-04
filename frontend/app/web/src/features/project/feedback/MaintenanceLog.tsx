@@ -22,7 +22,7 @@ import {
   MaintenanceContractInput,
   updateMaintenanceContract,
 } from "./feedbackApi";
-import { chargedWork, currentMonth, fmtDay, fmtHours, fmtMonth, maintenanceLedger, monthOf, MonthRow, RaisedRequirement } from "./maintenance";
+import { awaitingConfirmation, chargedWork, currentMonth, fmtDay, fmtHours, fmtMonth, maintenanceLedger, monthOf, MonthRow, RaisedRequirement } from "./maintenance";
 
 type Phase = "current" | "upcoming" | "ended";
 
@@ -92,6 +92,10 @@ export function MaintenanceLog({
   );
   const thisMonth: MonthRow | undefined = ledger[ledger.length - 1];
   const months = useMemo(() => [...ledger].reverse(), [ledger]);
+  // What the client is being asked to approve, and where the balance lands if
+  // they do -- the figure to quote when asking for the go-ahead.
+  const awaiting = useMemo(() => awaitingConfirmation(reports, requirements), [reports, requirements]);
+  const projected = (thisMonth?.balance ?? 0) - awaiting.hours;
 
   const visible = useMemo(
     () =>
@@ -142,7 +146,15 @@ export function MaintenanceLog({
         <Figure label="Used this month" value={thisMonth?.used ?? 0} />
         <Figure label="Rolled over" value={thisMonth?.rolledOver ?? 0} />
         <Figure label="Current balance" value={thisMonth?.balance ?? 0} />
+        <Figure label="Estimate to confirm total" value={awaiting.hours} />
+        <Figure label="Projected balance" value={projected} />
       </div>
+      {awaiting.unestimated > 0 && (
+        <div className="status-banner warn">
+          {awaiting.unestimated} report{awaiting.unestimated === 1 ? " is" : "s are"} awaiting confirmation without an
+          estimate and {awaiting.unestimated === 1 ? "is" : "are"} not in the projected balance.
+        </div>
+      )}
       {thisMonth && thisMonth.unestimated > 0 && (
         <div className="status-banner warn">
           {thisMonth.unestimated} report{thisMonth.unestimated === 1 ? " was" : "s were"} resolved this month without
