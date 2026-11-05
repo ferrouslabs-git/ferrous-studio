@@ -272,3 +272,85 @@ def test_contracts_are_read_by_the_board_and_written_by_admins():
 def test_the_contracts_table_gets_row_level_security():
     src = MIGRATION.read_text(encoding="utf-8")
     assert "_apply_rls('board_maintenance_contracts')" in src
+
+
+# ── Auto-assignment (FS-REQ-82) ──────────────────────────────────────────
+
+from types import SimpleNamespace  # noqa: E402
+
+from fastapi import HTTPException  # noqa: E402
+
+from app.studio import slack_notify  # noqa: E402
+
+PM = uuid4()
+DEV = uuid4()
+
+
+def _team(pm=PM, dev=DEV):
+    return SimpleNamespace(account_id=uuid4(), id=uuid4(), product_manager_id=pm, support_dev_id=dev)
+
+
+@pytest.mark.parametrize(
+    "status,owner",
+    [("New", DEV), ("Confirmed", DEV), ("EstimatedToConfirm", PM), ("NotABug", PM),
+     ("OnHold", None), ("InProgress", None), ("Resolved", None)],
+)
+def test_a_report_is_owned_by_whoever_its_status_notifies(status, owner):
+    assert slack_notify.feedback_owner(_team(), status) == owner
+
+
+def test_the_owner_table_is_the_notice_table():
+    # Every status that notifies someone names an owner, and the same person.
+    for status in FEEDBACK_STATUSES:
+        owner = slack_notify.feedback_owner(_team(), status)
+        notices = slack_notify.team_notices(_team(), "feedback.triaged", {"status": {"from": "OnHold", "to": status}})
+        assert [n["user_id"] for n in notices] == ([str(owner)] if owner else []), status
+
+
+def _item(assignee=None):
+    return SimpleNamespace(status="New", assignee_id=assignee)
+
+
+async def _accept(db, board, user_id):
+    return None
+
+
+async def _refuse(db, board, user_id):
+    raise HTTPException(status_code=422, detail="no")
+
+
+async def test_a_new_report_goes_to_the_support_developer(monkeypatch):
+    monkeypatch.setattr(routes, "_validate_assignee", _accept)
+    item = _item()
+    await routes._auto_assign_feedback(None, _team(), item)
+    assert item.assignee_id == DEV
+
+
+async def test_an_assignee_already_set_is_kept(monkeypatch):
+    monkeypatch.setattr(routes, "_validate_assignee", _accept)
+    someone = uuid4()
+    item = _item(someone)
+    await routes._auto_assign_feedback(None, _team(), item)
+    assert item.assignee_id == someone
+
+
+async def test_no_support_developer_leaves_it_unassigned(monkeypatch):
+    monkeypatch.setattr(routes, "_validate_assignee", _accept)
+    item = _item()
+    await routes._auto_assign_feedback(None, _team(dev=None), item)
+    assert item.assignee_id is None
+
+
+async def test_a_team_member_who_can_no_longer_be_assigned_is_skipped(monkeypatch):
+    monkeypatch.setattr(routes, "_validate_assignee", _refuse)
+    item = _item()
+    await routes._auto_assign_feedback(None, _team(), item)
+    assert item.assignee_id is None
+
+
+def test_create_assigns_before_the_event_is_written():
+    src = inspect.getsource(routes.create_feedback)
+    assert src.index("_auto_assign_feedback(") < src.index("write_event(")
+    # The event detail is untouched, so the assignment sends no second message.
+    event = src.split("write_event(", 1)[1].split("await db.commit()", 1)[0]
+    assert "assignee_id" not in event
