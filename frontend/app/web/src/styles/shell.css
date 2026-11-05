@@ -191,6 +191,11 @@
    row, a quieter line beneath it, badges, a date, and a "⋯" menu. The projects
    list draws its own rows on these classes, since each project groups its
    versions beneath it. */
+.list-toolbar .list-date-range {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); white-space: nowrap;
+}
+.list-toolbar .list-date-range .input { width: auto; min-width: 0; color-scheme: dark; }
+[data-theme="light"] .list-toolbar .list-date-range .input { color-scheme: light; }
 .list-toolbar .list-count {
   margin-left: auto; white-space: nowrap; font-size: 11px; color: var(--text-mute);
 }

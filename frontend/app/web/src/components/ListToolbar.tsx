@@ -13,6 +13,16 @@ export interface ListFilter {
   options: { value: string; label: string }[];
 }
 
+/** An inclusive day range picked with the app's date inputs, "YYYY-MM-DD" or
+ *  "" for an open end (see dateRange.ts for matching rows against it). */
+export interface ListDateRange {
+  /** The visible word in front of the two pickers, "Created". */
+  label: string;
+  from: string;
+  to: string;
+  onChange: (range: { from: string; to: string }) => void;
+}
+
 interface ListToolbarProps {
   search: {
     value: string;
@@ -22,15 +32,20 @@ interface ListToolbarProps {
     label: string;
   };
   filters?: ListFilter[];
+  dateRange?: ListDateRange;
   /** How many rows are showing, of how many there are, and what they are. */
   count: { visible: number; total: number; noun: [string, string] };
 }
 
-export function ListToolbar({ search, filters = [], count }: ListToolbarProps) {
-  const filtered = search.value.trim() !== "" || filters.some((f) => f.value !== (f.defaultValue ?? ""));
+export function ListToolbar({ search, filters = [], dateRange, count }: ListToolbarProps) {
+  const filtered =
+    search.value.trim() !== "" ||
+    filters.some((f) => f.value !== (f.defaultValue ?? "")) ||
+    (dateRange !== undefined && (dateRange.from !== "" || dateRange.to !== ""));
   const clear = () => {
     search.onChange("");
     for (const f of filters) f.onChange(f.defaultValue ?? "");
+    dateRange?.onChange({ from: "", to: "" });
   };
 
   return (
@@ -52,6 +67,28 @@ export function ListToolbar({ search, filters = [], count }: ListToolbarProps) {
           ))}
         </select>
       ))}
+      {dateRange && (
+        <span className="list-date-range" role="group" aria-label={`${dateRange.label} between`}>
+          {dateRange.label}
+          <input
+            className="input"
+            type="date"
+            value={dateRange.from}
+            max={dateRange.to || undefined}
+            aria-label={`${dateRange.label} from`}
+            onChange={(e) => dateRange.onChange({ from: e.target.value, to: dateRange.to })}
+          />
+          to
+          <input
+            className="input"
+            type="date"
+            value={dateRange.to}
+            min={dateRange.from || undefined}
+            aria-label={`${dateRange.label} to`}
+            onChange={(e) => dateRange.onChange({ from: dateRange.from, to: e.target.value })}
+          />
+        </span>
+      )}
       {filtered && (
         <button type="button" className="btn small ghost" onClick={clear}>
           Clear
