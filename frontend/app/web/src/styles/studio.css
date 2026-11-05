@@ -879,6 +879,21 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-chart-bars { position: absolute; inset: 0; display: flex; align-items: stretch; gap: 8%; padding: 0 4%; }
 .ui-chart-col { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
 .ui-chart-value { font: 500 10.5px var(--font-mono); color: var(--text-mute); margin-bottom: 4px; }
+.ui-chart:not(.horiz) .ui-chart-col { position: relative; }
+.ui-chart:not(.horiz) .ui-chart-value { position: absolute; left: 0; right: 0; bottom: calc(var(--h) + 4px); margin: 0; text-align: center; white-space: nowrap; }
+/* Horizontal bars: the plot is as tall as its rows need (--rows-h). */
+.ui-chart.horiz .ui-chart-plot { height: var(--rows-h, 170px); }
+/* A graph given a height (resized, or set to fill its region) stretches to
+   it: the plot takes whatever the title, stat tiles and axis labels leave,
+   never less than its rows need. */
+.cmp:is(.sized-h, .fill) > .ui-graph,
+.cmp:is(.sized-h, .fill) > .ui-headed > .ui-graph { flex: 1 1 auto; min-height: 0; height: 100%; display: flex; flex-direction: column; }
+.cmp.sized-h:has(> .ui-graph, > .ui-headed > .ui-graph) { display: flex; flex-direction: column; }
+.cmp.sized-h > .ui-headed:has(> .ui-graph) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ui-graph > .ui-plot-area { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ui-graph > .ui-plot-area > .ui-chart { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ui-graph > .ui-plot-area > .ui-chart > .ui-chart-plot { flex: 1 1 auto; height: auto; min-height: var(--rows-h, 120px); }
+.ui-graph > .ui-plot-area > .ui-chart > .ui-chart-x { flex: none; }
 .ui-chart-bar {
   width: 100%; max-width: 48px; border-radius: var(--radius) var(--radius) 0 0;
   background: var(--wf-fill);

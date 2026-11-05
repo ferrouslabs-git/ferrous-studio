@@ -2228,7 +2228,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         </div>
         <div className="ui-chart-ytitle">
           {elTok(yAxisEl, "")}
-          {(unit || edit) && <> ({dataTok(yAxisEl, "unit", "unit")})</>}
+          {unit && <> ({dataTok(yAxisEl, "unit", "")})</>}
         </div>
       </>
     ) : null;
@@ -2348,7 +2348,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
           // to the layout because the gridlines and value ticks start there too.
           style={horiz && catAxis ? ({ "--cat-w": `${Math.min(160, Math.max(24, Math.ceil(longestCategory * 6.2) + 12))}px` } as CSSProperties) : undefined}
         >
-          <div className="ui-chart-plot" style={horiz ? { height: Math.max(170, n * 30) } : undefined}>
+          <div className="ui-chart-plot" style={horiz ? ({ "--rows-h": `${Math.max(170, n * 30)}px` } as CSSProperties) : undefined}>
             <div className="ui-chart-grid" aria-hidden><i /><i /><i /><i /></div>
             {yAxis}
             <div className="ui-chart-bars">
@@ -2364,7 +2364,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                     </div>
                   </div>
                 ) : (
-                  <div key={i} className="ui-chart-col">
+                  // The value floats just above its bar, so the bar's height
+                  // is a true share of the plot (sharing the column squashed
+                  // the tallest bars).
+                  <div key={i} className="ui-chart-col" style={{ "--h": `${pct}%` } as CSSProperties}>
                     {value}
                     <div className="ui-chart-bar" style={{ height: `${pct}%` }} />
                   </div>
@@ -2415,7 +2418,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         : null;
 
     return (
-      <div className="ui-card">
+      <div className="ui-card ui-graph">
         {head}
         {kpis && <div className="ui-graph-kpis">{kpis}</div>}
         <div className="ui-plot-area">
