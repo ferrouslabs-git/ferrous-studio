@@ -112,7 +112,7 @@ describe("migrateComponent: list family", () => {
     migrateComponent(c);
     expect(c.type).toBe("list");
     expect(c.shape).toBe("rows");
-    expect(types(c)).toEqual(["search", "filter", "filter", "header"]);
+    expect(types(c)).toEqual(["search", "select", "select", "header"]);
   });
 });
 

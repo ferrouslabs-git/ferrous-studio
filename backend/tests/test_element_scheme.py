@@ -112,3 +112,40 @@ def test_the_format_guide_teaches_the_type_shape_variant_scheme():
     assert "Text (" in BUNDLE_FORMAT_GUIDE and "Basic (circle, line, square, triangle)" in BUNDLE_FORMAT_GUIDE
     assert "data.variant" in BUNDLE_FORMAT_GUIDE
     assert "data.shape" not in BUNDLE_FORMAT_GUIDE
+
+
+def list_page(*elements: dict) -> dict:
+    component = {"id": "c1", "type": "list", "shape": "table", "elements": list(elements)}
+    return {"id": "p1", "name": "Home", "layout": {"kind": "region", "id": "r1", "size": {"fr": 1}, "components": [component]}}
+
+
+def test_a_lists_filter_chips_become_its_input_dropdowns():
+    """Lists offer every input in place of the three filter chips; an old
+    chip keeps its options, dataset and selection as a dropdown."""
+    page = list_page(
+        {"id": "f1", "type": "filter", "label": "Status", "data": {"options": "Active, Archived", "selected": "Active"}},
+        {"id": "f2", "type": "filter-multi-search", "label": "Tags", "data": {"options": "A, B"}},
+    )
+    normalise_legacy_elements([page], CATALOG)
+    got = [(e["id"], e["type"], e.get("data")) for e in elements_of(page)]
+    assert got == [
+        ("f1", "select", {"options": "Active, Archived", "selected": "Active"}),
+        ("f2", "multi-select", {"options": "A, B"}),
+    ]
+    lst = CATALOG.component("list")
+    for gone in ("filter", "filter-multi", "filter-multi-search"):
+        assert gone not in lst.elements
+    for shape in ("text-input", "select", "multi-select", "date-picker", "checkbox", "toggle", "slider"):
+        assert shape in lst.elements
+
+
+def _wireframe_bundle(page: dict) -> dict:
+    return wrap_bare_envelope({"wireframes": [{"name": "W", "pages": [page]}]})
+
+
+def test_a_column_can_name_an_input_shape_for_its_cells():
+    ok = list_page({"id": "c", "type": "column", "label": "Done", "data": {"kind": "boolean", "input": "checkbox"}})
+    assert not [e for e in validate_bundle(_wireframe_bundle(ok), CATALOG) if ".data." in e.path]
+    bad = list_page({"id": "c", "type": "column", "label": "Done", "data": {"input": "teapot"}})
+    errors = validate_bundle(_wireframe_bundle(bad), CATALOG)
+    assert any(e.path.endswith(".data.input") for e in errors)

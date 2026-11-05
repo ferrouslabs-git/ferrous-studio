@@ -11,7 +11,7 @@
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, borderShown, elementMeta, fontStack, formSpan, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, borderShown, elementMeta, fontStack, formSpan, imageList, isFilterType, isInputType, isMultiPick, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
@@ -901,7 +901,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const filterChip = (el: ElementNode): ReactNode => {
     const options = dropdownOptions(el);
     if (options.length === 0) return elTok(el, "ui-chip");
-    const multi = isMultiFilter(el.type);
+    const multi = isMultiPick(el.type);
     const picked = multi ? selectedValues(el) : [];
     const summary = multi
       ? picked.length === 0 ? "All" : picked.length === 1 ? picked[0] : `${picked[0]} +${picked.length - 1}`
@@ -1451,7 +1451,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const listControl = (e: ElementNode): ReactNode => {
     if (e.type === "search") return searchBox(e, "sm");
     if (e.type === "button") return <Fragment key={e.id}>{btnTok(e, "sm")}</Fragment>;
-    return <Fragment key={e.id}>{filterChip(e)}</Fragment>;
+    // Dropdowns keep the filter chip's look (label, value, chevron) — the
+    // chips they replaced; any other input draws as itself, label beside it.
+    if (e.type === "select" || e.type === "multi-select" || isFilterType(e.type)) return <Fragment key={e.id}>{filterChip(e)}</Fragment>;
+    return <Fragment key={e.id}>{widget(e)}</Fragment>;
   };
   /** A line's elements split into its left and right groups (pos order
    *  within each); the right group is pushed to the far end. */
@@ -1656,6 +1659,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       const own = rows[ri]?.[col.id];
       const ds = datasetOf(col);
       const sample = own != null ? "" : sampleAt(col, ri);
+      if (col.data?.input && isInputType(col.data.input)) {
+        const valueTok = tok("", own ?? null, sample, (t) => edit?.setListCell(ri, col.id, t), undefined, { key: elKey(col.id), index: null }, true, fsStyle(col));
+        return cellInput(col.data.input, ri, valueTok);
+      }
       const value = own ?? null;
       const shown = own ?? sample;
       const kind = ds?.kind ?? col.data?.kind;
@@ -1669,6 +1676,43 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       // Inspector), a double click edits the cell value as before.
       return tok(cls, value, sample, (t) => edit?.setListCell(ri, col.id, t), undefined, { key: elKey(col.id), index: null }, true, fsStyle(col));
     };
+    /** A column whose cells are inputs (data.input): each row draws that
+     *  control, compact, carrying the row's value where it shows one. On/off
+     *  controls alternate down the rows so the column reads as data. */
+    const cellInput = (input: string, ri: number, value: ReactNode): ReactNode => {
+      const on = ri % 2 === 0;
+      switch (input) {
+        case "checkbox":
+          return <span className={`ui-choice${on ? " on" : ""}`}><i className="ui-checkbox" aria-hidden>{on && <CheckIcon />}</i></span>;
+        case "toggle":
+          return <span className="ui-choice"><i className={`ui-toggle${on ? " on" : ""}`} aria-hidden /></span>;
+        case "radio-group":
+          return <span className={`ui-choice${on ? " on" : ""}`}><i className="ui-radio" aria-hidden />{value}</span>;
+        case "slider": {
+          const pct = [70, 35, 55, 85, 20][ri % 5];
+          return (
+            <span className="ui-slider ui-cell-input" aria-hidden>
+              <span className="ui-slider-track">
+                <span className="ui-slider-fill" style={{ width: `${pct}%` }} />
+                <span className="ui-slider-thumb" style={{ left: `${pct}%` }} />
+              </span>
+            </span>
+          );
+        }
+        case "select":
+        case "multi-select":
+          return <span className="ui-input sm ui-cell-input dropdown">{value}<Chevron /></span>;
+        case "date-picker":
+        case "date-time":
+          return <span className="ui-input sm ui-cell-input">{value}<span className="ui-cell-icon"><CalendarIcon /></span></span>;
+        case "file-upload":
+          return <span className="ui-input sm ui-cell-input file">{value}</span>;
+        case "read-only":
+          return <span className="ui-readonly ui-cell-input">{value}</span>;
+        default:
+          return <span className="ui-input sm ui-cell-input">{value}</span>;
+      }
+    };
     const colOfKind = (...kinds: string[]) => columns.find((c) => kinds.includes(c.data?.kind ?? ""));
 
     // The controls row: filters, search and inline buttons, in pos order,
@@ -1676,7 +1720,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     // "above" ride the title line instead (see the wrap at the end).
     const besideTitle = !!headerInline;
     const controls = els.filter(
-      (e) => e.type === "search" || isFilterType(e.type) || (e.type === "button" && e.data?.placement !== "above"),
+      (e) => e.type === "search" || isFilterType(e.type) || isInputType(e.type) || (e.type === "button" && e.data?.placement !== "above"),
     );
     const head = headerInline || controls.length > 0 ? (
       <div className="ui-card-head ui-list-head">

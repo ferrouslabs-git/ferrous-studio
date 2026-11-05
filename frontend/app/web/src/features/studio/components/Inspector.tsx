@@ -8,7 +8,7 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  anyElementMeta, borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, INPUT_TYPES, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
@@ -242,9 +242,6 @@ function EmphasisField({ data, set, ro }: { data: Record<string, string> | undef
     </div>
   );
 }
-
-/** The Type choice that makes a list column an image column. */
-const IMAGE_COLUMN = "image-column";
 
 /** An element's border: on / off (data.border; choosing the type's own
  *  default clears the key) and, while it shows, its colour. */
@@ -593,24 +590,60 @@ export function Inspector(props: Props) {
               // shape this component still has room for.
               const groups = elementGroups(selectedCmp.type);
               const full = new Set(elementTypeOptions(selectedCmp, elementNode.id).filter((o) => o.full).map((o) => o.type));
-              // A list column can hold pictures: "Image" is offered as its
-              // type too, and is the column's own image data kind (so the
-              // Images upload appears) rather than a different element.
-              const isColumn = elementNode.type === "column";
-              const imageColumn = isColumn && elementNode.data?.kind === "image";
-              const shapes = (groups.find((g) => g.id === elementNodeMeta.group)?.shapes ?? []).filter(
-                (m) => !imageColumn || m.type === "column",
-              );
+              // A list column is plain text, an input in every cell (data.input
+              // names the input shape), or a picture (the image data kind):
+              // its Type and Shape choose between those rather than turning
+              // it into some other element.
+              if (elementNode.type === "column") {
+                const set = (k: string, v: string) => props.onElementData(elementSel, k, v);
+                const input = elementNode.data?.input ?? "";
+                const colType = elementNode.data?.kind === "image" ? "image" : input ? "input" : "text";
+                const pickType = (t: string) => {
+                  if (t === colType) return;
+                  if (t === "image") {
+                    set("kind", "image");
+                    if (input) set("input", "");
+                  } else {
+                    if (colType === "image") set("kind", "text");
+                    set("input", t === "input" ? "text-input" : "");
+                  }
+                };
+                return (
+                  <>
+                    <div className="field">
+                      <label>Type</label>
+                      <select value={colType} disabled={ro} onChange={(e) => pickType(e.target.value)}>
+                        <option value="text">Text</option>
+                        <option value="input">Input</option>
+                        <option value="image">Image</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>Shape</label>
+                      {colType === "input" ? (
+                        <select value={input} disabled={ro} onChange={(e) => set("input", e.target.value)}>
+                          {INPUT_TYPES.map((t) => (
+                            <option key={t} value={t}>{anyElementMeta(t)?.label ?? t}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <select value="column" disabled>
+                          <option value="column">{colType === "image" ? "Picture" : "Column"}</option>
+                        </select>
+                      )}
+                    </div>
+                  </>
+                );
+              }
+              const shapes = groups.find((g) => g.id === elementNodeMeta.group)?.shapes ?? [];
               return (
                 <>
                   <div className="field">
                     <label>Type</label>
                     <select
-                      value={imageColumn ? IMAGE_COLUMN : elementNodeMeta.group}
+                      value={elementNodeMeta.group}
                       disabled={ro}
                       onChange={(e) => {
-                        if (e.target.value === IMAGE_COLUMN) return props.onElementData(elementSel, "kind", "image");
-                        if (imageColumn && e.target.value === elementNodeMeta.group) return props.onElementData(elementSel, "kind", "text");
                         const first = groups.find((g) => g.id === e.target.value)?.shapes.find((m) => !full.has(m.type));
                         if (first) props.onElementType(elementSel, first.type);
                       }}
@@ -618,7 +651,6 @@ export function Inspector(props: Props) {
                       {groups.map((g) => (
                         <option key={g.id} value={g.id} disabled={g.shapes.every((m) => full.has(m.type))}>{g.label}</option>
                       ))}
-                      {isColumn && !groups.some((g) => g.id === "image") && <option value={IMAGE_COLUMN}>Image</option>}
                     </select>
                   </div>
                   <div className="field">

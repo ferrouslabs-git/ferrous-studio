@@ -346,7 +346,15 @@ export function formSpan(el: { type: string; data?: Record<string, string> }, la
 export const LIST_ALIGN_OPTIONS = ["left", "right"] as const;
 export type ListAlign = (typeof LIST_ALIGN_OPTIONS)[number];
 /** The list element types the Alignment control offers itself for. */
-export const LIST_ALIGNABLE = new Set<string>(["search", "button", ...FILTER_TYPES]);
+/** Every input shape. A list offers them all as its controls (they replace
+ *  the filter chips), and a list column can show any of them in its cells
+ *  (`data.input` on the column). */
+export const INPUT_TYPES = [
+  "text-input", "text-area", "select", "multi-select", "date-picker", "date-time",
+  "radio-group", "checkbox", "toggle", "read-only", "file-upload", "slider",
+] as const;
+export const isInputType = (type: string): boolean => (INPUT_TYPES as readonly string[]).includes(type);
+export const LIST_ALIGNABLE = new Set<string>(["search", "button", ...FILTER_TYPES, ...INPUT_TYPES]);
 /** An element's side of its list line. Unset keeps the look lists have
  *  always had: controls trail an inline title and lead otherwise; buttons
  *  trail (a "+ Client" sits at the far end). */
@@ -520,8 +528,12 @@ export const FORM_ELEMENTS: ElementTypeMeta[] = [
   TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, RADIO_GROUP, CHECKBOX, TOGGLE, DATE_PICKER, DATE_TIME,
   READ_ONLY, FILE_UPLOAD, SECTION_HEADING, STEP, HELP_TEXT, BUTTON,
 ];
+// A list's controls are any input (they replaced the three filter chips,
+// which RETIRED_ELEMENTS.list converts).
 export const LIST_ELEMENTS: ElementTypeMeta[] = [
-  COLUMN, COLUMN_HEADER, ROW_ACTION, SELECT_COLUMN, SEARCH, FILTER, FILTER_MULTI, FILTER_MULTI_SEARCH, PAGINATION,
+  COLUMN, COLUMN_HEADER, ROW_ACTION, SELECT_COLUMN, SEARCH,
+  TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, DATE_PICKER, DATE_TIME, RADIO_GROUP, CHECKBOX, TOGGLE, READ_ONLY, FILE_UPLOAD, SLIDER,
+  PAGINATION,
 ];
 /** A list's own button (FS-REQ-43) — "+ Client", "Export". Like the header it
  *  sits on the title's line ("above") or in the controls row ("inline"),
@@ -794,6 +806,14 @@ export const RETIRED_ELEMENTS: Record<string, Record<string, ElementRemap | null
     "column-header": null,
     "row-action": { type: "button", data: { style: "secondary" } },
     "select-column": { type: "checkbox" },
+    filter: { type: "select" },
+    "filter-multi": { type: "multi-select" },
+    "filter-multi-search": { type: "multi-select" },
+  },
+  // A list's filter chips became its inputs: a dropdown keeps the chip's
+  // look in the controls row (label, value, chevron), with its options,
+  // dataset and selection.
+  list: {
     filter: { type: "select" },
     "filter-multi": { type: "multi-select" },
     "filter-multi-search": { type: "multi-select" },

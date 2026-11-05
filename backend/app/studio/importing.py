@@ -42,6 +42,13 @@ from .schemas import DiagramKind, InterfaceType, UseCaseActorKind
 # than copied a third time.
 from .wireframes import _set_actors, _set_personas, _snapshot, insert_pages, wireframe_pages
 
+# The input shapes a list column can show in its cells (data.input);
+# mirrors INPUT_TYPES in the frontend catalogue.
+COLUMN_INPUTS = frozenset({
+    "text-input", "text-area", "select", "multi-select", "date-picker", "date-time",
+    "radio-group", "checkbox", "toggle", "read-only", "file-upload", "slider",
+})
+
 #: Matches the request-body cap the import route will enforce; checked here
 #: too so the skill's local validate.py catches an oversized bundle before
 #: anyone uploads it.
@@ -195,12 +202,17 @@ def _validate_element(
         allowed |= {"w", "h"}
     if host_component_type == "form" and el_type not in ("header", "button", "step"):
         allowed.add("span")
+    # A list column can draw an input in every cell, named by its shape.
+    if el_type == "column":
+        allowed.add("input")
 
     for key, value in data.items():
         if key not in allowed:
             errors.append(BundleError(f"{path}.data.{key}", f'"{key}" is not a known field of "{el_type}"'))
         elif key == "kind" and el_type == "column" and value not in catalog.data_kinds:
             errors.append(BundleError(f"{path}.data.kind", f'"{value}" is not a known data kind'))
+        elif key == "input" and el_type == "column" and value not in COLUMN_INPUTS:
+            errors.append(BundleError(f"{path}.data.input", f'"{value}" is not an input shape'))
         elif key == "kind" and el_type == "text-input" and value not in catalog.input_kinds:
             errors.append(BundleError(f"{path}.data.kind", f'"{value}" is not a known input kind'))
         elif (

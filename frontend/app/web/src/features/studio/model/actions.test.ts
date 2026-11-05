@@ -161,10 +161,10 @@ describe("filter kinds (FS-REQ-40)", () => {
   it("a multi-select turned single keeps only its first pick", () => {
     const list: ComponentNode = {
       id: "l", type: "list", label: "Clients", pos: "a0",
-      elements: [el("f", "filter-multi", "Status", "a0", { options: "Active, Archived, All", selected: "Active, Archived" })],
+      elements: [el("f", "multi-select", "Status", "a0", { options: "Active, Archived, All", selected: "Active, Archived" })],
     };
     const p = page([list]);
-    setElementType(p, ctx, "l", "f", "filter");
+    setElementType(p, ctx, "l", "f", "select");
     expect(listOf(p)[0].elements![0].data?.selected).toBe("Active");
   });
 });

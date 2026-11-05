@@ -212,7 +212,8 @@ export function crudGaps(list: ComponentNode): { edit: boolean; archive: boolean
   return {
     edit: !editTarget,
     archive: !rowActionNamed(list, ARCHIVE_ACTION_LABEL),
-    filter: !(list.elements ?? []).some((e) => isFilterType(e.type)),
+    // A list's dropdowns are its filters now (legacy filter chips count too).
+    filter: !(list.elements ?? []).some((e) => isFilterType(e.type) || e.type === "select" || e.type === "multi-select"),
     add: !addButtonOf(list, editTarget),
   };
 }

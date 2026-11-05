@@ -383,7 +383,26 @@
           "variantable": true,
           "fillable": true
         },
-        "filter": {
+        "text-input": {
+          "group": "input",
+          "fields": [
+            "kind",
+            "placeholder"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "text-area": {
+          "group": "input",
+          "fields": [
+            "placeholder"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "select": {
           "group": "input",
           "fields": [
             "dataset",
@@ -394,7 +413,7 @@
           "variantable": true,
           "fillable": true
         },
-        "filter-multi": {
+        "multi-select": {
           "group": "input",
           "fields": [
             "dataset",
@@ -405,16 +424,77 @@
           "variantable": true,
           "fillable": true
         },
-        "filter-multi-search": {
+        "date-picker": {
           "group": "input",
           "fields": [
-            "dataset",
-            "options",
+            "placeholder",
             "selected"
           ],
           "max": null,
           "variantable": true,
           "fillable": true
+        },
+        "date-time": {
+          "group": "input",
+          "fields": [
+            "placeholder",
+            "selected",
+            "time"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "radio-group": {
+          "group": "input",
+          "fields": [
+            "options"
+          ],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "checkbox": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "toggle": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "read-only": {
+          "group": "input",
+          "fields": [
+            "dataset",
+            "value"
+          ],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "file-upload": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "slider": {
+          "group": "input",
+          "fields": [
+            "min",
+            "max",
+            "value"
+          ],
+          "max": null,
+          "variantable": false,
+          "fillable": false
         },
         "pagination": {
           "group": "ui",
@@ -1012,6 +1092,17 @@
       "select-column": {
         "type": "checkbox"
       },
+      "filter": {
+        "type": "select"
+      },
+      "filter-multi": {
+        "type": "multi-select"
+      },
+      "filter-multi-search": {
+        "type": "multi-select"
+      }
+    },
+    "list": {
       "filter": {
         "type": "select"
       },

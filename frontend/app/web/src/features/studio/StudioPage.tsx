@@ -993,7 +993,7 @@ function StudioEditor() {
           // admin can delete it, so fall back to the same values inline.
           const bound = datasets.some((ds) => ds.id === RECORD_STATUS_DATASET_ID);
           A.addElement(d, c, cmpId, {
-            type: "filter",
+            type: "select",
             label: FILTER_LABEL,
             data: bound
               ? { dataset: RECORD_STATUS_DATASET_ID, selected: FILTER_DEFAULT }

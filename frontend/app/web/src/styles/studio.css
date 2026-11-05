@@ -1576,7 +1576,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .lib-type.open { background: var(--mute-soft); color: var(--text); }
 .lib-type.pinned { box-shadow: inset 0 0 0 1px var(--border-strong); }
 .lib-shape-menu {
-  position: fixed; z-index: 60;
+  position: fixed; z-index: 90; /* above an overlay page's scrim (70) */
   display: flex; flex-wrap: wrap; gap: 1px; max-width: min(520px, calc(100vw - 16px));
   padding: 4px; border-radius: 8px;
   background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow);
@@ -1675,6 +1675,20 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 }
 .ui-row-del .ui-add:hover { border-color: var(--bad); color: var(--bad); }
 .ui-table .ui-td-del { width: 0; padding: 0; border: 0; }
+/* A column whose cells are inputs (data.input): compact controls that sit
+   on the row's line, carrying the row's value. */
+.ui-input.ui-cell-input { width: auto; min-width: 96px; max-width: 100%; height: 26px; padding: 0 8px; justify-content: space-between; font-size: 12px; color: var(--text); }
+.ui-input.ui-cell-input.file { border-style: dashed; justify-content: center; height: 26px; }
+.ui-cell-icon { display: inline-grid; place-items: center; color: var(--text-mute); }
+.ui-slider.ui-cell-input { min-width: 96px; }
+.ui-readonly.ui-cell-input { display: inline-block; }
+/* A list's input controls (they replaced the filter chips) sit on the
+   controls line: label beside the control, the control at chip height. */
+.ui-list-head .ui-field { flex-direction: row; align-items: center; gap: 6px; flex-shrink: 0; }
+.ui-list-head .ui-field > .ui-label { margin: 0; white-space: nowrap; }
+.ui-list-head .ui-input { height: 28px; min-width: 120px; width: auto; }
+.ui-list-head .ui-input.tall { height: 28px; padding-top: 0; align-items: center; }
+.ui-list-head .ui-input.file { height: 28px; }
 .ui-feed li, .ui-rowitem, .ui-card-item { position: relative; }
 [data-row-del-hot] { outline: 2px dashed var(--bad); outline-offset: -2px; }
 

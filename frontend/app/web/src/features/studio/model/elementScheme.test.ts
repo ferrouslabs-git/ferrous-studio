@@ -37,7 +37,8 @@ describe("the element scheme", () => {
     for (const meta of Object.values(COMPONENTS)) {
       if (meta.type === "canvas") continue;
       for (const el of meta.elements) {
-        if (meta.type === "form" && el.type === "date-time") continue;
+        // Later asks: forms offer Date/time, and lists offer every input.
+        if ((meta.type === "form" && el.type === "date-time") || meta.type === "list") continue;
         expect(newShapes, `${meta.type}/${el.type}`).not.toContain(el.type);
       }
     }
@@ -90,7 +91,15 @@ describe("remapElement: old type/shape → new type + shape + variant", () => {
   it("leaves the same shapes alone in the components that still have them", () => {
     expect(remap("column", { kind: "text" }, "list")).toEqual({ type: "column", data: { kind: "text" } });
     expect(remap("step", undefined, "form")).toEqual({ type: "step", data: undefined });
-    expect(remap("filter-multi", { options: "A" }, "list")).toEqual({ type: "filter-multi", data: { options: "A" } });
+  });
+
+  it("turns a list's filter chips into its input dropdowns, keeping their values", () => {
+    expect(remap("filter", { options: "A, B", selected: "B", align: "right" }, "list")).toEqual({
+      type: "select",
+      data: { options: "A, B", selected: "B", align: "right" },
+    });
+    expect(remap("filter-multi", { options: "A" }, "list")).toEqual({ type: "multi-select", data: { options: "A" } });
+    expect(remap("filter-multi-search", { dataset: "ds1" }, "list")).toEqual({ type: "multi-select", data: { dataset: "ds1" } });
   });
 
   it("is idempotent", () => {

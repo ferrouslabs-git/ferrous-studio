@@ -186,7 +186,7 @@ const MIGRATIONS: Record<string, (ctx: Ctx) => void> = {
     ctx.cmp.shape = "rows";
     ctx.cmp.layout = "vertical";
     if (ctx.props.searchPlaceholder != null) put(ctx, { type: "search", label: s(ctx.props.searchPlaceholder, "Search…") });
-    putItems(ctx, "items", arr(ctx.props.items).filter((v) => !/^(clear|reset)$/i.test(v.trim())), (label) => ({ type: "filter", label }));
+    putItems(ctx, "items", arr(ctx.props.items).filter((v) => !/^(clear|reset)$/i.test(v.trim())), (label) => ({ type: "select", label }));
     delete ctx.props.rows;
     consume(ctx, ["items", "searchPlaceholder"]);
   },
