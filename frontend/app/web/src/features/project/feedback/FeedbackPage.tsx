@@ -166,6 +166,8 @@ export function FeedbackPage() {
   // Retry knows where to send them.
   const [shots, setShots] = useState<ScreenshotItem[]>([]);
   const [raised, setRaised] = useState<Feedback | null>(null);
+  // The report whose status is being saved from the list (FS-REQ-83).
+  const [movingId, setMovingId] = useState<string | null>(null);
 
   // Whether the reporter has edited the page address themselves. Until they
   // have, it follows the chosen environment; afterwards it is theirs, and
@@ -373,6 +375,27 @@ export function FeedbackPage() {
     }
   };
 
+  /**
+   * Move a report straight from its row (FS-REQ-83): the same PATCH triage
+   * sends, carrying only the status, so the server stamps the resolution and
+   * notifies the team exactly as a save from the drawer would. The toast says
+   * where it went, since under the default "Open" filter a report just
+   * resolved leaves the list.
+   */
+  const changeStatus = async (item: Feedback, next: FeedbackStatus) => {
+    if (next === item.status) return;
+    setMovingId(item.id);
+    try {
+      await updateFeedback(project.id, item.id, { status: next });
+      await reports.reload();
+      toast(`${item.human_id} moved to ${STATUS_LABELS[next]}`);
+    } catch (err) {
+      toast(errorMessage(err), { type: "err", ttl: 6000 });
+    } finally {
+      setMovingId(null);
+    }
+  };
+
   const rows = reports.data ?? [];
   const visible = useMemo(
     () =>
@@ -543,7 +566,25 @@ export function FeedbackPage() {
                   const took = resolutionTime(item);
                   return (
                     <>
-                      <span className={`badge ${STATUS_BADGE[item.status]}`}>{STATUS_LABELS[item.status]}</span>
+                      {canWrite ? (
+                        // Only board:write may triage; everyone else gets the badge.
+                        <select
+                          className={`select fb-status ${STATUS_BADGE[item.status]}`}
+                          value={item.status}
+                          disabled={movingId === item.id}
+                          aria-label={`Status of ${item.human_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => void changeStatus(item, e.target.value as FeedbackStatus)}
+                        >
+                          {FEEDBACK_STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {STATUS_LABELS[s]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`badge ${STATUS_BADGE[item.status]}`}>{STATUS_LABELS[item.status]}</span>
+                      )}
                       {took && <span className="sub">in {took}</span>}
                     </>
                   );
