@@ -15,11 +15,13 @@
 // dropped from the URL rather than rendered out of context.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
+import { useLoad } from "../../../core/useLoad";
 import type { BoardAttachment } from "../attachmentsApi";
 import { AttachmentPreview, AttachmentPreviewHost } from "../board/AttachmentPreview";
 import { useBoard } from "../board/boardData";
 import { CommentsPanel, CommentsTarget } from "../board/CommentsPanel";
 import type { RequirementPreset } from "../board/RequirementDrawer";
+import { listRequirements, Requirement } from "../board/requirementsApi";
 import { DocPane } from "./DocPane";
 import { EpicColumn } from "./EpicColumn";
 import { NewRequirementPane } from "./NewRequirementPane";
@@ -41,8 +43,16 @@ const NO_NEW: Selection = { new: false, feature: null };
 export function EpicDetailPage() {
   const { epicId = "" } = useParams<{ epicId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data, error, index, canWrite } = useBoard();
+  const { data, error, index, canWrite, projectId } = useBoard();
   const [panel, setPanel] = useState<CommentsTarget | null>(null);
+  // Archived requirements are not on the shared board (FS-REQ-79); the epic
+  // lists its own on request, fetched only while shown.
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedList = useLoad(
+    () => (showArchived ? listRequirements(projectId, { archived: "only", epic_id: epicId }) : Promise.resolve([] as Requirement[])),
+    [projectId, epicId, showArchived],
+  );
+  const archived = showArchived ? archivedList.data ?? [] : null;
   // An attachment opened anywhere on the page previews in the pane, over
   // whatever it showed. That stays mounted underneath -- a half-written
   // comment or new requirement survives a look at a file -- and Back returns
@@ -74,7 +84,7 @@ export function EpicDetailPage() {
   }, [opened]);
 
   const epic = data ? index.epicById.get(epicId) : undefined;
-  const requirement = reqId ? index.requirementById.get(reqId) : undefined;
+  const requirement = reqId ? index.requirementById.get(reqId) ?? archived?.find((r) => r.id === reqId) : undefined;
   const doc = docId ? index.docById.get(docId) : undefined;
   const reqShown = !!epic && !!requirement && index.effectiveEpicId(requirement) === epic.id;
   const docShown = !!epic && !!doc && doc.epic_id === epic.id;
@@ -120,6 +130,8 @@ export function EpicDetailPage() {
   // the row it came from is gone, so the pane must not linger.
   useEffect(() => {
     if (!data || !epic) return;
+    // An archived requirement may still be on its way in.
+    if (showArchived && archivedList.loading) return;
     const dropReq = !!reqId && !reqShown;
     const dropDoc = !!docId && !docShown;
     const dropEdit = editing && !docShown;
@@ -130,7 +142,7 @@ export function EpicDetailPage() {
       ...(dropDoc || dropEdit ? { doc: dropDoc ? null : docId, edit: false } : {}),
       ...(dropNew ? NO_NEW : {}),
     });
-  }, [data, epic, reqId, docId, editing, reqShown, docShown, creating, searchParams, select]);
+  }, [data, epic, reqId, docId, editing, reqShown, docShown, creating, searchParams, select, showArchived, archivedList.loading]);
 
   if (error) {
     return (
@@ -164,7 +176,12 @@ export function EpicDetailPage() {
   ) : docShown ? (
     <DocPane doc={doc} editing={editing} onEditing={setEditing} onClose={closePane} onOpenComments={setPanel} />
   ) : reqShown ? (
-    <RequirementPane key={requirement.id} requirement={requirement} onClose={closePane} />
+    <RequirementPane
+      key={requirement.id}
+      requirement={requirement}
+      onClose={closePane}
+      onArchiveChange={() => void (showArchived ? archivedList.reload() : undefined)}
+    />
   ) : (
     <div className="rqp-idle">
       <span className="muted">No requirement or doc open.</span>
@@ -190,6 +207,8 @@ export function EpicDetailPage() {
               onDocCreated={openDocForEditing}
               onNewRequirement={startNew}
               onOpenComments={setPanel}
+              archived={archived}
+              onToggleArchived={() => setShowArchived((on) => !on)}
             />
           </div>
           <aside className="rqp-pane" ref={paneRef}>

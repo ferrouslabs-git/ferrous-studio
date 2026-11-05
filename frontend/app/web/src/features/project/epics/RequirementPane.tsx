@@ -27,13 +27,18 @@ import {
 interface RequirementPaneProps {
   requirement: Requirement;
   onClose: () => void;
+  /** After it is archived, restored or deleted -- the page's archived list changes. */
+  onArchiveChange?: () => void;
 }
 
-export function RequirementPane({ requirement: r, onClose }: RequirementPaneProps) {
+export function RequirementPane({ requirement: r, onClose, onArchiveChange }: RequirementPaneProps) {
   const { index, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
-  const disabled = !canWrite;
+  // An archived requirement is read-only until restored (the server refuses
+  // edits with a 409); its comments stay open.
+  const archived = !!r.archived_at;
+  const disabled = !canWrite || archived;
 
   // Failures are toasted by the mutation layer; the pane just stays put.
   const patch = (p: RequirementPatch, opts?: { undo?: boolean }) => mutations.patchRequirement(r.id, p, opts).catch(() => undefined);
@@ -48,15 +53,43 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
   // requirement's own -- otherwise the select would silently read "backlog".
   const sprints = index.sprints.filter((s) => !s.closed_at || s.id === r.sprint_id);
 
+  // Archive first, delete only from the archive -- the same two steps as
+  // wireframes and users. Failures are already toasted by the mutation layer.
+  const archive = async () => {
+    const ok = await dialogs.confirm({
+      title: "Archive requirement",
+      ok: "Archive requirement",
+      message: `Archive ${r.human_id} "${r.title}"?`,
+    });
+    if (!ok) return;
+    try {
+      await mutations.archiveRequirement(r);
+      onArchiveChange?.();
+      onClose();
+    } catch {
+      // Already toasted.
+    }
+  };
+
+  const restore = async () => {
+    try {
+      await mutations.restoreRequirement(r);
+      onArchiveChange?.();
+    } catch {
+      // Already toasted.
+    }
+  };
+
   const remove = async () => {
     const ok = await dialogs.confirm({
       title: "Delete requirement",
       ok: "Delete requirement",
-      message: `Delete ${r.human_id} "${r.title}"?`,
+      message: `Delete ${r.human_id} "${r.title}" permanently?`,
     });
     if (!ok) return;
     try {
       await mutations.deleteRequirement(r);
+      onArchiveChange?.();
       onClose();
     } catch {
       // Already toasted.
@@ -68,6 +101,7 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
       <div className="rqphead">
         <IdChip of={{ type: "requirement", id: r.id }}>{r.human_id}</IdChip>
         <StatusChip status={r.status} />
+        {archived && <span className="badge muted">Archived</span>}
         {r.queue_position != null && (
           <span className="bchip" title="position in the agent queue">
             queue #{r.queue_position}
@@ -228,10 +262,20 @@ export function RequirementPane({ requirement: r, onClose }: RequirementPaneProp
         <span className="rqp-meta">
           created {formatDateTime(r.created_at)} · updated {formatDateTime(r.updated_at)}
         </span>
-        {canWrite && (
-          <button type="button" className="btn mini-x danger-ink" style={{ marginLeft: "auto" }} onClick={() => void remove()}>
-            Delete
+        {canWrite && !archived && (
+          <button type="button" className="btn mini-x" style={{ marginLeft: "auto" }} onClick={() => void archive()}>
+            Archive
           </button>
+        )}
+        {canWrite && archived && (
+          <>
+            <button type="button" className="btn mini-x" style={{ marginLeft: "auto" }} onClick={() => void restore()}>
+              Restore
+            </button>
+            <button type="button" className="btn mini-x danger-ink" onClick={() => void remove()}>
+              Delete
+            </button>
+          </>
         )}
       </div>
     </>

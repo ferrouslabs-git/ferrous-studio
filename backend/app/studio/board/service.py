@@ -216,7 +216,7 @@ async def work_status_maps(db: AsyncSession, board_id: UUID) -> tuple[dict[UUID,
     rows = (
         await db.execute(
             select(Requirement.status, Requirement.epic_id, Requirement.feature_id).where(
-                Requirement.board_id == board_id, Requirement.deleted_at.is_(None)
+                Requirement.board_id == board_id, Requirement.live()
             )
         )
     ).all()
@@ -305,7 +305,7 @@ async def release_progress_map(db: AsyncSession, board_id: UUID) -> dict[UUID, d
     linked epics only misses a requirement tagged straight to the release
     with no epic."""
     requirements = list(
-        (await db.execute(select(Requirement).where(Requirement.board_id == board_id))).scalars().all()
+        (await db.execute(select(Requirement).where(Requirement.board_id == board_id, Requirement.live()))).scalars().all()
     )
     feature_epic = await _feature_epic_map(db, board_id)
     epic_release = await _epic_release_map(db, board_id)
@@ -328,7 +328,7 @@ async def board_summary(db: AsyncSession, board: Board) -> dict:
     requirements = list(
         (
             await db.execute(
-                select(Requirement).where(Requirement.board_id == board.id, Requirement.deleted_at.is_(None))
+                select(Requirement).where(Requirement.board_id == board.id, Requirement.live())
             )
         ).scalars().all()
     )
@@ -507,7 +507,7 @@ async def feedback_follows_requirement(
                 select(Requirement.status).where(
                     Requirement.feedback_id == report.id,
                     Requirement.board_id == board.id,
-                    Requirement.deleted_at.is_(None),
+                    Requirement.live(),
                 )
             )
         ).scalars().all()
@@ -605,7 +605,7 @@ async def claim_requirement(
             .where(
                 Requirement.id == requirement_id,
                 Requirement.board_id == board.id,
-                Requirement.deleted_at.is_(None),
+                Requirement.live(),
             )
             .with_for_update()
         )
@@ -755,7 +755,8 @@ async def sprint_burndown(db: AsyncSession, board: Board, sprint: Sprint) -> dic
         (
             await db.execute(
                 select(RequirementSprintHistory.requirement_id)
-                .where(RequirementSprintHistory.sprint_id == sprint.id)
+                .join(Requirement, Requirement.id == RequirementSprintHistory.requirement_id)
+                .where(RequirementSprintHistory.sprint_id == sprint.id, Requirement.live())
                 .distinct()
             )
         ).scalars().all()
@@ -869,7 +870,7 @@ async def sprint_activity(db: AsyncSession, board: Board, sprint: Sprint, limit:
                 .where(
                     Requirement.board_id == board.id,
                     Requirement.sprint_id == sprint.id,
-                    Requirement.deleted_at.is_(None),
+                    Requirement.live(),
                 )
                 .order_by(Requirement.queue_position.asc().nulls_last(), Requirement.seq)
             )

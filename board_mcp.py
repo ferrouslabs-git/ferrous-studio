@@ -287,14 +287,27 @@ def update_sprint(sprint_id: str, name: str | None = None, goal: str | None = No
 
 
 @mcp.tool()
-def list_requirements(status: str | None = None, epic_id: str | None = None, feature_id: str | None = None, sprint_id: str | None = None) -> dict:
+def list_requirements(
+    status: str | None = None,
+    epic_id: str | None = None,
+    feature_id: str | None = None,
+    sprint_id: str | None = None,
+    include_archived: bool = False,
+) -> dict:
     """Requirements, optionally filtered by status (NotStarted |
     InProgress | ToTest | Done | Blocked), epic, feature, or sprint. Each
     result carries its
     *effective* epic/release (its own value if set, else inherited via its
     feature/epic) as effective_epic_id/effective_release_id -- already
-    computed server-side, not something to work out here."""
+    computed server-side, not something to work out here.
+
+    Archived requirements (set aside by a person; archived_at is set) are
+    not work and are left out unless include_archived is true. Never pick
+    an archived requirement up: it cannot be edited until a person
+    restores it."""
     params = []
+    if include_archived:
+        params.append("archived=include")
     if status:
         params.append(f"status={status}")
     if epic_id:

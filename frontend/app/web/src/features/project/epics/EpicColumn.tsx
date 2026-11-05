@@ -13,6 +13,7 @@ import { useDialogs } from "../board/dialogs";
 import { rollup } from "../board/effort";
 import type { Epic } from "../board/epicsApi";
 import type { RequirementPreset } from "../board/RequirementDrawer";
+import type { Requirement } from "../board/requirementsApi";
 import { AttachmentsSection } from "../board/AttachmentsSection";
 import { useToast } from "../board/toast";
 import { useBlurSave } from "../board/useBlurSave";
@@ -29,6 +30,9 @@ interface EpicColumnProps {
   onDocCreated: (id: string) => void;
   onNewRequirement: (preset: RequirementPreset) => void;
   onOpenComments: (target: CommentsTarget) => void;
+  /** This epic's archived requirements while shown; null while hidden (the default). */
+  archived: Requirement[] | null;
+  onToggleArchived: () => void;
 }
 
 export function EpicColumn({
@@ -40,6 +44,8 @@ export function EpicColumn({
   onDocCreated,
   onNewRequirement,
   onOpenComments,
+  archived,
+  onToggleArchived,
 }: EpicColumnProps) {
   const { index, canWrite } = useBoard();
   const mutations = useBoardMutations();
@@ -129,6 +135,9 @@ export function EpicColumn({
           <h3>Requirements ({p.total})</h3>
           <EffortFigure rollup={p} />
           <span className="spacer" />
+          <button type="button" className="btn mini-x" aria-pressed={archived !== null} onClick={onToggleArchived}>
+            {archived === null ? "Show archived" : "Hide archived"}
+          </button>
           {canWrite && (
             <>
               <button type="button" className="btn mini-x" title="new requirement under this epic" onClick={() => onNewRequirement({ epicId: epic.id })}>
@@ -167,6 +176,32 @@ export function EpicColumn({
           {!direct.length && !features.length && (
             <div className="hempty">
               No requirements under this epic yet — "+ Requirement" adds one directly, "+ Feature" makes a named group first.
+            </div>
+          )}
+          {archived !== null && (
+            <div className="mscard epg-archived" style={{ marginBottom: 14 }}>
+              <div className="mshead">
+                <span className="ms-ttl" style={{ cursor: "default" }}>
+                  Archived ({archived.length})
+                </span>
+              </div>
+              <div className="epg-items">
+                {archived.length === 0 ? (
+                  <div className="hempty">No archived requirements.</div>
+                ) : (
+                  archived.map((r) => (
+                    <div key={r.id} className={`hrow${r.id === selectedReq ? " sel" : ""}`} onClick={() => onSelectReq(r.id)}>
+                      <IdChip bare of={{ type: "requirement", id: r.id }}>
+                        {r.human_id}
+                      </IdChip>
+                      <span className="t">{r.title}</span>
+                      <span className="r">
+                        <span className="badge muted">Archived</span>
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </div>
