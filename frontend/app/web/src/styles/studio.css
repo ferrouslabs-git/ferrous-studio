@@ -733,6 +733,10 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-nav-zone.left { flex: 1 1 0; justify-content: flex-start; }
 .ui-nav-zone.centre { flex: 0 1 auto; justify-content: center; }
 .ui-nav-zone.right { flex: 1 1 0; justify-content: flex-end; }
+/* With nothing in the centre there is nothing to keep centred: the zones
+   share the bar by what they hold, so the links are not held to half the
+   bar (and clipped) while an avatar sits in an otherwise empty right half. */
+.ui-nav:not(:has(> .ui-nav-zone.centre)) > .ui-nav-zone { flex: 1 1 auto; }
 /* overflow keeps a long link list inside the bar; the padding/margin pair
    moves the clip edge outward so the 2px selection ring is not cut off. */
 /* clip, not hidden: a hidden box is still a scroll container, so focusing a
