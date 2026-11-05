@@ -148,7 +148,7 @@ async def test_the_mention_message_says_who_where_and_what(monkeypatch):
     async def entity_link(db, ev, base, epics_url):
         return f"{epics_url}/E1?req={req_id}", "FS-REQ-12", "Bulk import"
 
-    async def names(db, ids):
+    async def names(db, account_id, ids):
         return {ADA: "Ada", BOB: "Bob"}
 
     async def who(db, user_id):
@@ -170,6 +170,41 @@ async def test_the_mention_message_says_who_where_and_what(monkeypatch):
     assert "@Ada this breaks when @Bob imports" in line
     assert "<!channel>" not in line  # a comment cannot smuggle a Slack broadcast
     assert slack_notify.RECIPIENT in line  # "you" in a DM, their name in the channel
+
+
+async def test_the_mention_fallback_text_cannot_broadcast(monkeypatch):
+    """The notification preview (fallback text) is escaped like the blocks: a
+    display name of ``<!channel>`` must not ping the whole channel."""
+    comment_id = uuid.uuid4()
+
+    class Db:
+        async def get(self, model, key):
+            if model is Comment:
+                return types.SimpleNamespace(id=comment_id, body=f"{t(ADA)} look", deleted_at=None)
+            return types.SimpleNamespace(id=key, account_id=ACCOUNT)
+
+    async def project_url(db, board):
+        return "Invoices", "https://studio/p", "https://studio/p/epics"
+
+    async def entity_link(db, ev, base, epics_url):
+        return "https://studio/p/epics", "FS-REQ-<!here>", "Bulk import"
+
+    async def names(db, account_id, ids):
+        return {ADA: "Ada"}
+
+    async def who(db, user_id):
+        return "<!channel>"
+
+    monkeypatch.setattr(slack_notify, "remember_board_key", lambda board: None)
+    monkeypatch.setattr(slack_notify, "_project_url", project_url)
+    monkeypatch.setattr(slack_notify, "_entity_link", entity_link)
+    monkeypatch.setattr(slack_notify, "mention_names", names)
+    monkeypatch.setattr(slack_notify, "_who", who)
+    ev = slack_notify.StagedEvent(
+        ACCOUNT, uuid.uuid4(), CY, "mentioned", "requirement", uuid.uuid4(), {"user_id": str(ADA), "comment_id": str(comment_id)}
+    )
+    text, _ = await slack_notify.describe(Db(), ev)
+    assert "<!channel>" not in text and "<!here>" not in text
 
 
 async def test_a_deleted_comment_sends_nothing(monkeypatch):

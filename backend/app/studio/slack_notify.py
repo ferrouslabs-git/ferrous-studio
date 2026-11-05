@@ -278,14 +278,40 @@ async def _entity_link(db, ev: "StagedEvent", base: str | None, epics_url: str |
     return (f"{epics_url}/{epic_id}?req={row.id}" if epic_id else epics_url), human_id, title
 
 
-async def mention_names(db, user_ids: list[UUID]) -> dict[UUID, str]:
-    """``{user id: name}`` for rendering mentions in a message."""
+SUPPORT_LABEL = "Ferrous Labs support"
+
+
+async def mention_names(db, account_id: UUID, user_ids: list[UUID]) -> dict[UUID, str]:
+    """Of ``user_ids``, those who can see this organisation's board (active
+    members, plus active platform admins), each with the name the
+    organisation knows them by. The one lookup for mentions, shared with the
+    board routes: a token naming anyone else stays unresolved, so a stranger's
+    name or email never reaches the page or Slack."""
     if not user_ids:
         return {}
+    from sqlalchemy import and_, or_
+
+    from app.auth.models.membership import Membership
     from app.auth.models.user import User
 
-    rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
-    return {u.id: u.name or u.email for u in rows}
+    members = select(Membership.user_id).where(
+        Membership.scope_type == "account",
+        Membership.scope_id == account_id,
+        Membership.status == "active",
+    )
+    rows = (
+        await db.execute(
+            select(User).where(
+                User.id.in_(user_ids),
+                User.is_active.is_(True),
+                or_(
+                    User.id.in_(members),
+                    and_(User.is_platform_admin.is_(True), User.suspended_at.is_(None), User.archived_at.is_(None)),
+                ),
+            )
+        )
+    ).scalars().all()
+    return {u.id: u.name or (SUPPORT_LABEL if u.is_platform_admin else u.email) for u in rows}
 
 
 async def _who(db, user_id: UUID | None) -> str:
@@ -378,10 +404,10 @@ async def describe(db, ev: StagedEvent) -> tuple[str, list[dict[str, Any]]] | No
             return None
         url, human_id, title = await _entity_link(db, ev, base, epics_url)
         subject = link(human_id, url) + (f"  {escape(clip(title, 150))}" if title else "")
-        names = await mention_names(db, mentions.mentioned_ids(comment.body))
+        names = await mention_names(db, board.account_id, mentions.mentioned_ids(comment.body))
         said = clip(mentions.render(comment.body, names), 400) or "(attachment)"
         what = "feedback report" if ev.entity_type == "feedback" else ev.entity_type
-        return f"{await _who(db, ev.actor_id)} mentioned you on {human_id}", [
+        return f"{who} mentioned you on {escape(human_id)}", [
             # RECIPIENT reads "you" in a direct message and names them in the
             # channel fallback (_deliver_to).
             section(f"{who} mentioned {RECIPIENT} in a comment on the {escape(what)} {subject}\n>{escape(said)}"),

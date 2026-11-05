@@ -1031,7 +1031,7 @@ async def _get_requirement(
 
 
 #: How an unnamed super admin is shown to a customer organisation.
-SUPPORT_LABEL = "Ferrous Labs support"
+SUPPORT_LABEL = slack_notify.SUPPORT_LABEL
 
 
 def _super_admins_query():
@@ -1679,27 +1679,8 @@ async def create_comment(
 
 async def _mention_names(db: AsyncSession, board: Board, user_ids: list[UUID]) -> dict[UUID, str]:
     """Of ``user_ids``, those who can see this board, each with the name the
-    organisation knows them by."""
-    if not user_ids:
-        return {}
-    members = select(Membership.user_id).where(
-        Membership.scope_type == "account",
-        Membership.scope_id == board.account_id,
-        Membership.status == "active",
-    )
-    rows = (
-        await db.execute(
-            select(User).where(
-                User.id.in_(user_ids),
-                User.is_active.is_(True),
-                or_(
-                    User.id.in_(members),
-                    and_(User.is_platform_admin.is_(True), User.suspended_at.is_(None), User.archived_at.is_(None)),
-                ),
-            )
-        )
-    ).scalars().all()
-    return {u.id: u.name or (SUPPORT_LABEL if u.is_platform_admin else u.email) for u in rows}
+    organisation knows them by (shared with Slack, see slack_notify)."""
+    return await slack_notify.mention_names(db, board.account_id, user_ids)
 
 
 def _stage_mentions(db: AsyncSession, board: Board, ctx: ScopeContext, comment: Comment, names: dict[UUID, str]) -> None:
