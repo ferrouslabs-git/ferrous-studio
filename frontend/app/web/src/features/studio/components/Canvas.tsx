@@ -373,13 +373,27 @@ export function Canvas(props: Props) {
     const measure = () => {
       const r = node.getBoundingClientRect();
       const m = mat.getBoundingClientRect();
-      setToolsAt({
+      const next = {
         id: selectedCmpId,
         host: mat,
         left: r.right - m.left + mat.scrollLeft - mat.clientLeft,
         top: r.top - m.top + mat.scrollTop - mat.clientTop,
         bottom: r.bottom - m.top + mat.scrollTop - mat.clientTop,
-      });
+      };
+      // Keep the same object when nothing moved. This effect re-runs on every
+      // document and live-drag change, and a fresh object each time re-renders
+      // the canvas from inside its own layout pass; chained with other commit-
+      // phase updates that tripped React's update-depth limit (#185).
+      setToolsAt((prev) =>
+        prev &&
+        prev.id === next.id &&
+        prev.host === next.host &&
+        prev.left === next.left &&
+        prev.top === next.top &&
+        prev.bottom === next.bottom
+          ? prev
+          : next,
+      );
     };
     measure();
     const watch = new ResizeObserver(measure);
