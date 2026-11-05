@@ -24,6 +24,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    and_,
     text,
 )
 from sqlalchemy import event
@@ -326,6 +327,10 @@ class Requirement(Base):
     # surfaces it yet -- it exists so estimates survive the import rather than
     # being silently dropped.
     estimate_hours = Column(Float, nullable=True)
+    # Hours the work actually took (d4b8e1f6a352). NULL is "not recorded",
+    # never zero. Once recorded it is what a report raised into this
+    # requirement is charged against its maintenance contract.
+    actual_hours = Column(Float, nullable=True)
     # Work order within the requirement's sprint -- what an agent picks
     # work by, and the sprint board's row order. NULL = not ordered (sorts
     # last). Scoped to a sprint, so it is cleared whenever the requirement
@@ -335,6 +340,17 @@ class Requirement(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     deleted_at = Column(DateTime, nullable=True)
+    # Archived (FS-REQ-79): set aside, not gone. An archived requirement keeps
+    # every field -- its epic, sprint, estimate -- so Restore is a true undo,
+    # but it drops out of everything that counts or shows live work (see
+    # ``live``). Only an archived requirement may be deleted.
+    archived_at = Column(DateTime, nullable=True)
+
+    @classmethod
+    def live(cls):
+        """Neither deleted nor archived: the requirements that are work. Every
+        roll-up, sprint board, burndown and default list filters on this."""
+        return and_(cls.deleted_at.is_(None), cls.archived_at.is_(None))
 
     __table_args__ = (
         UniqueConstraint("board_id", "seq", name="uq_board_requirements_seq"),
@@ -474,6 +490,9 @@ class Feedback(Base):
     # contract: the estimate is what the client confirms (EstimatedToConfirm),
     # so it is the agreed charge.
     estimate_hours = Column(Float, nullable=True)
+    # Hours the fix actually took; NULL is "not recorded". When recorded it
+    # replaces the estimate as the report's charge (feedback/maintenance.ts).
+    actual_hours = Column(Float, nullable=True)
     resolved_at = Column(DateTime, nullable=True)
     requirement_id = Column(
         UUID(as_uuid=True), ForeignKey("board_requirements.id", ondelete="SET NULL"), nullable=True
@@ -577,6 +596,10 @@ class Comment(Base):
     #: Set by the author's last edit; NULL while the comment reads as posted.
     edited_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)
+    #: Everyone this comment has already told they were @-mentioned (user ids
+    #: as strings; see mentions.py) -- so an edit notifies only the newly
+    #: mentioned. The mentions themselves live in ``body`` as tokens.
+    mentioned_user_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
 
     __table_args__ = (Index("ix_board_comments_entity", "entity_type", "entity_id"),)
 

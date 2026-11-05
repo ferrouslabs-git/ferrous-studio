@@ -92,6 +92,8 @@ export interface Feedback {
   assignee_id: string | null;
   /** Hours; null is "not estimated", never zero. */
   estimate_hours: number | null;
+  /** Hours the fix actually took; null is "not recorded". */
+  actual_hours: number | null;
   /** When it last became Resolved; null while it is not. */
   resolved_at: string | null;
   /** The requirement raised from it, if any -- it may since have been deleted. */
@@ -106,6 +108,7 @@ export interface FeedbackTriage {
   assignee_id?: string | null;
   clear_assignee?: boolean;
   estimate_hours?: number | null;
+  actual_hours?: number | null;
 }
 
 /** One dated period of a maintenance agreement. Dates are "YYYY-MM-DD". */

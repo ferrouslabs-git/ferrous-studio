@@ -74,6 +74,7 @@ interface FormState {
   release_id: string | null;
   sprint_id: string | null;
   estimate_hours: number | null;
+  actual_hours: number | null;
 }
 
 function DrawerBody({
@@ -107,6 +108,7 @@ function DrawerBody({
           release_id: requirement.release_id,
           sprint_id: requirement.sprint_id,
           estimate_hours: requirement.estimate_hours,
+          actual_hours: requirement.actual_hours,
         }
       : {
           title: "",
@@ -119,6 +121,7 @@ function DrawerBody({
           release_id: null,
           sprint_id: null,
           estimate_hours: null,
+          actual_hours: null,
         },
   );
   const [saving, setSaving] = useState(false);
@@ -218,16 +221,20 @@ function DrawerBody({
     }
   };
 
-  const remove = async () => {
+  // Archive, not delete: it leaves every board page but can be restored (the
+  // toast's Undo, or the epic page's archived list), and only from there
+  // deleted. Pending edits are saved first so none lands on an archived row.
+  const archive = async () => {
     if (!requirement) return;
     const ok = await dialogs.confirm({
-      title: "Delete requirement",
-      message: `Delete ${requirement.human_id} "${requirement.title}"?`,
-      ok: "Delete requirement",
+      title: "Archive requirement",
+      message: `Archive ${requirement.human_id} "${requirement.title}"?`,
+      ok: "Archive requirement",
     });
     if (!ok) return;
     try {
-      await mutations.deleteRequirement(requirement);
+      await auto.flush();
+      await mutations.archiveRequirement(requirement);
       onClose();
     } catch {
       // Already toasted.
@@ -252,8 +259,8 @@ function DrawerBody({
       footer={
         canWrite && requirement ? (
           <>
-            <button type="button" className="btn ghost danger" onClick={() => void remove()}>
-              Delete
+            <button type="button" className="btn ghost" onClick={() => void archive()}>
+              Archive
             </button>
             <AutosaveFooter auto={auto} onClose={onClose} />
           </>
@@ -378,6 +385,18 @@ function DrawerBody({
           <label>Estimate</label>
           <EstimateField value={form.estimate_hours} disabled={!canWrite} onChange={(h) => patch({ estimate_hours: h })} />
         </div>
+        {requirement && (
+          <div>
+            <label>Actual time</label>
+            <EstimateField
+              value={form.actual_hours}
+              step={0.1}
+              emptyLabel="not recorded"
+              disabled={!canWrite}
+              onChange={(h) => patch({ actual_hours: h })}
+            />
+          </div>
+        )}
       </div>
       {requirement && (
         <>

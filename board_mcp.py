@@ -287,14 +287,27 @@ def update_sprint(sprint_id: str, name: str | None = None, goal: str | None = No
 
 
 @mcp.tool()
-def list_requirements(status: str | None = None, epic_id: str | None = None, feature_id: str | None = None, sprint_id: str | None = None) -> dict:
+def list_requirements(
+    status: str | None = None,
+    epic_id: str | None = None,
+    feature_id: str | None = None,
+    sprint_id: str | None = None,
+    include_archived: bool = False,
+) -> dict:
     """Requirements, optionally filtered by status (NotStarted |
     InProgress | ToTest | Done | Blocked), epic, feature, or sprint. Each
     result carries its
     *effective* epic/release (its own value if set, else inherited via its
     feature/epic) as effective_epic_id/effective_release_id -- already
-    computed server-side, not something to work out here."""
+    computed server-side, not something to work out here.
+
+    Archived requirements (set aside by a person; archived_at is set) are
+    not work and are left out unless include_archived is true. Never pick
+    an archived requirement up: it cannot be edited until a person
+    restores it."""
     params = []
+    if include_archived:
+        params.append("archived=include")
     if status:
         params.append(f"status={status}")
     if epic_id:
@@ -416,7 +429,10 @@ def list_comments(entity_type: str, entity_id: str) -> dict:
     entity_type="requirement"), never invented.
 
     Each comment carries its own `attachments` (screenshots and files the
-    human added to it); pass one's id to get_attachment to see it."""
+    human added to it); pass one's id to get_attachment to see it.
+
+    `@[user:<id>]` in a body is a person @-mentioned by a human (their
+    user id, not a name)."""
     return {"comments": _call("GET", f"/comments?entity_type={entity_type}&entity_id={entity_id}")}
 
 
@@ -645,9 +661,12 @@ def _upload(entity_type: str, entity_id: str, file_path: str, description: str =
 def wireframe_format_guide() -> str:
     """The exact bundle format wireframes/diagrams/pages/layout/components
     must be shaped as for create_wireframes_and_diagrams and
-    update_wireframe -- component vocabulary, a worked example, and the
-    mistakes real runs have actually made. Call this once before either of
-    those tools; do not guess the shape from their parameter names alone."""
+    update_wireframe -- component vocabulary (each component's elements as
+    shapes grouped under the six element types Text, Input, Action, UI
+    element, Image and Basic, with data.variant for corner style), a worked
+    example, and the mistakes real runs have actually made. Call this once
+    before either of those tools; do not guess the shape from their
+    parameter names alone."""
     return _studio_call("GET", "/import/format-guide")["guide"]
 
 

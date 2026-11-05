@@ -462,14 +462,16 @@
    pointer is always over an element just after clicking it — without the
    guard the solid ring never shows. */
 button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line); }
-/* A blanked value keeps a select-only "…" so it can be recovered. */
-.ui-edit.blank { opacity: 0; min-width: 14px; text-align: center; color: var(--text-mute); }
-.cmp.selected .ui-edit.blank, .cmp.has-sel .ui-edit.blank { opacity: .7; }
-/* A blank token that keeps something (a brand's logo with no name) stays
-   visible; only its recovery "…" hides until the component is selected. */
-.ui-edit.blank.keeps, .cmp.selected .ui-edit.blank.keeps, .cmp.has-sel .ui-edit.blank.keeps { opacity: 1; min-width: 0; }
-.ui-edit.blank.keeps .ui-blank-dots { opacity: 0; }
-.cmp.selected .ui-edit.blank.keeps .ui-blank-dots, .cmp.has-sel .ui-edit.blank.keeps .ui-blank-dots { opacity: .7; }
+/* A token with no text (FS-REQ-85) is still its element: a button keeps its
+   button box, a badge its pill. The minimum size keeps it clickable, and
+   while its component is selected a faint dashed outline shows where a
+   bare-text one (a heading, a label) sits. */
+.ui-edit.blank { min-width: 24px; min-height: 1.2em; vertical-align: middle; }
+.cmp:is(.selected, .has-sel) .ui-edit.blank:not(.el-sel) { outline: 1px dashed var(--edit-accent-line); outline-offset: 1px; }
+/* A blank token that keeps something (a brand's logo with no name) is sized
+   by what it keeps. */
+.ui-edit.blank.keeps { min-width: 0; }
+.cmp:is(.selected, .has-sel) .ui-edit.blank.keeps:not(.el-sel) { outline: none; }
 
 .inline-edit-input {
   height: 24px; min-width: 72px;
@@ -508,7 +510,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 
 /* ── UI primitives ── */
 .ui-btn {
-  height: 30px; padding: 0 12px; border-radius: var(--el-shape-radius, var(--radius-lg));
+  height: 30px; padding: 0 12px; border-radius: var(--el-variant-radius, var(--radius-lg));
   border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--text);
   font: 500 12.5px/1 var(--font-display); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   white-space: nowrap; text-align: center;
@@ -527,7 +529,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   cursor: nwse-resize;
 }
 .ui-input {
-  height: 32px; border-radius: var(--el-shape-radius, var(--radius-lg)); border: 1px solid var(--border-strong);
+  height: 32px; border-radius: var(--el-variant-radius, var(--radius-lg)); border: 1px solid var(--border-strong);
   background: var(--inset-2); padding: 0 10px; min-width: 0;
   display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-mute);
 }
@@ -582,7 +584,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* A read-only field: the value as plain text on a quiet ground, no frame. */
 .ui-readonly {
   min-height: 32px; display: flex; align-items: center; padding: 0 10px;
-  border-radius: var(--el-shape-radius, var(--radius-lg)); background: var(--mute-soft);
+  border-radius: var(--el-variant-radius, var(--radius-lg)); background: var(--mute-soft);
   font-size: 12.5px; color: var(--text);
 }
 /* Date picker: a field with a calendar button; the button opens a month
@@ -622,7 +624,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-label { display: block; font-size: 11.5px; font-weight: 500; color: var(--text-dim); margin-bottom: 6px; }
 .ui-label.tight { margin-bottom: 0; }
 .ui-chip, .ui-filter {
-  height: 28px; padding: 0 10px; border-radius: var(--el-shape-radius, 999px); border: 1px solid var(--border-strong);
+  height: 28px; padding: 0 10px; border-radius: var(--el-variant-radius, 999px); border: 1px solid var(--border-strong);
   background: var(--panel-2); color: var(--text-dim); font: 500 12px/1 var(--font-display);
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
 }
@@ -639,13 +641,13 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 }
 .ui-chip.sm { height: 24px; font-size: 11px; }
 .ui-badge {
-  display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--el-shape-radius, 999px);
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--el-variant-radius, 999px);
   font-size: 11px; font-weight: 500; background: var(--mute-soft); color: var(--text-dim); white-space: nowrap;
 }
 .ui-badge.good { background: var(--good-soft); color: var(--good); }
 .ui-badge.warn { background: var(--warn-soft); color: var(--warn); }
 .ui-avatar {
-  width: 28px; height: 28px; border-radius: var(--el-shape-radius, 50%); flex-shrink: 0;
+  width: 28px; height: 28px; border-radius: var(--el-variant-radius, 50%); flex-shrink: 0;
   display: inline-grid; place-items: center; text-align: center;
   font: 600 10.5px/1 var(--font-mono); color: #fff; background: var(--wf-fill);
 }
@@ -688,7 +690,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
    which is what an unstyled link looks like anyway. */
 .ui-link { font-size: 12px; color: var(--wf-ink); text-decoration: underline; text-underline-offset: 2px; }
 .ui-image {
-  width: min(680px, 100%); height: 200px; border-radius: var(--el-shape-radius, var(--radius-lg));
+  width: min(680px, 100%); height: 200px; border-radius: var(--el-variant-radius, var(--radius-lg));
   background: var(--panel-2); border: 1px solid var(--border);
 }
 .ui-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; gap: 4px; }
@@ -741,7 +743,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* Dropdown in the bar: "Select" until a bound dataset gives it a value. */
 .ui-nav-select {
   position: relative;
-  height: 32px; padding: 0 10px; border-radius: var(--el-shape-radius, var(--radius-lg)); flex-shrink: 0;
+  height: 32px; padding: 0 10px; border-radius: var(--el-variant-radius, var(--radius-lg)); flex-shrink: 0;
   border: 1px solid var(--border-strong); background: var(--inset-2);
   display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 0;
 }
@@ -832,7 +834,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* ── Content blocks ── */
 /* Tiles wrap like a real metrics row instead of squeezing into one line. */
 .ui-kpis { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
-.ui-kpi { flex: 1 1 140px; min-width: 140px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; border-radius: var(--el-shape-radius, var(--radius-lg)); }
+.ui-kpi { flex: 1 1 140px; min-width: 140px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; border-radius: var(--el-variant-radius, var(--radius-lg)); }
 .ui-kpi-label { font-size: 11.5px; color: var(--text-mute); font-weight: 500; }
 .ui-kpi-value { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-kpi-delta { font-size: 11.5px; color: var(--good); }
@@ -1521,6 +1523,13 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .lib-chip svg { flex-shrink: 0; color: var(--orange-ink); }
 /* Fallback for a type without a drawn glyph (a custom component's code). */
 .lib-chip-code { font: 600 8.5px var(--font-mono); letter-spacing: .04em; color: var(--orange-ink); }
+/* The element bar groups its shapes under their type (FS-REQ-84). */
+.lib-group-tag {
+  font: 600 9px var(--font-mono); text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-mute); flex-shrink: 0; white-space: nowrap;
+  padding: 0 4px 0 10px; margin-left: 6px; border-left: 1px solid var(--border);
+}
+.lib-group-tag:first-child { margin-left: 0; border-left: 0; padding-left: 2px; }
 
 /* A component highlighted as the target of an element drag. The ring rides
    the same ::after overlay as hover/selection, for the same reason. */
@@ -1561,18 +1570,18 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* Image and box placeholders. */
 .ui-image-ph {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  min-height: 96px; padding: 14px; border-radius: var(--el-shape-radius, var(--radius-lg));
+  min-height: 96px; padding: 14px; border-radius: var(--el-variant-radius, var(--radius-lg));
   border: 1.5px dashed var(--border-strong); background: var(--inset-2); color: var(--text-mute);
 }
 .ui-image-ph.tall { min-height: 180px; flex: 1; align-self: stretch; }
 .ui-image-cap { font-size: 11.5px; color: var(--text-mute); text-align: center; }
 /* A real uploaded image: no placeholder chrome, resizes with its box. */
-.ui-image { display: flex; border-radius: var(--el-shape-radius, var(--radius-lg)); overflow: hidden; min-width: 0; }
+.ui-image { display: flex; border-radius: var(--el-variant-radius, var(--radius-lg)); overflow: hidden; min-width: 0; }
 .ui-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ui-image.tall { min-height: 180px; flex: 1; align-self: stretch; }
 .ui-canvas-el .ui-image img { max-width: 100%; }
 .ui-box {
-  min-height: 64px; min-width: 120px; padding: 10px; border-radius: var(--el-shape-radius, var(--radius-lg));
+  min-height: 64px; min-width: 120px; padding: 10px; border-radius: var(--el-variant-radius, var(--radius-lg));
   border: 1.5px dashed var(--border-strong); background: var(--inset-2);
   display: flex; align-items: center; justify-content: center;
 }
@@ -1601,6 +1610,24 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-cell-link:hover { text-decoration: underline; color: var(--wf-ink); }
 .ui-badge.ui-cell-link:hover { text-decoration: underline; filter: brightness(.95); }
 .ui-td-actions .ui-btn { margin-left: 6px; }
+
+/* Deleting a sample record (FS-REQ-87): a round × at the end of the hovered
+   row, card or feed entry. In a table it lives in a zero-width trailing cell
+   and overlays the row's end, so the columns never shift for it. */
+.ui-row-del {
+  position: absolute; top: 50%; right: 4px; transform: translateY(-50%); z-index: 2;
+  width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text-dim);
+  font: 600 13px/1 var(--font-ui, inherit); cursor: pointer;
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+:is(.ui-table tbody tr, .ui-feed li, .ui-rowitem, .ui-card-item):hover .ui-row-del,
+.ui-row-del:focus-visible { opacity: 1; pointer-events: auto; }
+.ui-row-del:hover { color: var(--bad); border-color: var(--bad); }
+.ui-table .ui-td-del { width: 0; padding: 0; border: 0; position: relative; }
+.ui-feed li, .ui-rowitem, .ui-card-item { position: relative; }
+.ui-card-item > .ui-row-del { top: 6px; right: 6px; transform: none; }
 
 /* List shape: cards. */
 .ui-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
@@ -1944,7 +1971,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-table th.el-sel-cell, .ui-table td.el-sel-cell { background: var(--edit-accent-soft); }
 .ui-table .el-sel-cell .ui-edit.el-sel { box-shadow: none; }
 
-/* ── Element shape & fill (data.shape / data.fill) ──
+/* ── Element variant & fill (data.variant / data.fill) ──
    The classes land on the element's token or its el-box. Shape sets an
    inherited radius token each primitive reads with its own default, so it
    reaches the widget whether the class sits on it or on its wrapper.
@@ -1952,9 +1979,9 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
    classed wrapper. This block stays LAST: several rules tie on specificity
    with the variant rules above (.ui-btn.primary, .ui-badge.good…) and win
    on source order. */
-.el-shape-square { --el-shape-radius: 0px; }
-.el-shape-rounded { --el-shape-radius: 10px; }
-.el-shape-pill { --el-shape-radius: 999px; }
+.el-variant-square { --el-variant-radius: 0px; }
+.el-variant-rounded { --el-variant-radius: 10px; }
+.el-variant-pill { --el-variant-radius: 999px; }
 
 /* Filled: a solid face, no outline. */
 .ui-btn:is(.el-fill-filled, .el-fill-filled *) { background: var(--mute-soft); border-color: transparent; }
@@ -2124,3 +2151,35 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   .studio-preview .topbar .spacer { display: none; }
   .canvas-wrap.framed { padding: 8px; }
 }
+
+/* ── Element shapes new with FS-REQ-84 ──
+   Slider, date/time, icon and the basic shapes. A basic shape strokes in the
+   text colour (the style field's Text colour) and fills with its background;
+   inside a canvas it fills its box, so a resize reshapes it. */
+.ui-slider { display: flex; align-items: center; gap: 10px; min-width: 160px; height: 32px; }
+.ui-slider-track { position: relative; flex: 1; height: 4px; border-radius: 2px; background: var(--border-strong); }
+.ui-slider-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--wf-solid); }
+.ui-slider-thumb {
+  position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border-radius: 50%; background: var(--panel); border: 2px solid var(--wf-solid);
+}
+.ui-slider-value { font-size: 12px; min-width: 2.5em; text-align: right; color: var(--text); }
+.ui-input.date .ui-time { margin-left: auto; color: var(--text); }
+.ui-input.date .ui-time + .ui-select-toggle { margin-left: 2px; }
+.ui-icon-el {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; min-width: 24px; min-height: 24px;
+}
+.ui-icon-el svg, .ui-icon-el img { width: 100%; height: 100%; min-width: 24px; min-height: 24px; object-fit: contain; }
+.ui-icon-el.empty { border: 1px dashed var(--border-strong); border-radius: 4px; }
+.ui-shape {
+  position: relative; display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+  width: 100%; height: 100%; min-width: 80px; min-height: 80px;
+}
+.ui-shape.square { border: 1.5px solid currentColor; }
+.ui-shape.circle { border: 1.5px solid currentColor; border-radius: 50%; }
+.ui-shape-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ui-shape.triangle .ui-shape-text { position: relative; margin-top: 30%; }
+.ui-shape.line { min-width: 120px; min-height: 12px; }
+.ui-shape-line { display: block; width: 100%; border-top: 2px solid currentColor; }
+.ui-shape-text { text-align: center; padding: 4px; }

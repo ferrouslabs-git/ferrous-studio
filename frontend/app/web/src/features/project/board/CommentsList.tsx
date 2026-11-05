@@ -9,6 +9,10 @@
 // into it. They upload once the comment is posted (an upload is minted
 // against the comment's id), and a comment may be files alone. Only a
 // comment's author removes one of its files, as only they delete it.
+//
+// Typing "@" in the composer or an edit mentions someone (FS-REQ-80): the
+// text keeps a token for them (mentions.ts), rendered as their current name,
+// and the server sends each newly mentioned person a Slack message.
 import { useState } from "react";
 import { formatBytes, formatDateTime } from "../../../core/format";
 import type { BoardAttachment } from "../attachmentsApi";
@@ -18,6 +22,8 @@ import { useBoard } from "./boardData";
 import { useBoardMutations } from "./boardMutations";
 import type { BoardComment, BoardEntityType } from "./commentsApi";
 import { useDialogs } from "./dialogs";
+import { PickedMention, splitMentions, toEditable, toStored } from "./mentions";
+import { MentionTextarea } from "./MentionTextarea";
 import { previewKindFor } from "./previewKinds";
 
 export function CommentsList({ entityType, entityId }: { entityType: BoardEntityType; entityId: string }) {
@@ -25,6 +31,8 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
   const [text, setText] = useState("");
+  // Who each "@Name" in the composer stands for (FS-REQ-80).
+  const [picked, setPicked] = useState<PickedMention[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [posting, setPosting] = useState(false);
   const preview = useAttachmentPreview();
@@ -33,12 +41,13 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
   const drop = useFileDrop(addFiles, !canWrite || posting);
 
   const post = async () => {
-    const body = text.trim();
+    const body = toStored(text, picked).trim();
     if (!body && !files.length) return;
     setPosting(true);
     try {
       await mutations.postComment(entityType, entityId, body, files);
       setText("");
+      setPicked([]);
       setFiles([]);
     } catch {
       // The mutation layer has already shown the server's reason.
@@ -51,11 +60,12 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
   const onPaste = pasteFiles(addFiles);
 
   // One comment at a time is open for editing, in place of its text.
-  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; text: string; picked: PickedMention[] } | null>(null);
   const [saving, setSaving] = useState(false);
+  const startEdit = (c: BoardComment) => setEditing({ id: c.id, ...toEditable(c.body, index.memberName) });
   const saveEdit = async (c: BoardComment) => {
     if (!editing) return;
-    const body = editing.text.trim();
+    const body = toStored(editing.text, editing.picked).trim();
     if (body === c.body) {
       setEditing(null);
       return;
@@ -95,7 +105,7 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
               {c.edited_at && <span title={`Edited ${formatDateTime(c.edited_at)}`}>(edited)</span>}
               {mine && editing?.id !== c.id && (
                 <span className="cmt-tools">
-                  <button type="button" className="cmt-edit" title="edit comment" onClick={() => setEditing({ id: c.id, text: c.body })}>
+                  <button type="button" className="cmt-edit" title="edit comment" onClick={() => startEdit(c)}>
                     Edit
                   </button>
                   <button type="button" className="cmt-x" title="delete comment" onClick={() => void remove(c.id)}>
@@ -106,12 +116,13 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
             </div>
             {editing?.id === c.id ? (
               <div className="cmt-editing">
-                <textarea
-                  className="rqp-cmt"
+                <MentionTextarea
                   autoFocus
                   value={editing.text}
                   disabled={saving}
-                  onChange={(e) => setEditing({ id: c.id, text: e.target.value })}
+                  onChange={(v) => setEditing((ed) => ed && { ...ed, text: v })}
+                  picked={editing.picked}
+                  onPick={(p) => setEditing((ed) => ed && { ...ed, picked: p })}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") setEditing(null);
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void saveEdit(c);
@@ -132,7 +143,19 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
                 </div>
               </div>
             ) : (
-              c.body && <div className="cmt-b">{c.body}</div>
+              c.body && (
+                <div className="cmt-b">
+                  {splitMentions(c.body).map((s, i) =>
+                    s.kind === "text" ? (
+                      s.text
+                    ) : (
+                      <span key={i} className="cmt-mention">
+                        @{index.memberName(s.userId)}
+                      </span>
+                    ),
+                  )}
+                </div>
+              )
             )}
             {atts.length > 0 && (
               <div className="cmt-files">
@@ -155,12 +178,13 @@ export function CommentsList({ entityType, entityId }: { entityType: BoardEntity
       })}
       {canWrite && (
         <div className={`cmt-compose${drop.over ? " att-drop" : ""}`} {...drop.handlers}>
-          <textarea
-            className="rqp-cmt"
+          <MentionTextarea
             placeholder="write a comment…"
             value={text}
             disabled={posting}
-            onChange={(e) => setText(e.target.value)}
+            onChange={setText}
+            picked={picked}
+            onPick={setPicked}
             onPaste={onPaste}
           />
           {files.length > 0 && (

@@ -11,6 +11,7 @@ project_id, so nothing about it is in what versioning copies.
 """
 import datetime as dt
 import re
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -25,11 +26,11 @@ from .agents import maybe_wake_agent, sync_agent_status
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
-from .. import slack_client, storage
+from .. import slack_client, slack_notify, storage
 from ..common import get_project, require_any_studio_permission, require_studio_permission as require_permission
 from ..documents import ALLOWED_TYPES, EXTRA_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
-from . import service
+from . import mentions, service
 from .models import (
     Agent,
     ApprovalRequest,
@@ -172,7 +173,7 @@ _SPRINT_EVENT_FIELDS = ("name", "goal", "start_date", "end_date", "status", "rel
 # reconstructs status history from detail["status"]["to"].
 _REQUIREMENT_EVENT_FIELDS = (
     "title", "body", "epic_id", "feature_id", "status", "priority", "assignee_id",
-    "release_id", "sprint_id", "queue_position", "estimate_hours",
+    "release_id", "sprint_id", "queue_position", "estimate_hours", "actual_hours",
 )
 _DOC_EVENT_FIELDS = ("title", "body", "tags", "epic_id")
 
@@ -1003,7 +1004,13 @@ async def get_sprint_activity(
 # ── Requirements ─────────────────────────────────────────────────────────
 
 
-async def _get_requirement(db: AsyncSession, board: Board, requirement_id: UUID) -> Requirement:
+async def _get_requirement(
+    db: AsyncSession, board: Board, requirement_id: UUID, *, archived: bool = False
+) -> Requirement:
+    """A requirement that is not deleted. An archived one is found only when
+    ``archived`` says the caller can act on it (reading, restoring, deleting);
+    anything else -- editing it, moving it -- is refused with a 409 that says
+    to restore it first, rather than a 404 that would claim it is gone."""
     r = (
         await db.execute(
             select(Requirement).where(
@@ -1015,11 +1022,16 @@ async def _get_requirement(db: AsyncSession, board: Board, requirement_id: UUID)
     ).scalar_one_or_none()
     if r is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requirement not found")
+    if r.archived_at is not None and not archived:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{r.human_id} is archived. Restore it first.",
+        )
     return r
 
 
 #: How an unnamed super admin is shown to a customer organisation.
-SUPPORT_LABEL = "Ferrous Labs support"
+SUPPORT_LABEL = slack_notify.SUPPORT_LABEL
 
 
 def _super_admins_query():
@@ -1153,12 +1165,20 @@ async def list_requirements(
     epic_id: UUID | None = Query(None),
     feature_id: UUID | None = Query(None),
     sprint_id: UUID | None = Query(None),
+    archived: Literal["exclude", "include", "only"] = Query("exclude"),
     ctx: ScopeContext = Depends(require_permission("board:read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
+    """Live requirements by default (FS-REQ-79): every board page builds its
+    roll-ups from this list, so an archived requirement must be asked for
+    (``archived=include`` or ``archived=only``) to be seen at all."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     stmt = select(Requirement).where(Requirement.board_id == board.id, Requirement.deleted_at.is_(None))
+    if archived == "exclude":
+        stmt = stmt.where(Requirement.archived_at.is_(None))
+    elif archived == "only":
+        stmt = stmt.where(Requirement.archived_at.isnot(None))
     if status_filter is not None:
         stmt = stmt.where(Requirement.status == status_filter)
     if epic_id is not None:
@@ -1248,7 +1268,7 @@ async def get_requirement(
 ) -> dict:
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    requirement = await _get_requirement(db, board, requirement_id)
+    requirement = await _get_requirement(db, board, requirement_id, archived=True)
     return await _requirement_read(db, board, requirement)
 
 
@@ -1355,6 +1375,59 @@ async def update_requirement(
     return await _requirement_read(db, board, requirement)
 
 
+# Archive / restore (FS-REQ-79). The reversible half of removing a
+# requirement, as for users and wireframes: archiving takes it out of every
+# sprint board, roll-up, burndown and default list while keeping every field,
+# so Restore puts it back exactly where it was. Delete is only offered once a
+# requirement is archived.
+
+
+@router.post("/projects/{project_id}/board/requirements/{requirement_id}/archive", response_model=RequirementRead)
+async def archive_requirement(
+    project_id: UUID,
+    requirement_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Archiving an archived requirement is a no-op, not an error."""
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    requirement = await _get_requirement(db, board, requirement_id, archived=True)
+    if requirement.archived_at is None:
+        requirement.archived_at = utc_now()
+        requirement.updated_at = requirement.archived_at
+        await service.write_event(
+            db, board, ctx.user_id, "requirement.archived", "requirement", requirement.id, {"title": requirement.title}
+        )
+        await db.commit()
+        await db.refresh(requirement)
+    return await _requirement_read(db, board, requirement)
+
+
+@router.post("/projects/{project_id}/board/requirements/{requirement_id}/restore", response_model=RequirementRead)
+async def restore_requirement(
+    project_id: UUID,
+    requirement_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("board:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Undo archive_requirement. Only ``archived_at`` is cleared: it returns
+    to the epic, sprint and status it had (a sprint closed meanwhile has
+    already sent it back to the backlog, as it did every other open item)."""
+    project = await get_project(db, project_id, ctx)
+    board = await _board(db, project, ctx)
+    requirement = await _get_requirement(db, board, requirement_id, archived=True)
+    if requirement.archived_at is not None:
+        requirement.archived_at = None
+        requirement.updated_at = utc_now()
+        await service.write_event(
+            db, board, ctx.user_id, "requirement.restored", "requirement", requirement.id, {"title": requirement.title}
+        )
+        await db.commit()
+        await db.refresh(requirement)
+    return await _requirement_read(db, board, requirement)
+
+
 @router.delete("/projects/{project_id}/board/requirements/{requirement_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_requirement(
     project_id: UUID,
@@ -1362,12 +1435,18 @@ async def delete_requirement(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Soft delete -- the only entity with no children of its own to cascade
-    beyond its own comments/attachments. Ported deletion semantics,
-    software-management store.py's delete_requirement."""
+    """Delete an ARCHIVED requirement (409 for a live one: archive it first).
+    The row is soft-deleted with its comments/attachments -- ported deletion
+    semantics, software-management store.py's delete_requirement -- but
+    nothing on the board can bring it back."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
-    requirement = await _get_requirement(db, board, requirement_id)
+    requirement = await _get_requirement(db, board, requirement_id, archived=True)
+    if requirement.archived_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only archived requirements can be deleted. Archive it first.",
+        )
     now = utc_now()
     await db.execute(
         Comment.__table__.update()
@@ -1578,14 +1657,44 @@ async def create_comment(
     )
     db.add(comment)
     await db.flush()
+    names = await _mention_names(db, board, mentions.mentioned_ids(comment.body))
     await service.write_event(
         db, board, ctx.user_id, "comment.created", payload.entity_type, payload.entity_id,
-        {"comment_id": str(comment.id), "excerpt": _clip(comment.body)},
+        {"comment_id": str(comment.id), "excerpt": _clip(mentions.render(comment.body, names))},
     )
+    _stage_mentions(db, board, ctx, comment, names)
     await db.commit()
     await db.refresh(comment)
     # Files are uploaded to a comment after it exists, so a new one has none.
     return comment
+
+
+# ── @-mentions (FS-REQ-80) ──────────────────────────────────────────────
+#
+# A mention is a token in the comment body (mentions.py). Only someone who
+# can see the board -- an active member of its organisation, or an active
+# super admin, the same people it can be assigned to -- is notified; a token
+# naming anyone else stays in the text and reads as "@someone".
+
+
+async def _mention_names(db: AsyncSession, board: Board, user_ids: list[UUID]) -> dict[UUID, str]:
+    """Of ``user_ids``, those who can see this board, each with the name the
+    organisation knows them by (shared with Slack, see slack_notify)."""
+    return await slack_notify.mention_names(db, board.account_id, user_ids)
+
+
+def _stage_mentions(db: AsyncSession, board: Board, ctx: ScopeContext, comment: Comment, names: dict[UUID, str]) -> None:
+    """Record who this save newly mentions and have Slack tell them once the
+    transaction commits. Sending happens after the response, and its
+    failures are logged, never raised (slack_notify): a mention can cost a
+    notification, never the comment."""
+    already = list(comment.mentioned_user_ids or [])
+    notify = mentions.to_notify(comment.body, already, ctx.user_id, names.keys())
+    if not notify:
+        return
+    # A new list, not an in-place append: JSONB changes are only noticed on assignment.
+    comment.mentioned_user_ids = already + [str(u) for u in notify]
+    slack_notify.stage_mentions(db.sync_session, board, ctx.user_id, comment, notify)
 
 
 async def _with_attachments(db: AsyncSession, board: Board, comments: list[Comment]) -> list[CommentRead]:
@@ -1677,10 +1786,12 @@ async def update_comment(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A comment needs text or files")
     comment.body = body
     comment.edited_at = utc_now()
+    names = await _mention_names(db, board, mentions.mentioned_ids(comment.body))
     await service.write_event(
         db, board, ctx.user_id, "comment.edited", comment.entity_type, comment.entity_id,
-        {"comment_id": str(comment.id), "excerpt": _clip(comment.body)},
+        {"comment_id": str(comment.id), "excerpt": _clip(mentions.render(comment.body, names))},
     )
+    _stage_mentions(db, board, ctx, comment, names)
     await db.commit()
     await db.refresh(comment)
     return (await _with_attachments(db, board, [comment]))[0]
@@ -1719,9 +1830,10 @@ async def delete_comment(
         )
         .values(deleted_at=comment.deleted_at)
     )
+    names = await _mention_names(db, board, mentions.mentioned_ids(comment.body))
     await service.write_event(
         db, board, ctx.user_id, "comment.deleted", comment.entity_type, comment.entity_id,
-        {"excerpt": _clip(comment.body)},
+        {"excerpt": _clip(mentions.render(comment.body, names))},
     )
     await db.commit()
 
@@ -2049,6 +2161,29 @@ async def _get_feedback(db: AsyncSession, board: Board, feedback_id: UUID) -> Fe
     return item
 
 
+async def _auto_assign_feedback(db: AsyncSession, board: Board, item: Feedback) -> None:
+    """Hand a new report to whoever the Slack routing tells about it (FS-REQ-82).
+
+    slack_notify.feedback_owner reads the same table as the notices, so the
+    person assigned is the person messaged -- the support developer for a New
+    report. An assignee already set is left alone, and so is a team member who
+    can no longer be assigned (no longer an active super admin): the report
+    still lands, unassigned, rather than failing over a stale Project details
+    entry. The event's own detail is unchanged, so this sends no second
+    "assigned" message on top of the new-report notice.
+    """
+    if item.assignee_id is not None:
+        return
+    owner = slack_notify.feedback_owner(board, item.status)
+    if owner is None:
+        return
+    try:
+        await _validate_assignee(db, board, owner)
+    except HTTPException:
+        return
+    item.assignee_id = owner
+
+
 @router.get("/projects/{project_id}/board/feedback", response_model=list[FeedbackRead])
 async def list_feedback(
     project_id: UUID,
@@ -2120,6 +2255,7 @@ async def create_feedback(
     )
     db.add(item)
     await db.flush()
+    await _auto_assign_feedback(db, board, item)
     await service.write_event(
         db,
         board,
@@ -2149,9 +2285,9 @@ async def update_feedback(
         await _require_environment(db, board, payload.environment)
     if payload.assignee_id is not None:
         await _validate_assignee(db, board, payload.assignee_id)
-    tracked = ("status", "assignee_id", "estimate_hours")
+    tracked = ("status", "assignee_id", "estimate_hours", "actual_hours")
     before = _snapshot(item, tracked)
-    fields = payload.model_dump(exclude_unset=True, exclude={"clear_assignee", "assignee_id", "estimate_hours"})
+    fields = payload.model_dump(exclude_unset=True, exclude={"clear_assignee", "assignee_id", "estimate_hours", "actual_hours"})
     for field, value in fields.items():
         if value is not None:
             setattr(item, field, value)
@@ -2163,6 +2299,8 @@ async def update_feedback(
         item.assignee_id = payload.assignee_id
     if "estimate_hours" in payload.model_fields_set:
         item.estimate_hours = payload.estimate_hours
+    if "actual_hours" in payload.model_fields_set:
+        item.actual_hours = payload.actual_hours
     now = utc_now()
     item.resolved_at = service.resolution_stamp(before["status"], item.status, item.resolved_at, now)
     item.updated_at = now

@@ -804,7 +804,7 @@ export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, 
     const field = to.dataFields.find((f) => f.key === key);
     const keep =
       PORTABLE_DATA_KEYS.has(key) ||
-      (key === "shape" && to.shapeable) ||
+      (key === "variant" && to.variantable) ||
       (key === "fill" && to.fillable) ||
       (!!field && (field.kind !== "select" || (field.options ?? []).includes(value)));
     if (keep) data[key] = value;
@@ -819,7 +819,7 @@ export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, 
     const shown = picked ?? firstOf(old.options) ?? firstOf(old.samples);
     if (shown && to.dataFields.some((f) => f.key === "value") && !data.value) data.value = shown;
     // A pick moves between pickers, never into a date picker's ISO slot.
-    else if (picked && to.type !== "date-picker" && to.dataFields.some((f) => f.key === "selected") && !data.selected) data.selected = picked;
+    else if (picked && to.type !== "date-picker" && to.type !== "date-time" && to.dataFields.some((f) => f.key === "selected") && !data.selected) data.selected = picked;
   }
   // A carried dataset stands in for the sample its field supersedes.
   const superseded = data.dataset ? to.dataFields.find((f) => f.kind === "dataset")?.supersedes : undefined;
@@ -887,6 +887,23 @@ export function addListRow(draft: Draft, _ctx: ActionContext, id: string): Actio
   const cmp = cmpById(draft, id);
   if (!cmp) return;
   rowsOf(cmp).push({});
+  return { selectCmpId: id };
+}
+
+/** Delete one sample record (FS-REQ-87). A list that never had its rows
+ *  written renders the type's default records, so those are materialised
+ *  first — deleting the second of three leaves two, not none. */
+export function removeListRow(draft: Draft, _ctx: ActionContext, id: string, rowIndex: number): ActionResult | void {
+  const cmp = cmpById(draft, id);
+  if (!cmp || rowIndex < 0) return;
+  const props = ensureProps(cmp);
+  if (!Array.isArray(props.rows)) {
+    const defaults = getDefaultProps(cmp.type).rows;
+    props.rows = Array.isArray(defaults) ? defaults.map((r) => ({ ...(r as RowRecord) })) : [];
+  }
+  const rows = props.rows as RowRecord[];
+  if (rowIndex >= rows.length) return;
+  rows.splice(rowIndex, 1);
   return { selectCmpId: id };
 }
 
@@ -986,10 +1003,11 @@ function dropLink(cmp: ComponentNode, key: string): void {
   if (!Object.keys(links).length) delete cmp.props!.links;
 }
 
-/** Set an element's text. An empty commit removes PURE-TEXT elements (nav
- *  items, buttons — see blankRemoves in the catalogue); widget elements
- *  (inputs, columns…) keep the element and just blank the label. Scalars
- *  take the value as-is. */
+/** Set an element's text. An empty commit keeps the element and just blanks
+ *  its text (FS-REQ-85): a button with no label is still a button, so it
+ *  renders as its box with nothing in it. Removing an element is always an
+ *  explicit action (Delete, × or "Remove element"). Scalars take the value
+ *  as-is. */
 export function setElementText(draft: Draft, ctx: ActionContext, id: string, key: string, index: number | null, text: string): ActionResult | void {
   const cmp = cmpById(draft, id);
   if (!cmp) return;
@@ -998,9 +1016,6 @@ export function setElementText(draft: Draft, ctx: ActionContext, id: string, key
     const elementId = key.slice(EL_PREFIX.length);
     const element = findElement(cmp, elementId);
     if (!element) return;
-    if (!value && elementMeta(cmp.type, element.type)?.blankRemoves) {
-      return removeElement(draft, ctx, id, elementId);
-    }
     element.label = value;
     autoBindDataset(cmp.type, element, ctx);
     // Keep the element selected — a rename (or blank) is not a deselection.

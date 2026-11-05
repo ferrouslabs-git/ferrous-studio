@@ -53,6 +53,7 @@ EXEMPT = {
     "create_feature", "update_feature", "delete_feature",
     "create_sprint", "update_sprint", "delete_sprint",
     "create_requirement", "update_requirement", "delete_requirement", "claim_requirement_route",
+    "archive_requirement", "restore_requirement",
     "create_doc", "update_doc", "delete_doc",
     "create_comment", "update_comment", "delete_comment",
     # An agent asking a human a question is board activity like a comment.

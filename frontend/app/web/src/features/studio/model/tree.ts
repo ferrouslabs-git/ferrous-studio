@@ -72,6 +72,23 @@ export function findNode(root: LayoutNode, id: string): FoundNode | null {
   return found;
 }
 
+/** One document on the canvas and the region in it that holds the next
+ *  level in (null for the open page, the innermost level). */
+export interface CanvasLevel {
+  doc: PageDocument;
+  outletRegionId: string | null;
+}
+
+/** The region that encloses `nodeId` on the canvas. Regions are leaves of
+ *  their own page's tree, so the only region around one is the outlet of
+ *  the shell level outside it — the region a child page is placed in, which
+ *  the child page covers entirely and so can never be clicked. `levels` run
+ *  outermost first. Null for the outermost page or an unknown id. */
+export function enclosingRegionId(levels: readonly CanvasLevel[], nodeId: string): string | null {
+  const at = levels.findIndex((l) => findNode(l.doc.root, nodeId) != null);
+  return at > 0 ? levels[at - 1].outletRegionId : null;
+}
+
 /** The region a navigation element in `fromRegionId` opens its pages in:
  *  the first fill-sized region after it in reading order (the content area a
  *  header or sidebar wraps), else the next region, else the same preference

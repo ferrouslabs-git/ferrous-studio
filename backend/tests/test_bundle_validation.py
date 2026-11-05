@@ -273,13 +273,13 @@ def test_a_data_key_must_belong_to_the_element():
     assert "wireframes[0].pages[0].layout.components[0].elements[0].data.nonsense" in paths(errors)
 
 
-def test_shape_and_fill_data_keys_are_allowed_when_the_element_supports_them():
+def test_variant_and_fill_data_keys_are_allowed_when_the_element_supports_them():
     bundle = minimal_bundle()
     button_cmp = {
         "id": "c2",
         "type": "form",
         "shape": "simple",
-        "elements": [{"id": "e2", "type": "button", "label": "Save", "data": {"shape": "pill", "fill": "outline"}}],
+        "elements": [{"id": "e2", "type": "button", "label": "Save", "data": {"variant": "pill", "fill": "outline"}}],
     }
     bundle["wireframes"][0]["pages"][0]["layout"]["components"].append(button_cmp)
     assert validate_bundle(bundle, CATALOG) == []

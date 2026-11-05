@@ -22,14 +22,16 @@ export type DataKind = (typeof DATA_KINDS)[number];
 
 /** One editable slot of an element's representative data. `logo` is a
  *  built-in icon picker + image upload (stored as an icon name, a data URL,
- *  or "none"); `image` is a plain image upload (stored as a data URL);
+ *  or "none"); `icon` is the icon library picker (stored as a NAV_ICONS
+ *  name or an uploaded data URL); `image` is a plain image upload (stored as
+ *  a data URL);
  *  `dataset` binds the element to a reusable value list (stored as the
  *  dataset's id); `images` is several uploads (stored as a JSON array of
  *  data URLs — see imageList) — the Inspector renders these specially. */
 export interface DataFieldMeta {
   key: string;
   label: string;
-  kind: "text" | "select" | "logo" | "image" | "dataset" | "images";
+  kind: "text" | "select" | "logo" | "icon" | "image" | "dataset" | "images";
   options?: readonly string[];
   /** dataset fields only: the manual text field this binding replaces
    *  (hidden in the Inspector while a dataset is chosen). */
@@ -102,16 +104,66 @@ export function navAlign(el: { type: string; data?: Record<string, string> }): N
   return NAV_TRAILING_TYPES.has(el.type) ? "right" : "left";
 }
 
-/** Corner treatments a shapeable element offers (stored as `data.shape`;
- *  unset keeps the widget's own default). Rendered as `el-shape-*` classes. */
-export const EL_SHAPE_OPTIONS = ["square", "rounded", "pill"] as const;
+/** Corner treatments — an element's VARIANT (FS-REQ-84) — stored as
+ *  `data.variant`; unset keeps the widget's own default ("Default" in the
+ *  Inspector). Rendered as `el-variant-*` classes. Stored as `data.shape`
+ *  before "shape" came to name what an element is (RENAMED_ELEMENT_DATA). */
+export const EL_VARIANT_OPTIONS = ["square", "rounded", "pill"] as const;
 
 /** Fill treatments a fillable element offers (stored as `data.fill`; unset
  *  keeps the widget's own default). Rendered as `el-fill-*` classes. */
 export const EL_FILL_OPTIONS = ["filled", "outline", "ghost"] as const;
 
+// ── Element types and shapes (FS-REQ-84) ──────────────────────────────────
+// Every element is a SHAPE of one of six TYPES, and may take a VARIANT (its
+// corner treatment). In a document an element's `type` field holds its shape
+// id — unique across all six types, and the same id in every host — and its
+// type follows from ELEMENT_GROUP_OF, so stored wireframes kept their ids
+// through the regrouping. "Group" in code is "Type" on screen: `type` was
+// already the element's own id everywhere.
+
+export const ELEMENT_GROUPS = [
+  { id: "text", label: "Text" },
+  { id: "input", label: "Input" },
+  { id: "action", label: "Action" },
+  { id: "ui", label: "UI element" },
+  { id: "image", label: "Image" },
+  { id: "basic", label: "Basic" },
+] as const;
+export type ElementGroupId = (typeof ELEMENT_GROUPS)[number]["id"];
+
+/** The type every shape belongs to. The canvas hosts the full scheme; the
+ *  other components' own elements are grouped the same way (none gains a
+ *  shape it did not have). */
+export const ELEMENT_GROUP_OF: Record<string, ElementGroupId> = {
+  // Text
+  heading: "text", text: "text", "text-area": "text", label: "text", search: "text",
+  header: "text", "group-heading": "text", "section-heading": "text", "help-text": "text",
+  // Input
+  "text-input": "input", select: "input", "multi-select": "input", "date-picker": "input",
+  "date-time": "input", "radio-group": "input", checkbox: "input", toggle: "input",
+  "read-only": "input", "file-upload": "input", slider: "input",
+  filter: "input", "filter-multi": "input", "filter-multi-search": "input", "select-column": "input",
+  "workspace-switcher": "input", "range-selector": "input", "view-switcher": "input",
+  // Action
+  link: "action", button: "action", "nav-item": "action", "nav-sub-item": "action",
+  "row-action": "action", "calendar-nav": "action",
+  // UI element
+  badge: "ui", box: "ui", divider: "ui", pagination: "ui",
+  column: "ui", "column-header": "ui", step: "ui", series: "ui", "category-axis": "ui",
+  "value-axis": "ui", legend: "ui", stat: "ui", event: "ui", "resource-row": "ui", "calendar-legend": "ui",
+  // Image
+  image: "image", icon: "image", brand: "image", avatar: "image",
+  // Basic
+  line: "basic", square: "basic", circle: "basic", triangle: "basic",
+};
+
 export interface ElementTypeMeta {
+  /** The shape id (see the section note above). */
   type: string;
+  /** The type this shape belongs to (from ELEMENT_GROUP_OF). */
+  group: ElementGroupId;
+  /** The shape's name on screen. */
   label: string;
   desc: string;
   icon: string;
@@ -120,13 +172,10 @@ export interface ElementTypeMeta {
   defaultData?: Record<string, string>;
   /** At most this many per component (a nav has one brand, one avatar). */
   max?: number;
-  /** Committing an empty label removes the element. Only for pure-text
-   *  elements (a nav item, a button — the label IS the element); widgets
-   *  with their own body (inputs, columns…) keep the element and just show
-   *  a blank label. Delete / "Remove element" removes either kind. */
-  blankRemoves?: boolean;
-  /** Offers the corner-shape control (EL_SHAPE_OPTIONS via `data.shape`). */
-  shapeable?: boolean;
+  /** Offers the variant control (EL_VARIANT_OPTIONS via `data.variant`). */
+  variantable?: boolean;
+  /** Draws no text: the Inspector offers no Text field (an icon, a line). */
+  noText?: boolean;
   /** Offers the fill control (EL_FILL_OPTIONS via `data.fill`). */
   fillable?: boolean;
   /** Fill rendered when `data.fill` is unset — this widget's own default.
@@ -137,7 +186,7 @@ export interface ElementTypeMeta {
 // ── Element vocabularies ────────────────────────────────────────────────────
 // Shared metas exist once; a type id means the same thing in every host.
 
-const el = (meta: ElementTypeMeta): ElementTypeMeta => meta;
+const el = (meta: Omit<ElementTypeMeta, "group">): ElementTypeMeta => ({ ...meta, group: ELEMENT_GROUP_OF[meta.type] });
 
 const BRAND = el({
   type: "brand", label: "Brand / logo", desc: "Product name or logo mark", icon: "BR",
@@ -150,7 +199,7 @@ const BRAND = el({
   ],
   defaultLabel: "Acme", max: 1,
 });
-const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item", blankRemoves: true });
+const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item" });
 /** A nav item nested under an item before it (FS-REQ-64), up to five levels
  *  deep: its level (2–5) puts it under the nearest earlier item of a lower
  *  level. A side rail draws the tree as nested accordions, a top bar as the
@@ -160,20 +209,20 @@ export const NAV_LEVELS = ["2", "3", "4", "5"] as const;
 const NAV_SUB_ITEM = el({
   type: "nav-sub-item", label: "Sub-item", desc: "A destination nested under an item before it", icon: "NS",
   dataFields: [{ key: "level", label: "Level", kind: "select", options: NAV_LEVELS }],
-  defaultLabel: "Sub-item", defaultData: { level: "2" }, blankRemoves: true,
+  defaultLabel: "Sub-item", defaultData: { level: "2" },
 });
-const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
-const SEARCH = el({ type: "search", label: "Search box", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1, shapeable: true, fillable: true, defaultFill: "outline" });
+const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section" });
+const SEARCH = el({ type: "search", label: "Search", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1, variantable: true, fillable: true, defaultFill: "outline" });
 const BUTTON = el({
   type: "button", label: "Button", desc: "Action button", icon: "BT",
   dataFields: [{ key: "style", label: "Style", kind: "select", options: ["primary", "secondary", "danger"] }],
-  defaultLabel: "Action", defaultData: { style: "primary" }, blankRemoves: true,
-  shapeable: true, fillable: true,
+  defaultLabel: "Action", defaultData: { style: "primary" },
+  variantable: true, fillable: true,
 });
 const AVATAR = el({
   type: "avatar", label: "Avatar / user", desc: "Signed-in user; the text is the initials", icon: "AV",
   dataFields: [{ key: "name", label: "Name", kind: "text" }, { key: "role", label: "Role", kind: "text" }],
-  defaultLabel: "AL", defaultData: { name: "Ada Lovelace", role: "Administrator" }, max: 1, shapeable: true,
+  defaultLabel: "AL", defaultData: { name: "Ada Lovelace", role: "Administrator" }, max: 1, variantable: true,
 });
 const WORKSPACE = el({ type: "workspace-switcher", label: "Workspace switcher", desc: "Workspace selector", icon: "WS", dataFields: [], defaultLabel: "Acme Workspace", max: 1 });
 const DIVIDER = el({ type: "divider", label: "Divider", desc: "Separator line or spacer", icon: "—", dataFields: [], defaultLabel: "" });
@@ -184,7 +233,7 @@ const DIVIDER = el({ type: "divider", label: "Divider", desc: "Separator line or
 const HEADER = el({
   type: "header", label: "Header", desc: "The component's title; inline with its controls, or on its own line above", icon: "HD",
   dataFields: [{ key: "placement", label: "Placement", kind: "select", options: ["inline", "above"] }],
-  defaultLabel: "Header", defaultData: { placement: "inline" }, max: 1, blankRemoves: true,
+  defaultLabel: "Header", defaultData: { placement: "inline" }, max: 1,
 });
 
 const COLUMN = el({
@@ -199,7 +248,7 @@ const COLUMN = el({
   defaultLabel: "Column", defaultData: { kind: "text" },
 });
 const COLUMN_HEADER = el({ type: "column-header", label: "Column header", desc: "The header row; remove it for a headerless table", icon: "CH", dataFields: [], defaultLabel: "", max: 1 });
-const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit", blankRemoves: true, shapeable: true, fillable: true });
+const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit", variantable: true, fillable: true });
 const SELECT_COLUMN = el({ type: "select-column", label: "Select column", desc: "Bulk-select checkboxes", icon: "☑", dataFields: [], defaultLabel: "", max: 1 });
 /** The fields every filter chip shares: its values (a dataset, or options
  *  typed by hand) and what is picked from them. */
@@ -217,15 +266,15 @@ const FILTER_FIELDS: DataFieldMeta[] = [
  *  the id every existing filter already carries. */
 const FILTER = el({
   type: "filter", label: "Filter: single select", desc: "Filter the list by one value of a field", icon: "FL",
-  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", variantable: true, fillable: true,
 });
 const FILTER_MULTI = el({
   type: "filter-multi", label: "Filter: multi-select", desc: "Filter the list by several values of a field", icon: "FM",
-  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", variantable: true, fillable: true,
 });
 const FILTER_MULTI_SEARCH = el({
   type: "filter-multi-search", label: "Filter: multi-select with search", desc: "Several values, picked from a searchable menu", icon: "FS",
-  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", variantable: true, fillable: true,
 });
 /** The filter element types, in bar order. */
 export const FILTER_TYPES = [FILTER.type, FILTER_MULTI.type, FILTER_MULTI_SEARCH.type] as const;
@@ -275,23 +324,23 @@ export function listAlign(el: { type: string; data?: Record<string, string> }, b
   return el.type === "button" || besideTitle ? "right" : "left";
 }
 const PAGINATION = el({
-  type: "pagination", label: "Pagination", desc: "Page controls", icon: "PG",
+  type: "pagination", label: "Pages", desc: "Page controls", icon: "PG",
   dataFields: [{ key: "pageSize", label: "Page size", kind: "text" }],
   defaultLabel: "", defaultData: { pageSize: "10" }, max: 1,
 });
 
 const TEXT_INPUT = el({
-  type: "text-input", label: "Text input", desc: "Single-line input", icon: "TI",
+  type: "text-input", label: "Free text", desc: "Single-line input", icon: "TI",
   dataFields: [
     { key: "kind", label: "Data kind", kind: "select", options: ["text", "email", "number", "password", "phone", "url"] },
     { key: "placeholder", label: "Placeholder", kind: "text" },
   ],
-  defaultLabel: "Field", defaultData: { kind: "text" }, shapeable: true, fillable: true, defaultFill: "outline",
+  defaultLabel: "Field", defaultData: { kind: "text" }, variantable: true, fillable: true, defaultFill: "outline",
 });
 const TEXT_AREA = el({
   type: "text-area", label: "Text area", desc: "Multi-line input", icon: "TA",
   dataFields: [{ key: "placeholder", label: "Placeholder", kind: "text" }], defaultLabel: "Notes",
-  shapeable: true, fillable: true, defaultFill: "outline",
+  variantable: true, fillable: true, defaultFill: "outline",
 });
 const SELECT = el({
   type: "select", label: "Dropdown", desc: "Choice from a list", icon: "DD",
@@ -301,50 +350,50 @@ const SELECT = el({
     // Set by picking from the expanded menu on the canvas; blank = unselected.
     { key: "selected", label: "Selected", kind: "text" },
   ],
-  defaultLabel: "Choice", defaultData: { options: "Option A, Option B" }, shapeable: true, fillable: true, defaultFill: "outline",
+  defaultLabel: "Choice", defaultData: { options: "Option A, Option B" }, variantable: true, fillable: true, defaultFill: "outline",
 });
 /** A dropdown that keeps several picks (FS-REQ-76): a tick-box menu like the
  *  multi-select filters, the picks shown as chips in the field. */
 const MULTI_SELECT = el({
-  type: "multi-select", label: "Multi-select dropdown", desc: "Several choices from a list", icon: "MS",
+  type: "multi-select", label: "Multi-select", desc: "Several choices from a list", icon: "MS",
   dataFields: [
     { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "options" },
     { key: "options", label: "Options", kind: "text" },
     // Set by ticking options in the expanded menu on the canvas, comma-separated; blank = none.
     { key: "selected", label: "Selected", kind: "text" },
   ],
-  defaultLabel: "Choices", defaultData: { options: "Option A, Option B, Option C" }, shapeable: true, fillable: true, defaultFill: "outline",
+  defaultLabel: "Choices", defaultData: { options: "Option A, Option B, Option C" }, variantable: true, fillable: true, defaultFill: "outline",
 });
 const RADIO_GROUP = el({
-  type: "radio-group", label: "Radio group", desc: "One-of-many choice", icon: "RG",
+  type: "radio-group", label: "Radio", desc: "One-of-many choice", icon: "RG",
   dataFields: [{ key: "options", label: "Options", kind: "text" }],
   defaultLabel: "Choice", defaultData: { options: "Yes, No" },
 });
 const CHECKBOX = el({ type: "checkbox", label: "Checkbox", desc: "On/off tick", icon: "CB", dataFields: [], defaultLabel: "Option" });
 const TOGGLE = el({ type: "toggle", label: "Toggle", desc: "On/off switch", icon: "TG", dataFields: [], defaultLabel: "Enabled" });
 const DATE_PICKER = el({
-  type: "date-picker", label: "Date picker", desc: "Date input with a calendar", icon: "DP",
+  type: "date-picker", label: "Date", desc: "Date input with a calendar", icon: "DP",
   dataFields: [
     { key: "placeholder", label: "Placeholder", kind: "text" },
     // Set by picking a day from the calendar on the canvas (yyyy-mm-dd); blank = no date.
     { key: "selected", label: "Selected", kind: "text" },
   ],
-  defaultLabel: "Date", shapeable: true, fillable: true, defaultFill: "outline",
+  defaultLabel: "Date", variantable: true, fillable: true, defaultFill: "outline",
 });
 /** A field shown but not editable — a reference number, a created date, a
  *  value set elsewhere. The label is the field name; `value` is what it reads. */
 const READ_ONLY = el({
-  type: "read-only", label: "Read-only field", desc: "A value shown but not editable", icon: "RO",
+  type: "read-only", label: "Read only", desc: "A value shown but not editable", icon: "RO",
   dataFields: [
     { key: "dataset", label: "Dataset", kind: "dataset", supersedes: "value" },
     { key: "value", label: "Value", kind: "text" },
   ],
   defaultLabel: "Reference", defaultData: { value: "REF-00421" },
 });
-const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", shapeable: true, fillable: true, defaultFill: "outline" });
-const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
-const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", blankRemoves: true, shapeable: true, fillable: true });
-const HELP_TEXT = el({ type: "help-text", label: "Help text", desc: "Guidance under a field", icon: "HT", dataFields: [], defaultLabel: "Explain what to enter here.", blankRemoves: true });
+const FILE_UPLOAD = el({ type: "file-upload", label: "Upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", variantable: true, fillable: true, defaultFill: "outline" });
+const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section" });
+const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", variantable: true, fillable: true });
+const HELP_TEXT = el({ type: "help-text", label: "Help text", desc: "Guidance under a field", icon: "HT", dataFields: [], defaultLabel: "Explain what to enter here." });
 
 const SERIES = el({
   type: "series", label: "Series", desc: "A data series; values drive the plot", icon: "SE",
@@ -365,20 +414,53 @@ const RANGE_SELECTOR = el({ type: "range-selector", label: "Range selector", des
 const STAT = el({
   type: "stat", label: "Stat tile", desc: "One metric at a glance", icon: "KP",
   dataFields: [{ key: "value", label: "Value", kind: "text" }, { key: "delta", label: "Change", kind: "text" }],
-  defaultLabel: "Metric", defaultData: { value: "12,408", delta: "+4.2%" }, shapeable: true, fillable: true,
+  defaultLabel: "Metric", defaultData: { value: "12,408", delta: "+4.2%" }, variantable: true, fillable: true,
 });
 
-const HEADING = el({ type: "heading", label: "Heading", desc: "Large title text", icon: "H", dataFields: [], defaultLabel: "Heading", blankRemoves: true });
-const TEXT = el({ type: "text", label: "Text", desc: "Body copy", icon: "T", dataFields: [], defaultLabel: "Body text.", blankRemoves: true });
-const LABEL = el({ type: "label", label: "Label", desc: "Small caption text", icon: "L", dataFields: [], defaultLabel: "Label", blankRemoves: true });
-const BADGE = el({ type: "badge", label: "Badge", desc: "Status pill", icon: "B", dataFields: [], defaultLabel: "Badge", blankRemoves: true, shapeable: true, fillable: true });
-const LINK = el({ type: "link", label: "Link", desc: "Text link; link it to a page", icon: "LK", dataFields: [], defaultLabel: "Link", blankRemoves: true });
+const HEADING = el({ type: "heading", label: "Heading", desc: "Large title text", icon: "H", dataFields: [], defaultLabel: "Heading" });
+const TEXT = el({ type: "text", label: "Text", desc: "Body copy", icon: "T", dataFields: [], defaultLabel: "Body text." });
+const LABEL = el({ type: "label", label: "Label", desc: "Small caption text", icon: "L", dataFields: [], defaultLabel: "Label" });
+const BADGE = el({ type: "badge", label: "Badge", desc: "Status pill", icon: "B", dataFields: [], defaultLabel: "Badge", variantable: true, fillable: true });
+const LINK = el({ type: "link", label: "Link", desc: "Text link; link it to a page", icon: "LK", dataFields: [], defaultLabel: "Link" });
 const IMAGE = el({
   type: "image", label: "Image", desc: "Picture: upload one, or a placeholder describing what appears", icon: "IM",
   dataFields: [{ key: "src", label: "Image", kind: "image" }],
-  defaultLabel: "Describe the image", shapeable: true,
+  defaultLabel: "Describe the image", variantable: true,
 });
-const BOX = el({ type: "box", label: "Box", desc: "Container rectangle standing in for anything", icon: "BX", dataFields: [], defaultLabel: "Area", shapeable: true, fillable: true });
+const BOX = el({ type: "box", label: "Box", desc: "Container rectangle standing in for anything", icon: "BX", dataFields: [], defaultLabel: "Area", variantable: true, fillable: true });
+
+// Shapes new with FS-REQ-84. Date/time is a date picker with a time beside
+// the day; a slider a value along a range; an icon one mark from the nav-icon
+// library (or an upload); the basic shapes are plain geometry, coloured
+// through the style fields and optionally carrying a word or two of text.
+const DATE_TIME = el({
+  type: "date-time", label: "Date/time", desc: "Date and time input", icon: "DT",
+  dataFields: [
+    { key: "placeholder", label: "Placeholder", kind: "text" },
+    // Picked from the calendar on the canvas (yyyy-mm-dd); blank = no date.
+    { key: "selected", label: "Selected", kind: "text" },
+    { key: "time", label: "Time", kind: "text" },
+  ],
+  defaultLabel: "Date and time", defaultData: { time: "09:00" }, variantable: true, fillable: true, defaultFill: "outline",
+});
+const SLIDER = el({
+  type: "slider", label: "Slider", desc: "A value picked along a range", icon: "SL",
+  dataFields: [
+    { key: "min", label: "Minimum", kind: "text" },
+    { key: "max", label: "Maximum", kind: "text" },
+    { key: "value", label: "Value", kind: "text" },
+  ],
+  defaultLabel: "Amount", defaultData: { min: "0", max: "100", value: "40" },
+});
+const ICON = el({
+  type: "icon", label: "Icon", desc: "One icon from the library, or an uploaded mark", icon: "IC",
+  dataFields: [{ key: "icon", label: "Icon", kind: "icon" }],
+  defaultLabel: "", defaultData: { icon: "star" }, noText: true,
+});
+const LINE = el({ type: "line", label: "Line", desc: "A straight line", icon: "LN", dataFields: [], defaultLabel: "", noText: true });
+const SQUARE = el({ type: "square", label: "Square", desc: "A plain square or rectangle", icon: "SQ", dataFields: [], defaultLabel: "" });
+const CIRCLE = el({ type: "circle", label: "Circle", desc: "A plain circle or ellipse", icon: "CI", dataFields: [], defaultLabel: "" });
+const TRIANGLE = el({ type: "triangle", label: "Triangle", desc: "A plain triangle", icon: "TR", dataFields: [], defaultLabel: "" });
 
 const EVENT = el({
   type: "event", label: "Event", desc: "A calendar entry", icon: "EV",
@@ -422,18 +504,15 @@ const LIST_BUTTON = el({
   defaultLabel: "+ Add", defaultData: { style: "primary", placement: "above" },
 });
 
-const dedupe = (lists: ElementTypeMeta[][]): ElementTypeMeta[] => {
-  const seen = new Set<string>();
-  const out: ElementTypeMeta[] = [];
-  for (const list of lists) {
-    for (const meta of list) {
-      if (seen.has(meta.type)) continue;
-      seen.add(meta.type);
-      out.push(meta);
-    }
-  }
-  return out;
-};
+/** The canvas's vocabulary: every type with all its shapes. */
+const CANVAS_ELEMENTS: ElementTypeMeta[] = [
+  HEADING, TEXT, TEXT_AREA, LABEL, SEARCH,
+  TEXT_INPUT, SELECT, MULTI_SELECT, DATE_PICKER, DATE_TIME, RADIO_GROUP, CHECKBOX, TOGGLE, READ_ONLY, FILE_UPLOAD, SLIDER,
+  LINK, BUTTON,
+  BADGE, BOX, DIVIDER, PAGINATION,
+  IMAGE, ICON,
+  LINE, SQUARE, CIRCLE, TRIANGLE,
+];
 
 // ── Components ──────────────────────────────────────────────────────────────
 
@@ -596,11 +675,8 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
       { id: "float", label: "Float over region" },
     ],
     defaultLayout: "fixed",
-    elements: dedupe([
-      [HEADING, TEXT, LABEL, BADGE, BUTTON, TEXT_INPUT, LINK, IMAGE, BOX, DIVIDER],
-      FORM_ELEMENTS,
-      LIST_ELEMENTS,
-    ]),
+    // The full type → shape scheme, in on-screen order (FS-REQ-84).
+    elements: CANVAS_ELEMENTS,
     defaultElements: [
       { type: "heading", label: "Heading", data: { x: "16", y: "16" } },
       { type: "text", label: "Explain what this part of the UI does.", data: { x: "16", y: "56" } },
@@ -643,6 +719,57 @@ export function elementMeta(componentType: string, elementType: string): Element
 }
 
 export const componentMeta = (type: string): ComponentMeta | null => COMPONENTS[type] ?? null;
+
+/** A shape's meta from whichever host has it — for an element whose own host
+ *  no longer offers its shape (a retired canvas element being migrated). */
+export function anyElementMeta(elementType: string): ElementTypeMeta | null {
+  for (const c of Object.values(COMPONENTS)) {
+    const hit = c.elements.find((e) => e.type === elementType);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** A host's vocabulary as type → shapes, types in their on-screen order and
+ *  shapes in the host's own; types the host has no shape of are left out. */
+export function elementGroups(componentType: string): { id: ElementGroupId; label: string; shapes: ElementTypeMeta[] }[] {
+  const vocab = COMPONENTS[componentType]?.elements ?? [];
+  return ELEMENT_GROUPS.map((g) => ({ id: g.id, label: g.label, shapes: vocab.filter((m) => m.group === g.id) })).filter(
+    (g) => g.shapes.length > 0,
+  );
+}
+
+// ── Retired element shapes (FS-REQ-84) ──────────────────────────────────────
+
+/** What a stored element of a shape its host withdrew becomes — read-time on
+ *  the canvas (model/migrate.ts) and at import (the backend, via
+ *  catalog.json). `null` drops it: there is nothing it could sensibly be.
+ *  Data keys of the old shape that the new one has no field for are
+ *  dropped; `rename` moves a value to another key (a comma list keeps its
+ *  first entry); `data` is set on top. Keyed by host, then old shape. */
+export interface ElementRemap {
+  type: string;
+  rename?: Record<string, string>;
+  data?: Record<string, string>;
+}
+export const RETIRED_ELEMENTS: Record<string, Record<string, ElementRemap | null>> = {
+  canvas: {
+    "section-heading": { type: "heading" },
+    "help-text": { type: "text" },
+    step: { type: "badge" },
+    column: { type: "read-only", rename: { samples: "value" } },
+    // A table's header row has no meaning outside a table.
+    "column-header": null,
+    "row-action": { type: "button", data: { style: "secondary" } },
+    "select-column": { type: "checkbox" },
+    filter: { type: "select" },
+    "filter-multi": { type: "multi-select" },
+    "filter-multi-search": { type: "multi-select" },
+  },
+};
+
+/** Element data keys renamed by FS-REQ-84 (old → new), in every host. */
+export const RENAMED_ELEMENT_DATA: Record<string, string> = { shape: "variant" };
 
 /** Component types withdrawn from the vocabulary (2026-09-03). They have no
  *  meta, no renderer and no migration: normalizePage drops any instance a

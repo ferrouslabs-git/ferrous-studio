@@ -124,7 +124,7 @@ describe("pasteElement", () => {
     const dest = navbar("c2", [el("e2", "search", "Find…", "a0")]);
     const p = page([source, dest]);
     const result = pasteElement(p, ctx, "c2", copyElementItem(source, "e1")!);
-    expect(result?.toast).toMatch(/already has its search box/);
+    expect(result?.toast).toMatch(/already has its search/);
     expect(dest.elements).toHaveLength(1);
   });
 

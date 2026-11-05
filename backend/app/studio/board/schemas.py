@@ -329,6 +329,8 @@ class RequirementUpdate(BaseModel):
     # Sending null clears the estimate back to "not estimated" -- unlike the id
     # fields above, null is meaningful here, so it needs no clear_ flag.
     estimate_hours: EstimateHours = None
+    # Hours the work took; null clears it back to "not recorded".
+    actual_hours: EstimateHours = None
     # Same rule: null clears the position ("not ordered"), so no clear_ flag.
     # Not on RequirementCreate -- a requirement is ordered once it is in a
     # sprint and someone ranks it, never at creation.
@@ -362,12 +364,15 @@ class RequirementRead(BaseModel):
     release_id: UUID | None
     sprint_id: UUID | None
     estimate_hours: float | None = None
+    actual_hours: float | None = None
     queue_position: int | None = None
     feedback_id: UUID | None = None
     effective_epic_id: UUID | None = None
     effective_release_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
+    #: Set while archived (FS-REQ-79); None for live work.
+    archived_at: datetime | None = None
 
 
 # ── Docs ─────────────────────────────────────────────────────────────────
@@ -600,6 +605,7 @@ class FeedbackUpdate(BaseModel):
     clear_assignee: bool = False
     # Null clears it back to "not estimated", as on RequirementUpdate.
     estimate_hours: EstimateHours = None
+    actual_hours: EstimateHours = None
 
     @field_validator("page_url")
     @classmethod
@@ -630,6 +636,7 @@ class FeedbackRead(BaseModel):
     screenshot_count: int = 0
     assignee_id: UUID | None = None
     estimate_hours: float | None = None
+    actual_hours: float | None = None
     #: When it last became Resolved; None while it is not resolved.
     resolved_at: datetime | None = None
     #: The board requirement raised from it, if any (it may since have been deleted).

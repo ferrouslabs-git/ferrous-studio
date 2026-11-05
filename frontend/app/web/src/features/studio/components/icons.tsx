@@ -135,6 +135,14 @@ export const LIB_ICONS: Record<string, ReactNode> = {
   link: navSvg(<><path d="M9.5 6.5 6.5 9.5" /><path d="M8.75 4.25 10 3a2.83 2.83 0 0 1 4 4l-1.5 1.5" /><path d="M7.25 11.75 6 13a2.83 2.83 0 0 1-4-4l1.5-1.5" /></>),
   image: NAV_ICON_MARKS.image,
   box: navSvg(<rect x="2.5" y="2.5" width="11" height="11" rx="1.5" strokeDasharray="2.6 2.2" />),
+  // Shapes new with FS-REQ-84
+  "date-time": navSvg(<><rect x="1.5" y="3" width="8.5" height="8.5" rx="1" /><path d="M1.5 5.75H10" /><circle cx="11.5" cy="11" r="3" /><path d="M11.5 9.75V11l.9.7" /></>),
+  slider: navSvg(<><path d="M2 8h12" /><circle cx="6" cy="8" r="2" /></>),
+  icon: NAV_ICON_MARKS.star,
+  line: navSvg(<path d="M2.5 13.5 13.5 2.5" />),
+  square: navSvg(<rect x="3" y="3" width="10" height="10" />),
+  circle: navSvg(<circle cx="8" cy="8" r="5.5" />),
+  triangle: navSvg(<path d="M8 2.5 14 13.5H2L8 2.5Z" />),
   // Calendar elements
   event: navSvg(<><rect x="2.5" y="3.5" width="11" height="10" rx="1" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /><circle cx="8" cy="10" r="1.4" /></>),
   "view-switcher": navSvg(<><rect x="2" y="4" width="5.25" height="8" rx="1" /><rect x="8.75" y="4" width="5.25" height="8" rx="1" /></>),

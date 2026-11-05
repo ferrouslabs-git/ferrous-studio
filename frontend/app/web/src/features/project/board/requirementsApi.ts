@@ -38,6 +38,8 @@ export interface Requirement {
   sprint_id: string | null;
   // Hours; null means "not estimated", which is distinct from zero.
   estimate_hours: number | null;
+  // Hours the work actually took; null means "not recorded".
+  actual_hours: number | null;
   // The agent work order within its sprint: null = not ordered, lower = earlier.
   // Positions repeat across sprints and are cleared when a requirement leaves one.
   queue_position: number | null;
@@ -47,6 +49,8 @@ export interface Requirement {
   effective_release_id: string | null;
   created_at: string;
   updated_at: string;
+  /** Set while archived (FS-REQ-79): out of every board page, roll-up and default list. */
+  archived_at?: string | null;
 }
 
 export interface RequirementInput {
@@ -70,6 +74,7 @@ export interface RequirementPatch extends Partial<RequirementInput> {
   clear_sprint?: boolean;
   // Null is meaningful for both: it clears the value, so neither needs a clear_ flag.
   estimate_hours?: number | null;
+  actual_hours?: number | null;
   queue_position?: number | null;
 }
 
@@ -77,7 +82,8 @@ const base = (projectId: string) => `/studio/projects/${projectId}/board/require
 
 export const listRequirements = (
   projectId: string,
-  filters?: { status?: string; epic_id?: string; feature_id?: string; sprint_id?: string },
+  // Archived requirements are left out unless asked for: "include" adds them, "only" lists nothing else.
+  filters?: { status?: string; epic_id?: string; feature_id?: string; sprint_id?: string; archived?: "include" | "only" },
 ) => {
   const params = new URLSearchParams(filters as Record<string, string>).toString();
   return apiGet<Requirement[]>(params ? `${base(projectId)}?${params}` : base(projectId));
@@ -88,7 +94,12 @@ export const createRequirement = (projectId: string, input: RequirementInput) =>
   apiPost<Requirement>(base(projectId), input);
 export const updateRequirement = (projectId: string, requirementId: string, patch: RequirementPatch) =>
   apiPatch<Requirement>(`${base(projectId)}/${requirementId}`, patch);
+/** Only an archived requirement can be deleted (409 otherwise). */
 export const deleteRequirement = (projectId: string, requirementId: string) =>
   apiDelete(`${base(projectId)}/${requirementId}`);
+export const archiveRequirement = (projectId: string, requirementId: string) =>
+  apiPost<Requirement>(`${base(projectId)}/${requirementId}/archive`, {});
+export const restoreRequirement = (projectId: string, requirementId: string) =>
+  apiPost<Requirement>(`${base(projectId)}/${requirementId}/restore`, {});
 export const claimRequirement = (projectId: string, requirementId: string) =>
   apiPost<Requirement>(`${base(projectId)}/${requirementId}/claim`, {});

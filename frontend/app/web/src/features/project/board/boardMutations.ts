@@ -16,7 +16,16 @@ import { BoardDoc, BoardDocInput, createBoardDoc, deleteBoardDoc, updateBoardDoc
 import { createEpic, deleteEpic, Epic, EpicInput, EpicPatch, updateEpic } from "./epicsApi";
 import { createFeature, deleteFeature, Feature, FeaturePatch, updateFeature } from "./featuresApi";
 import { createRelease, deleteRelease, Release, ReleaseCreateInput, ReleaseUpdateInput, updateRelease } from "./releasesApi";
-import { createRequirement, deleteRequirement, Requirement, RequirementInput, RequirementPatch, updateRequirement } from "./requirementsApi";
+import {
+  archiveRequirement,
+  createRequirement,
+  deleteRequirement,
+  Requirement,
+  RequirementInput,
+  RequirementPatch,
+  restoreRequirement,
+  updateRequirement,
+} from "./requirementsApi";
 import { createSprint, DeliveryStatus, deleteSprint, Sprint, SprintInput, SprintPatch, SprintUpdateResult, updateSprint } from "./sprintsApi";
 import { useToast } from "./toast";
 
@@ -71,6 +80,8 @@ export function useBoardMutations() {
       }
     }
 
+    // Only an archived requirement can be deleted; it is not on the shared
+    // board by then, so there is nothing to drop from it but its comments.
     async function deleteRequirementM(r: Requirement): Promise<void> {
       try {
         await deleteRequirement(projectId, r.id);
@@ -79,6 +90,33 @@ export function useBoardMutations() {
         void b().reload(["comments"]);
       } catch (err) {
         fail(err);
+      }
+    }
+
+    // Archiving takes a requirement off every board page and out of every
+    // roll-up, so the server-rolled epics, features and releases are
+    // refreshed with it. The toast's Undo restores it.
+    async function archiveRequirementM(r: Requirement): Promise<Requirement> {
+      try {
+        const it = await archiveRequirement(projectId, r.id);
+        b().remove("requirements", r.id);
+        void b().reload(["epics", "features", "releases"]);
+        toast(`${r.human_id} archived`, { undo: () => void restoreRequirementM(it).catch(() => undefined) });
+        return it;
+      } catch (err) {
+        return fail(err);
+      }
+    }
+
+    async function restoreRequirementM(r: Requirement): Promise<Requirement> {
+      try {
+        const it = await restoreRequirement(projectId, r.id);
+        b().replace("requirements", it);
+        void b().reload(["epics", "features", "releases"]);
+        toast(`${r.human_id} restored`);
+        return it;
+      } catch (err) {
+        return fail(err);
       }
     }
 
@@ -427,6 +465,8 @@ export function useBoardMutations() {
       patchRequirement,
       createRequirement: createRequirementM,
       deleteRequirement: deleteRequirementM,
+      archiveRequirement: archiveRequirementM,
+      restoreRequirement: restoreRequirementM,
       moveRequirementToSprint,
       reorderQueue,
       createEpic: createEpicM,

@@ -21,7 +21,7 @@ import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { Badges, ListTable, NameCell } from "../../../components/ListTable";
 import { ListToolbar, matches } from "../../../components/ListToolbar";
-import { inMonth, monthFilter } from "../../../components/monthFilter";
+import { inDateRange } from "../../../components/dateRange";
 import { errorMessage } from "../../../core/api";
 import { formatDateTime, parseUtcDate } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
@@ -75,9 +75,10 @@ interface Triage {
   status: FeedbackStatus;
   assignee_id: string | null;
   estimate_hours: number | null;
+  actual_hours: number | null;
 }
 
-const EMPTY_TRIAGE: Triage = { status: "New", assignee_id: null, estimate_hours: null };
+const EMPTY_TRIAGE: Triage = { status: "New", assignee_id: null, estimate_hours: null, actual_hours: null };
 
 /** A report still waiting on someone is news; one with its outcome is not. */
 const STATUS_BADGE: Record<FeedbackStatus, string> = {
@@ -166,6 +167,8 @@ export function FeedbackPage() {
   // Retry knows where to send them.
   const [shots, setShots] = useState<ScreenshotItem[]>([]);
   const [raised, setRaised] = useState<Feedback | null>(null);
+  // The report whose status is being saved from the list (FS-REQ-83).
+  const [movingId, setMovingId] = useState<string | null>(null);
 
   // Whether the reporter has edited the page address themselves. Until they
   // have, it follows the chosen environment; afterwards it is theirs, and
@@ -177,7 +180,7 @@ export function FeedbackPage() {
   const [kindFilter, setKindFilter] = useState("");
   const [severityFilter, setSeverityFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState(DEFAULT_STATUS_FILTER);
-  const [monthCreated, setMonthCreated] = useState("");
+  const [created, setCreated] = useState({ from: "", to: "" });
 
   const envs = environments.data ?? [];
   const labelOf = useMemo(() => new Map(envs.map((e) => [e.slug, e.label])), [envs]);
@@ -211,7 +214,14 @@ export function FeedbackPage() {
     );
     setUrlTouched(item !== null && item.page_url !== "");
     setTriage(
-      item ? { status: item.status, assignee_id: item.assignee_id, estimate_hours: item.estimate_hours } : EMPTY_TRIAGE,
+      item
+        ? {
+            status: item.status,
+            assignee_id: item.assignee_id,
+            estimate_hours: item.estimate_hours,
+            actual_hours: item.actual_hours,
+          }
+        : EMPTY_TRIAGE,
     );
     setFormError(null);
     for (const shot of shots) shot.bitmap.close();
@@ -290,6 +300,7 @@ export function FeedbackPage() {
     page_url: form.page_url.trim(),
     status: triage.status,
     estimate_hours: triage.estimate_hours,
+    actual_hours: triage.actual_hours,
     ...(triage.assignee_id
       ? { assignee_id: triage.assignee_id }
       : item.assignee_id
@@ -373,6 +384,27 @@ export function FeedbackPage() {
     }
   };
 
+  /**
+   * Move a report straight from its row (FS-REQ-83): the same PATCH triage
+   * sends, carrying only the status, so the server stamps the resolution and
+   * notifies the team exactly as a save from the drawer would. The toast says
+   * where it went, since under the default "Open" filter a report just
+   * resolved leaves the list.
+   */
+  const changeStatus = async (item: Feedback, next: FeedbackStatus) => {
+    if (next === item.status) return;
+    setMovingId(item.id);
+    try {
+      await updateFeedback(project.id, item.id, { status: next });
+      await reports.reload();
+      toast(`${item.human_id} moved to ${STATUS_LABELS[next]}`);
+    } catch (err) {
+      toast(errorMessage(err), { type: "err", ttl: 6000 });
+    } finally {
+      setMovingId(null);
+    }
+  };
+
   const rows = reports.data ?? [];
   const visible = useMemo(
     () =>
@@ -382,17 +414,18 @@ export function FeedbackPage() {
           (!kindFilter || item.kind === kindFilter) &&
           (!severityFilter || item.severity === severityFilter) &&
           inStatusFilter(item, statusFilter) &&
-          inMonth(item.created_at, monthCreated) &&
+          inDateRange(item.created_at, created.from, created.to) &&
           matches(query, item.human_id, item.title, item.detail, item.page_url, item.raised_by_name ?? ""),
       ),
-    [rows, query, envFilter, kindFilter, severityFilter, statusFilter, monthCreated],
+    [rows, query, envFilter, kindFilter, severityFilter, statusFilter, created],
   );
   const filtered =
     query.trim() !== "" ||
     envFilter !== "" ||
     kindFilter !== "" ||
     severityFilter !== "" ||
-    monthCreated !== "" ||
+    created.from !== "" ||
+    created.to !== "" ||
     statusFilter !== DEFAULT_STATUS_FILTER;
 
   const linked = editing ? requirementsOf(editing) : [];
@@ -488,13 +521,8 @@ export function FeedbackPage() {
                   ...FEEDBACK_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] })),
                 ],
               },
-              monthFilter({
-                label: "Filter by month created",
-                value: monthCreated,
-                onChange: setMonthCreated,
-                timestamps: rows.map((r) => r.created_at),
-              }),
             ]}
+            dateRange={{ label: "Created", from: created.from, to: created.to, onChange: setCreated }}
             count={{ visible: visible.length, total: rows.length, noun: ["report", "reports"] }}
           />
 
@@ -547,7 +575,25 @@ export function FeedbackPage() {
                   const took = resolutionTime(item);
                   return (
                     <>
-                      <span className={`badge ${STATUS_BADGE[item.status]}`}>{STATUS_LABELS[item.status]}</span>
+                      {canWrite ? (
+                        // Only board:write may triage; everyone else gets the badge.
+                        <select
+                          className={`select fb-status ${STATUS_BADGE[item.status]}`}
+                          value={item.status}
+                          disabled={movingId === item.id}
+                          aria-label={`Status of ${item.human_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => void changeStatus(item, e.target.value as FeedbackStatus)}
+                        >
+                          {FEEDBACK_STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {STATUS_LABELS[s]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`badge ${STATUS_BADGE[item.status]}`}>{STATUS_LABELS[item.status]}</span>
+                      )}
                       {took && <span className="sub">in {took}</span>}
                     </>
                   );
@@ -563,6 +609,12 @@ export function FeedbackPage() {
                 className: "num",
                 render: (item) =>
                   item.estimate_hours == null ? <span className="muted">—</span> : fmtHours(item.estimate_hours),
+              },
+              {
+                header: "Actual",
+                className: "num",
+                render: (item) =>
+                  item.actual_hours == null ? <span className="muted">—</span> : fmtHours(item.actual_hours),
               },
               {
                 header: "Raised",
@@ -743,6 +795,15 @@ export function FeedbackPage() {
                 onChange={(hours) => patchTriage({ estimate_hours: hours })}
               />
             </Group>
+            <Group label="Actual time">
+              <EstimateField
+                value={triage.actual_hours}
+                step={0.1}
+                emptyLabel="not recorded"
+                disabled={readOnly}
+                onChange={(hours) => patchTriage({ actual_hours: hours })}
+              />
+            </Group>
             {editing.resolved_at && (
               <Field label="Resolved">
                 <span className="muted">
@@ -759,7 +820,10 @@ export function FeedbackPage() {
                     <span key={r.id} className="fb-requirement">
                       <IdChip of={{ type: "requirement", id: r.id }}>{r.human_id}</IdChip>
                       {href ? <Link to={href}>{r.title}</Link> : <span>{r.title}</span>}
-                      <span className="badge muted">{r.estimate_hours != null ? `${r.estimate_hours}h` : "No estimate"}</span>
+                      <span className="badge muted">
+                        {r.estimate_hours != null ? `${r.estimate_hours}h` : "No estimate"}
+                        {r.actual_hours != null && ` · ${r.actual_hours}h actual`}
+                      </span>
                     </span>
                   );
                 })}

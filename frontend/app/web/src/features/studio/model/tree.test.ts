@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   blankDocument,
+  enclosingRegionId,
   fallbackRegionId,
   fixedWidthDemand,
   nodePath,
@@ -179,6 +180,30 @@ describe("nodePath", () => {
     expect(nodePath(root, "content")?.map((n) => n.id)).toEqual(["s1", "s2", "content"]);
     expect(nodePath(root, "s1")?.map((n) => n.id)).toEqual(["s1"]);
     expect(nodePath(root, "missing")).toBeNull();
+  });
+});
+
+describe("enclosingRegionId", () => {
+  const doc = (root: LayoutNode): PageDocument => ({ root, regions: {} });
+  const shell = doc({ kind: "split", id: "s1", dir: "row", size: { fr: 1 }, children: [region("nav", "auto"), region("content", 880)] });
+  const section = doc({ kind: "split", id: "s2", dir: "col", size: { fr: 1 }, children: [region("tabs", "auto"), region("body", { fr: 1 })] });
+  const child = doc({ kind: "split", id: "s3", dir: "col", size: { fr: 1 }, children: [region("header", "auto"), region("main", "auto")] });
+  const levels = [
+    { doc: shell, outletRegionId: "content" },
+    { doc: section, outletRegionId: "body" },
+    { doc: child, outletRegionId: null },
+  ];
+
+  it("steps out to the outlet of the level outside, one level at a time", () => {
+    expect(enclosingRegionId(levels, "main")).toBe("body");
+    expect(enclosingRegionId(levels, "body")).toBe("content");
+    expect(enclosingRegionId(levels, "content")).toBeNull();
+  });
+
+  it("is null for the outermost page and for unknown ids", () => {
+    expect(enclosingRegionId(levels, "nav")).toBeNull();
+    expect(enclosingRegionId(levels, "missing")).toBeNull();
+    expect(enclosingRegionId([{ doc: child, outletRegionId: null }], "main")).toBeNull();
   });
 });
 

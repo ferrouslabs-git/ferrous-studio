@@ -5,13 +5,13 @@
 // A component renders its `elements` (typed children, pos order) branched by
 // its `shape` and `layout`. Every string on screen is an EditableToken backed
 // by an element label, element data or a scalar prop, so nothing is baked
-// into the renderer: double-click to edit; committing an empty label removes
-// pure-text elements (blankRemoves in the catalogue) while widget elements
-// keep a blank label. With no `edit` handlers everything is read-only.
+// into the renderer: double-click to edit; committing an empty label keeps
+// the element and draws it with no text (FS-REQ-85). With no `edit` handlers
+// everything is read-only.
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, formSpan, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, elementMeta, fontStack, formSpan, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
@@ -24,12 +24,14 @@ import { ElementSel, sameElement } from "./selection";
 
 export interface SchematicEdit {
   setPropValue(key: string, text: string): void;
-  /** Rename an element; an empty commit removes it (and its link). */
+  /** Rename an element; an empty commit keeps it, with no text. */
   setElementLabel(id: string, text: string): void;
   setElementData(id: string, key: string, value: string): void;
   addElement(type: string): void;
   removeElement(id: string): void;
   addRow(): void;
+  /** Delete one sample record (FS-REQ-87). */
+  removeRow(row: number): void;
   setListCell(row: number, columnId: string, text: string): void;
   /** Canvas free placement; one call per completed drag. A multi-selection
    *  drag moves several elements, so this takes them as one batch — one
@@ -310,9 +312,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const str = (key: string, fallback: string) => String(d[key] ?? fallback);
 
   // ── Tokens ───────────────────────────────────────────────────────────────
-  /** One editable token. A blanked value shows a hover-only "…" so it can be
-   *  recovered; viewers see nothing at all. Tokens with an `el` identity are
-   *  elements: selectable with one click and linkable to a page. */
+  /** One editable token. A blanked value still renders the token — its box
+   *  with no text in it (FS-REQ-85) — for editors and viewers alike; a
+   *  minimum size keeps it selectable and editable. Tokens with an `el`
+   *  identity are elements: selectable with one click and linkable to a page. */
   const tok = (
     className: string,
     value: Val,
@@ -331,7 +334,6 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     keep?: ReactNode,
   ) => {
     const blank = value === "";
-    if (blank && !edit && !keep) return null;
     const link = el && chrome ? chrome.linkOf(el.key, el.index) : null;
     const element =
       el && chrome
@@ -354,9 +356,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         element={element}
         drag={drag}
       >
-        {/* A blank token hides until its component is selected — but what it
-            keeps (the logo) must stay visible, so only the "…" hides then. */}
-        {blank ? <>{keep}{edit ? keep ? <span className="ui-blank-dots">…</span> : "…" : null}</> : children}
+        {/* Blank: whatever the element draws besides its text (a logo, an
+            icon, a resize grip) stays; the text is simply absent. */}
+        {blank ? children ?? keep ?? null : children}
       </EditableToken>
     );
   };
@@ -368,19 +370,19 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const fs = Number.isFinite(v) && v > 0 ? { fontSize: v } : undefined;
     return base || fs ? ({ ...base, ...fs } as CSSProperties) : undefined;
   };
-  /** Corner-shape / fill classes (data.shape, data.fill) for the token or
+  /** Variant / fill classes (data.variant, data.fill) for the token or
    *  el-box; values are checked against the catalog's option lists so stray
    *  document data cannot mint arbitrary class names. An unset fill falls
    *  back to the type's `defaultFill` (input-like widgets read outline). */
   const variantCls = (el: ElementNode): string => {
-    const shape = el.data?.shape;
+    const variant = el.data?.variant;
     const raw = el.data?.fill;
     const fill =
       raw && (EL_FILL_OPTIONS as readonly string[]).includes(raw)
         ? raw
         : elementMeta(cmp.type, el.type)?.defaultFill;
     return (
-      (shape && (EL_SHAPE_OPTIONS as readonly string[]).includes(shape) ? ` el-shape-${shape}` : "") +
+      (variant && (EL_VARIANT_OPTIONS as readonly string[]).includes(variant) ? ` el-variant-${variant}` : "") +
       (fill ? ` el-fill-${fill}` : "")
     );
   };
@@ -405,8 +407,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       onMouseLeave: () => chrome.onMarkHover!(null),
     };
   };
-  /** An element's label; an empty commit removes pure-text elements only
-   *  (blankRemoves). Draggable to reorder within the component (elDrag). */
+  /** An element's label; an empty commit leaves the element in place with
+   *  no text. Draggable to reorder within the component (elDrag). */
   const elTok = (el: ElementNode, className: string, children?: ReactNode, keep?: ReactNode) =>
     tok(`${className}${variantCls(el)}${markCls(el)}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), { ...elDrag(el), ...markHoverProps(el) }, keep);
   /** A button in the flow (FS-REQ-73): data.w/h fix its size — the same
@@ -417,7 +419,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const live = dragSize[el.id];
     const w = live?.w ?? numberOf(el.data?.w, 0);
     const h = live?.h ?? numberOf(el.data?.h, 0);
-    const grip = !!edit && isSelected(el) && el.label !== "";
+    const grip = !!edit && isSelected(el);
     const sizeStyle: CSSProperties | undefined =
       w > 0 || h > 0 ? { width: w > 0 ? w : undefined, height: h > 0 ? h : undefined, flexShrink: 0 } : undefined;
     const style = sizeStyle || fsStyle(el) ? { ...fsStyle(el), ...sizeStyle } : undefined;
@@ -450,8 +452,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
    *  sample. Carries the element's identity so a click selects it. */
   const dataTok = (el: ElementNode, key: string, sample: string, className = "") =>
     tok(className, el.data?.[key], sample, (t) => edit?.setElementData(el.id, key, t), undefined, { key: elKey(el.id), index: null }, true, fsStyle(el));
-  /** A field's label row. A blanked label removes the row outright — no "…"
-   *  recovery token, since the Inspector's Text field restores it. */
+  /** A field's label row. A blanked label drops the row; the field itself
+   *  stays, and the Inspector's Text field restores the label. */
   const fieldLabel = (el: ElementNode): ReactNode =>
     el.label === "" ? null : <label className="ui-label">{elTok(el, "")}</label>;
 
@@ -855,7 +857,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "multi-select": return `Select ${n}…`;
       case "text-area": return `Add ${n}…`;
       case "file-upload": return "Drop a file here or browse";
-      case "date-picker": return "DD/MM/YYYY";
+      case "date-picker":
+      case "date-time": return "DD/MM/YYYY";
       default: return `Enter ${n}`;
     }
   };
@@ -877,6 +880,35 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {dateToggle(el)}
             {openSelect === el.id && datePopover(el)}
           </>,
+        );
+      }
+      // A date picker with the time beside the day (FS-REQ-84).
+      case "date-time": {
+        const value = selectedValue(el);
+        return body(
+          `date${openSelect === el.id ? " open" : ""}`,
+          <>
+            {value ? <span className="ui-value">{formatDate(value)}</span> : <span className="ui-placeholder">{inputPlaceholder(el)}</span>}
+            <span className="ui-time">{dataTok(el, "time", "09:00")}</span>
+            {dateToggle(el)}
+            {openSelect === el.id && datePopover(el)}
+          </>,
+        );
+      }
+      // A value along a range: the track fills to it, the number reads it.
+      case "slider": {
+        const min = numberOf(el.data?.min, 0);
+        const max = numberOf(el.data?.max, 100);
+        const v = numberOf(el.data?.value, min);
+        const pct = max > min ? Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100)) : 0;
+        return (
+          <div className="ui-slider">
+            <span className="ui-slider-track" aria-hidden>
+              <span className="ui-slider-fill" style={{ width: `${pct}%` }} />
+              <span className="ui-slider-thumb" style={{ left: `${pct}%` }} />
+            </span>
+            {dataTok(el, "value", String(v), "ui-slider-value")}
+          </div>
         );
       }
       case "file-upload": return body("file");
@@ -966,6 +998,32 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               </>,
             );
       case "box": return elBox(el, "ui-box", elTok(el, "ui-box-cap"));
+      // An icon from the nav-icon library, or an uploaded mark (FS-REQ-84).
+      case "icon": {
+        const icon = el.data?.icon ?? "";
+        const mark = icon.startsWith("data:") ? <img src={icon} alt="" draggable={false} /> : navIconGlyph(icon);
+        return elBox(el, `ui-icon-el${mark ? "" : " empty"}`, mark);
+      }
+      // Basic shapes: plain geometry, stroked in the text colour and filled
+      // with the background; a square, circle or triangle may carry text.
+      case "line": return elBox(el, "ui-shape line", <span className="ui-shape-line" aria-hidden />);
+      case "square":
+      case "circle":
+        return elBox(el, `ui-shape ${el.type}`, el.label ? elTok(el, "ui-shape-text") : null);
+      case "triangle":
+        // The fill goes to the polygon, not the box (which would paint a
+        // rectangle behind it).
+        return elBox(
+          el,
+          "ui-shape triangle",
+          <>
+            <svg className="ui-shape-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+              <polygon points="50,3 97,97 3,97" fill={el.data?.bg || "none"} stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+            </svg>
+            {el.label ? elTok(el, "ui-shape-text") : null}
+          </>,
+          { background: "transparent" },
+        );
       case "divider": return elBox(el, "divider-box", <hr className="ui-divider" />);
       case "checkbox":
       case "toggle":
@@ -983,6 +1041,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "select":
       case "multi-select":
       case "date-picker":
+      case "date-time":
+      case "slider":
       case "read-only":
       case "file-upload":
         return elBox(
@@ -1537,6 +1597,24 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       </>,
     );
     const foot = pagerEl ? <div className="ui-card-foot">{pagination(pagerEl)}</div> : null;
+    /** The × that deletes a sample record: it shows on the hovered row while
+     *  the list is selected, like the list's other edit affordances. */
+    const rowDel = (ri: number): ReactNode =>
+      edit ? (
+        <button
+          type="button"
+          className="ui-row-del"
+          title={shape === "feed" ? "Delete event" : "Delete row"}
+          aria-label={shape === "feed" ? `Delete event ${ri + 1}` : `Delete row ${ri + 1}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            edit.removeRow(ri);
+          }}
+        >
+          ×
+        </button>
+      ) : null;
 
     if (shape === "table" || columns.length === 0) {
       return (
@@ -1576,6 +1654,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                       </th>
                     ))}
                     {rowActions.length > 0 && <th />}
+                    {edit && <th className="ui-td-del" aria-hidden />}
                   </tr>
                 </thead>
               )}
@@ -1600,6 +1679,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                     {rowActions.length > 0 && (
                       <td className="ui-td-actions">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</td>
                     )}
+                    {edit && <td className="ui-td-del">{rowDel(ri)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -1629,6 +1709,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                 {rowActions.length > 0 && (
                   <div className="ui-row end ui-feed-actions">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</div>
                 )}
+                {rowDel(ri)}
               </li>
             ))}
           </ul>
@@ -1767,6 +1848,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                     <span aria-hidden />
                   </div>
                 )}
+                {rowDel(ri)}
               </div>
             ))}
           </div>
@@ -1842,6 +1924,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                   </div>
                 ))}
                 {rowActions.length > 0 && <div className="ui-row end">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</div>}
+                {rowDel(ri)}
               </div>
             ))}
           </div>
@@ -1863,6 +1946,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               <span className="spacer" />
               {statusCol && cell(statusCol, ri)}
               {rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}
+              {rowDel(ri)}
             </li>
           ))}
         </ul>

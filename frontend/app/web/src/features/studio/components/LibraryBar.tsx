@@ -1,11 +1,12 @@
 // The library as two slim strips instead of a side panel. The component bar
 // rides under the top bar and offers every catalogue component; the element
 // bar keeps a permanent row under the canvas and fills with the vocabulary of
-// whichever catalogue component is selected. Each entry is a chip — an
-// icon and a short name — click to add, or drag onto the canvas. The full
-// label and description live in the chip's tooltip.
-import { ReactNode } from "react";
-import { COMPONENTS } from "../catalog";
+// whichever catalogue component is selected, its shapes grouped under their
+// element type (FS-REQ-84). Each entry is a chip — an icon and a short name —
+// click to add, or drag onto the canvas. The full label and description live
+// in the chip's tooltip.
+import { Fragment, ReactNode } from "react";
+import { COMPONENTS, elementGroups } from "../catalog";
 import { DragPayload, setPayload } from "./dnd";
 import { LIB_ICONS } from "./icons";
 
@@ -26,13 +27,7 @@ const SHORT_NAMES: Record<string, string> = {
   filter: "Filter",
   "filter-multi": "Multi-filter",
   "filter-multi-search": "Multi + search",
-  "read-only": "Read-only",
-  pagination: "Pages",
-  "text-input": "Input",
   "multi-select": "Multi-select",
-  "radio-group": "Radio",
-  "date-picker": "Date",
-  "file-upload": "Upload",
   "section-heading": "Section",
   "help-text": "Help",
   "category-axis": "X axis",
@@ -153,17 +148,23 @@ export function ElementBar({
     <div className="lib-bar el-bar">
       <span className="lib-bar-tag">{meta ? `${SHORT_NAMES[meta.type] ?? meta.label} elements` : "Elements"}</span>
       <BarScroll>
-        {meta?.elements.map((e) => (
-          <Chip
-            key={e.type}
-            type={e.type}
-            label={e.label}
-            desc={e.desc}
-            fallback={e.icon}
-            drag={{ kind: "element", type: e.type }}
-            onClick={() => onAdd(e.type)}
-          />
-        ))}
+        {meta &&
+          elementGroups(meta.type).map((g) => (
+            <Fragment key={g.id}>
+              <span className="lib-group-tag">{g.label}</span>
+              {g.shapes.map((e) => (
+                <Chip
+                  key={e.type}
+                  type={e.type}
+                  label={e.label}
+                  desc={e.desc}
+                  fallback={e.icon}
+                  drag={{ kind: "element", type: e.type }}
+                  onClick={() => onAdd(e.type)}
+                />
+              ))}
+            </Fragment>
+          ))}
       </BarScroll>
       {/* Pinned outside the scrolling strip: a recipe builds the whole pattern,
           so it must not be the thing that scrolls out of sight. */}
