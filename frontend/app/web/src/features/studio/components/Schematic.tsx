@@ -999,7 +999,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "select": {
         const value = selectedValue(el);
         return body(
-          `select${openSelect === el.id ? " open" : ""}`,
+          `dropdown${openSelect === el.id ? " open" : ""}`,
           <>
             {value ? <span className="ui-value">{value}</span> : <span className="ui-placeholder">{inputPlaceholder(el)}</span>}
             {selectToggle(el)}
@@ -1010,7 +1010,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "multi-select": {
         const picked = selectedValues(el);
         return body(
-          `select multi${openSelect === el.id ? " open" : ""}`,
+          `dropdown multi${openSelect === el.id ? " open" : ""}`,
           <>
             {picked.length ? (
               <span className="ui-multi-picks">
