@@ -1776,7 +1776,27 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-chart.horiz .ui-chart-bars { flex-direction: column; gap: 10%; padding: 4% 0; align-items: stretch; }
 .ui-chart.horiz .ui-chart-col { flex-direction: row; justify-content: flex-start; align-items: center; gap: 8px; }
 .ui-chart.horiz .ui-chart-value { margin: 0; min-width: 34px; }
-.ui-chart.horiz .ui-chart-bar { height: 14px; width: auto; max-width: none; border-radius: 0 4px 4px 0; }
+.ui-chart.horiz .ui-chart-bar { height: 14px; max-width: none; border-radius: 0 4px 4px 0; flex: none; }
+/* Horizontal bars: rows share the plot (which grows with the point count);
+   a category column leads (--cat-w), and the gridlines and value ticks run
+   across the bar track only. The value rides just past its bar's end. */
+.ui-chart.horiz { --cat-w: 0px; }
+.ui-chart.horiz.has-cat { --cat-w: 84px; }
+.ui-chart.horiz .ui-chart-bars { gap: 8px; padding: 6px 0; }
+.ui-chart.horiz .ui-chart-col { gap: 0; }
+.ui-chart-cat {
+  flex: none; width: var(--cat-w); padding-right: 8px; box-sizing: border-box; text-align: right;
+  font-size: 11px; color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ui-chart-track { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; }
+.ui-chart.horiz .ui-chart-track .ui-chart-value { position: absolute; left: calc(var(--w) + 6px); min-width: 0; white-space: nowrap; }
+.ui-chart.horiz .ui-chart-grid { left: var(--cat-w); flex-direction: row; }
+.ui-chart.horiz .ui-chart-grid i { width: 1px; height: auto; }
+.ui-chart.horiz .ui-chart-y { left: var(--cat-w); }
+.ui-chart.horiz .ui-chart-ytitle { left: calc(50% + var(--cat-w) / 2); }
+/* Line, area and dot charts: each category label sits under its point. */
+.ui-chart-x.pts { position: relative; display: block; height: 24px; padding: 8px 0 0; }
+.ui-chart-x.pts > span { position: absolute; top: 8px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; color: var(--text-mute); }
 .ui-chart-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ui-pie-wrap { display: flex; align-items: center; gap: 22px; padding: 16px; flex-wrap: wrap; }
 .ui-pie { width: 130px; height: 130px; border-radius: 50%; flex-shrink: 0; position: relative; }

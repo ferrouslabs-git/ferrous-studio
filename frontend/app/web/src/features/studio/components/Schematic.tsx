@@ -2316,38 +2316,55 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                 return (
                   <Fragment key={sr.id}>
                     {shape === "area" && <polygon points={`0,40 ${pts(vals).join(" ")} 100,40`} fill={colour} opacity="0.18" />}
-                    <polyline points={pts(vals).join(" ")} fill="none" stroke={colour} strokeWidth="1.4" />
+                    <polyline points={pts(vals).join(" ")} fill="none" stroke={colour} strokeWidth="2" vectorEffect="non-scaling-stroke" />
                   </Fragment>
                 );
               })}
             </svg>
           </div>
           {catAxis && (
-            <div className="ui-chart-x">
+            // Points sit at i/(n-1) across the plot, so each label is placed
+            // under its own point rather than in an equal slot.
+            <div className="ui-chart-x pts">
               {Array.from({ length: n }, (_, i) => (
-                <Fragment key={i}>{categoryTok(i)}</Fragment>
+                <span key={i} style={{ left: `${(i / Math.max(1, n - 1)) * 100}%` }}>{categoryTok(i)}</span>
               ))}
             </div>
           )}
         </div>
       );
     } else {
-      // bar (default)
+      // bar (default). Horizontal bars grow the plot with the number of
+      // points, each row carrying its category at the start and its value
+      // at the bar's end; vertical bars keep the category row underneath.
+      const horiz = layout === "horizontal";
       plot = (
-        <div className={`ui-chart${layout === "horizontal" ? " horiz" : ""}${yAxis ? " has-y" : ""}`}>
-          <div className="ui-chart-plot">
+        <div className={`ui-chart${horiz ? " horiz" : ""}${horiz && catAxis ? " has-cat" : ""}${yAxis ? " has-y" : ""}`}>
+          <div className="ui-chart-plot" style={horiz ? { height: Math.max(170, n * 30) } : undefined}>
             <div className="ui-chart-grid" aria-hidden><i /><i /><i /><i /></div>
             {yAxis}
             <div className="ui-chart-bars">
-              {values.map((v, i) => (
-                <div key={i} className="ui-chart-col">
-                  <div className="ui-chart-value">{seriesTok(rawValues[i] ?? null, String(v), primary ? (t) => setSeriesValue(i, t) : undefined)}</div>
-                  <div className="ui-chart-bar" style={layout === "horizontal" ? { width: `${Math.max(2, (v / max) * 100)}%` } : { height: `${Math.max(2, (v / max) * 100)}%` }} />
-                </div>
-              ))}
+              {values.map((v, i) => {
+                const pct = Math.max(2, (v / max) * 100);
+                const value = <div className="ui-chart-value">{seriesTok(rawValues[i] ?? null, String(v), primary ? (t) => setSeriesValue(i, t) : undefined)}</div>;
+                return horiz ? (
+                  <div key={i} className="ui-chart-col">
+                    {catAxis && <div className="ui-chart-cat">{categoryTok(i)}</div>}
+                    <div className="ui-chart-track" style={{ "--w": `${pct}%` } as CSSProperties}>
+                      <div className="ui-chart-bar" style={{ width: `${pct}%` }} />
+                      {value}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={i} className="ui-chart-col">
+                    {value}
+                    <div className="ui-chart-bar" style={{ height: `${pct}%` }} />
+                  </div>
+                );
+              })}
             </div>
           </div>
-          {catAxis && (
+          {catAxis && !horiz && (
             <div className="ui-chart-x">
               {Array.from({ length: n }, (_, i) => (
                 <Fragment key={i}>{categoryTok(i)}</Fragment>
@@ -2973,13 +2990,14 @@ export function styleData(d: Record<string, unknown> | undefined): CSSProperties
 }
 
 /** A value axis's top: the data maximum rounded up so three equal steps land
- *  on round numbers (1, 2, 2.5 or 5 × a power of ten each). */
+ *  on round numbers (1, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 × a power of ten each,
+ *  fine enough that the top stays close to the data). */
 export function niceAxisTop(dataMax: number): number {
   const raw = Math.max(dataMax, 1e-9) / 3;
   const mag = 10 ** Math.floor(Math.log10(raw));
   const n = raw / mag;
-  const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
-  return step * 3;
+  const step = ([1, 1.5, 2, 2.5, 3, 4, 5, 6, 8].find((k) => n <= k + 1e-9) ?? 10) * mag;
+  return Number((step * 3).toPrecision(12));
 }
 
 const formatTick = (v: number, unit: string): string => {
