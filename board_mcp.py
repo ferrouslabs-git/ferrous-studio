@@ -661,9 +661,12 @@ def _upload(entity_type: str, entity_id: str, file_path: str, description: str =
 def wireframe_format_guide() -> str:
     """The exact bundle format wireframes/diagrams/pages/layout/components
     must be shaped as for create_wireframes_and_diagrams and
-    update_wireframe -- component vocabulary, a worked example, and the
-    mistakes real runs have actually made. Call this once before either of
-    those tools; do not guess the shape from their parameter names alone."""
+    update_wireframe -- component vocabulary (each component's elements as
+    shapes grouped under the six element types Text, Input, Action, UI
+    element, Image and Basic, with data.variant for corner style), a worked
+    example, and the mistakes real runs have actually made. Call this once
+    before either of those tools; do not guess the shape from their
+    parameter names alone."""
     return _studio_call("GET", "/import/format-guide")["guide"]
 
 

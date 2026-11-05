@@ -235,78 +235,88 @@
       ],
       "elements": {
         "brand": {
+          "group": "image",
           "fields": [
             "logo",
             "logoWidth",
             "logoHeight"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "nav-item": {
+          "group": "action",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "nav-sub-item": {
+          "group": "action",
           "fields": [
             "level"
           ],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "group-heading": {
+          "group": "text",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "search": {
+          "group": "text",
           "fields": [],
           "max": 1,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "select": {
+          "group": "input",
           "fields": [
             "dataset",
             "options",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "button": {
+          "group": "action",
           "fields": [
             "style"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "avatar": {
+          "group": "image",
           "fields": [
             "name",
             "role"
           ],
           "max": 1,
-          "shapeable": true,
+          "variantable": true,
           "fillable": false
         },
         "workspace-switcher": {
+          "group": "input",
           "fields": [],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "divider": {
+          "group": "ui",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         }
       }
@@ -325,14 +335,16 @@
       ],
       "elements": {
         "header": {
+          "group": "text",
           "fields": [
             "placement"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "column": {
+          "group": "ui",
           "fields": [
             "kind",
             "dataset",
@@ -340,78 +352,87 @@
             "images"
           ],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "column-header": {
+          "group": "ui",
           "fields": [],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "row-action": {
+          "group": "action",
           "fields": [],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "select-column": {
+          "group": "input",
           "fields": [],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "search": {
+          "group": "text",
           "fields": [],
           "max": 1,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "filter": {
+          "group": "input",
           "fields": [
             "dataset",
             "options",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "filter-multi": {
+          "group": "input",
           "fields": [
             "dataset",
             "options",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "filter-multi-search": {
+          "group": "input",
           "fields": [
             "dataset",
             "options",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "pagination": {
+          "group": "ui",
           "fields": [
             "pageSize"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "button": {
+          "group": "action",
           "fields": [
             "style",
             "placement"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         }
       }
@@ -430,118 +451,133 @@
       ],
       "elements": {
         "header": {
+          "group": "text",
           "fields": [
             "placement"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "text-input": {
+          "group": "input",
           "fields": [
             "kind",
             "placeholder"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "text-area": {
+          "group": "text",
           "fields": [
             "placeholder"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "select": {
+          "group": "input",
           "fields": [
             "dataset",
             "options",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "multi-select": {
+          "group": "input",
           "fields": [
             "dataset",
             "options",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "radio-group": {
+          "group": "input",
           "fields": [
             "options"
           ],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "checkbox": {
+          "group": "input",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "toggle": {
+          "group": "input",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "date-picker": {
+          "group": "input",
           "fields": [
             "placeholder",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "read-only": {
+          "group": "input",
           "fields": [
             "dataset",
             "value"
           ],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "file-upload": {
+          "group": "input",
           "fields": [],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "section-heading": {
+          "group": "text",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "step": {
+          "group": "ui",
           "fields": [],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "help-text": {
+          "group": "text",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "button": {
+          "group": "action",
           "fields": [
             "style"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         }
       }
@@ -562,56 +598,63 @@
       ],
       "elements": {
         "header": {
+          "group": "text",
           "fields": [
             "placement"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "series": {
+          "group": "ui",
           "fields": [
             "values"
           ],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "category-axis": {
+          "group": "ui",
           "fields": [
             "categories"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "value-axis": {
+          "group": "ui",
           "fields": [
             "unit"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "legend": {
+          "group": "ui",
           "fields": [],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "range-selector": {
+          "group": "input",
           "fields": [],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "stat": {
+          "group": "ui",
           "fields": [
             "value",
             "delta"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         }
       }
@@ -630,233 +673,236 @@
       ],
       "elements": {
         "heading": {
+          "group": "text",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "text": {
+          "group": "text",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
-        "label": {
-          "fields": [],
-          "max": null,
-          "shapeable": false,
-          "fillable": false
-        },
-        "badge": {
-          "fields": [],
-          "max": null,
-          "shapeable": true,
-          "fillable": true
-        },
-        "button": {
+        "text-area": {
+          "group": "text",
           "fields": [
-            "style"
+            "placeholder"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
+          "fillable": true
+        },
+        "label": {
+          "group": "text",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "search": {
+          "group": "text",
+          "fields": [],
+          "max": 1,
+          "variantable": true,
           "fillable": true
         },
         "text-input": {
+          "group": "input",
           "fields": [
             "kind",
             "placeholder"
           ],
           "max": null,
-          "shapeable": true,
-          "fillable": true
-        },
-        "link": {
-          "fields": [],
-          "max": null,
-          "shapeable": false,
-          "fillable": false
-        },
-        "image": {
-          "fields": [
-            "src"
-          ],
-          "max": null,
-          "shapeable": true,
-          "fillable": false
-        },
-        "box": {
-          "fields": [],
-          "max": null,
-          "shapeable": true,
-          "fillable": true
-        },
-        "divider": {
-          "fields": [],
-          "max": null,
-          "shapeable": false,
-          "fillable": false
-        },
-        "text-area": {
-          "fields": [
-            "placeholder"
-          ],
-          "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "select": {
+          "group": "input",
           "fields": [
             "dataset",
             "options",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
         "multi-select": {
+          "group": "input",
           "fields": [
             "dataset",
             "options",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
-        "radio-group": {
-          "fields": [
-            "options"
-          ],
-          "max": null,
-          "shapeable": false,
-          "fillable": false
-        },
-        "checkbox": {
-          "fields": [],
-          "max": null,
-          "shapeable": false,
-          "fillable": false
-        },
-        "toggle": {
-          "fields": [],
-          "max": null,
-          "shapeable": false,
-          "fillable": false
-        },
         "date-picker": {
+          "group": "input",
           "fields": [
             "placeholder",
             "selected"
           ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
+        "date-time": {
+          "group": "input",
+          "fields": [
+            "placeholder",
+            "selected",
+            "time"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "radio-group": {
+          "group": "input",
+          "fields": [
+            "options"
+          ],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "checkbox": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "toggle": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
         "read-only": {
+          "group": "input",
           "fields": [
             "dataset",
             "value"
           ],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "file-upload": {
+          "group": "input",
           "fields": [],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
-        "section-heading": {
-          "fields": [],
-          "max": null,
-          "shapeable": false,
-          "fillable": false
-        },
-        "step": {
-          "fields": [],
-          "max": null,
-          "shapeable": true,
-          "fillable": true
-        },
-        "help-text": {
-          "fields": [],
-          "max": null,
-          "shapeable": false,
-          "fillable": false
-        },
-        "column": {
+        "slider": {
+          "group": "input",
           "fields": [
-            "kind",
-            "dataset",
-            "samples",
-            "images"
+            "min",
+            "max",
+            "value"
           ],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
-        "column-header": {
+        "link": {
+          "group": "action",
           "fields": [],
-          "max": 1,
-          "shapeable": false,
+          "max": null,
+          "variantable": false,
           "fillable": false
         },
-        "row-action": {
-          "fields": [],
+        "button": {
+          "group": "action",
+          "fields": [
+            "style"
+          ],
           "max": null,
-          "shapeable": true,
+          "variantable": true,
           "fillable": true
         },
-        "select-column": {
+        "badge": {
+          "group": "ui",
           "fields": [],
-          "max": 1,
-          "shapeable": false,
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "box": {
+          "group": "ui",
+          "fields": [],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "divider": {
+          "group": "ui",
+          "fields": [],
+          "max": null,
+          "variantable": false,
           "fillable": false
-        },
-        "search": {
-          "fields": [],
-          "max": 1,
-          "shapeable": true,
-          "fillable": true
-        },
-        "filter": {
-          "fields": [
-            "dataset",
-            "options",
-            "selected"
-          ],
-          "max": null,
-          "shapeable": true,
-          "fillable": true
-        },
-        "filter-multi": {
-          "fields": [
-            "dataset",
-            "options",
-            "selected"
-          ],
-          "max": null,
-          "shapeable": true,
-          "fillable": true
-        },
-        "filter-multi-search": {
-          "fields": [
-            "dataset",
-            "options",
-            "selected"
-          ],
-          "max": null,
-          "shapeable": true,
-          "fillable": true
         },
         "pagination": {
+          "group": "ui",
           "fields": [
             "pageSize"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
+          "fillable": false
+        },
+        "image": {
+          "group": "image",
+          "fields": [
+            "src"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": false
+        },
+        "icon": {
+          "group": "image",
+          "fields": [
+            "icon"
+          ],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "line": {
+          "group": "basic",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "square": {
+          "group": "basic",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "circle": {
+          "group": "basic",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "triangle": {
+          "group": "basic",
+          "fields": [],
+          "max": null,
+          "variantable": false,
           "fillable": false
         }
       }
@@ -875,51 +921,139 @@
       ],
       "elements": {
         "header": {
+          "group": "text",
           "fields": [
             "placement"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "event": {
+          "group": "ui",
           "fields": [
             "when",
             "kind"
           ],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "view-switcher": {
+          "group": "input",
           "fields": [
             "views"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "calendar-nav": {
+          "group": "action",
           "fields": [],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "resource-row": {
+          "group": "ui",
           "fields": [],
           "max": null,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         },
         "calendar-legend": {
+          "group": "ui",
           "fields": [
             "kinds"
           ],
           "max": 1,
-          "shapeable": false,
+          "variantable": false,
           "fillable": false
         }
       }
     }
-  }
+  },
+  "retiredElements": {
+    "canvas": {
+      "section-heading": {
+        "type": "heading"
+      },
+      "help-text": {
+        "type": "text"
+      },
+      "step": {
+        "type": "badge"
+      },
+      "column": {
+        "type": "read-only",
+        "rename": {
+          "samples": "value"
+        }
+      },
+      "column-header": null,
+      "row-action": {
+        "type": "button",
+        "data": {
+          "style": "secondary"
+        }
+      },
+      "select-column": {
+        "type": "checkbox"
+      },
+      "filter": {
+        "type": "select"
+      },
+      "filter-multi": {
+        "type": "multi-select"
+      },
+      "filter-multi-search": {
+        "type": "multi-select"
+      }
+    }
+  },
+  "renamedElementData": {
+    "shape": "variant"
+  },
+  "icons": [
+    "home",
+    "dashboard",
+    "folder",
+    "document",
+    "calendar",
+    "inbox",
+    "user",
+    "users",
+    "chat",
+    "mail",
+    "phone",
+    "bell",
+    "search",
+    "chart",
+    "database",
+    "layers",
+    "globe",
+    "pin",
+    "star",
+    "heart",
+    "flag",
+    "tag",
+    "clock",
+    "camera",
+    "image",
+    "cart",
+    "card",
+    "briefcase",
+    "building",
+    "book",
+    "clipboard",
+    "bookmark",
+    "cloud",
+    "download",
+    "lock",
+    "key",
+    "shield",
+    "settings",
+    "help"
+  ]
 }

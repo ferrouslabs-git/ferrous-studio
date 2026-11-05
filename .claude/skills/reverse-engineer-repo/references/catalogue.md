@@ -87,10 +87,19 @@ Everything that is not one of the other five.
 
 - **shapes**: `plain`, `card`, `grid`, `transparent`
 - **layouts**: `fixed`, `fill`, `float`
-- **elements**: every element the other components have, minus the ones
-  specific to a chart axis/legend or a nav bar -- `heading`, `text`,
-  `label`, `badge`, `image`, `box`, `link`, `divider`, plus the full set of
-  form and list elements
+- **elements**, as shapes grouped under the six element types (an
+  element's `type` is the shape id; its element type is implied):
+  - Text: `heading`, `text`, `text-area`, `label`, `search`
+  - Input: `text-input`, `select`, `multi-select`, `date-picker`,
+    `date-time`, `radio-group`, `checkbox`, `toggle`, `read-only`,
+    `file-upload`, `slider`
+  - Action: `link`, `button`
+  - UI element: `badge`, `box`, `divider`, `pagination`
+  - Image: `image`, `icon` (`data.icon` names a library icon)
+  - Basic: `line`, `square`, `circle`, `triangle`
+- a corner style is `data.variant` (`square`, `rounded`, `pill`) on the
+  elements that take one; the other components group their own elements
+  under the same six types
 
 Use it for: a hero banner (heading + text + button elements), a detail
 panel of labelled values (`label` + `text` pairs, one per field), a

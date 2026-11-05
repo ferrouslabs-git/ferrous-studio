@@ -11,6 +11,7 @@ import {
   linkedRegionLabel,
   moveElement,
   removeElement,
+  removeListRow,
   relabelLinkedRegion,
   removeRegionAction,
   setComponentFloat,
@@ -33,7 +34,10 @@ import {
 } from "./actions";
 import { navAlign } from "../catalog";
 import { PageLike } from "./applyOps";
+import { applyOps } from "./applyOps";
+import { diffPage } from "./diff";
 import { byPos } from "./positions";
+import { produce } from "immer";
 import { firstRegionId, regionDisplayName, regionIds } from "./tree";
 import { ComponentNode, ElementNode, PageDocument } from "./types";
 
@@ -294,12 +298,12 @@ describe("element CRUD", () => {
     expect(posOf("e1")).toBe(back);
   });
 
-  it("setElementText renames an element and removes pure-text elements on an empty commit", () => {
+  it("setElementText renames an element and keeps it, text-less, on an empty commit (FS-REQ-85)", () => {
     const p = page([navbar()]);
     setElementText(p, ctx, "n", elKey("e2"), null, "Home");
     expect(listOf(p)[0].elements!.find((e) => e.id === "e2")!.label).toBe("Home");
-    setElementText(p, ctx, "n", elKey("e2"), null, ""); // nav item: label IS the element
-    expect(listOf(p)[0].elements!.some((e) => e.id === "e2")).toBe(false);
+    setElementText(p, ctx, "n", elKey("e2"), null, ""); // blank no longer removes
+    expect(listOf(p)[0].elements!.find((e) => e.id === "e2")!.label).toBe("");
   });
 
   it("blanking a widget element's label keeps the element", () => {
@@ -586,6 +590,35 @@ describe("component sizing", () => {
 });
 
 describe("list rows", () => {
+  const list = (rows?: Record<string, string>[]): ComponentNode => ({
+    id: "l", type: "list", label: "List", pos: "a0", shape: "table",
+    elements: [el("c1", "column", "Name", "a0")], ...(rows ? { props: { rows } } : {}),
+  });
+
+  it("removeListRow deletes one record and keeps the others in order (FS-REQ-87)", () => {
+    const p = page([list([{ c1: "Ada" }, { c1: "Grace" }, { c1: "Linus" }])]);
+    removeListRow(p, ctx, "l", 1);
+    expect(listOf(p)[0].props?.rows).toEqual([{ c1: "Ada" }, { c1: "Linus" }]);
+    removeListRow(p, ctx, "l", 5); // out of range: nothing happens
+    expect(listOf(p)[0].props?.rows).toEqual([{ c1: "Ada" }, { c1: "Linus" }]);
+  });
+
+  it("removeListRow on never-written rows deletes one of the default three", () => {
+    const p = page([list()]);
+    removeListRow(p, ctx, "l", 0);
+    expect(listOf(p)[0].props?.rows).toEqual([{}, {}]);
+  });
+
+  it("a row delete diffs to ops that undo cleanly", () => {
+    const before = page([list([{ c1: "Ada" }, { c1: "Grace" }])]);
+    const after = produce(before, (d) => {
+      removeListRow(d, ctx, "l", 0);
+    });
+    expect(listOf(after)[0].props?.rows).toEqual([{ c1: "Grace" }]);
+    const undone = applyOps(after, diffPage(after, before));
+    expect(listOf(undone)[0].props?.rows).toEqual([{ c1: "Ada" }, { c1: "Grace" }]);
+  });
+
   it("setListCell materialises sparse rows keyed by column id; blank clears", () => {
     const p = page([{
       id: "l", type: "list", label: "List", pos: "a0", shape: "table",

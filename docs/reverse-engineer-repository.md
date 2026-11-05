@@ -177,7 +177,7 @@ component type "hero" (retired)`. A 422 carries the whole list.
 | Pages | 1–200 per wireframe; ids unique within the wireframe; `name` non-empty; `route` string or absent |
 | Layout tree | `split` has ≥ 2 children and `dir` in row/col; `size` is `"auto"`, an int > 0, or `{fr: > 0}`; region ids unique within the page; region `dir` in row/col/free |
 | Components | `type` in the catalogue and not retired; `shape` in that component's shapes and `layout` in its layouts when present; `props.links[].pageId` resolves to a page in this wireframe or `@back`; `props.size` in the known values |
-| Elements | `type` in the host component's element list; `max` respected; `data` keys ⊆ the element's `dataFields` keys (plus `shape`/`fill` where `shapeable`/`fillable`, `x`/`y` in a canvas); `data.kind` in `DATA_KINDS` for a column, in the input kinds for a text input; `data.dataset` resolves |
+| Elements | `type` in the host component's element list; `max` respected; `data` keys ⊆ the element's `dataFields` keys (plus `variant`/`fill` where `variantable`/`fillable`, `x`/`y` in a canvas; legacy `data.shape` and retired canvas shapes are migrated first, FS-REQ-84); `data.kind` in `DATA_KINDS` for a column, in the input kinds for a text input; `data.dataset` resolves |
 | Placement | `placement.page_id` is a page in the same wireframe, `region_id` a region in that page's tree; no cycles; the target is not itself an overlay |
 | Presentation | in `PRESENTATIONS` |
 | Wireframe | `interfaceType` in `InterfaceType`; `landingPageId` is a page id |
@@ -208,7 +208,7 @@ generator has already been told is clean.
   "components": {
     "navbar": { "shapes": ["plain","tabs","icons","breadcrumb","grouped"],
                 "layouts": ["horizontal","vertical"],
-                "elements": { "brand": { "fields": ["logo"], "max": 1, "shapeable": false, "fillable": false }, … } },
+                "elements": { "brand": { "group": "image", "fields": ["logo"], "max": 1, "variantable": false, "fillable": false }, … } },
     …
   }
 }
