@@ -25,7 +25,7 @@ from .agents import maybe_wake_agent, sync_agent_status
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
-from .. import slack_client, storage
+from .. import slack_client, slack_notify, storage
 from ..common import get_project, require_any_studio_permission, require_studio_permission as require_permission
 from ..documents import ALLOWED_TYPES, EXTRA_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
@@ -2049,6 +2049,29 @@ async def _get_feedback(db: AsyncSession, board: Board, feedback_id: UUID) -> Fe
     return item
 
 
+async def _auto_assign_feedback(db: AsyncSession, board: Board, item: Feedback) -> None:
+    """Hand a new report to whoever the Slack routing tells about it (FS-REQ-82).
+
+    slack_notify.feedback_owner reads the same table as the notices, so the
+    person assigned is the person messaged -- the support developer for a New
+    report. An assignee already set is left alone, and so is a team member who
+    can no longer be assigned (no longer an active super admin): the report
+    still lands, unassigned, rather than failing over a stale Project details
+    entry. The event's own detail is unchanged, so this sends no second
+    "assigned" message on top of the new-report notice.
+    """
+    if item.assignee_id is not None:
+        return
+    owner = slack_notify.feedback_owner(board, item.status)
+    if owner is None:
+        return
+    try:
+        await _validate_assignee(db, board, owner)
+    except HTTPException:
+        return
+    item.assignee_id = owner
+
+
 @router.get("/projects/{project_id}/board/feedback", response_model=list[FeedbackRead])
 async def list_feedback(
     project_id: UUID,
@@ -2120,6 +2143,7 @@ async def create_feedback(
     )
     db.add(item)
     await db.flush()
+    await _auto_assign_feedback(db, board, item)
     await service.write_event(
         db,
         board,

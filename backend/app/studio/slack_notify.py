@@ -31,6 +31,7 @@ support developer hears about a new report, one moved back to New, and one
 confirmed for fixing; the product manager about an estimate awaiting the
 client's confirmation, a report judged not a bug, and a report whose
 requirements are all ready to test. Nobody is told about their own change.
+A new report is also assigned to whoever that routing names (feedback_owner).
 """
 from __future__ import annotations
 
@@ -104,6 +105,16 @@ FEEDBACK_ROUTING = {
     "NotABug": PRODUCT,
     "Confirmed": SUPPORT,
 }
+
+
+def feedback_owner(board: Any, status: str) -> UUID | None:
+    """Who on the project's team a report in ``status`` is routed to, or None.
+
+    The same table the notices below read, so a new report is assigned to
+    exactly the person told about it (FS-REQ-82): the support developer for
+    New, the product manager for the statuses that wait on the client."""
+    route = FEEDBACK_ROUTING.get(status)
+    return getattr(board, route[0], None) if route else None
 
 
 def team_notices(board: Any, action: str, detail: dict[str, Any] | None) -> list[dict[str, str]]:
