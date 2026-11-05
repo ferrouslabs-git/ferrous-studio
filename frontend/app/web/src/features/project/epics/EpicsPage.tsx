@@ -7,7 +7,14 @@
 // The release filter takes several releases at once, and "Not in a release"
 // is one of the things it can be set to: this page is where the epics in no
 // release are found, since the Roadmap stopped listing them (2026-09-18).
+//
+// Two sub-tabs under the title, as on the use case page and driven by ?tab=
+// so a tab can be linked to: Epics, and Archived -- every archived
+// requirement in the project, the only place one with no epic can be found.
+// New epic lives in the page head and is hidden on Archived.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useLoad } from "../../../core/useLoad";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
 import { CommentsPanel, CommentsTarget } from "../board/CommentsPanel";
@@ -16,7 +23,16 @@ import { Epic } from "../board/epicsApi";
 import type { Feature } from "../board/featuresApi";
 import { boardStorageKey, useFoldMap } from "../board/folds";
 import { MultiSelect } from "../board/MultiSelect";
+import { listRequirements } from "../board/requirementsApi";
+import { ArchivedRequirementsTab } from "./ArchivedRequirementsTab";
 import { EpicCard } from "./EpicCard";
+
+type Tab = "epics" | "archived";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "epics", label: "Epics" },
+  { id: "archived", label: "Archived" },
+];
 
 /** The release filter's entry for "not in a release" -- no release has this id. */
 const NO_RELEASE = "__none__";
@@ -68,6 +84,12 @@ export function EpicsPage() {
   const [releaseFilter, setReleaseFilter] = useState<Set<string>>(() => new Set());
   const [comments, setComments] = useState<CommentsTarget | null>(null);
   const fold = useFoldMap(boardStorageKey(projectId, "epicFold"), foldedByDefault);
+  const [params, setParams] = useSearchParams();
+  const rawTab = params.get("tab");
+  const tab: Tab = TABS.some((t) => t.id === rawTab) ? (rawTab as Tab) : "epics";
+  const selectTab = (t: Tab) => setParams(t === "epics" ? {} : { tab: t }, { replace: true });
+  // Fetched on both tabs, so the Archived tab's count shows from the start.
+  const archived = useLoad(() => listRequirements(projectId, { archived: "only" }), [projectId]);
 
   // An epic filed under a release that has since been deleted is treated as
   // unfiled, the same way the roadmap and EpicCard already treat it.
@@ -125,46 +147,78 @@ export function EpicsPage() {
   return (
     <div className="page board-page">
       {error && <div className="status-banner warn">{error}</div>}
-      <div className="viewbar">
-        {canWrite && (
-          <button type="button" className="btn" onClick={() => void newEpic()}>
-            + New epic
-          </button>
+      <div className="page-head">
+        <h1>Epics</h1>
+        <span className="shell-spacer" />
+        {canWrite && tab === "epics" && (
+          <div className="page-head-actions">
+            <button type="button" className="btn primary" onClick={() => void newEpic()}>
+              New epic
+            </button>
+          </div>
         )}
-        <input className="q2" placeholder="search epics…" aria-label="search epics" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <MultiSelect
-          allLabel="All releases"
-          countLabel="releases"
-          ariaLabel="filter epics by release"
-          options={releaseOptions}
-          selected={releaseFilter}
-          onChange={setReleaseFilter}
-        />
-        <span className="tk-right">
-          <span className="viewbar-count">
-            {narrowed ? `${shown.length} of ${all.length} epics` : `${all.length} epic${all.length === 1 ? "" : "s"}`}
-          </span>
-        </span>
       </div>
 
-      {all.length === 0 ? (
-        <div className="hempty centred">
-          <div>
-            An epic is a chunk of the product worth planning as one: its features, its requirements, its docs. Make one, then put it in a
-            release on the Roadmap.
-          </div>
-          {canWrite && (
-            <button type="button" className="btn primary" onClick={() => void newEpic()}>
-              ＋ Create your first epic
-            </button>
-          )}
+      <div className="page-subtabs" role="tablist" aria-label="Epics">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`page-subtab${tab === t.id ? " active" : ""}`}
+            onClick={() => selectTab(t.id)}
+          >
+            {t.label}
+            {t.id === "epics" && <span className="page-subtab-count">{all.length}</span>}
+            {t.id === "archived" && archived.data && <span className="page-subtab-count">{archived.data.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {tab === "archived" ? (
+        <div className="stack">
+          <ArchivedRequirementsTab requirements={archived.data ?? []} loading={archived.loading} error={archived.error} reload={archived.reload} />
         </div>
-      ) : shown.length === 0 ? (
-        <div className="hempty">{q ? `No epic matches “${q}”.` : "No epic is filed under the releases you picked."}</div>
       ) : (
-        shown.map((e) => (
-          <EpicCard key={e.id} epic={e} folded={fold.isFolded(e.id)} onToggleFold={() => fold.toggle(e.id)} onComments={setComments} />
-        ))
+        <>
+          <div className="viewbar">
+            <input className="q2" placeholder="search epics…" aria-label="search epics" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <MultiSelect
+              allLabel="All releases"
+              countLabel="releases"
+              ariaLabel="filter epics by release"
+              options={releaseOptions}
+              selected={releaseFilter}
+              onChange={setReleaseFilter}
+            />
+            <span className="tk-right">
+              <span className="viewbar-count">
+                {narrowed ? `${shown.length} of ${all.length} epics` : `${all.length} epic${all.length === 1 ? "" : "s"}`}
+              </span>
+            </span>
+          </div>
+
+          {all.length === 0 ? (
+            <div className="hempty centred">
+              <div>
+                An epic is a chunk of the product worth planning as one: its features, its requirements, its docs. Make one, then put it in a
+                release on the Roadmap.
+              </div>
+              {canWrite && (
+                <button type="button" className="btn primary" onClick={() => void newEpic()}>
+                  ＋ Create your first epic
+                </button>
+              )}
+            </div>
+          ) : shown.length === 0 ? (
+            <div className="hempty">{q ? `No epic matches “${q}”.` : "No epic is filed under the releases you picked."}</div>
+          ) : (
+            shown.map((e) => (
+              <EpicCard key={e.id} epic={e} folded={fold.isFolded(e.id)} onToggleFold={() => fold.toggle(e.id)} onComments={setComments} />
+            ))
+          )}
+        </>
       )}
 
       <CommentsPanel target={comments} onClose={() => setComments(null)} />
