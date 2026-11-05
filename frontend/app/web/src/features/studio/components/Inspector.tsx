@@ -17,6 +17,7 @@ import { byPos } from "../model/positions";
 import { cmpSize, findNode, SplitSide } from "../model/tree";
 import { BACK_PAGE_ID, ComponentNode, LinkTarget, PageDocument, PagePresentation, PageRecord, Size } from "../model/types";
 import { NAV_ICON_MARKS, navIconGlyph } from "./icons";
+import { isSvgFile, readImageFile } from "./imageFile";
 import { LinkPicker } from "./LinkPicker";
 import { ElementSel, Selection } from "./selection";
 
@@ -203,24 +204,6 @@ function StyleFields({ bg, fg, font, caps, set, ro }: { bg: string; fg: string; 
   );
 }
 
-/** Read an image file, downscale it to at most `maxPx`, and hand back a
- *  data URL for inline storage (small marks stay PNG for transparency;
- *  larger pictures become JPEG). */
-function readImageFile(file: File, maxPx: number, cb: (dataUrl: string) => void, mark = maxPx <= 128) {
-  const img = new Image();
-  const url = URL.createObjectURL(file);
-  img.onload = () => {
-    const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(img.width * scale));
-    canvas.height = Math.max(1, Math.round(img.height * scale));
-    canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(url);
-    cb(canvas.toDataURL(mark ? "image/png" : "image/jpeg", 0.85));
-  };
-  img.src = url;
-}
-
 /** Plain image upload (the image element): upload / replace / remove. */
 function ImageField({ value, onCommit, disabled }: { value: string; onCommit(v: string): void; disabled?: boolean }) {
   return (
@@ -328,7 +311,7 @@ function ImagesField({ value, onCommit, disabled }: { value: string; onCommit(v:
             multiple
             style={{ display: "none" }}
             onChange={(e) => {
-              const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/"));
+              const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/") || isSvgFile(f));
               if (files.length) upload(files);
               e.target.value = "";
             }}
