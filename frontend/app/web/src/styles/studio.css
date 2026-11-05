@@ -1190,6 +1190,23 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .seg button.active { background: var(--accent-soft); color: var(--accent); }
 .insp-emphasis button { min-width: 30px; font-size: 12.5px; }
 .insp-emphasis button:disabled { cursor: default; opacity: .6; }
+/* Element borders (data.border / data.borderColour). The classes ride with
+   the variant/fill classes, on the widget or an ancestor box, hence the
+   self-or-descendant :is(). Off keeps the border's width (transparent), so
+   switching never shifts the layout. Images and basic shapes have none by
+   default; "on" draws one. */
+:is(.el-border-colour, .el-border-colour *):is(.ui-input, .ui-btn, .ui-chip, .ui-filter, .ui-box, .ui-image, .ui-image-ph, .ui-kpi, .ui-shape.square, .ui-shape.circle) {
+  border-color: var(--el-border);
+}
+:is(.el-border-on, .el-border-on *):is(.ui-image, .ui-shape.square, .ui-shape.circle) {
+  border: 1.5px solid var(--el-border, var(--text-dim));
+}
+:is(.el-border-off, .el-border-off *):is(.ui-input, .ui-btn, .ui-chip, .ui-filter, .ui-box, .ui-image, .ui-image-ph, .ui-kpi) {
+  border-color: transparent;
+}
+/* Images have no border by default (an uploaded photo is just the photo). */
+.el-box.ui-image:not(.el-border-on) { border-color: transparent; }
+.el-box.ui-image-ph:not(.el-border-on) { border-color: transparent; }
 
 /* ── Component Builder ── */
 .builder-panel {

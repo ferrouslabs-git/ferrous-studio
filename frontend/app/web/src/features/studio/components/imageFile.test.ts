@@ -1,6 +1,6 @@
 // SVG uploads stay vector (FS-REQ-86), but only when they are static.
 import { describe, expect, it } from "vitest";
-import { isStaticSvg, isSvgFile, svgDataUrl, withSvgNamespace } from "./imageFile";
+import { hasTransparency, isStaticSvg, isSvgFile, svgDataUrl, withSvgNamespace } from "./imageFile";
 
 describe("SVG uploads", () => {
   it("recognises an SVG by type or by extension", () => {
@@ -37,5 +37,18 @@ describe("SVG uploads", () => {
     expect(withSvgNamespace('<svg viewBox="0 0 1 1"><svg/></svg>')).toBe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><svg/></svg>');
     const ok = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
     expect(withSvgNamespace(ok)).toBe(ok);
+  });
+});
+
+describe("hasTransparency", () => {
+  const ctxOf = (alphas: number[]) => ({
+    getImageData: () => ({ data: alphas.flatMap((a) => [10, 20, 30, a]) }),
+  });
+  it("spots any see-through pixel, so the upload stays PNG", () => {
+    expect(hasTransparency(ctxOf([255, 255, 0]), 3, 1)).toBe(true);
+    expect(hasTransparency(ctxOf([255, 128]), 2, 1)).toBe(true);
+  });
+  it("is false for a fully opaque picture, which can go JPEG", () => {
+    expect(hasTransparency(ctxOf([255, 255, 255]), 3, 1)).toBe(false);
   });
 });

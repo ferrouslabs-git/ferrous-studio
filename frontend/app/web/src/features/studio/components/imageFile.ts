@@ -46,6 +46,13 @@ export function svgDataUrl(text: string): string {
   return `data:image/svg+xml;base64,${btoa(bin)}`;
 }
 
+/** Whether any pixel drawn on the canvas is not fully opaque. */
+export function hasTransparency(ctx: { getImageData(x: number, y: number, w: number, h: number): { data: ArrayLike<number> } }, w: number, h: number): boolean {
+  const px = ctx.getImageData(0, 0, w, h).data;
+  for (let i = 3; i < px.length; i += 4) if (px[i] < 255) return true;
+  return false;
+}
+
 /** Draw an image URL into a canvas at most `maxPx` on its long edge. */
 function rasterise(url: string, maxPx: number, type: "image/png" | "image/jpeg", cb: (dataUrl: string) => void): void {
   const img = new Image();
@@ -56,9 +63,14 @@ function rasterise(url: string, maxPx: number, type: "image/png" | "image/jpeg",
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(w0 * scale));
     canvas.height = Math.max(1, Math.round(h0 * scale));
-    canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const ctx = canvas.getContext("2d");
+    ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
     URL.revokeObjectURL(url);
-    cb(canvas.toDataURL(type, 0.85));
+    // JPEG has no alpha channel: a picture with any see-through pixel (a
+    // transparent PNG logo or cut-out) would come back with a black
+    // background, so it stays PNG.
+    const out = type === "image/jpeg" && ctx && hasTransparency(ctx, canvas.width, canvas.height) ? "image/png" : type;
+    cb(canvas.toDataURL(out, 0.85));
   };
   img.onerror = () => URL.revokeObjectURL(url);
   img.src = url;
@@ -66,8 +78,8 @@ function rasterise(url: string, maxPx: number, type: "image/png" | "image/jpeg",
 
 /** Read an image file and hand back a data URL for inline storage. Raster
  *  images are downscaled to at most `maxPx` (small marks stay PNG for
- *  transparency; larger pictures become JPEG); SVGs stay vector (see the
- *  module note). */
+ *  transparency; larger pictures become JPEG unless they have transparent
+ *  pixels, which only PNG keeps); SVGs stay vector (see the module note). */
 export function readImageFile(file: File, maxPx: number, cb: (dataUrl: string) => void, mark = maxPx <= 128): void {
   if (!isSvgFile(file)) {
     rasterise(URL.createObjectURL(file), maxPx, mark ? "image/png" : "image/jpeg", cb);

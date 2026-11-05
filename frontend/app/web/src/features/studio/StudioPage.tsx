@@ -49,6 +49,7 @@ import { AnnotationsPanel, ComposerTarget, TargetInfo } from "./components/Annot
 import { AnnotationMarks, Canvas, deviceMinWidth, HotMark } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
 import { ComponentBar, ElementBar } from "./components/LibraryBar";
+import { readImageFile } from "./components/imageFile";
 import { PageSelect } from "./components/PageSelect";
 import { PanelCollapse, PanelRail } from "./components/PanelRail";
 import { SchematicEdit } from "./components/Schematic";
@@ -417,6 +418,9 @@ function StudioEditor() {
       // localStorage-backed, so the copy can be pasted into another
       // wireframe or another tab (see model/clipboard.ts).
       storeClipboard(item, { projectId, wireframeId });
+      // Overwrite the system clipboard too, so an image copied earlier in
+      // another tab cannot win the next paste over this copy.
+      void navigator.clipboard?.writeText(item.label).catch(() => undefined);
       toast(`Copied "${item.label}" — paste with Ctrl/⌘+V`);
     },
     [toast, projectId, wireframeId],
@@ -485,6 +489,31 @@ function StudioEditor() {
     return true;
   }, [page, canWrite, selection, selectedCmpId, recordOfCmp, recordOfNode, runOn, runCmp, toast, wireframeId]);
 
+  /** Paste an image copied elsewhere — "Copy image" in another tab, a
+   *  screenshot — into the selected canvas as an image element. Reads the
+   *  picture itself when the clipboard carries one, else an <img> address
+   *  from copied page content. Returns whether the clipboard held an image
+   *  (even when there was no canvas to put it in). */
+  const pasteImage = useCallback(
+    (data: DataTransfer | null): boolean => {
+      if (!data) return false;
+      const file = [...data.files].find((f) => f.type.startsWith("image/"));
+      const html = file ? "" : data.getData("text/html");
+      const found = html ? /<img[^>]+src="((?:https?:|data:image\/)[^"]+)"/i.exec(html)?.[1] : undefined;
+      if (!file && !found) return false;
+      if (!selectedCmpId || selectedCmp?.type !== "canvas") {
+        toast("Select a canvas to paste the image into");
+        return true;
+      }
+      const cmpId = selectedCmpId;
+      const add = (src: string) => runCmp(cmpId, (d, c) => A.addElement(d, c, cmpId, { type: "image", data: { src } }));
+      if (file) readImageFile(file, 640, add);
+      else add(found!.replace(/&amp;/g, "&"));
+      return true;
+    },
+    [selectedCmpId, selectedCmp, runCmp, toast],
+  );
+
   /** Move a component between two pages on the canvas (a drag from the open
    *  page into an ancestor shell's region, or the reverse): a paste-style
    *  insert into the destination — ids reminted, links kept — then the
@@ -546,9 +575,9 @@ function StudioEditor() {
       else if (mod && !e.altKey && !e.shiftKey && (key === "c" || key === "x" || key === "v")) {
         // Copy/cut/paste the selected component or element. A live text
         // selection on the page keeps the browser's own copy/cut.
-        if (key === "v") {
-          if (canWrite && pasteClipboard()) e.preventDefault();
-        } else if (window.getSelection()?.isCollapsed !== false) {
+        // Paste is left to the paste event (below), the only place the
+        // system clipboard — an image copied in another tab — can be read.
+        if (key !== "v" && window.getSelection()?.isCollapsed !== false) {
           if (key === "c" ? !!copySelection() : cutSelection()) e.preventDefault();
         }
       }
@@ -583,7 +612,21 @@ function StudioEditor() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [history, dialogOpen, selection, canWrite, pageSettled, runCmp, recordOfCmp, copySelection, cutSelection, pasteClipboard, enclosingRegion]);
+  }, [history, dialogOpen, selection, canWrite, pageSettled, runCmp, recordOfCmp, copySelection, cutSelection, enclosingRegion]);
+
+  // Ctrl/⌘+V: an image on the system clipboard goes into the selected
+  // canvas; otherwise the studio's own copied component or element pastes.
+  // Text fields keep the browser's own paste.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!canWrite || dialogOpen || !pageSettled) return;
+      if (t && (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable)) return;
+      if (pasteImage(e.clipboardData) || pasteClipboard()) e.preventDefault();
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [canWrite, dialogOpen, pageSettled, pasteImage, pasteClipboard]);
 
   // ── Pages (wireframe-level REST) ─────────────────────────────────────────
 

@@ -11,7 +11,7 @@
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, elementMeta, fontStack, formSpan, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, borderShown, elementMeta, fontStack, formSpan, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
@@ -426,7 +426,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const base = styleData(el.data) as Record<string, unknown> | undefined;
     const v = parseFloat(el.data?.fontSize ?? "");
     const fs = Number.isFinite(v) && v > 0 ? { fontSize: v } : undefined;
-    return base || fs ? ({ ...base, ...fs } as CSSProperties) : undefined;
+    const bc = el.data?.borderColour ? { "--el-border": el.data.borderColour } : undefined;
+    return base || fs || bc ? ({ ...base, ...fs, ...bc } as CSSProperties) : undefined;
   };
   /** Variant / fill classes (data.variant, data.fill) for the token or
    *  el-box; values are checked against the catalog's option lists so stray
@@ -439,9 +440,19 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       raw && (EL_FILL_OPTIONS as readonly string[]).includes(raw)
         ? raw
         : elementMeta(cmp.type, el.type)?.defaultFill;
+    // Border switch and colour: only for types that draw one, and only
+    // where the element departs from its type's own look.
+    const meta = elementMeta(cmp.type, el.type);
+    let border = "";
+    if (meta?.bordered) {
+      const shown = borderShown(meta, el.data);
+      if (shown !== !!meta.borderByDefault) border = shown ? " el-border-on" : " el-border-off";
+      if (shown && el.data?.borderColour) border += " el-border-colour";
+    }
     return (
       (variant && (EL_VARIANT_OPTIONS as readonly string[]).includes(variant) ? ` el-variant-${variant}` : "") +
-      (fill ? ` el-fill-${fill}` : "")
+      (fill ? ` el-fill-${fill}` : "") +
+      border
     );
   };
   /** Marker classes for an element carrying notes / open tasks; the dot
@@ -1085,7 +1096,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
           "ui-shape triangle",
           <>
             <svg className="ui-shape-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-              <polygon points="50,3 97,97 3,97" fill={typeof el.data?.bg === "string" && el.data.bg ? el.data.bg : "var(--border-strong)"} />
+              <polygon
+                points="50,3 97,97 3,97"
+                fill={typeof el.data?.bg === "string" && el.data.bg ? el.data.bg : "var(--border-strong)"}
+                {...(borderShown(elementMeta(cmp.type, el.type), el.data)
+                  ? { stroke: el.data?.borderColour || "var(--text-dim)", strokeWidth: 1.5, vectorEffect: "non-scaling-stroke" as const }
+                  : {})}
+              />
             </svg>
             {el.label ? elTok(el, "ui-shape-text") : null}
           </>,

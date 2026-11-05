@@ -182,6 +182,11 @@ export interface ElementTypeMeta {
   noText?: boolean;
   /** Offers the rotation control (EL_ROTATION_OPTIONS via `data.rotate`). */
   rotatable?: boolean;
+  /** Draws a border the user can switch on or off (`data.border` "on" /
+   *  "off") and colour (`data.borderColour`); set from BORDERED below. */
+  bordered?: boolean;
+  /** Whether that border shows while `data.border` is unset. */
+  borderByDefault?: boolean;
   /** Offers the fill control (EL_FILL_OPTIONS via `data.fill`). */
   fillable?: boolean;
   /** Fill rendered when `data.fill` is unset — this widget's own default.
@@ -192,7 +197,28 @@ export interface ElementTypeMeta {
 // ── Element vocabularies ────────────────────────────────────────────────────
 // Shared metas exist once; a type id means the same thing in every host.
 
-const el = (meta: Omit<ElementTypeMeta, "group">): ElementTypeMeta => ({ ...meta, group: ELEMENT_GROUP_OF[meta.type] });
+/** Element types that draw a border, and whether it shows by default.
+ *  Images and the basic shapes start without one. */
+const BORDERED: Record<string, boolean> = {
+  search: true, "text-input": true, "text-area": true, select: true, "multi-select": true,
+  "date-picker": true, "date-time": true, "read-only": true, "file-upload": true,
+  filter: true, "filter-multi": true, "filter-multi-search": true,
+  button: true, box: true, stat: true,
+  image: false, square: false, circle: false, triangle: false,
+};
+const el = (meta: Omit<ElementTypeMeta, "group">): ElementTypeMeta => ({
+  ...meta,
+  group: ELEMENT_GROUP_OF[meta.type],
+  ...(meta.type in BORDERED ? { bordered: true, borderByDefault: BORDERED[meta.type] } : {}),
+});
+
+/** Whether an element's border shows: its own switch, else its type's default. */
+export function borderShown(meta: ElementTypeMeta | null | undefined, data: Record<string, string> | undefined): boolean {
+  if (!meta?.bordered) return false;
+  if (data?.border === "on") return true;
+  if (data?.border === "off") return false;
+  return !!meta.borderByDefault;
+}
 
 const BRAND = el({
   type: "brand", label: "Brand / logo", desc: "Product name or logo mark", icon: "BR",

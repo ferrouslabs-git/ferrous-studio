@@ -8,7 +8,7 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
@@ -240,6 +240,25 @@ function EmphasisField({ data, set, ro }: { data: Record<string, string> | undef
         })}
       </div>
     </div>
+  );
+}
+
+/** An element's border: on / off (data.border; choosing the type's own
+ *  default clears the key) and, while it shows, its colour. */
+function BorderField({ meta, data, set, ro }: { meta: ElementTypeMeta; data: Record<string, string> | undefined; set(key: string, v: string): void; ro: boolean }) {
+  const shown = borderShown(meta, data);
+  const choose = (on: boolean) => set("border", on === !!meta.borderByDefault ? "" : on ? "on" : "off");
+  return (
+    <>
+      <div className="field">
+        <label>Border</label>
+        <div className="seg" role="group" aria-label="Border">
+          <button type="button" className={shown ? "active" : ""} aria-pressed={shown} disabled={ro} onClick={() => choose(true)}>On</button>
+          <button type="button" className={shown ? "" : "active"} aria-pressed={!shown} disabled={ro} onClick={() => choose(false)}>Off</button>
+        </div>
+      </div>
+      {shown && <ColourField label="Border colour" value={data?.borderColour ?? ""} onCommit={(v) => set("borderColour", v)} disabled={ro} fallback="#B4BCC5" />}
+    </>
   );
 }
 
@@ -796,6 +815,9 @@ export function Inspector(props: Props) {
                 />
                 {!elementNodeMeta?.noText && (
                   <EmphasisField data={elementNode.data} set={(k, v) => props.onElementData(elementSel, k, v)} ro={ro} />
+                )}
+                {elementNodeMeta?.bordered && (
+                  <BorderField meta={elementNodeMeta} data={elementNode.data} set={(k, v) => props.onElementData(elementSel, k, v)} ro={ro} />
                 )}
                 {showAlign && (
                   <div className="field">
