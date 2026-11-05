@@ -146,7 +146,7 @@ async def queue_agent_run(
     requirement = (
         await db.execute(
             select(Requirement)
-            .where(Requirement.id == requirement_id, Requirement.board_id == board.id)
+            .where(Requirement.id == requirement_id, Requirement.board_id == board.id, Requirement.live())
             .with_for_update()
         )
     ).scalar_one_or_none()

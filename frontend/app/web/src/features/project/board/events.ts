@@ -18,7 +18,7 @@ export function relTime(iso: string | null | undefined, now: number = Date.now()
   return iso.slice(0, 10);
 }
 
-export type EventVerb = "created" | "updated" | "deleted" | "shipped" | "unshipped" | "commented" | "uploaded" | "other";
+export type EventVerb = "created" | "updated" | "deleted" | "archived" | "restored" | "shipped" | "unshipped" | "commented" | "uploaded" | "other";
 
 export function eventVerb(action: string): EventVerb {
   if (action === "comment.created" || action === "commented") return "commented";
@@ -28,6 +28,8 @@ export function eventVerb(action: string): EventVerb {
     verb === "created" ||
     verb === "updated" ||
     verb === "deleted" ||
+    verb === "archived" ||
+    verb === "restored" ||
     verb === "shipped" ||
     verb === "unshipped" ||
     verb === "uploaded"
@@ -41,6 +43,8 @@ export const EV_GLYPH: Record<EventVerb, string> = {
   created: "＋",
   updated: "✎",
   deleted: "🗑",
+  archived: "🗄",
+  restored: "↶",
   shipped: "🚀",
   unshipped: "↶",
   commented: "💬",
@@ -79,6 +83,8 @@ export function evSummary(e: BoardEvent, resolveValue?: (field: string, v: unkno
   if (e.action === "comment.edited") return `edited a comment${d.excerpt ? `: ${String(d.excerpt)}` : ""}`;
   if (verb === "created") return `created ${kind}${name ? ` — ${name}` : ""}`;
   if (verb === "deleted") return `deleted ${kind}${name ? ` — ${name}` : ""}`;
+  if (verb === "archived") return `archived ${kind}${name ? ` — ${name}` : ""}`;
+  if (verb === "restored") return `restored ${kind}${name ? ` — ${name}` : ""}`;
   if (verb === "commented") return `commented${d.excerpt ? `: ${String(d.excerpt)}` : ""}`;
   if (verb === "shipped") return `shipped ${kind}${name ? ` — ${name}` : ""}`;
   if (verb === "unshipped") return `un-shipped ${kind}${name ? ` — ${name}` : ""}`;

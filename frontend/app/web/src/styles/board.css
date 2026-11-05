@@ -709,6 +709,21 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
 .board-page .cmt-pending, .board-drawer .cmt-pending { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .board-page .cmt-pending-file, .board-drawer .cmt-pending-file { text-transform: none; letter-spacing: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; gap: 2px; }
 .board-page .cmt-actions, .board-drawer .cmt-actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+/* @-mentions (FS-REQ-80): highlighted in a comment, and the people list that
+   opens under the composer while "@name" is being typed. */
+.board-page .cmt-mention, .board-drawer .cmt-mention {
+  color: var(--b-accent-text); background: var(--b-glow-soft); border-radius: 3px; padding: 0 3px; font-weight: 600;
+}
+.board-page .mention-wrap, .board-drawer .mention-wrap { position: relative; }
+.board-page .mention-pop, .board-drawer .mention-pop {
+  position: absolute; left: 0; top: 100%; z-index: 20; margin: 4px 0 0; padding: 4px; list-style: none; min-width: 220px; max-width: 100%;
+  background: var(--b-elevated); border: 1px solid var(--b-line-strong); border-radius: var(--b-radius); box-shadow: var(--b-shadow);
+}
+.board-page .mention-pop li, .board-drawer .mention-pop li {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--b-radius); cursor: pointer; font-size: 12px; color: var(--b-ink);
+}
+.board-page .mention-pop li.on, .board-drawer .mention-pop li.on { background: var(--b-glow-soft); color: var(--b-accent-text); }
+.board-page .mention-tag, .board-drawer .mention-tag { margin-left: auto; font-size: 10px; color: var(--b-ink3); }
 /* ── Comments panel: docked at the right edge, never modal (the reference's
    #cpanel). Under the drawers (40), toasts (60) and lightbox (70), so a
    drawer opened while the thread is up covers it, as #drawer covers #cpanel.

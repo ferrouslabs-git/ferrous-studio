@@ -371,6 +371,8 @@ class RequirementRead(BaseModel):
     effective_release_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
+    #: Set while archived (FS-REQ-79); None for live work.
+    archived_at: datetime | None = None
 
 
 # ── Docs ─────────────────────────────────────────────────────────────────
