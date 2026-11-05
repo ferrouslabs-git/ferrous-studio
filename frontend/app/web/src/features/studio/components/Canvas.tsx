@@ -192,6 +192,34 @@ export function deviceMinWidth(
   return demand;
 }
 
+/** The narrowest a nav bar component can be with every item still showing.
+ *  Its zones share spare room evenly, so no single intrinsic size answers
+ *  this: the bar is laid out at trial widths (a binary search, synchronous,
+ *  so nothing paints) until the narrowest at which no link list is clipped. */
+function navMinWidth(box: HTMLElement, current: number): number {
+  const lists = [...box.querySelectorAll<HTMLElement>(".ui-nav-links")];
+  if (!lists.length) return 40;
+  const prev = { width: box.style.width, flex: box.style.flex, maxWidth: box.style.maxWidth };
+  box.style.flex = "0 0 auto";
+  box.style.maxWidth = "none";
+  const fits = (w: number) => {
+    box.style.width = `${w}px`;
+    return lists.every((l) => l.scrollWidth <= l.clientWidth);
+  };
+  let lo = 40;
+  let hi = Math.max(lo, current);
+  while (!fits(hi) && hi < 4000) hi = Math.min(4000, hi * 2);
+  // Nothing fits (a layout that ignores the trial widths): don't clamp.
+  if (!fits(hi)) lo = hi = 40;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (fits(mid)) hi = mid;
+    else lo = mid;
+  }
+  Object.assign(box.style, prev);
+  return hi;
+}
+
 /** Inline style for a user-set component size (props.w / props.h). In a row
  *  region a fixed width must also drop the flex share components normally
  *  take there; in a column an explicit width simply beats the default
@@ -563,10 +591,14 @@ export function Canvas(props: Props) {
       const overflowH = (h: number) => (at ? at.y + h - availH : row ? h - availH : scrollH - renderH + h - availH);
       const startX = e.clientX;
       const startY = e.clientY;
+      // A nav bar clips its link list rather than wrap it, so narrowing it
+      // past its items would hide them: the drag stops at the narrowest
+      // width that still shows every item.
+      const minW = cmp.type === "navbar" ? navMinWidth(box, renderW) : 40;
       let latest = { w: fromW, h: fromH };
       const move = (ev: PointerEvent) => {
         latest = {
-          w: axes.w ? Math.max(40, Math.min(4000, Math.round(fromW + (ev.clientX - startX) / scale))) : fromW,
+          w: axes.w ? Math.max(minW, Math.min(4000, Math.round(fromW + (ev.clientX - startX) / scale))) : fromW,
           h: axes.h ? Math.max(24, Math.min(4000, Math.round(fromH + (ev.clientY - startY) / scale))) : fromH,
         };
         setLiveCmp((m) => ({ ...m, [cmp.id]: { ...(axes.w ? { w: latest.w } : {}), ...(axes.h ? { h: latest.h } : {}) } }));
