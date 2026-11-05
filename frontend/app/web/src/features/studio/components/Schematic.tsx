@@ -30,6 +30,8 @@ export interface SchematicEdit {
   addElement(type: string): void;
   removeElement(id: string): void;
   addRow(): void;
+  /** Delete one sample record (FS-REQ-87). */
+  removeRow(row: number): void;
   setListCell(row: number, columnId: string, text: string): void;
   /** Canvas free placement; one call per completed drag. A multi-selection
    *  drag moves several elements, so this takes them as one batch — one
@@ -1537,6 +1539,24 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       </>,
     );
     const foot = pagerEl ? <div className="ui-card-foot">{pagination(pagerEl)}</div> : null;
+    /** The × that deletes a sample record: it shows on the hovered row while
+     *  the list is selected, like the list's other edit affordances. */
+    const rowDel = (ri: number): ReactNode =>
+      edit ? (
+        <button
+          type="button"
+          className="ui-row-del"
+          title={shape === "feed" ? "Delete event" : "Delete row"}
+          aria-label={shape === "feed" ? `Delete event ${ri + 1}` : `Delete row ${ri + 1}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            edit.removeRow(ri);
+          }}
+        >
+          ×
+        </button>
+      ) : null;
 
     if (shape === "table" || columns.length === 0) {
       return (
@@ -1576,6 +1596,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                       </th>
                     ))}
                     {rowActions.length > 0 && <th />}
+                    {edit && <th className="ui-td-del" aria-hidden />}
                   </tr>
                 </thead>
               )}
@@ -1600,6 +1621,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                     {rowActions.length > 0 && (
                       <td className="ui-td-actions">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</td>
                     )}
+                    {edit && <td className="ui-td-del">{rowDel(ri)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -1629,6 +1651,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                 {rowActions.length > 0 && (
                   <div className="ui-row end ui-feed-actions">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</div>
                 )}
+                {rowDel(ri)}
               </li>
             ))}
           </ul>
@@ -1767,6 +1790,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                     <span aria-hidden />
                   </div>
                 )}
+                {rowDel(ri)}
               </div>
             ))}
           </div>
@@ -1842,6 +1866,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                   </div>
                 ))}
                 {rowActions.length > 0 && <div className="ui-row end">{rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}</div>}
+                {rowDel(ri)}
               </div>
             ))}
           </div>
@@ -1863,6 +1888,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               <span className="spacer" />
               {statusCol && cell(statusCol, ri)}
               {rowActions.map((a) => <Fragment key={a.id}>{elTok(a, "ui-btn sm")}</Fragment>)}
+              {rowDel(ri)}
             </li>
           ))}
         </ul>

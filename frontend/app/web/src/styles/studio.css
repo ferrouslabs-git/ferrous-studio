@@ -1604,6 +1604,24 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-badge.ui-cell-link:hover { text-decoration: underline; filter: brightness(.95); }
 .ui-td-actions .ui-btn { margin-left: 6px; }
 
+/* Deleting a sample record (FS-REQ-87): a round × at the end of the hovered
+   row, card or feed entry. In a table it lives in a zero-width trailing cell
+   and overlays the row's end, so the columns never shift for it. */
+.ui-row-del {
+  position: absolute; top: 50%; right: 4px; transform: translateY(-50%); z-index: 2;
+  width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text-dim);
+  font: 600 13px/1 var(--font-ui, inherit); cursor: pointer;
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+:is(.ui-table tbody tr, .ui-feed li, .ui-rowitem, .ui-card-item):hover .ui-row-del,
+.ui-row-del:focus-visible { opacity: 1; pointer-events: auto; }
+.ui-row-del:hover { color: var(--bad); border-color: var(--bad); }
+.ui-table .ui-td-del { width: 0; padding: 0; border: 0; position: relative; }
+.ui-feed li, .ui-rowitem, .ui-card-item { position: relative; }
+.ui-card-item > .ui-row-del { top: 6px; right: 6px; transform: none; }
+
 /* List shape: cards. */
 .ui-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .ui-cards.one-col { grid-template-columns: minmax(0, 1fr); }

@@ -890,6 +890,23 @@ export function addListRow(draft: Draft, _ctx: ActionContext, id: string): Actio
   return { selectCmpId: id };
 }
 
+/** Delete one sample record (FS-REQ-87). A list that never had its rows
+ *  written renders the type's default records, so those are materialised
+ *  first — deleting the second of three leaves two, not none. */
+export function removeListRow(draft: Draft, _ctx: ActionContext, id: string, rowIndex: number): ActionResult | void {
+  const cmp = cmpById(draft, id);
+  if (!cmp || rowIndex < 0) return;
+  const props = ensureProps(cmp);
+  if (!Array.isArray(props.rows)) {
+    const defaults = getDefaultProps(cmp.type).rows;
+    props.rows = Array.isArray(defaults) ? defaults.map((r) => ({ ...(r as RowRecord) })) : [];
+  }
+  const rows = props.rows as RowRecord[];
+  if (rowIndex >= rows.length) return;
+  rows.splice(rowIndex, 1);
+  return { selectCmpId: id };
+}
+
 export function setListCell(draft: Draft, _ctx: ActionContext, id: string, rowIndex: number, columnId: string, text: string): ActionResult | void {
   const cmp = cmpById(draft, id);
   if (!cmp || rowIndex < 0) return;
