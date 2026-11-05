@@ -884,6 +884,28 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   background: var(--wf-fill);
 }
 .ui-chart-x { display: flex; gap: 8%; padding: 8px 4% 0; }
+/* A value axis: tick values beside the gridlines, its title turned up the
+   left edge. The chart's left padding makes room for both. In a horizontal
+   bar chart the values run along the top instead. */
+.ui-chart.has-y { padding-left: 64px; }
+.ui-chart-y {
+  position: absolute; top: 0; bottom: 0; right: calc(100% + 6px);
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
+  font: 500 10px var(--font-mono); color: var(--text-mute); white-space: nowrap;
+}
+.ui-chart-y > span { line-height: 1; transform: translateY(-50%); }
+.ui-chart-y > span:first-child { transform: none; }
+.ui-chart-y > span:last-child { transform: translateY(0); }
+.ui-chart-ytitle {
+  position: absolute; top: 50%; right: calc(100% + 40px); transform: translate(50%, -50%) rotate(-90deg);
+  font-size: 11px; color: var(--text-dim); white-space: nowrap;
+}
+.ui-chart.horiz.has-y { padding-left: 16px; padding-top: 40px; }
+.ui-chart.horiz .ui-chart-y {
+  top: auto; bottom: calc(100% + 4px); left: 0; right: 0; flex-direction: row-reverse; align-items: flex-end;
+}
+.ui-chart.horiz .ui-chart-y > span { transform: none; }
+.ui-chart.horiz .ui-chart-ytitle { top: auto; bottom: calc(100% + 20px); right: auto; left: 50%; transform: translateX(-50%); }
 .ui-chart-x > * { flex: 1; text-align: center; font-size: 11px; color: var(--text-mute); min-width: 0; }
 .ui-form { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
 /* The header bar sits flush with the card edges despite the form's padding. */
@@ -1166,6 +1188,8 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   border: 0; cursor: pointer; font-family: inherit;
 }
 .seg button.active { background: var(--accent-soft); color: var(--accent); }
+.insp-emphasis button { min-width: 30px; font-size: 12.5px; }
+.insp-emphasis button:disabled { cursor: default; opacity: .6; }
 
 /* ── Component Builder ── */
 .builder-panel {
@@ -1970,7 +1994,19 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
    be edited or removed like anything else. */
 .el-box.divider-box { display: flex; align-items: center; justify-content: center; align-self: stretch; padding: 2px 3px; }
 .el-box.divider-box > .ui-divider { width: 100%; margin: 0; }
-.el-box.ui-legend-box { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; }
+/* A graph's legend: a small key table inside the plot's top-right corner. */
+.ui-plot-area { position: relative; }
+/* Stat tiles added to a chart sit in a row above its plot. */
+.ui-graph-kpis { padding: 12px 16px 0; }
+.el-box.ui-legend-table {
+  position: absolute; top: 10px; right: 12px; z-index: 2; max-width: 45%;
+  padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); font-size: 11px; line-height: 1.35; color: var(--text-dim);
+}
+.ui-legend-table table { border-collapse: collapse; }
+.ui-legend-table td { padding: 1px 0; vertical-align: middle; }
+.ui-legend-table td.ui-legend-swatch { width: 16px; }
+.ui-legend-swatch i { display: block; width: 10px; height: 10px; border-radius: 2px; }
 .ui-table thead tr.el-sel-row th { background: var(--edit-accent-soft); }
 .ui-td-select.el-sel-cell { background: var(--edit-accent-soft); }
 /* A selected column lights its whole run of cells; the state lives on the
@@ -2193,3 +2229,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-shape.line { min-width: 120px; min-height: 12px; }
 .ui-shape-line { display: block; width: 100%; border-top: 2px solid currentColor; }
 .ui-shape-text { text-align: center; padding: 4px; }
+/* Orientation (data.rotate → --rot): the geometry turns about its centre;
+   any text in it turns back so it stays readable. */
+.ui-shape { transform: rotate(var(--rot, 0deg)); }
+.ui-shape .ui-shape-text { transform: rotate(calc(-1 * var(--rot, 0deg))); }

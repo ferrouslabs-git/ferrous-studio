@@ -8,7 +8,7 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
@@ -204,6 +204,42 @@ function StyleFields({ bg, fg, font, caps, set, ro }: { bg: string; fg: string; 
         </select>
       </div>
     </>
+  );
+}
+
+/** Bold / italic / underline / strikethrough toggles for an element's text,
+ *  stored as "1" (on) or blank (off) under data.bold/italic/underline/strike. */
+const TEXT_EMPHASIS = [
+  { key: "bold", label: "Bold", glyph: <b>B</b> },
+  { key: "italic", label: "Italic", glyph: <i>I</i> },
+  { key: "underline", label: "Underline", glyph: <u>U</u> },
+  { key: "strike", label: "Strikethrough", glyph: <s>S</s> },
+] as const;
+
+function EmphasisField({ data, set, ro }: { data: Record<string, string> | undefined; set(key: string, v: string): void; ro: boolean }) {
+  return (
+    <div className="field">
+      <label>Emphasis</label>
+      <div className="seg insp-emphasis" role="group" aria-label="Text emphasis">
+        {TEXT_EMPHASIS.map((t) => {
+          const on = data?.[t.key] === "1";
+          return (
+            <button
+              key={t.key}
+              type="button"
+              className={on ? "active" : ""}
+              title={t.label}
+              aria-label={t.label}
+              aria-pressed={on}
+              disabled={ro}
+              onClick={() => set(t.key, on ? "" : "1")}
+            >
+              {t.glyph}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -698,6 +734,20 @@ export function Inspector(props: Props) {
                     />
                   </div>
                 )}
+                {elementNodeMeta?.rotatable && (
+                  <div className="field">
+                    <label>Rotation</label>
+                    <select
+                      value={elementNode.data?.rotate || "0"}
+                      disabled={ro}
+                      onChange={(e) => props.onElementData(elementSel, "rotate", e.target.value === "0" ? "" : e.target.value)}
+                    >
+                      {EL_ROTATION_OPTIONS.map((r) => (
+                        <option key={r} value={r}>{r}°</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {elementNodeMeta?.variantable && (
                   <div className="field">
                     <label>Variant</label>
@@ -744,6 +794,9 @@ export function Inspector(props: Props) {
                   set={(k, v) => props.onElementData(elementSel, k, v)}
                   ro={ro}
                 />
+                {!elementNodeMeta?.noText && (
+                  <EmphasisField data={elementNode.data} set={(k, v) => props.onElementData(elementSel, k, v)} ro={ro} />
+                )}
                 {showAlign && (
                   <div className="field">
                     <label>Alignment</label>

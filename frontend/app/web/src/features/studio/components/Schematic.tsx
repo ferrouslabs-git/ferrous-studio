@@ -626,6 +626,13 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const addCluster = (adds: ReactNode) =>
     edit && chrome?.addHost ? createPortal(<div className="ui-add-cluster">{adds}</div>, chrome.addHost) : null;
 
+  /** A basic shape's orientation (data.rotate) as the --rot the shape CSS
+   *  turns by; the shape's own text turns back so it stays upright. */
+  const rotation = (el: ElementNode): CSSProperties | undefined => {
+    const deg = ((numberOf(el.data?.rotate ?? "", 0) % 360) + 360) % 360;
+    return deg ? ({ "--rot": `${deg}deg` } as CSSProperties) : undefined;
+  };
+
   const btnClass = (el: ElementNode, size = "") => {
     const style = el.data?.style;
     return `ui-btn${size ? ` ${size}` : ""}${style === "primary" ? " primary" : style === "danger" ? " danger" : ""}`;
@@ -1066,10 +1073,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       }
       // Basic shapes: plain solid geometry with no outline, filled with the
       // background colour (grey until one is set); a square, circle or triangle may carry text.
-      case "line": return elBox(el, "ui-shape line", <span className="ui-shape-line" aria-hidden />);
+      case "line": return elBox(el, "ui-shape line", <span className="ui-shape-line" aria-hidden />, rotation(el));
       case "square":
       case "circle":
-        return elBox(el, `ui-shape ${el.type}`, el.label ? elTok(el, "ui-shape-text") : null);
+        return elBox(el, `ui-shape ${el.type}`, el.label ? elTok(el, "ui-shape-text") : null, rotation(el));
       case "triangle":
         // The fill goes to the polygon, not the box (which would paint a
         // rectangle behind it).
@@ -1082,7 +1089,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             </svg>
             {el.label ? elTok(el, "ui-shape-text") : null}
           </>,
-          { background: "transparent" },
+          { background: "transparent", ...rotation(el) },
         );
       case "divider": return elBox(el, "divider-box", <hr className="ui-divider" />);
       case "checkbox":
@@ -2098,37 +2105,44 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     // no header band unless something visible sits in it, and no category
     // labels without a category axis. A pie has no value axis to show.
     const radial = shape === "pie" || shape === "donut";
-    const headUnit = !radial ? valueAxis : undefined;
+    // The value axis draws on the plot (ticks + title), not in the header.
+    const yAxisEl = !radial ? valueAxis : undefined;
 
-    const head = headerInline || legendEl || headUnit || rangeEl ? (
+    const head = headerInline || rangeEl ? (
       <div className="ui-card-head">
         {headerInline && elTok(headerInline, "ui-card-title")}
         <div className="ui-row">
-          {legendEl && elBox(legendEl, "ui-legend-box", series.map((sr) => <Fragment key={sr.id}>{elTok(sr, "ui-chip sm")}</Fragment>))}
-          {headUnit && dataTok(headUnit, "unit", "", "ui-chip sm")}
           {rangeEl && elTok(rangeEl, "ui-chip sm")}
         </div>
       </div>
     ) : null;
 
+    // Stat tiles: the whole of the "Stat tiles" shape, and a row of tiles
+    // above the plot in every other shape — a stat added to a chart must
+    // show up, not sit invisibly in the document.
+    const kpis =
+      stats.length > 0 ? (
+        <div className="ui-kpis" style={{ gridTemplateColumns: `repeat(${Math.max(1, stats.length)}, minmax(0, 1fr))` }}>
+          {stats.map((el) => {
+            const delta = el.data?.delta ?? "";
+            return elBox(
+              el,
+              "ui-card ui-kpi",
+              <>
+                <div className="ui-kpi-label">{elTok(el, "")}</div>
+                <div className="ui-kpi-value">{dataTok(el, "value", "12,408")}</div>
+                <div className={`ui-kpi-delta${delta.startsWith("−") || delta.startsWith("-") ? " down" : ""}`}>{dataTok(el, "delta", "+4.2%")}</div>
+              </>,
+            );
+          })}
+        </div>
+      ) : null;
+
     if (shape === "stats") {
       return (
         <div className="ui-listwrap">
           {head}
-          <div className="ui-kpis" style={{ gridTemplateColumns: `repeat(${Math.max(1, stats.length)}, minmax(0, 1fr))` }}>
-            {stats.map((el) => {
-              const delta = el.data?.delta ?? "";
-              return elBox(
-                el,
-                "ui-card ui-kpi",
-                <>
-                  <div className="ui-kpi-label">{elTok(el, "")}</div>
-                  <div className="ui-kpi-value">{dataTok(el, "value", "12,408")}</div>
-                  <div className={`ui-kpi-delta${delta.startsWith("−") || delta.startsWith("-") ? " down" : ""}`}>{dataTok(el, "delta", "+4.2%")}</div>
-                </>,
-              );
-            })}
-          </div>
+          {kpis ?? <div className="ui-kpis" />}
           {addCluster(addEl("stat", "Add metric", "+ Metric", "text"))}
         </div>
       );
@@ -2139,7 +2153,24 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const rawValues = splitList(primary?.data?.values);
     const n = Math.max(categories.length, rawValues.length, 4);
     const values = Array.from({ length: n }, (_, i) => numberOf(rawValues[i] ?? "", CHART_VALUES[i % CHART_VALUES.length]));
-    const max = Math.max(1, ...values);
+    const dataMax = Math.max(1, ...values);
+    // With a value axis the plot scales to the axis's rounded top, so the
+    // marks line up with its ticks; without one the tallest mark fills it.
+    const max = yAxisEl ? niceAxisTop(dataMax) : dataMax;
+    const unit = yAxisEl?.data?.unit?.trim() ?? "";
+    const yAxis = yAxisEl ? (
+      <>
+        <div className="ui-chart-y" aria-hidden>
+          {[3, 2, 1, 0].map((k) => (
+            <span key={k}>{formatTick((max * k) / 3, unit)}</span>
+          ))}
+        </div>
+        <div className="ui-chart-ytitle">
+          {elTok(yAxisEl, "")}
+          {(unit || edit) && <> ({dataTok(yAxisEl, "unit", "unit")})</>}
+        </div>
+      </>
+    ) : null;
     const setSeriesValue = (i: number, t: string) => {
       if (!primary) return;
       const next = Array.from({ length: n }, (_, j) => (j === i ? t.trim() : rawValues[j] ?? String(values[j])));
@@ -2168,9 +2199,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
           <div className={`ui-pie empty${shape === "donut" ? " donut" : ""}`} />
         </div>
       ) : (
-        <div className="ui-chart">
+        <div className={`ui-chart${yAxis ? " has-y" : ""}`}>
           <div className="ui-chart-plot">
             <div className="ui-chart-grid" aria-hidden><i /><i /><i /><i /></div>
+            {yAxis}
           </div>
           {catAxis && (
             <div className="ui-chart-x">
@@ -2206,9 +2238,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     } else if (shape === "line" || shape === "area" || shape === "scatter") {
       const pts = (vals: number[]) => vals.map((v, i) => `${(i / Math.max(1, vals.length - 1)) * 100},${40 - (v / max) * 36}`);
       plot = (
-        <div className="ui-chart">
+        <div className={`ui-chart${yAxis ? " has-y" : ""}`}>
           <div className="ui-chart-plot">
             <div className="ui-chart-grid" aria-hidden><i /><i /><i /><i /></div>
+            {yAxis}
             <svg className="ui-chart-svg" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden>
               {series.map((sr, si) => {
                 const vals = Array.from({ length: n }, (_, i) => numberOf(splitList(sr.data?.values)[i] ?? "", CHART_VALUES[(i + si * 3) % CHART_VALUES.length]));
@@ -2240,9 +2273,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     } else {
       // bar (default)
       plot = (
-        <div className={`ui-chart${layout === "horizontal" ? " horiz" : ""}`}>
+        <div className={`ui-chart${layout === "horizontal" ? " horiz" : ""}${yAxis ? " has-y" : ""}`}>
           <div className="ui-chart-plot">
             <div className="ui-chart-grid" aria-hidden><i /><i /><i /><i /></div>
+            {yAxis}
             <div className="ui-chart-bars">
               {values.map((v, i) => (
                 <div key={i} className="ui-chart-col">
@@ -2263,10 +2297,45 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       );
     }
 
+    // The legend is a small key inside the plot's top-right corner: one row
+    // per series, its colour beside its name (each name edits the series'
+    // label). A pie colours its slices, not its series, so its key has no
+    // swatches — the slice key beside the pie carries the colours.
+    // Lines, areas and dots colour each series; bars draw the first series only.
+    const swatch = (si: number): string | null => {
+      if (radial) return null;
+      if (shape === "line" || shape === "area" || shape === "scatter") return PIE_COLOURS[si % PIE_COLOURS.length];
+      return si === 0 ? "var(--wf-fill)" : null;
+    };
+    const legend =
+      legendEl && series.length > 0
+        ? elBox(
+            legendEl,
+            "ui-legend-table",
+            <table>
+              <tbody>
+                {series.map((sr, si) => {
+                  const c = swatch(si);
+                  return (
+                    <tr key={sr.id}>
+                      <td className="ui-legend-swatch">{c && <i style={{ background: c }} aria-hidden />}</td>
+                      <td>{elTok(sr, "")}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>,
+          )
+        : null;
+
     return (
       <div className="ui-card">
         {head}
-        {plot}
+        {kpis && <div className="ui-graph-kpis">{kpis}</div>}
+        <div className="ui-plot-area">
+          {plot}
+          {legend}
+        </div>
       </div>
     );
   };
@@ -2834,8 +2903,30 @@ export function styleData(d: Record<string, unknown> | undefined): CSSProperties
   }
   if (d.caps === "caps") s.textTransform = "uppercase";
   else if (d.caps === "lower") s.textTransform = "none";
+  // Text emphasis toggles: each key is "1" while on.
+  if (d.bold === "1") s.fontWeight = 700;
+  if (d.italic === "1") s.fontStyle = "italic";
+  const deco = [d.underline === "1" && "underline", d.strike === "1" && "line-through"].filter(Boolean).join(" ");
+  if (deco) s.textDecoration = deco;
   return Object.keys(s).length ? (s as CSSProperties) : undefined;
 }
+
+/** A value axis's top: the data maximum rounded up so three equal steps land
+ *  on round numbers (1, 2, 2.5 or 5 × a power of ten each). */
+export function niceAxisTop(dataMax: number): number {
+  const raw = Math.max(dataMax, 1e-9) / 3;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const n = raw / mag;
+  const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+  return step * 3;
+}
+
+const formatTick = (v: number, unit: string): string => {
+  const n = v.toLocaleString("en-GB", { maximumFractionDigits: 2 });
+  if (!unit) return n;
+  // A short currency-style unit leads (£1,200); anything else follows (40 ms).
+  return /^[£$€¥]$/.test(unit) ? `${unit}${n}` : unit === "%" ? `${n}%` : `${n} ${unit}`;
+};
 
 /** Small deterministic hash so two same-kind columns show different samples. */
 function hashOf(id: string): number {

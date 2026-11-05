@@ -31,10 +31,15 @@ describe("the element scheme", () => {
     for (const meta of Object.values(COMPONENTS)) {
       for (const el of meta.elements) expect(ELEMENT_GROUP_OF[el.type], `${meta.type}/${el.type}`).toBeDefined();
     }
+    // Date/time was later asked for on forms too (FS-REQ-84 review), so only
+    // the form may offer it besides the canvas.
     const newShapes = ["date-time", "slider", "icon", "line", "square", "circle", "triangle"];
     for (const meta of Object.values(COMPONENTS)) {
       if (meta.type === "canvas") continue;
-      for (const el of meta.elements) expect(newShapes, `${meta.type}/${el.type}`).not.toContain(el.type);
+      for (const el of meta.elements) {
+        if (meta.type === "form" && el.type === "date-time") continue;
+        expect(newShapes, `${meta.type}/${el.type}`).not.toContain(el.type);
+      }
     }
   });
 

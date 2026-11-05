@@ -111,6 +111,8 @@ export function navAlign(el: { type: string; data?: Record<string, string> }): N
  *  Inspector). Rendered as `el-variant-*` classes. Stored as `data.shape`
  *  before "shape" came to name what an element is (RENAMED_ELEMENT_DATA). */
 export const EL_VARIANT_OPTIONS = ["square", "rounded", "pill"] as const;
+/** A basic shape's orientation in degrees (`data.rotate`), clockwise. */
+export const EL_ROTATION_OPTIONS = ["0", "45", "90", "135", "180", "225", "270", "315"] as const;
 
 /** Fill treatments a fillable element offers (stored as `data.fill`; unset
  *  keeps the widget's own default). Rendered as `el-fill-*` classes. */
@@ -178,6 +180,8 @@ export interface ElementTypeMeta {
   variantable?: boolean;
   /** Draws no text: the Inspector offers no Text field (an icon, a line). */
   noText?: boolean;
+  /** Offers the rotation control (EL_ROTATION_OPTIONS via `data.rotate`). */
+  rotatable?: boolean;
   /** Offers the fill control (EL_FILL_OPTIONS via `data.fill`). */
   fillable?: boolean;
   /** Fill rendered when `data.fill` is unset — this widget's own default.
@@ -459,10 +463,10 @@ const ICON = el({
   dataFields: [{ key: "icon", label: "Icon", kind: "icon" }],
   defaultLabel: "", defaultData: { icon: "star" }, noText: true,
 });
-const LINE = el({ type: "line", label: "Line", desc: "A straight line", icon: "LN", dataFields: [], defaultLabel: "", noText: true });
-const SQUARE = el({ type: "square", label: "Square", desc: "A plain square or rectangle", icon: "SQ", dataFields: [], defaultLabel: "" });
-const CIRCLE = el({ type: "circle", label: "Circle", desc: "A plain circle or ellipse", icon: "CI", dataFields: [], defaultLabel: "" });
-const TRIANGLE = el({ type: "triangle", label: "Triangle", desc: "A plain triangle", icon: "TR", dataFields: [], defaultLabel: "" });
+const LINE = el({ type: "line", label: "Line", desc: "A straight line", icon: "LN", dataFields: [], defaultLabel: "", noText: true, rotatable: true });
+const SQUARE = el({ type: "square", label: "Square", desc: "A plain square or rectangle", icon: "SQ", dataFields: [], defaultLabel: "", rotatable: true });
+const CIRCLE = el({ type: "circle", label: "Circle", desc: "A plain circle or ellipse", icon: "CI", dataFields: [], defaultLabel: "", rotatable: true });
+const TRIANGLE = el({ type: "triangle", label: "Triangle", desc: "A plain triangle", icon: "TR", dataFields: [], defaultLabel: "", rotatable: true });
 
 const EVENT = el({
   type: "event", label: "Event", desc: "A calendar entry", icon: "EV",
@@ -487,7 +491,7 @@ const CAL_LEGEND = el({
 
 /** Element lists shared between hosts (the canvas hosts everything). */
 export const FORM_ELEMENTS: ElementTypeMeta[] = [
-  TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, RADIO_GROUP, CHECKBOX, TOGGLE, DATE_PICKER,
+  TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, RADIO_GROUP, CHECKBOX, TOGGLE, DATE_PICKER, DATE_TIME,
   READ_ONLY, FILE_UPLOAD, SECTION_HEADING, STEP, HELP_TEXT, BUTTON,
 ];
 export const LIST_ELEMENTS: ElementTypeMeta[] = [

@@ -533,6 +533,17 @@
           "variantable": true,
           "fillable": true
         },
+        "date-time": {
+          "group": "input",
+          "fields": [
+            "placeholder",
+            "selected",
+            "time"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
         "read-only": {
           "group": "input",
           "fields": [
