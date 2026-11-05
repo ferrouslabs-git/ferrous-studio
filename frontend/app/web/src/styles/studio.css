@@ -462,14 +462,16 @@
    pointer is always over an element just after clicking it — without the
    guard the solid ring never shows. */
 button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line); }
-/* A blanked value keeps a select-only "…" so it can be recovered. */
-.ui-edit.blank { opacity: 0; min-width: 14px; text-align: center; color: var(--text-mute); }
-.cmp.selected .ui-edit.blank, .cmp.has-sel .ui-edit.blank { opacity: .7; }
-/* A blank token that keeps something (a brand's logo with no name) stays
-   visible; only its recovery "…" hides until the component is selected. */
-.ui-edit.blank.keeps, .cmp.selected .ui-edit.blank.keeps, .cmp.has-sel .ui-edit.blank.keeps { opacity: 1; min-width: 0; }
-.ui-edit.blank.keeps .ui-blank-dots { opacity: 0; }
-.cmp.selected .ui-edit.blank.keeps .ui-blank-dots, .cmp.has-sel .ui-edit.blank.keeps .ui-blank-dots { opacity: .7; }
+/* A token with no text (FS-REQ-85) is still its element: a button keeps its
+   button box, a badge its pill. The minimum size keeps it clickable, and
+   while its component is selected a faint dashed outline shows where a
+   bare-text one (a heading, a label) sits. */
+.ui-edit.blank { min-width: 24px; min-height: 1.2em; vertical-align: middle; }
+.cmp:is(.selected, .has-sel) .ui-edit.blank:not(.el-sel) { outline: 1px dashed var(--edit-accent-line); outline-offset: 1px; }
+/* A blank token that keeps something (a brand's logo with no name) is sized
+   by what it keeps. */
+.ui-edit.blank.keeps { min-width: 0; }
+.cmp:is(.selected, .has-sel) .ui-edit.blank.keeps:not(.el-sel) { outline: none; }
 
 .inline-edit-input {
   height: 24px; min-width: 72px;

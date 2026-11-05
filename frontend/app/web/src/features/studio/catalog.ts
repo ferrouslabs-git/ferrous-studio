@@ -120,11 +120,6 @@ export interface ElementTypeMeta {
   defaultData?: Record<string, string>;
   /** At most this many per component (a nav has one brand, one avatar). */
   max?: number;
-  /** Committing an empty label removes the element. Only for pure-text
-   *  elements (a nav item, a button — the label IS the element); widgets
-   *  with their own body (inputs, columns…) keep the element and just show
-   *  a blank label. Delete / "Remove element" removes either kind. */
-  blankRemoves?: boolean;
   /** Offers the corner-shape control (EL_SHAPE_OPTIONS via `data.shape`). */
   shapeable?: boolean;
   /** Offers the fill control (EL_FILL_OPTIONS via `data.fill`). */
@@ -150,7 +145,7 @@ const BRAND = el({
   ],
   defaultLabel: "Acme", max: 1,
 });
-const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item", blankRemoves: true });
+const NAV_ITEM = el({ type: "nav-item", label: "Nav item", desc: "A destination; link it to a page", icon: "NV", dataFields: [], defaultLabel: "Item" });
 /** A nav item nested under an item before it (FS-REQ-64), up to five levels
  *  deep: its level (2–5) puts it under the nearest earlier item of a lower
  *  level. A side rail draws the tree as nested accordions, a top bar as the
@@ -160,14 +155,14 @@ export const NAV_LEVELS = ["2", "3", "4", "5"] as const;
 const NAV_SUB_ITEM = el({
   type: "nav-sub-item", label: "Sub-item", desc: "A destination nested under an item before it", icon: "NS",
   dataFields: [{ key: "level", label: "Level", kind: "select", options: NAV_LEVELS }],
-  defaultLabel: "Sub-item", defaultData: { level: "2" }, blankRemoves: true,
+  defaultLabel: "Sub-item", defaultData: { level: "2" },
 });
-const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
+const GROUP_HEADING = el({ type: "group-heading", label: "Group heading", desc: "Section title above nav items", icon: "GH", dataFields: [], defaultLabel: "Section" });
 const SEARCH = el({ type: "search", label: "Search box", desc: "Search input; the text is its placeholder", icon: "SR", dataFields: [], defaultLabel: "Search…", max: 1, shapeable: true, fillable: true, defaultFill: "outline" });
 const BUTTON = el({
   type: "button", label: "Button", desc: "Action button", icon: "BT",
   dataFields: [{ key: "style", label: "Style", kind: "select", options: ["primary", "secondary", "danger"] }],
-  defaultLabel: "Action", defaultData: { style: "primary" }, blankRemoves: true,
+  defaultLabel: "Action", defaultData: { style: "primary" },
   shapeable: true, fillable: true,
 });
 const AVATAR = el({
@@ -184,7 +179,7 @@ const DIVIDER = el({ type: "divider", label: "Divider", desc: "Separator line or
 const HEADER = el({
   type: "header", label: "Header", desc: "The component's title; inline with its controls, or on its own line above", icon: "HD",
   dataFields: [{ key: "placement", label: "Placement", kind: "select", options: ["inline", "above"] }],
-  defaultLabel: "Header", defaultData: { placement: "inline" }, max: 1, blankRemoves: true,
+  defaultLabel: "Header", defaultData: { placement: "inline" }, max: 1,
 });
 
 const COLUMN = el({
@@ -199,7 +194,7 @@ const COLUMN = el({
   defaultLabel: "Column", defaultData: { kind: "text" },
 });
 const COLUMN_HEADER = el({ type: "column-header", label: "Column header", desc: "The header row; remove it for a headerless table", icon: "CH", dataFields: [], defaultLabel: "", max: 1 });
-const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit", blankRemoves: true, shapeable: true, fillable: true });
+const ROW_ACTION = el({ type: "row-action", label: "Row action", desc: "Per-row action (Edit, Delete…)", icon: "RA", dataFields: [], defaultLabel: "Edit", shapeable: true, fillable: true });
 const SELECT_COLUMN = el({ type: "select-column", label: "Select column", desc: "Bulk-select checkboxes", icon: "☑", dataFields: [], defaultLabel: "", max: 1 });
 /** The fields every filter chip shares: its values (a dataset, or options
  *  typed by hand) and what is picked from them. */
@@ -217,15 +212,15 @@ const FILTER_FIELDS: DataFieldMeta[] = [
  *  the id every existing filter already carries. */
 const FILTER = el({
   type: "filter", label: "Filter: single select", desc: "Filter the list by one value of a field", icon: "FL",
-  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", shapeable: true, fillable: true,
 });
 const FILTER_MULTI = el({
   type: "filter-multi", label: "Filter: multi-select", desc: "Filter the list by several values of a field", icon: "FM",
-  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", shapeable: true, fillable: true,
 });
 const FILTER_MULTI_SEARCH = el({
   type: "filter-multi-search", label: "Filter: multi-select with search", desc: "Several values, picked from a searchable menu", icon: "FS",
-  dataFields: FILTER_FIELDS, defaultLabel: "Filter", blankRemoves: true, shapeable: true, fillable: true,
+  dataFields: FILTER_FIELDS, defaultLabel: "Filter", shapeable: true, fillable: true,
 });
 /** The filter element types, in bar order. */
 export const FILTER_TYPES = [FILTER.type, FILTER_MULTI.type, FILTER_MULTI_SEARCH.type] as const;
@@ -342,9 +337,9 @@ const READ_ONLY = el({
   defaultLabel: "Reference", defaultData: { value: "REF-00421" },
 });
 const FILE_UPLOAD = el({ type: "file-upload", label: "File upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", shapeable: true, fillable: true, defaultFill: "outline" });
-const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section", blankRemoves: true });
-const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", blankRemoves: true, shapeable: true, fillable: true });
-const HELP_TEXT = el({ type: "help-text", label: "Help text", desc: "Guidance under a field", icon: "HT", dataFields: [], defaultLabel: "Explain what to enter here.", blankRemoves: true });
+const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section" });
+const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", shapeable: true, fillable: true });
+const HELP_TEXT = el({ type: "help-text", label: "Help text", desc: "Guidance under a field", icon: "HT", dataFields: [], defaultLabel: "Explain what to enter here." });
 
 const SERIES = el({
   type: "series", label: "Series", desc: "A data series; values drive the plot", icon: "SE",
@@ -368,11 +363,11 @@ const STAT = el({
   defaultLabel: "Metric", defaultData: { value: "12,408", delta: "+4.2%" }, shapeable: true, fillable: true,
 });
 
-const HEADING = el({ type: "heading", label: "Heading", desc: "Large title text", icon: "H", dataFields: [], defaultLabel: "Heading", blankRemoves: true });
-const TEXT = el({ type: "text", label: "Text", desc: "Body copy", icon: "T", dataFields: [], defaultLabel: "Body text.", blankRemoves: true });
-const LABEL = el({ type: "label", label: "Label", desc: "Small caption text", icon: "L", dataFields: [], defaultLabel: "Label", blankRemoves: true });
-const BADGE = el({ type: "badge", label: "Badge", desc: "Status pill", icon: "B", dataFields: [], defaultLabel: "Badge", blankRemoves: true, shapeable: true, fillable: true });
-const LINK = el({ type: "link", label: "Link", desc: "Text link; link it to a page", icon: "LK", dataFields: [], defaultLabel: "Link", blankRemoves: true });
+const HEADING = el({ type: "heading", label: "Heading", desc: "Large title text", icon: "H", dataFields: [], defaultLabel: "Heading" });
+const TEXT = el({ type: "text", label: "Text", desc: "Body copy", icon: "T", dataFields: [], defaultLabel: "Body text." });
+const LABEL = el({ type: "label", label: "Label", desc: "Small caption text", icon: "L", dataFields: [], defaultLabel: "Label" });
+const BADGE = el({ type: "badge", label: "Badge", desc: "Status pill", icon: "B", dataFields: [], defaultLabel: "Badge", shapeable: true, fillable: true });
+const LINK = el({ type: "link", label: "Link", desc: "Text link; link it to a page", icon: "LK", dataFields: [], defaultLabel: "Link" });
 const IMAGE = el({
   type: "image", label: "Image", desc: "Picture: upload one, or a placeholder describing what appears", icon: "IM",
   dataFields: [{ key: "src", label: "Image", kind: "image" }],

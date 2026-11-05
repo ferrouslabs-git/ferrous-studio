@@ -986,10 +986,11 @@ function dropLink(cmp: ComponentNode, key: string): void {
   if (!Object.keys(links).length) delete cmp.props!.links;
 }
 
-/** Set an element's text. An empty commit removes PURE-TEXT elements (nav
- *  items, buttons — see blankRemoves in the catalogue); widget elements
- *  (inputs, columns…) keep the element and just blank the label. Scalars
- *  take the value as-is. */
+/** Set an element's text. An empty commit keeps the element and just blanks
+ *  its text (FS-REQ-85): a button with no label is still a button, so it
+ *  renders as its box with nothing in it. Removing an element is always an
+ *  explicit action (Delete, × or "Remove element"). Scalars take the value
+ *  as-is. */
 export function setElementText(draft: Draft, ctx: ActionContext, id: string, key: string, index: number | null, text: string): ActionResult | void {
   const cmp = cmpById(draft, id);
   if (!cmp) return;
@@ -998,9 +999,6 @@ export function setElementText(draft: Draft, ctx: ActionContext, id: string, key
     const elementId = key.slice(EL_PREFIX.length);
     const element = findElement(cmp, elementId);
     if (!element) return;
-    if (!value && elementMeta(cmp.type, element.type)?.blankRemoves) {
-      return removeElement(draft, ctx, id, elementId);
-    }
     element.label = value;
     autoBindDataset(cmp.type, element, ctx);
     // Keep the element selected — a rename (or blank) is not a deselection.

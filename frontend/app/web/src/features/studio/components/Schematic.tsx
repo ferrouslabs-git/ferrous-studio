@@ -5,9 +5,9 @@
 // A component renders its `elements` (typed children, pos order) branched by
 // its `shape` and `layout`. Every string on screen is an EditableToken backed
 // by an element label, element data or a scalar prop, so nothing is baked
-// into the renderer: double-click to edit; committing an empty label removes
-// pure-text elements (blankRemoves in the catalogue) while widget elements
-// keep a blank label. With no `edit` handlers everything is read-only.
+// into the renderer: double-click to edit; committing an empty label keeps
+// the element and draws it with no text (FS-REQ-85). With no `edit` handlers
+// everything is read-only.
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
@@ -24,7 +24,7 @@ import { ElementSel, sameElement } from "./selection";
 
 export interface SchematicEdit {
   setPropValue(key: string, text: string): void;
-  /** Rename an element; an empty commit removes it (and its link). */
+  /** Rename an element; an empty commit keeps it, with no text. */
   setElementLabel(id: string, text: string): void;
   setElementData(id: string, key: string, value: string): void;
   addElement(type: string): void;
@@ -310,9 +310,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const str = (key: string, fallback: string) => String(d[key] ?? fallback);
 
   // ── Tokens ───────────────────────────────────────────────────────────────
-  /** One editable token. A blanked value shows a hover-only "…" so it can be
-   *  recovered; viewers see nothing at all. Tokens with an `el` identity are
-   *  elements: selectable with one click and linkable to a page. */
+  /** One editable token. A blanked value still renders the token — its box
+   *  with no text in it (FS-REQ-85) — for editors and viewers alike; a
+   *  minimum size keeps it selectable and editable. Tokens with an `el`
+   *  identity are elements: selectable with one click and linkable to a page. */
   const tok = (
     className: string,
     value: Val,
@@ -331,7 +332,6 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     keep?: ReactNode,
   ) => {
     const blank = value === "";
-    if (blank && !edit && !keep) return null;
     const link = el && chrome ? chrome.linkOf(el.key, el.index) : null;
     const element =
       el && chrome
@@ -354,9 +354,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         element={element}
         drag={drag}
       >
-        {/* A blank token hides until its component is selected — but what it
-            keeps (the logo) must stay visible, so only the "…" hides then. */}
-        {blank ? <>{keep}{edit ? keep ? <span className="ui-blank-dots">…</span> : "…" : null}</> : children}
+        {/* Blank: whatever the element draws besides its text (a logo, an
+            icon, a resize grip) stays; the text is simply absent. */}
+        {blank ? children ?? keep ?? null : children}
       </EditableToken>
     );
   };
@@ -405,8 +405,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       onMouseLeave: () => chrome.onMarkHover!(null),
     };
   };
-  /** An element's label; an empty commit removes pure-text elements only
-   *  (blankRemoves). Draggable to reorder within the component (elDrag). */
+  /** An element's label; an empty commit leaves the element in place with
+   *  no text. Draggable to reorder within the component (elDrag). */
   const elTok = (el: ElementNode, className: string, children?: ReactNode, keep?: ReactNode) =>
     tok(`${className}${variantCls(el)}${markCls(el)}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), { ...elDrag(el), ...markHoverProps(el) }, keep);
   /** A button in the flow (FS-REQ-73): data.w/h fix its size — the same
@@ -417,7 +417,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const live = dragSize[el.id];
     const w = live?.w ?? numberOf(el.data?.w, 0);
     const h = live?.h ?? numberOf(el.data?.h, 0);
-    const grip = !!edit && isSelected(el) && el.label !== "";
+    const grip = !!edit && isSelected(el);
     const sizeStyle: CSSProperties | undefined =
       w > 0 || h > 0 ? { width: w > 0 ? w : undefined, height: h > 0 ? h : undefined, flexShrink: 0 } : undefined;
     const style = sizeStyle || fsStyle(el) ? { ...fsStyle(el), ...sizeStyle } : undefined;
@@ -450,8 +450,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
    *  sample. Carries the element's identity so a click selects it. */
   const dataTok = (el: ElementNode, key: string, sample: string, className = "") =>
     tok(className, el.data?.[key], sample, (t) => edit?.setElementData(el.id, key, t), undefined, { key: elKey(el.id), index: null }, true, fsStyle(el));
-  /** A field's label row. A blanked label removes the row outright — no "…"
-   *  recovery token, since the Inspector's Text field restores it. */
+  /** A field's label row. A blanked label drops the row; the field itself
+   *  stays, and the Inspector's Text field restores the label. */
   const fieldLabel = (el: ElementNode): ReactNode =>
     el.label === "" ? null : <label className="ui-label">{elTok(el, "")}</label>;
 
