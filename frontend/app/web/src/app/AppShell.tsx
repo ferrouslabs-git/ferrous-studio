@@ -226,8 +226,6 @@ function ProjectNav({
   isAdmin: boolean;
 }) {
   const base = `/orgs/${orgId}/projects/${projectId}`;
-  // Epics stays lit on an epic's own page, but Archived is its own item.
-  const onArchived = useMatch(`${base}/epics/archived`) !== null;
   return (
     <>
       <div className="sidebar-scope stacked">
@@ -252,8 +250,7 @@ function ProjectNav({
       </NavGroup>
       <NavGroup title="Delivery">
         <NavItem to={`${base}/roadmap`} icon="roadmap" label="Roadmap" />
-        <NavItem to={`${base}/epics`} icon="epic" label="Epics" end={onArchived} />
-        <NavItem to={`${base}/epics/archived`} icon="archive" label="Archived" sub />
+        <NavItem to={`${base}/epics`} icon="epic" label="Epics" />
         <NavItem to={`${base}/feedback`} icon="feedback" label="Feedback" />
       </NavGroup>
       {isAdmin ? (
@@ -327,10 +324,9 @@ function NavGroup({ title, children }: { title?: string; children: ReactNode }) 
   );
 }
 
-// `sub` draws a second-level item, indented under the one before it.
-function NavItem({ to, icon, label, end, sub }: { to: string; icon: IconName; label: string; end?: boolean; sub?: boolean }) {
+function NavItem({ to, icon, label, end }: { to: string; icon: IconName; label: string; end?: boolean }) {
   return (
-    <NavLink to={to} end={end} className={sub ? "sidebar-item sub" : "sidebar-item"} title={label}>
+    <NavLink to={to} end={end} className="sidebar-item" title={label}>
       <span className="sidebar-icon">
         <Icon name={icon} />
       </span>
@@ -361,7 +357,6 @@ type IconName =
   | "slack"
   | "audit"
   | "agent"
-  | "archive"
   | "arrowLeft";
 
 const PATHS: Record<IconName, ReactNode> = {
@@ -482,13 +477,6 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
       <path d="M8 10h8M8 13h5" />
-    </>
-  ),
-  // A filing box: the lid, the box beneath it and its handle.
-  archive: (
-    <>
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
     </>
   ),
   arrowLeft: <path d="M19 12H5M11 6l-6 6 6 6" />,

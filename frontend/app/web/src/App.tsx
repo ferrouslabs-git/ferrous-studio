@@ -21,7 +21,6 @@ import { DiagramsPage } from "./features/project/diagrams/DiagramsPage";
 import { DocumentsPage } from "./features/project/documents/DocumentsPage";
 import { BoardProvider } from "./features/project/board/boardData";
 import { PlanRedirect, UnscheduledRedirect } from "./features/project/board/redirects";
-import { ArchivedRequirementsPage } from "./features/project/epics/ArchivedRequirementsPage";
 import { EpicDetailPage } from "./features/project/epics/EpicDetailPage";
 import { EpicsPage } from "./features/project/epics/EpicsPage";
 import { FeedbackPage } from "./features/project/feedback/FeedbackPage";
@@ -123,7 +122,6 @@ export function App() {
                 <Route path="roadmap/:releaseId" element={<ReleasePage />} />
                 <Route path="roadmap/:releaseId/plan" element={<PlanRedirect />} />
                 <Route path="epics" element={<EpicsPage />} />
-                <Route path="epics/archived" element={<ArchivedRequirementsPage />} />
                 <Route path="epics/:epicId" element={<EpicDetailPage />} />
                 {/* Feedback shares the board for its assignees, comment
                     threads and the requirements raised from reports. */}

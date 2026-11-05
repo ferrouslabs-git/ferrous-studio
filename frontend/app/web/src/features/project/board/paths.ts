@@ -12,7 +12,6 @@ export interface BoardPaths {
   release: (releaseId: string) => string;
   sprint: (sprintId: string, query?: { req?: string | null }) => string;
   epics: string;
-  archived: string;
   epic: (epicId: string, query?: EpicPageQuery) => string;
 }
 
@@ -33,7 +32,6 @@ export function boardPaths(orgId: string, projectId: string): BoardPaths {
     release: (releaseId) => `${base}/roadmap/${releaseId}`,
     sprint: (sprintId, query = {}) => withQuery(`${base}/roadmap/sprints/${sprintId}`, { req: query.req }),
     epics: `${base}/epics`,
-    archived: `${base}/epics/archived`,
     epic: (epicId, query = {}) => withQuery(`${base}/epics/${epicId}`, { req: query.req, doc: query.doc }),
   };
 }
