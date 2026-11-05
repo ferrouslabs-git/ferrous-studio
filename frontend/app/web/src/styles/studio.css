@@ -900,7 +900,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   position: absolute; top: 50%; right: calc(100% + 40px); transform: translate(50%, -50%) rotate(-90deg);
   font-size: 11px; color: var(--text-dim); white-space: nowrap;
 }
-.ui-chart.horiz.has-y { padding-left: 16px; padding-top: 40px; }
+.ui-chart.horiz.has-y { padding-left: 16px; padding-top: 56px; } /* ticks clear the legend key */
 .ui-chart.horiz .ui-chart-y {
   top: auto; bottom: calc(100% + 4px); left: 0; right: 0; flex-direction: row-reverse; align-items: flex-end;
 }
@@ -1780,20 +1780,22 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 /* Horizontal bars: rows share the plot (which grows with the point count);
    a category column leads (--cat-w), and the gridlines and value ticks run
    across the bar track only. The value rides just past its bar's end. */
-.ui-chart.horiz { --cat-w: 0px; }
-.ui-chart.horiz.has-cat { --cat-w: 84px; }
+.ui-chart.horiz { --cat-w: 0px; --val-w: 48px; }
+.ui-chart.horiz.has-cat { --cat-w: 84px; } /* fallback; set inline from the labels */
 .ui-chart.horiz .ui-chart-bars { gap: 8px; padding: 6px 0; }
 .ui-chart.horiz .ui-chart-col { gap: 0; }
 .ui-chart-cat {
   flex: none; width: var(--cat-w); padding-right: 8px; box-sizing: border-box; text-align: right;
   font-size: 11px; color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ui-chart-track { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; }
+/* The track stops short of the plot's right edge by --val-w: a full-length
+   bar still leaves room for its value label. */
+.ui-chart-track { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; margin-right: var(--val-w); }
 .ui-chart.horiz .ui-chart-track .ui-chart-value { position: absolute; left: calc(var(--w) + 6px); min-width: 0; white-space: nowrap; }
-.ui-chart.horiz .ui-chart-grid { left: var(--cat-w); flex-direction: row; }
+.ui-chart.horiz .ui-chart-grid { left: var(--cat-w); right: var(--val-w); flex-direction: row; }
 .ui-chart.horiz .ui-chart-grid i { width: 1px; height: auto; }
-.ui-chart.horiz .ui-chart-y { left: var(--cat-w); }
-.ui-chart.horiz .ui-chart-ytitle { left: calc(50% + var(--cat-w) / 2); }
+.ui-chart.horiz .ui-chart-y { left: var(--cat-w); right: var(--val-w); }
+.ui-chart.horiz .ui-chart-ytitle { left: calc(50% + (var(--cat-w) - var(--val-w)) / 2); }
 /* Line, area and dot charts: each category label sits under its point. */
 .ui-chart-x.pts { position: relative; display: block; height: 24px; padding: 8px 0 0; }
 .ui-chart-x.pts > span { position: absolute; top: 8px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; color: var(--text-mute); }

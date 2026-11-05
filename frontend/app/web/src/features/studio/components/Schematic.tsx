@@ -2338,8 +2338,16 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       // points, each row carrying its category at the start and its value
       // at the bar's end; vertical bars keep the category row underneath.
       const horiz = layout === "horizontal";
+      const longestCategory = Math.max(...Array.from({ length: n }, (_, i) => (categories[i] || `C${i + 1}`).length));
       plot = (
-        <div className={`ui-chart${horiz ? " horiz" : ""}${horiz && catAxis ? " has-cat" : ""}${yAxis ? " has-y" : ""}`}>
+        <div
+          className={`ui-chart${horiz ? " horiz" : ""}${horiz && catAxis ? " has-cat" : ""}${yAxis ? " has-y" : ""}`}
+          // The category column fits its longest label (11px text, ~6.2px a
+          // character, plus the gap before the bars), so short labels like
+          // "Jan" don't leave a wide margin. Set as a width rather than left
+          // to the layout because the gridlines and value ticks start there too.
+          style={horiz && catAxis ? ({ "--cat-w": `${Math.min(160, Math.max(24, Math.ceil(longestCategory * 6.2) + 12))}px` } as CSSProperties) : undefined}
+        >
           <div className="ui-chart-plot" style={horiz ? { height: Math.max(170, n * 30) } : undefined}>
             <div className="ui-chart-grid" aria-hidden><i /><i /><i /><i /></div>
             {yAxis}
