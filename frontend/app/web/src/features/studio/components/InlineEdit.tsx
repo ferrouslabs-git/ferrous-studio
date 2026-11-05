@@ -1,5 +1,7 @@
 // One editable token on the canvas. Commits on Enter or blur, cancels on
 // Escape; one commit = one undo step (keystrokes never reach the document).
+// A multi-line token (canvas body text) edits in a box the size of the text:
+// Enter starts a new line there, and Ctrl/⌘+Enter commits.
 //
 // Tokens that are addressable elements (nav items, buttons…) also carry
 // `element`: a single click selects the element, and — when it is linked —
@@ -30,20 +32,22 @@ interface Props {
   element?: TokenElement;
   /** Drag-and-drop handlers (element reorder); spread on the idle button only. */
   drag?: Record<string, unknown>;
+  /** Text that may run over several lines: edited in a textarea. */
+  multiline?: boolean;
 }
 
-export function EditableToken({ value, onCommit, className, style, title, children, element, drag }: Props) {
+export function EditableToken({ value, onCommit, className, style, title, children, element, drag, multiline }: Props) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(value);
   const ref = useRef<HTMLButtonElement>(null);
-  const [width, setWidth] = useState(72);
+  const [size, setSize] = useState<{ w: number; h: number }>({ w: 72, h: 24 });
 
   useEffect(() => {
     if (!editing) setText(value);
   }, [value, editing]);
 
   const begin = () => {
-    setWidth(Math.max(72, ref.current?.offsetWidth ?? 72));
+    setSize({ w: Math.max(72, ref.current?.offsetWidth ?? 72), h: Math.max(48, ref.current?.offsetHeight ?? 48) });
     setText(value);
     setEditing(true);
   };
@@ -117,8 +121,8 @@ export function EditableToken({ value, onCommit, className, style, title, childr
     if (text !== value) onCommit(text);
   };
 
-  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
+  const onKey = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && (!multiline || e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       commit();
     } else if (e.key === "Escape") {
@@ -128,11 +132,29 @@ export function EditableToken({ value, onCommit, className, style, title, childr
     }
   };
 
+  if (editing && multiline) {
+    return (
+      <textarea
+        className="inline-edit-input multi"
+        style={{ width: size.w, height: size.h }}
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={onKey}
+        onBlur={commit}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onFocus={(e) => e.target.select()}
+        draggable={false}
+      />
+    );
+  }
+
   if (editing) {
     return (
       <input
         className="inline-edit-input"
-        style={{ width }}
+        style={{ width: size.w }}
         autoFocus
         value={text}
         onChange={(e) => setText(e.target.value)}

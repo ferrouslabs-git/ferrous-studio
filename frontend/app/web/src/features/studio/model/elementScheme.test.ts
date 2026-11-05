@@ -13,8 +13,8 @@ const shapeIds = (host: string) =>
 describe("the element scheme", () => {
   it("puts the canvas's shapes under exactly the six types asked for", () => {
     expect(shapeIds("canvas")).toEqual({
-      Text: ["heading", "text", "text-area", "label", "search"],
-      Input: ["text-input", "select", "multi-select", "date-picker", "date-time", "radio-group", "checkbox", "toggle", "read-only", "file-upload", "slider"],
+      Text: ["heading", "text", "label", "search"],
+      Input: ["text-input", "text-area", "select", "multi-select", "date-picker", "date-time", "radio-group", "checkbox", "toggle", "read-only", "file-upload", "slider"],
       Action: ["link", "button"],
       "UI element": ["badge", "box", "divider", "pagination"],
       Image: ["image", "icon"],

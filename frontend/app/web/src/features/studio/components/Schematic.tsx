@@ -31,7 +31,9 @@ export interface SchematicEdit {
   removeElement(id: string): void;
   addRow(): void;
   /** Delete one sample record (FS-REQ-87). */
-  removeRow(row: number): void;
+  /** `shown` is what every row displays now, per column id — the rows after
+   *  the deleted one are frozen to it, so they keep their values. */
+  removeRow(row: number, shown: Record<string, string>[]): void;
   setListCell(row: number, columnId: string, text: string): void;
   /** Canvas free placement; one call per completed drag. A multi-selection
    *  drag moves several elements, so this takes them as one batch — one
@@ -289,6 +291,60 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const [menuQuery, setMenuQuery] = useState("");
   useEffect(() => setMenuQuery(""), [openSelect]);
 
+  /** The row whose delete control is showing (FS-REQ-87), and where its
+   *  middle sits relative to the add-cluster anchor. The control is drawn on
+   *  the mat to the right of the list, not inside it, so it reads as editor
+   *  chrome rather than part of the wireframe — and no scroll box clips it. */
+  const [rowHover, setRowHover] = useState<{ ri: number; top: number; noun: string } | null>(null);
+  const rowHoverEl = useRef<HTMLElement | null>(null);
+  const shownRows = useRef<() => Record<string, string>[]>(() => []);
+  const rowHideTimer = useRef<number | undefined>(undefined);
+  const addHost = edit ? chrome?.addHost ?? null : null;
+  useEffect(() => {
+    const clearHot = () => {
+      rowHoverEl.current?.removeAttribute("data-row-del-hot");
+      rowHoverEl.current = null;
+    };
+    if (!addHost || cmp.type !== "list") {
+      clearHot();
+      setRowHover(null);
+      return;
+    }
+    const node = document.querySelector<HTMLElement>(`[data-cmp-id="${CSS.escape(cmp.id)}"]`);
+    if (!node) return;
+    const hideSoon = () => {
+      window.clearTimeout(rowHideTimer.current);
+      rowHideTimer.current = window.setTimeout(() => {
+        clearHot();
+        setRowHover(null);
+      }, 300);
+    };
+    const over = (e: PointerEvent) => {
+      // The row is whichever ancestor carries the probe rowDel() leaves in it,
+      // so tables, cards, rows and feeds all resolve the same way.
+      for (let n = e.target as HTMLElement | null; n && n !== node; n = n.parentElement) {
+        const probe = n.querySelector<HTMLElement>(":scope > .ui-row-probe, :scope > td > .ui-row-probe");
+        if (!probe) continue;
+        window.clearTimeout(rowHideTimer.current);
+        const r = n.getBoundingClientRect();
+        const a = addHost.getBoundingClientRect();
+        rowHoverEl.current = n;
+        if (rowHoverEl.current !== n) rowHoverEl.current?.removeAttribute("data-row-del-hot");
+        setRowHover({ ri: Number(probe.dataset.ri), top: r.top + r.height / 2 - a.top, noun: probe.dataset.noun ?? "row" });
+        return;
+      }
+      hideSoon();
+    };
+    node.addEventListener("pointerover", over);
+    node.addEventListener("pointerleave", hideSoon);
+    return () => {
+      node.removeEventListener("pointerover", over);
+      node.removeEventListener("pointerleave", hideSoon);
+      window.clearTimeout(rowHideTimer.current);
+      clearHot();
+    };
+  }, [addHost, cmp.id, cmp.type]);
+
   useEffect(() => {
     if (!openSelect) return;
     const close = (e: Event) => {
@@ -332,6 +388,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     /** What stays on screen when the text is blank (the brand's logo mark):
      *  blanking the text must not take the rest of the element with it. */
     keep?: ReactNode,
+    multiline = false,
   ) => {
     const blank = value === "";
     const link = el && chrome ? chrome.linkOf(el.key, el.index) : null;
@@ -355,6 +412,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         onCommit={edit && commit ? commit : undefined}
         element={element}
         drag={drag}
+        multiline={multiline}
       >
         {/* Blank: whatever the element draws besides its text (a logo, an
             icon, a resize grip) stays; the text is simply absent. */}
@@ -409,8 +467,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   };
   /** An element's label; an empty commit leaves the element in place with
    *  no text. Draggable to reorder within the component (elDrag). */
-  const elTok = (el: ElementNode, className: string, children?: ReactNode, keep?: ReactNode) =>
-    tok(`${className}${variantCls(el)}${markCls(el)}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), { ...elDrag(el), ...markHoverProps(el) }, keep);
+  const elTok = (el: ElementNode, className: string, children?: ReactNode, keep?: ReactNode, multiline = false) =>
+    tok(`${className}${variantCls(el)}${markCls(el)}${dropCls(el)}`, el.label, "", (t) => edit?.setElementLabel(el.id, t), children, { key: elKey(el.id), index: null }, false, fsStyle(el), { ...elDrag(el), ...markHoverProps(el) }, keep, multiline);
   /** A button in the flow (FS-REQ-73): data.w/h fix its size — the same
    *  keys a canvas child's box uses, so a button keeps its size when moved
    *  into a canvas — and while it is selected a corner grip drags them.
@@ -970,7 +1028,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const widget = (el: ElementNode, context: "flow" | "canvas" = "flow"): ReactNode => {
     switch (el.type) {
       case "heading": return <div className="ui-h2">{elTok(el, "")}</div>;
-      case "text": return <p className="ui-p">{elTok(el, "")}</p>;
+      // Body text runs over several lines: its line breaks are kept, and in
+      // a resized box it wraps to the box's width.
+      case "text": return <p className="ui-p">{elTok(el, "multi", undefined, undefined, true)}</p>;
       case "label": return elTok(el, "ui-label");
       case "badge": return elTok(el, `ui-badge${statusTone(el.label)}`);
       case "button": return context === "canvas" ? elTok(el, btnClass(el)) : btnTok(el);
@@ -1004,8 +1064,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         const mark = icon.startsWith("data:") ? <img src={icon} alt="" draggable={false} /> : navIconGlyph(icon);
         return elBox(el, `ui-icon-el${mark ? "" : " empty"}`, mark);
       }
-      // Basic shapes: plain geometry, stroked in the text colour and filled
-      // with the background; a square, circle or triangle may carry text.
+      // Basic shapes: plain solid geometry with no outline, filled with the
+      // background colour (grey until one is set); a square, circle or triangle may carry text.
       case "line": return elBox(el, "ui-shape line", <span className="ui-shape-line" aria-hidden />);
       case "square":
       case "circle":
@@ -1018,7 +1078,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
           "ui-shape triangle",
           <>
             <svg className="ui-shape-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-              <polygon points="50,3 97,97 3,97" fill={el.data?.bg || "none"} stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+              <polygon points="50,3 97,97 3,97" fill={typeof el.data?.bg === "string" && el.data.bg ? el.data.bg : "var(--border-strong)"} />
             </svg>
             {el.label ? elTok(el, "ui-shape-text") : null}
           </>,
@@ -1554,14 +1614,24 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const pagerEl = first("pagination");
     const rows: Record<string, string>[] = Array.isArray(cmp.props?.rows) ? (cmp.props.rows as Record<string, string>[]) : [{}, {}, {}];
 
+    /** A cell's sample text — by row position, so deleting a row has to
+     *  freeze the rows after it (see shownRows). A bound dataset wins, then
+     *  the column's own sample values, then the per-kind pool, offset per
+     *  column so twins differ. */
+    const sampleAt = (col: ElementNode, ri: number): string => {
+      const ds = datasetOf(col);
+      const samples = ds?.values.length ? ds.values : splitList(col.data?.samples);
+      return samples.length ? samples[ri % samples.length] : sampleFor(col.data?.kind, ri + hashOf(col.id));
+    };
+    shownRows.current = () =>
+      rows.map((r, ri) =>
+        Object.fromEntries(columns.filter((c) => c.data?.kind !== "image").map((c) => [c.id, r?.[c.id] ?? sampleAt(c, ri)])),
+      );
     const cell = (col: ElementNode, ri: number, className?: string) => {
       if (col.data?.kind === "image") return imageCell(col, ri);
       const own = rows[ri]?.[col.id];
-      // A bound dataset wins, then the column's own sample values, then the
-      // per-kind pool, offset per column so twins differ.
       const ds = datasetOf(col);
-      const samples = ds?.values.length ? ds.values : splitList(col.data?.samples);
-      const sample = own != null ? "" : samples.length ? samples[ri % samples.length] : sampleFor(col.data?.kind, ri + hashOf(col.id));
+      const sample = own != null ? "" : sampleAt(col, ri);
       const value = own ?? null;
       const shown = own ?? sample;
       const kind = ds?.kind ?? col.data?.kind;
@@ -1597,24 +1667,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       </>,
     );
     const foot = pagerEl ? <div className="ui-card-foot">{pagination(pagerEl)}</div> : null;
-    /** The × that deletes a sample record: it shows on the hovered row while
-     *  the list is selected, like the list's other edit affordances. */
+    /** Marks a sample record as deletable. The delete control itself is drawn
+     *  on the mat beside the list (see rowHover), at the hovered row. */
     const rowDel = (ri: number): ReactNode =>
-      edit ? (
-        <button
-          type="button"
-          className="ui-row-del"
-          title={shape === "feed" ? "Delete event" : "Delete row"}
-          aria-label={shape === "feed" ? `Delete event ${ri + 1}` : `Delete row ${ri + 1}`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            edit.removeRow(ri);
-          }}
-        >
-          ×
-        </button>
-      ) : null;
+      addHost ? <span className="ui-row-probe" data-ri={ri} data-noun={shape === "feed" ? "event" : "row"} hidden /> : null;
 
     if (shape === "table" || columns.length === 0) {
       return (
@@ -2685,6 +2741,41 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   // list's buttons placed "above" share that line, on their chosen side.
   const aboveTitle = headerEl && !headerInline ? headerEl : null;
   const aboveButtons = cmp.type === "list" ? byType("button").filter((b) => b.data?.placement === "above") : [];
+  const rowDelControl =
+    rowHover && addHost && edit
+      ? createPortal(
+          <div
+            className="ui-row-del"
+            style={{ top: rowHover.top }}
+            onPointerEnter={() => {
+              window.clearTimeout(rowHideTimer.current);
+              rowHoverEl.current?.setAttribute("data-row-del-hot", "");
+            }}
+            onPointerLeave={() => {
+              rowHoverEl.current?.removeAttribute("data-row-del-hot");
+              rowHideTimer.current = window.setTimeout(() => setRowHover(null), 300);
+            }}
+          >
+            <button
+              type="button"
+              className="ui-add"
+              title={`Delete ${rowHover.noun}`}
+              aria-label={`Delete ${rowHover.noun} ${rowHover.ri + 1}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                rowHoverEl.current?.removeAttribute("data-row-del-hot");
+                rowHoverEl.current = null;
+                setRowHover(null);
+                edit.removeRow(rowHover.ri, shownRows.current());
+              }}
+            >
+              ×
+            </button>
+          </div>,
+          addHost,
+        )
+      : null;
   if (aboveTitle || aboveButtons.length) {
     return (
       <div className="ui-headed">
@@ -2693,10 +2784,17 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
           {listSides(aboveButtons, true)}
         </div>
         {body}
+        {rowDelControl}
       </div>
     );
   }
-  return body;
+  // Always the same wrapper, so the control coming and going never remounts the body.
+  return (
+    <>
+      {body}
+      {rowDelControl}
+    </>
+  );
 }
 
 const sameView = (view: string, shape: string): boolean => view.trim().toLowerCase().startsWith(shape === "day" ? "day" : shape);

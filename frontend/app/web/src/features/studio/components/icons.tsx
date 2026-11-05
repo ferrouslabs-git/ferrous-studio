@@ -58,6 +58,14 @@ export const NAV_ICON_MARKS = {
   shield: navSvg(<path d="M8 1.5 13.5 3.5v4.25c0 3.4-2.2 5.75-5.5 6.75-3.3-1-5.5-3.35-5.5-6.75V3.5L8 1.5Z" />),
   settings: navSvg(<><path d="M2 4h6.9M12.1 4H14M2 8h.9M6.1 8H14M2 12h4.9M10.1 12H14" /><circle cx="10.5" cy="4" r="1.6" /><circle cx="4.5" cy="8" r="1.6" /><circle cx="8.5" cy="12" r="1.6" /></>),
   help: navSvg(<><circle cx="8" cy="8" r="6" /><path d="M6.3 6.3A1.7 1.7 0 1 1 8 8.3v.9M8 11.4v.1" /></>),
+  "arrow-up": navSvg(<path d="M8 13.5v-11M3.5 7 8 2.5 12.5 7" />),
+  "arrow-down": navSvg(<path d="M8 2.5v11M3.5 9 8 13.5 12.5 9" />),
+  "arrow-left": navSvg(<path d="M13.5 8h-11M7 3.5 2.5 8 7 12.5" />),
+  "arrow-right": navSvg(<path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" />),
+  "chevron-up": navSvg(<path d="m3.5 10.25 4.5-4.5 4.5 4.5" />),
+  "chevron-down": navSvg(<path d="m3.5 5.75 4.5 4.5 4.5-4.5" />),
+  "chevron-left": navSvg(<path d="m10.25 3.5-4.5 4.5 4.5 4.5" />),
+  "chevron-right": navSvg(<path d="m5.75 3.5 4.5 4.5-4.5 4.5" />),
 } satisfies Record<NavIcon, ReactNode>;
 
 /** The glyph for a stored `data.icon` name; null for uploads, strays and unset. */

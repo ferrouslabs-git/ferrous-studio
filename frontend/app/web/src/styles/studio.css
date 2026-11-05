@@ -138,8 +138,9 @@
 .canvas-wrap {
   --mat: #E7EAEE;
   --mat-line: rgba(27,32,39,.05);
-  /* The top gutter fits a component toolbar over the page's top edge. */
-  padding: 44px 16px 16px;
+  /* The top gutter fits a component toolbar over the page's top edge; the
+     right one fits a list's row delete control beside the page's right edge. */
+  padding: 44px 44px 16px 16px;
   position: relative;
   background-color: var(--mat);
   background-image:
@@ -481,6 +482,9 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   box-shadow: 0 0 0 2px var(--edit-accent-soft), inset 0 1px 3px var(--sunken);
 }
 .inline-edit-input:focus { outline: none; box-shadow: 0 0 0 2px var(--edit-accent-soft); }
+.inline-edit-input.multi { display: block; min-height: 48px; padding: 4px 6px; line-height: 1.45; resize: none; }
+/* Multi-line body text keeps its line breaks and wraps within its box. */
+.ui-edit.multi { white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
 
 /* "+" affordances: dashed chips inside the floating add cluster below.
    Viewers never get them. */
@@ -1523,13 +1527,19 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .lib-chip svg { flex-shrink: 0; color: var(--orange-ink); }
 /* Fallback for a type without a drawn glyph (a custom component's code). */
 .lib-chip-code { font: 600 8.5px var(--font-mono); letter-spacing: .04em; color: var(--orange-ink); }
-/* The element bar groups its shapes under their type (FS-REQ-84). */
-.lib-group-tag {
-  font: 600 9px var(--font-mono); text-transform: uppercase; letter-spacing: .08em;
-  color: var(--text-mute); flex-shrink: 0; white-space: nowrap;
-  padding: 0 4px 0 10px; margin-left: 6px; border-left: 1px solid var(--border);
+/* The element bar shows one chip per element type (FS-REQ-84); its shapes
+   open in a menu above the chip — on hover, or pinned by a click. Fixed to
+   the viewport so the strip's horizontal scroll box cannot clip it. */
+.lib-type { cursor: pointer; }
+.lib-type-caret { font-size: 8px; color: var(--text-mute); margin-left: -1px; }
+.lib-type.open { background: var(--mute-soft); color: var(--text); }
+.lib-type.pinned { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.lib-shape-menu {
+  position: fixed; z-index: 60;
+  display: flex; flex-wrap: wrap; gap: 1px; max-width: min(520px, calc(100vw - 16px));
+  padding: 4px; border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow);
 }
-.lib-group-tag:first-child { margin-left: 0; border-left: 0; padding-left: 2px; }
 
 /* A component highlighted as the target of an element drag. The ring rides
    the same ::after overlay as hover/selection, for the same reason. */
@@ -1611,23 +1621,21 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-badge.ui-cell-link:hover { text-decoration: underline; filter: brightness(.95); }
 .ui-td-actions .ui-btn { margin-left: 6px; }
 
-/* Deleting a sample record (FS-REQ-87): a round × at the end of the hovered
-   row, card or feed entry. In a table it lives in a zero-width trailing cell
-   and overlays the row's end, so the columns never shift for it. */
+/* Deleting a sample record (FS-REQ-87): editor chrome in the add cluster's
+   style, drawn on the mat just right of the list at the hovered row's middle
+   (positioned from the .cmp-adds anchor at the list's right edge). Hovering
+   it outlines the row it will delete. Rows keep only a hidden probe; in a
+   table that sits in a zero-width trailing cell so the columns never shift. */
 .ui-row-del {
-  position: absolute; top: 50%; right: 4px; transform: translateY(-50%); z-index: 2;
-  width: 20px; height: 20px; padding: 0; border-radius: 50%;
-  display: grid; place-items: center;
-  border: 1px solid var(--border); background: var(--panel); color: var(--text-dim);
-  font: 600 13px/1 var(--font-ui, inherit); cursor: pointer;
-  opacity: 0; pointer-events: none; transition: opacity .12s;
+  position: absolute; left: 6px; transform: translateY(-50%); width: max-content;
+  display: flex; padding: 3px;
+  border-radius: var(--radius-lg);
+  background: var(--chrome-panel); border: 1px solid var(--chrome-line); box-shadow: var(--shadow);
 }
-:is(.ui-table tbody tr, .ui-feed li, .ui-rowitem, .ui-card-item):hover .ui-row-del,
-.ui-row-del:focus-visible { opacity: 1; pointer-events: auto; }
-.ui-row-del:hover { color: var(--bad); border-color: var(--bad); }
-.ui-table .ui-td-del { width: 0; padding: 0; border: 0; position: relative; }
+.ui-row-del .ui-add:hover { border-color: var(--bad); color: var(--bad); }
+.ui-table .ui-td-del { width: 0; padding: 0; border: 0; }
 .ui-feed li, .ui-rowitem, .ui-card-item { position: relative; }
-.ui-card-item > .ui-row-del { top: 6px; right: 6px; transform: none; }
+[data-row-del-hot] { outline: 2px dashed var(--bad); outline-offset: -2px; }
 
 /* List shape: cards. */
 .ui-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
@@ -2176,8 +2184,10 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
   position: relative; display: flex; align-items: center; justify-content: center; box-sizing: border-box;
   width: 100%; height: 100%; min-width: 80px; min-height: 80px;
 }
-.ui-shape.square { border: 1.5px solid currentColor; }
-.ui-shape.circle { border: 1.5px solid currentColor; border-radius: 50%; }
+/* Shapes are solid, with no outline: a background colour sets the fill, and
+   unset they take a neutral grey so they stay visible. */
+.ui-shape.square { background: var(--border-strong); }
+.ui-shape.circle { background: var(--border-strong); border-radius: 50%; }
 .ui-shape-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .ui-shape.triangle .ui-shape-text { position: relative; margin-top: 30%; }
 .ui-shape.line { min-width: 120px; min-height: 12px; }

@@ -1,11 +1,11 @@
 // The library as two slim strips instead of a side panel. The component bar
 // rides under the top bar and offers every catalogue component; the element
 // bar keeps a permanent row under the canvas and fills with the vocabulary of
-// whichever catalogue component is selected, its shapes grouped under their
-// element type (FS-REQ-84). Each entry is a chip — an icon and a short name —
+// whichever catalogue component is selected: one chip per element type, its
+// shapes in a menu that opens from the chip (FS-REQ-84). Each entry is a chip — an icon and a short name —
 // click to add, or drag onto the canvas. The full label and description live
 // in the chip's tooltip.
-import { Fragment, ReactNode } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { COMPONENTS, elementGroups } from "../catalog";
 import { DragPayload, setPayload } from "./dnd";
 import { LIB_ICONS } from "./icons";
@@ -127,6 +127,12 @@ export function ComponentBar({ canWrite, onAdd }: { canWrite: boolean; onAdd(typ
   );
 }
 
+/** The chip that stands for a whole type: the glyph of its most typical
+ *  shape, else its first. */
+const GROUP_ICON: Record<string, string> = {
+  text: "heading", input: "text-input", action: "button", ui: "badge", image: "image", basic: "square",
+};
+
 export function ElementBar({
   cmpType, canWrite, onAdd, recipeDisabled, onRunRecipe,
 }: {
@@ -140,7 +146,40 @@ export function ElementBar({
 }) {
   const meta = cmpType ? COMPONENTS[cmpType] : null;
   const recipes = meta ? RECIPES.filter((r) => r.hostType === meta.type) : [];
+  const groups = meta ? elementGroups(meta.type) : [];
+  // The ribbon names only the types (FS-REQ-84 review); a type's shapes open
+  // in a menu above its chip — on hover, or pinned open by a click until a
+  // click lands anywhere else.
+  const [open, setOpen] = useState<{ id: string; left: number; bottom: number; pinned: boolean } | null>(null);
+  const hideTimer = useRef<number | undefined>(undefined);
+  const dragging = useRef(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const openFor = (id: string, chip: HTMLElement, pinned: boolean) => {
+    window.clearTimeout(hideTimer.current);
+    const r = chip.getBoundingClientRect();
+    setOpen({ id, left: r.left, bottom: window.innerHeight - r.top + 4, pinned });
+  };
+  const hideSoon = () => {
+    window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => {
+      if (!dragging.current) setOpen((o) => (o?.pinned ? o : null));
+    }, 200);
+  };
+  useEffect(() => () => window.clearTimeout(hideTimer.current), []);
+  // A selection change swaps the vocabulary: whatever was open goes with it.
+  useEffect(() => setOpen(null), [cmpType]);
+  useEffect(() => {
+    if (!open?.pinned) return;
+    const away = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (menuRef.current?.contains(t) || t?.closest?.(`[data-el-group="${open.id}"]`)) return;
+      setOpen(null);
+    };
+    document.addEventListener("pointerdown", away, true);
+    return () => document.removeEventListener("pointerdown", away, true);
+  }, [open?.pinned, open?.id]);
   if (!canWrite) return null;
+  const shown = open ? groups.find((g) => g.id === open.id) : undefined;
   // The row is always in the layout so the canvas keeps its height — selecting
   // and deselecting must not reflow the page. Without a selection the strip
   // sits empty under its bare tag.
@@ -148,24 +187,71 @@ export function ElementBar({
     <div className="lib-bar el-bar">
       <span className="lib-bar-tag">{meta ? `${SHORT_NAMES[meta.type] ?? meta.label} elements` : "Elements"}</span>
       <BarScroll>
-        {meta &&
-          elementGroups(meta.type).map((g) => (
-            <Fragment key={g.id}>
-              <span className="lib-group-tag">{g.label}</span>
-              {g.shapes.map((e) => (
-                <Chip
-                  key={e.type}
-                  type={e.type}
-                  label={e.label}
-                  desc={e.desc}
-                  fallback={e.icon}
-                  drag={{ kind: "element", type: e.type }}
-                  onClick={() => onAdd(e.type)}
-                />
-              ))}
-            </Fragment>
-          ))}
+        {groups.map((g) => {
+          const icon = LIB_ICONS[GROUP_ICON[g.id] ?? ""] ?? LIB_ICONS[g.shapes[0].type];
+          const isOpen = open?.id === g.id;
+          return (
+            <button
+              key={g.id}
+              type="button"
+              className={`lib-chip lib-type${isOpen ? " open" : ""}${isOpen && open.pinned ? " pinned" : ""}`}
+              data-el-group={g.id}
+              aria-haspopup="menu"
+              aria-expanded={isOpen}
+              onPointerEnter={(e) => {
+                if (open?.pinned && open.id !== g.id) return;
+                if (!open?.pinned) openFor(g.id, e.currentTarget, false);
+              }}
+              onPointerLeave={() => {
+                if (!open?.pinned) hideSoon();
+              }}
+              onClick={(e) => {
+                if (isOpen && open.pinned) setOpen(null);
+                else openFor(g.id, e.currentTarget, true);
+              }}
+            >
+              {icon ?? <span className="lib-chip-code">{g.label.slice(0, 2).toUpperCase()}</span>}
+              <span className="lib-chip-name">{g.label}</span>
+              <span className="lib-type-caret" aria-hidden>▴</span>
+            </button>
+          );
+        })}
       </BarScroll>
+      {open && shown && (
+        <div
+          ref={menuRef}
+          className="lib-shape-menu"
+          role="menu"
+          aria-label={`${shown.label} shapes`}
+          style={{ left: open.left, bottom: open.bottom }}
+          onPointerEnter={() => window.clearTimeout(hideTimer.current)}
+          onPointerLeave={() => {
+            if (!open.pinned) hideSoon();
+          }}
+          onDragStart={() => {
+            dragging.current = true;
+          }}
+          onDragEnd={() => {
+            dragging.current = false;
+            if (!open.pinned) setOpen(null);
+          }}
+        >
+          {shown.shapes.map((e) => (
+            <Chip
+              key={e.type}
+              type={e.type}
+              label={e.label}
+              desc={e.desc}
+              fallback={e.icon}
+              drag={{ kind: "element", type: e.type }}
+              onClick={() => {
+                onAdd(e.type);
+                if (!open.pinned) setOpen(null);
+              }}
+            />
+          ))}
+        </div>
+      )}
       {/* Pinned outside the scrolling strip: a recipe builds the whole pattern,
           so it must not be the thing that scrolls out of sight. */}
       {recipes.length > 0 && (

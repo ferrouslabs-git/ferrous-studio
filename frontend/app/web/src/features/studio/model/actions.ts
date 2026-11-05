@@ -892,8 +892,19 @@ export function addListRow(draft: Draft, _ctx: ActionContext, id: string): Actio
 
 /** Delete one sample record (FS-REQ-87). A list that never had its rows
  *  written renders the type's default records, so those are materialised
- *  first — deleting the second of three leaves two, not none. */
-export function removeListRow(draft: Draft, _ctx: ActionContext, id: string, rowIndex: number): ActionResult | void {
+ *  first — deleting the second of three leaves two, not none. Cells without
+ *  a value of their own show samples picked by row position, so the rows
+ *  after the deleted one would each take the next row's samples (deleting
+ *  the first row would look like deleting the last); `shown` — what each row
+ *  displays now — is frozen into those rows first. Rows before it keep
+ *  their positions and stay live. */
+export function removeListRow(
+  draft: Draft,
+  _ctx: ActionContext,
+  id: string,
+  rowIndex: number,
+  shown: readonly Record<string, string>[] = [],
+): ActionResult | void {
   const cmp = cmpById(draft, id);
   if (!cmp || rowIndex < 0) return;
   const props = ensureProps(cmp);
@@ -903,6 +914,7 @@ export function removeListRow(draft: Draft, _ctx: ActionContext, id: string, row
   }
   const rows = props.rows as RowRecord[];
   if (rowIndex >= rows.length) return;
+  for (let i = rowIndex + 1; i < rows.length; i++) rows[i] = { ...shown[i], ...rows[i] };
   rows.splice(rowIndex, 1);
   return { selectCmpId: id };
 }

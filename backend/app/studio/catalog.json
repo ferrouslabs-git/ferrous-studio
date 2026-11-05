@@ -470,7 +470,7 @@
           "fillable": true
         },
         "text-area": {
-          "group": "text",
+          "group": "input",
           "fields": [
             "placeholder"
           ],
@@ -686,15 +686,6 @@
           "variantable": false,
           "fillable": false
         },
-        "text-area": {
-          "group": "text",
-          "fields": [
-            "placeholder"
-          ],
-          "max": null,
-          "variantable": true,
-          "fillable": true
-        },
         "label": {
           "group": "text",
           "fields": [],
@@ -713,6 +704,15 @@
           "group": "input",
           "fields": [
             "kind",
+            "placeholder"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "text-area": {
+          "group": "input",
+          "fields": [
             "placeholder"
           ],
           "max": null,
@@ -1054,6 +1054,14 @@
     "key",
     "shield",
     "settings",
-    "help"
+    "help",
+    "arrow-up",
+    "arrow-down",
+    "arrow-left",
+    "arrow-right",
+    "chevron-up",
+    "chevron-down",
+    "chevron-left",
+    "chevron-right"
   ]
 }

@@ -609,6 +609,23 @@ describe("list rows", () => {
     expect(listOf(p)[0].props?.rows).toEqual([{}, {}]);
   });
 
+  it("removeListRow freezes the shown samples of the rows that move up", () => {
+    // Samples are picked by row position: without the freeze, deleting the
+    // first of three sample rows would look like deleting the last.
+    const p = page([list()]);
+    const shown = [{ c1: "Ada" }, { c1: "Grace" }, { c1: "Linus" }];
+    removeListRow(p, ctx, "l", 0, shown);
+    expect(listOf(p)[0].props?.rows).toEqual([{ c1: "Grace" }, { c1: "Linus" }]);
+    // Rows before the deleted one keep their positions, so they stay live;
+    // a row's own value always beats the shown sample.
+    const q = page([list([{}, { c1: "Own" }, {}])]);
+    removeListRow(q, ctx, "l", 0, [{ c1: "s0" }, { c1: "Own" }, { c1: "s2" }]);
+    expect(listOf(q)[0].props?.rows).toEqual([{ c1: "Own" }, { c1: "s2" }]);
+    const r = page([list([{}, {}, {}])]);
+    removeListRow(r, ctx, "l", 1, [{ c1: "s0" }, { c1: "s1" }, { c1: "s2" }]);
+    expect(listOf(r)[0].props?.rows).toEqual([{}, { c1: "s2" }]);
+  });
+
   it("a row delete diffs to ops that undo cleanly", () => {
     const before = page([list([{ c1: "Ada" }, { c1: "Grace" }])]);
     const after = produce(before, (d) => {

@@ -78,6 +78,8 @@ export const NAV_ICONS = [
   "image", "cart", "card", "briefcase", "building", "book",
   "clipboard", "bookmark", "cloud", "download", "lock", "key",
   "shield", "settings", "help",
+  "arrow-up", "arrow-down", "arrow-left", "arrow-right",
+  "chevron-up", "chevron-down", "chevron-left", "chevron-right",
 ] as const;
 export type NavIcon = (typeof NAV_ICONS)[number];
 
@@ -137,10 +139,10 @@ export type ElementGroupId = (typeof ELEMENT_GROUPS)[number]["id"];
  *  shape it did not have). */
 export const ELEMENT_GROUP_OF: Record<string, ElementGroupId> = {
   // Text
-  heading: "text", text: "text", "text-area": "text", label: "text", search: "text",
+  heading: "text", text: "text", label: "text", search: "text",
   header: "text", "group-heading": "text", "section-heading": "text", "help-text": "text",
   // Input
-  "text-input": "input", select: "input", "multi-select": "input", "date-picker": "input",
+  "text-input": "input", "text-area": "input", select: "input", "multi-select": "input", "date-picker": "input",
   "date-time": "input", "radio-group": "input", checkbox: "input", toggle: "input",
   "read-only": "input", "file-upload": "input", slider: "input",
   filter: "input", "filter-multi": "input", "filter-multi-search": "input", "select-column": "input",
@@ -506,8 +508,8 @@ const LIST_BUTTON = el({
 
 /** The canvas's vocabulary: every type with all its shapes. */
 const CANVAS_ELEMENTS: ElementTypeMeta[] = [
-  HEADING, TEXT, TEXT_AREA, LABEL, SEARCH,
-  TEXT_INPUT, SELECT, MULTI_SELECT, DATE_PICKER, DATE_TIME, RADIO_GROUP, CHECKBOX, TOGGLE, READ_ONLY, FILE_UPLOAD, SLIDER,
+  HEADING, TEXT, LABEL, SEARCH,
+  TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, DATE_PICKER, DATE_TIME, RADIO_GROUP, CHECKBOX, TOGGLE, READ_ONLY, FILE_UPLOAD, SLIDER,
   LINK, BUTTON,
   BADGE, BOX, DIVIDER, PAGINATION,
   IMAGE, ICON,

@@ -1216,7 +1216,7 @@ function StudioEditor() {
     addElement: (type) => addElementTo(id, type),
     removeElement: (elId) => runCmp(id, (d, c) => A.removeElement(d, c, id, elId)),
     addRow: () => runCmp(id, (d, c) => A.addListRow(d, c, id)),
-    removeRow: (row) => runCmp(id, (d, c) => A.removeListRow(d, c, id, row)),
+    removeRow: (row, shown) => runCmp(id, (d, c) => A.removeListRow(d, c, id, row, shown)),
     setListCell: (row, columnId, text) => runCmp(id, (d, c) => A.setListCell(d, c, id, row, columnId, text)),
     // One commit for the whole batch: a multi-selection drag undoes as one.
     moveElementsTo: (moves, props) =>
