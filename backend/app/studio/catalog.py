@@ -20,10 +20,22 @@ CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
 @dataclass(frozen=True)
 class ElementCatalog:
+    #: The element's type (FS-REQ-84): text, input, action, ui, image or
+    #: basic. The element's own id is its shape.
+    group: str
     fields: frozenset[str]
     max: int | None
-    shapeable: bool
+    variantable: bool
     fillable: bool
+
+
+@dataclass(frozen=True)
+class ElementRemap:
+    """What an element of a shape its host withdrew becomes (FS-REQ-84)."""
+
+    type: str
+    rename: dict[str, str]
+    data: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -45,6 +57,12 @@ class Catalog:
     #: for a diagram node the bundle left ungeometried.
     uml_node_defaults: dict[str, tuple[int, int]]
     components: dict[str, ComponentCatalog]
+    #: host -> old shape -> remap, or None where the element is dropped.
+    retired_elements: dict[str, dict[str, ElementRemap | None]]
+    #: element data keys renamed in every host (old -> new).
+    renamed_element_data: dict[str, str]
+    #: the icon library's names (an icon element's data.icon).
+    icons: frozenset[str]
 
     def component(self, component_type: str) -> ComponentCatalog | None:
         return self.components.get(component_type)
@@ -52,6 +70,14 @@ class Catalog:
     def element(self, component_type: str, element_type: str) -> ElementCatalog | None:
         component = self.components.get(component_type)
         return component.elements.get(element_type) if component else None
+
+    def any_element(self, element_type: str) -> ElementCatalog | None:
+        """A shape's entry from whichever host has it -- for an element whose
+        own host withdrew its shape (see retired_elements)."""
+        for component in self.components.values():
+            if element_type in component.elements:
+                return component.elements[element_type]
+        return None
 
 
 def _parse(raw: dict[str, Any]) -> Catalog:
@@ -61,9 +87,10 @@ def _parse(raw: dict[str, Any]) -> Catalog:
             layouts=frozenset(meta["layouts"]),
             elements={
                 el_type: ElementCatalog(
+                    group=el["group"],
                     fields=frozenset(el["fields"]),
                     max=el["max"],
-                    shapeable=el["shapeable"],
+                    variantable=el["variantable"],
                     fillable=el["fillable"],
                 )
                 for el_type, el in meta["elements"].items()
@@ -80,7 +107,123 @@ def _parse(raw: dict[str, Any]) -> Catalog:
         uml_edge_types=frozenset(raw["umlEdgeTypes"]),
         uml_node_defaults={t: (d["w"], d["h"]) for t, d in raw["umlNodeDefaults"].items()},
         components=components,
+        retired_elements={
+            host: {
+                old: (
+                    ElementRemap(
+                        type=remap["type"],
+                        rename=dict(remap.get("rename") or {}),
+                        data=dict(remap.get("data") or {}),
+                    )
+                    if remap
+                    else None
+                )
+                for old, remap in table.items()
+            }
+            for host, table in raw.get("retiredElements", {}).items()
+        },
+        renamed_element_data=dict(raw.get("renamedElementData", {})),
+        icons=frozenset(raw.get("icons", [])),
     )
+
+
+# ── Element migration (FS-REQ-84) ────────────────────────────────────────
+# Shared by the importer (before validating a bundle) and the wireframe
+# export (so what an agent reads back is already in today's scheme).
+
+
+def _own_data_keys(meta: ElementCatalog | None) -> set[str]:
+    """The data keys a shape owns: its fields, plus variant/fill where
+    offered. Placement and styling keys belong to no shape."""
+    if meta is None:
+        return set()
+    keys = set(meta.fields)
+    if meta.variantable:
+        keys.add("variant")
+    if meta.fillable:
+        keys.add("fill")
+    return keys
+
+
+def _first_of_list(value: Any) -> str:
+    if isinstance(value, list):
+        return str(value[0] if value else "").strip()
+    return str(value if value is not None else "").split(",")[0].strip()
+
+
+def _remap_element(element: dict[str, Any], host: str, catalog: Catalog) -> bool:
+    """The importer's copy of the frontend's read-time element migration
+    (model/migrate.ts remapElement, FS-REQ-84), driven by the same
+    catalog.json tables: renamed data keys (data.shape -> data.variant), and
+    an element of a shape its host withdrew becomes the mapped shape. Mutates
+    ``element``; False means drop it."""
+    data = element.get("data")
+    if isinstance(data, dict):
+        for old, new in catalog.renamed_element_data.items():
+            if old in data:
+                data.setdefault(new, data[old])
+                del data[old]
+    el_type = element.get("type")
+    table = catalog.retired_elements.get(host, {})
+    if not isinstance(el_type, str) or el_type not in table:
+        return True
+    remap = table[el_type]
+    target = catalog.element(host, remap.type) if remap else None
+    if remap is None or target is None:
+        return False
+    from_keys = _own_data_keys(catalog.any_element(el_type))
+    to_keys = _own_data_keys(target)
+    out: dict[str, Any] = {}
+    for key, value in (data if isinstance(data, dict) else {}).items():
+        if key in remap.rename:
+            out[remap.rename[key]] = _first_of_list(value)
+        elif key not in from_keys or key in to_keys:
+            out[key] = value
+    out.update(remap.data)
+    out = {k: v for k, v in out.items() if v != ""}
+    element["type"] = remap.type
+    if out:
+        element["data"] = out
+    else:
+        element.pop("data", None)
+    return True
+
+
+def normalise_legacy_elements(pages: Any, catalog: Catalog) -> None:
+    """Carry export-shaped pages written before FS-REQ-84 across to today's
+    element scheme, in place -- so a wireframe exported earlier (or read back
+    through get_wireframe, which exports what is stored) re-imports cleanly.
+    Applied before validation; anything malformed is left for the validator
+    to report."""
+    if not isinstance(pages, list):
+        return
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        for child in node.get("children") or []:
+            walk(child)
+        for component in node.get("components") or []:
+            if not isinstance(component, dict) or not isinstance(component.get("elements"), list):
+                continue
+            host = component.get("type")
+            if not isinstance(host, str) or catalog.component(host) is None:
+                continue
+            kept = [e for e in component["elements"] if not isinstance(e, dict) or _remap_element(e, host, catalog)]
+            if len(kept) != len(component["elements"]):
+                dropped = {e.get("id") for e in component["elements"] if isinstance(e, dict) and e not in kept}
+                component["elements"] = kept
+                # A link keyed by a dropped element has nothing left to address.
+                props = component.get("props")
+                links = props.get("links") if isinstance(props, dict) else None
+                if isinstance(links, dict):
+                    for element_id in dropped:
+                        links.pop(element_id, None)
+                        links.pop(f"el:{element_id}", None)
+
+    for page in pages:
+        if isinstance(page, dict):
+            walk(page.get("layout"))
 
 
 @lru_cache(maxsize=1)
@@ -122,6 +265,28 @@ COMPONENT_HINTS = {
 }
 
 
+#: On-screen names of the element types (FS-REQ-84), in their order.
+ELEMENT_GROUP_LABELS = {
+    "text": "Text",
+    "input": "Input",
+    "action": "Action",
+    "ui": "UI element",
+    "image": "Image",
+    "basic": "Basic",
+}
+
+
+def _elements_by_type(component: ComponentCatalog) -> str:
+    """A component's element ids grouped under their type, e.g.
+    "Text (heading, label) / Action (button)"."""
+    parts = []
+    for group, label in ELEMENT_GROUP_LABELS.items():
+        ids = sorted(el_type for el_type, el in component.elements.items() if el.group == group)
+        if ids:
+            parts.append(f"{label} ({', '.join(ids)})")
+    return " / ".join(parts)
+
+
 def catalogue_reference() -> str:
     """The bundle format's component vocabulary, generated from the real
     catalogue rather than hand-copied into the prompt -- this can never
@@ -134,9 +299,17 @@ def catalogue_reference() -> str:
             continue
         shapes = ", ".join(sorted(component.shapes))
         layouts = ", ".join(sorted(component.layouts))
-        elements = ", ".join(sorted(component.elements))
+        elements = _elements_by_type(component)
         lines.append(f"- {name} -- shapes: {shapes}. layouts: {layouts}. elements: {elements}. Use for: {hint}.")
     lines.append("")
+    lines.append(
+        "Every element is a SHAPE of one of six element TYPES -- Text, Input, Action, UI element, Image, "
+        "Basic. An element's \"type\" field holds its shape id, as listed per component above (the "
+        "element type in brackets is implied by the id, never written). Where an element supports it, "
+        'data.variant picks its corners: square, rounded or pill (data.fill: filled, outline or ghost). '
+        "A canvas places any of its elements freely with data.x/data.y (and data.w/data.h). Canvas "
+        "icon: data.icon names a library icon -- one of: " + ", ".join(sorted(catalog.icons)) + "."
+    )
     lines.append(f'Column element data.kind: {", ".join(sorted(catalog.data_kinds))}.')
     lines.append(f'Text-input element data.kind (a smaller, different list): {", ".join(sorted(catalog.input_kinds))}.')
     lines.append(

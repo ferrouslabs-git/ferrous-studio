@@ -10,7 +10,7 @@
 // modal and footer were withdrawn from the vocabulary altogether
 // (2026-09-03), so nothing migrates to them — normalizePage drops any
 // instance still stored (see RETIRED_TYPES).
-import { COMPONENTS, ElementSeed } from "../catalog";
+import { anyElementMeta, COMPONENTS, elementMeta, ElementSeed, ElementTypeMeta, RENAMED_ELEMENT_DATA, RETIRED_ELEMENTS } from "../catalog";
 import type { LinksProp } from "./actions";
 import { byPos, posAtIndex, reposition } from "./positions";
 import { makeElement } from "./regions";
@@ -297,6 +297,62 @@ function pruneDanglingLinks(cmp: ComponentNode): void {
   if (!Object.keys(links).length) delete cmp.props!.links;
 }
 
+/** The data keys a shape owns: its fields, plus variant/fill where offered.
+ *  Placement and styling keys (x, y, w, h, bg, font…) belong to no shape and
+ *  always travel with the element. */
+const ownDataKeys = (meta: ElementTypeMeta | null): Set<string> =>
+  new Set([
+    ...(meta?.dataFields.map((f) => f.key) ?? []),
+    ...(meta?.variantable ? ["variant"] : []),
+    ...(meta?.fillable ? ["fill"] : []),
+  ]);
+
+/** A comma list's first entry (or an imported array's): a renamed list value
+ *  lands in a single-value field. */
+const firstOfList = (v: unknown): string =>
+  Array.isArray(v) ? String(v[0] ?? "").trim() : String(v ?? "").split(",")[0].trim();
+
+/** FS-REQ-84, on every read (idempotent; mirrored by the backend importer
+ *  from catalog.json): the corner treatment moves from `data.shape` to
+ *  `data.variant`, and an element of a shape its host withdrew becomes the
+ *  shape RETIRED_ELEMENTS maps it to — keeping its id, label, position,
+ *  styling and links. Mutates `el`; false means drop it (no sensible
+ *  mapping). */
+export function remapElement(hostType: string, el: ElementNode): boolean {
+  if (el.data) {
+    for (const [from, to] of Object.entries(RENAMED_ELEMENT_DATA)) {
+      if (!(from in el.data)) continue;
+      if (!(to in el.data)) el.data[to] = el.data[from];
+      delete el.data[from];
+    }
+  }
+  const retired = RETIRED_ELEMENTS[hostType];
+  if (!retired || !Object.prototype.hasOwnProperty.call(retired, el.type)) return true;
+  const remap = retired[el.type];
+  const to = remap ? elementMeta(hostType, remap.type) : null;
+  if (!remap || !to) return false;
+  const fromKeys = ownDataKeys(anyElementMeta(el.type));
+  const toKeys = ownDataKeys(to);
+  const data: Record<string, string> = {};
+  for (const [key, value] of Object.entries(el.data ?? {})) {
+    const renamed = remap.rename?.[key];
+    if (renamed) data[renamed] = firstOfList(value);
+    else if (!fromKeys.has(key) || toKeys.has(key)) data[key] = value;
+  }
+  Object.assign(data, remap.data);
+  for (const [key, value] of Object.entries(data)) if (value === "") delete data[key];
+  el.type = remap.type;
+  if (Object.keys(data).length) el.data = data;
+  else delete el.data;
+  return true;
+}
+
+function migrateElements(cmp: ComponentNode): void {
+  if (!COMPONENTS[cmp.type] || !cmp.elements?.length) return;
+  const kept = cmp.elements.filter((el) => remapElement(cmp.type, el));
+  if (kept.length !== cmp.elements.length) cmp.elements = kept;
+}
+
 /** Convert one component in place. Safe to call on anything: already-migrated
  *  components (shape set), custom blocks and unknown types are left alone. */
 export function migrateComponent(cmp: ComponentNode): void {
@@ -308,8 +364,9 @@ export function migrateComponent(cmp: ComponentNode): void {
   }
   if (cmp.shape === undefined) migrateShapeless(cmp);
   migrateHeader(cmp);
-  // After the header migration: a header element minted above must exist
-  // before its carried-over link is judged.
+  migrateElements(cmp);
+  // After the header and element migrations: a header element minted above
+  // must exist, and a dropped element must be gone, before links are judged.
   pruneDanglingLinks(cmp);
 }
 

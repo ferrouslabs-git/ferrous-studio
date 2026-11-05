@@ -8,7 +8,7 @@
 // the validator enforces.
 //
 // Only what the validator needs -- no labels, descriptions or icons.
-import { COMPONENTS, DATA_KINDS, RETIRED_TYPES } from "./catalog";
+import { COMPONENTS, DATA_KINDS, ElementRemap, NAV_ICONS, RENAMED_ELEMENT_DATA, RETIRED_ELEMENTS, RETIRED_TYPES } from "./catalog";
 import { PRESENTATION_LABELS } from "./model/types";
 import { EDGE_BY_TYPE, NODE_BY_TYPE } from "../diagrams/graph/umlTypes";
 
@@ -18,9 +18,12 @@ export interface NodeSizeMirror {
 }
 
 export interface CatalogElementMirror {
+  /** The element's type (FS-REQ-84: text, input, action, ui, image, basic);
+   *  the element's own id is its shape. */
+  group: string;
   fields: string[];
   max: number | null;
-  shapeable: boolean;
+  variantable: boolean;
   fillable: boolean;
 }
 
@@ -43,6 +46,13 @@ export interface CatalogMirror {
    *  one of that type. */
   umlNodeDefaults: Record<string, NodeSizeMirror>;
   components: Record<string, CatalogComponentMirror>;
+  /** Element shapes a host withdrew, and what a stored/imported one becomes
+   *  (null: dropped). The importer applies these before validating. */
+  retiredElements: Record<string, Record<string, ElementRemap | null>>;
+  /** Element data keys renamed (old → new) in every host. */
+  renamedElementData: Record<string, string>;
+  /** The icon library's names (an icon element's data.icon). */
+  icons: string[];
 }
 
 /** The "kind" field's own options on the form's text-input element -- the
@@ -59,9 +69,10 @@ export function buildCatalogMirror(): CatalogMirror {
     const elements: Record<string, CatalogElementMirror> = {};
     for (const el of meta.elements) {
       elements[el.type] = {
+        group: el.group,
         fields: el.dataFields.map((f) => f.key),
         max: el.max ?? null,
-        shapeable: !!el.shapeable,
+        variantable: !!el.variantable,
         fillable: !!el.fillable,
       };
     }
@@ -83,5 +94,8 @@ export function buildCatalogMirror(): CatalogMirror {
       Object.entries(NODE_BY_TYPE).map(([type, entry]) => [type, { w: entry.w, h: entry.h }]),
     ),
     components,
+    retiredElements: RETIRED_ELEMENTS,
+    renamedElementData: RENAMED_ELEMENT_DATA,
+    icons: [...NAV_ICONS],
   };
 }

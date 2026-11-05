@@ -8,7 +8,7 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
@@ -527,23 +527,48 @@ export function Inspector(props: Props) {
         {elementSel && selectedCmp && (
           <div className="insp-section">
             <h4>{elementNodeMeta ? `Element · ${elementNodeMeta.label}` : "Element"}</h4>
-            {elementNode && elementNodeMeta && (
-              <div className="field">
-                <label>Type</label>
-                <select
-                  value={elementNode.type}
-                  disabled={ro}
-                  onChange={(e) => props.onElementType(elementSel, e.target.value)}
-                >
-                  {elementTypeOptions(selectedCmp, elementNode.id).map((o) => (
-                    <option key={o.type} value={o.type} disabled={o.full}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {elementNode && elementNodeMeta && (() => {
+              // Type → shape (FS-REQ-84): changing the type moves to its first
+              // shape this component still has room for.
+              const groups = elementGroups(selectedCmp.type);
+              const full = new Set(elementTypeOptions(selectedCmp, elementNode.id).filter((o) => o.full).map((o) => o.type));
+              const shapes = groups.find((g) => g.id === elementNodeMeta.group)?.shapes ?? [];
+              return (
+                <>
+                  <div className="field">
+                    <label>Type</label>
+                    <select
+                      value={elementNodeMeta.group}
+                      disabled={ro}
+                      onChange={(e) => {
+                        const first = groups.find((g) => g.id === e.target.value)?.shapes.find((m) => !full.has(m.type));
+                        if (first) props.onElementType(elementSel, first.type);
+                      }}
+                    >
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id} disabled={g.shapes.every((m) => full.has(m.type))}>{g.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Shape</label>
+                    <select
+                      value={elementNode.type}
+                      disabled={ro}
+                      onChange={(e) => props.onElementType(elementSel, e.target.value)}
+                    >
+                      {shapes.map((m) => (
+                        <option key={m.type} value={m.type} disabled={full.has(m.type)}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              );
+            })()}
             {/* A nav bar dropdown has no visible text of its own (it reads
-                "Select" until a dataset gives it a value), so no Text field. */}
-            {!(elementNode?.type === "select" && selectedCmp.type === "navbar") && (
+                "Select" until a dataset gives it a value), and an icon or a
+                line draws none, so no Text field. */}
+            {!(elementNode?.type === "select" && selectedCmp.type === "navbar") && !elementNodeMeta?.noText && (
               <div className="field">
                 <label>Text</label>
                 <CommitInput
@@ -613,7 +638,13 @@ export function Inspector(props: Props) {
                 return (
                 <div className="field" key={f.key}>
                   <label>{f.label}</label>
-                  {f.kind === "logo" ? (
+                  {f.kind === "icon" ? (
+                    <IconPicker
+                      value={elementNode.data?.[f.key] ?? ""}
+                      onCommit={(v) => props.onElementData(elementSel, f.key, v)}
+                      disabled={ro}
+                    />
+                  ) : f.kind === "logo" ? (
                     <LogoField
                       value={elementNode.data?.[f.key] ?? ""}
                       onCommit={(v) => props.onElementData(elementSel, f.key, v)}
@@ -664,16 +695,16 @@ export function Inspector(props: Props) {
                     />
                   </div>
                 )}
-                {elementNodeMeta?.shapeable && (
+                {elementNodeMeta?.variantable && (
                   <div className="field">
-                    <label>Shape</label>
+                    <label>Variant</label>
                     <select
-                      value={elementNode.data?.shape ?? ""}
+                      value={elementNode.data?.variant ?? ""}
                       disabled={ro}
-                      onChange={(e) => props.onElementData(elementSel, "shape", e.target.value)}
+                      onChange={(e) => props.onElementData(elementSel, "variant", e.target.value)}
                     >
                       <option value="">Default</option>
-                      {EL_SHAPE_OPTIONS.map((s) => (
+                      {EL_VARIANT_OPTIONS.map((s) => (
                         <option key={s} value={s}>{cap(s)}</option>
                       ))}
                     </select>

@@ -30,7 +30,7 @@ from app.auth.database import get_db
 from app.auth.security.scope_context import ScopeContext
 
 from .audit import record_event
-from .catalog import BUNDLE_FORMAT_GUIDE, Catalog, get_catalog
+from .catalog import BUNDLE_FORMAT_GUIDE, Catalog, get_catalog, normalise_legacy_elements
 from .common import get_wireframe, get_writable_project, next_pos, require_studio_permission
 from .models import Dataset, Persona, Project, ProjectDiagram, UseCase, UseCaseActor, Wireframe, utc_now
 from .ops import BACK_PAGE_ID, remap_dataset_ids
@@ -183,8 +183,8 @@ def _validate_element(
         return
 
     allowed = set(meta.fields)
-    if meta.shapeable:
-        allowed.add("shape")
+    if meta.variantable:
+        allowed.add("variant")
     if meta.fillable:
         allowed.add("fill")
     if host_component_type == "canvas":
@@ -203,8 +203,23 @@ def _validate_element(
             errors.append(BundleError(f"{path}.data.kind", f'"{value}" is not a known data kind'))
         elif key == "kind" and el_type == "text-input" and value not in catalog.input_kinds:
             errors.append(BundleError(f"{path}.data.kind", f'"{value}" is not a known input kind'))
+        elif (
+            key == "icon"
+            and el_type == "icon"
+            and value not in catalog.icons
+            and not (isinstance(value, str) and value.startswith("data:image/"))
+        ):
+            errors.append(BundleError(f"{path}.data.icon", f'"{value}" is not an icon in the library'))
         elif key == "dataset" and value not in dataset_ids:
             errors.append(BundleError(f"{path}.data.dataset", f'"{value}" does not resolve to a dataset in this bundle'))
+
+
+def _normalise_bundle(bundle: Any, catalog: Catalog) -> None:
+    if not isinstance(bundle, dict):
+        return
+    for wireframe in bundle.get("wireframes") or []:
+        if isinstance(wireframe, dict):
+            normalise_legacy_elements(wireframe.get("pages"), catalog)
 
 
 def _validate_component(
@@ -814,6 +829,7 @@ async def create_bundle_content(
     """
     catalog = get_catalog()
     bundle = wrap_bare_envelope(payload)
+    _normalise_bundle(bundle, catalog)
     errors = validate_bundle(bundle, catalog)
     if errors:
         return {}, errors
@@ -892,6 +908,7 @@ async def update_wireframe_content(
 
     catalog = get_catalog()
     bundle = wrap_bare_envelope({"wireframes": [payload]})
+    _normalise_bundle(bundle, catalog)
     errors = validate_bundle(bundle, catalog)
     if errors:
         return {}, errors

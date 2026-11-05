@@ -11,7 +11,7 @@
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_SHAPE_OPTIONS, elementMeta, fontStack, formSpan, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, elementMeta, fontStack, formSpan, imageList, isFilterType, isMultiFilter, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
@@ -370,19 +370,19 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     const fs = Number.isFinite(v) && v > 0 ? { fontSize: v } : undefined;
     return base || fs ? ({ ...base, ...fs } as CSSProperties) : undefined;
   };
-  /** Corner-shape / fill classes (data.shape, data.fill) for the token or
+  /** Variant / fill classes (data.variant, data.fill) for the token or
    *  el-box; values are checked against the catalog's option lists so stray
    *  document data cannot mint arbitrary class names. An unset fill falls
    *  back to the type's `defaultFill` (input-like widgets read outline). */
   const variantCls = (el: ElementNode): string => {
-    const shape = el.data?.shape;
+    const variant = el.data?.variant;
     const raw = el.data?.fill;
     const fill =
       raw && (EL_FILL_OPTIONS as readonly string[]).includes(raw)
         ? raw
         : elementMeta(cmp.type, el.type)?.defaultFill;
     return (
-      (shape && (EL_SHAPE_OPTIONS as readonly string[]).includes(shape) ? ` el-shape-${shape}` : "") +
+      (variant && (EL_VARIANT_OPTIONS as readonly string[]).includes(variant) ? ` el-variant-${variant}` : "") +
       (fill ? ` el-fill-${fill}` : "")
     );
   };
@@ -857,7 +857,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "multi-select": return `Select ${n}…`;
       case "text-area": return `Add ${n}…`;
       case "file-upload": return "Drop a file here or browse";
-      case "date-picker": return "DD/MM/YYYY";
+      case "date-picker":
+      case "date-time": return "DD/MM/YYYY";
       default: return `Enter ${n}`;
     }
   };
@@ -879,6 +880,35 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             {dateToggle(el)}
             {openSelect === el.id && datePopover(el)}
           </>,
+        );
+      }
+      // A date picker with the time beside the day (FS-REQ-84).
+      case "date-time": {
+        const value = selectedValue(el);
+        return body(
+          `date${openSelect === el.id ? " open" : ""}`,
+          <>
+            {value ? <span className="ui-value">{formatDate(value)}</span> : <span className="ui-placeholder">{inputPlaceholder(el)}</span>}
+            <span className="ui-time">{dataTok(el, "time", "09:00")}</span>
+            {dateToggle(el)}
+            {openSelect === el.id && datePopover(el)}
+          </>,
+        );
+      }
+      // A value along a range: the track fills to it, the number reads it.
+      case "slider": {
+        const min = numberOf(el.data?.min, 0);
+        const max = numberOf(el.data?.max, 100);
+        const v = numberOf(el.data?.value, min);
+        const pct = max > min ? Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100)) : 0;
+        return (
+          <div className="ui-slider">
+            <span className="ui-slider-track" aria-hidden>
+              <span className="ui-slider-fill" style={{ width: `${pct}%` }} />
+              <span className="ui-slider-thumb" style={{ left: `${pct}%` }} />
+            </span>
+            {dataTok(el, "value", String(v), "ui-slider-value")}
+          </div>
         );
       }
       case "file-upload": return body("file");
@@ -968,6 +998,32 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               </>,
             );
       case "box": return elBox(el, "ui-box", elTok(el, "ui-box-cap"));
+      // An icon from the nav-icon library, or an uploaded mark (FS-REQ-84).
+      case "icon": {
+        const icon = el.data?.icon ?? "";
+        const mark = icon.startsWith("data:") ? <img src={icon} alt="" draggable={false} /> : navIconGlyph(icon);
+        return elBox(el, `ui-icon-el${mark ? "" : " empty"}`, mark);
+      }
+      // Basic shapes: plain geometry, stroked in the text colour and filled
+      // with the background; a square, circle or triangle may carry text.
+      case "line": return elBox(el, "ui-shape line", <span className="ui-shape-line" aria-hidden />);
+      case "square":
+      case "circle":
+        return elBox(el, `ui-shape ${el.type}`, el.label ? elTok(el, "ui-shape-text") : null);
+      case "triangle":
+        // The fill goes to the polygon, not the box (which would paint a
+        // rectangle behind it).
+        return elBox(
+          el,
+          "ui-shape triangle",
+          <>
+            <svg className="ui-shape-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+              <polygon points="50,3 97,97 3,97" fill={el.data?.bg || "none"} stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+            </svg>
+            {el.label ? elTok(el, "ui-shape-text") : null}
+          </>,
+          { background: "transparent" },
+        );
       case "divider": return elBox(el, "divider-box", <hr className="ui-divider" />);
       case "checkbox":
       case "toggle":
@@ -985,6 +1041,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "select":
       case "multi-select":
       case "date-picker":
+      case "date-time":
+      case "slider":
       case "read-only":
       case "file-upload":
         return elBox(

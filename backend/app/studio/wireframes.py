@@ -17,6 +17,7 @@ from app.auth.security import require_permission
 from app.auth.security.scope_context import ScopeContext
 
 from .audit import record_event, record_page_edit
+from .catalog import get_catalog, normalise_legacy_elements
 from .common import (
     FIRST_POS,
     SHELL_REGION_LABEL,
@@ -187,8 +188,17 @@ def assemble_wireframe_export(
         "userTypes": [{"id": str(a.id), "name": a.name, "description": a.description} for a in actors],
         "customComponents": project.custom_components or [],
         "datasets": datasets,
-        "pages": [export_page(str(p.id), state_of(p)) for p in sorted(pages, key=lambda p: p.pos)],
+        "pages": _current_scheme([export_page(str(p.id), state_of(p)) for p in sorted(pages, key=lambda p: p.pos)]),
     }
+
+
+def _current_scheme(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Exported pages in today's element scheme (FS-REQ-84): stored documents
+    are migrated lazily by the editor, so a page nobody has opened since can
+    still carry retired shapes or data.shape -- an agent reading it back must
+    not learn the old vocabulary from it."""
+    normalise_legacy_elements(pages, get_catalog())
+    return pages
 
 
 async def dataset_export_payload(db: AsyncSession, project: Project) -> list[dict[str, Any]]:

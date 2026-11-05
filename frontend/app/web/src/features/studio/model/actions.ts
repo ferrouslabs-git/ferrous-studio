@@ -804,7 +804,7 @@ export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, 
     const field = to.dataFields.find((f) => f.key === key);
     const keep =
       PORTABLE_DATA_KEYS.has(key) ||
-      (key === "shape" && to.shapeable) ||
+      (key === "variant" && to.variantable) ||
       (key === "fill" && to.fillable) ||
       (!!field && (field.kind !== "select" || (field.options ?? []).includes(value)));
     if (keep) data[key] = value;
@@ -819,7 +819,7 @@ export function setElementType(draft: Draft, ctx: ActionContext, cmpId: string, 
     const shown = picked ?? firstOf(old.options) ?? firstOf(old.samples);
     if (shown && to.dataFields.some((f) => f.key === "value") && !data.value) data.value = shown;
     // A pick moves between pickers, never into a date picker's ISO slot.
-    else if (picked && to.type !== "date-picker" && to.dataFields.some((f) => f.key === "selected") && !data.selected) data.selected = picked;
+    else if (picked && to.type !== "date-picker" && to.type !== "date-time" && to.dataFields.some((f) => f.key === "selected") && !data.selected) data.selected = picked;
   }
   // A carried dataset stands in for the sample its field supersedes.
   const superseded = data.dataset ? to.dataFields.find((f) => f.kind === "dataset")?.supersedes : undefined;
