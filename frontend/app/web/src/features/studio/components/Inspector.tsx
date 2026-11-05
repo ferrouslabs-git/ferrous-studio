@@ -53,6 +53,9 @@ interface Props {
   onRegionDir(id: string, dir: "row" | "col" | "free"): void;
   onSplit(id: string, side: SplitSide): void;
   onRemoveRegion(id: string): void;
+  /** The shell region the selected region's page is placed in, if any. */
+  enclosingRegion: { id: string; label: string } | null;
+  onSelectRegion(id: string): void;
   onElementText(sel: ElementSel, text: string): void;
   onElementData(sel: ElementSel, key: string, value: string): void;
   /** Turn the element into another type of its component's vocabulary. */
@@ -994,6 +997,19 @@ export function Inspector(props: Props) {
         {regionNode && (
           <div className="insp-section">
             <h4>Region</h4>
+            {props.enclosingRegion && (
+              <div className="field">
+                <label>Inside</label>
+                <button
+                  type="button"
+                  className="btn small"
+                  title="Select this region"
+                  onClick={() => props.onSelectRegion(props.enclosingRegion!.id)}
+                >
+                  {props.enclosingRegion.label}
+                </button>
+              </div>
+            )}
             <div className="field">
               <label>Label</label>
               <CommitInput value={regionNode.label ?? ""} onCommit={(v) => props.onRegionLabel(regionNode.id, v)} disabled={ro} />

@@ -76,7 +76,7 @@ import { usePageHistory } from "./model/history";
 import { ComposedLevel, composeRegionOptions } from "./model/linkRegions";
 import { firstNavTarget, navDescendants, navLevel, navLinkedPageIds, navRouteLabel, navSubItems, orderPagesByNav } from "./model/navOrder";
 import { byPos, isLegacyDocument, posAfterLast } from "./model/positions";
-import { blankDocument, contentRegionFor, fallbackRegionId, findNode, regionDisplayName } from "./model/tree";
+import { blankDocument, CanvasLevel, contentRegionFor, enclosingRegionId, fallbackRegionId, findNode, regionDisplayName } from "./model/tree";
 import { BACK_PAGE_ID, ComponentNode, LayoutNode, LinkTarget, Op, PageDocument, PagePresentation, PageRecord } from "./model/types";
 import { defaultBatchId } from "./sync/outbox";
 import { useWireframeSync } from "./sync/useWireframeSync";
@@ -333,6 +333,21 @@ function StudioEditor() {
     [editableRecords],
   );
 
+  // The region around the selected one: the shell outlet a child page sits
+  // in. The child covers it completely, so it can only be reached by
+  // stepping out (Inspector "Inside", or P) while the child page is open.
+  const enclosingRegion = useMemo(() => {
+    if (selection?.kind !== "region") return null;
+    const levels: CanvasLevel[] = host.map((h) => ({ doc: h.doc, outletRegionId: h.regionId }));
+    if (page) levels.push({ doc: page.document, outletRegionId: null });
+    const id = enclosingRegionId(levels, selection.id);
+    const owner = id ? host.find((h) => h.regionId === id) : null;
+    if (!id || !owner) return null;
+    const pageName = pages.find((p) => p.id === owner.pageId)?.name;
+    const name = regionDisplayName(owner.doc.root, id);
+    return { id, label: pageName ? `${pageName} › ${name}` : name };
+  }, [selection, host, page, pages]);
+
   /** Run an action through history against one page — the open page or an
    *  ancestor shell — apply its UI hints and hand it back so callers can
    *  chain on what was created (e.g. a nav item's page). */
@@ -546,7 +561,8 @@ function StudioEditor() {
         e.preventDefault();
       } else if (e.key.toLowerCase() === "p" && !mod && !e.altKey && selection) {
         // Step the selection up one level: element → its component → its
-        // region. The only way to reach a region a full-bleed component covers.
+        // region → the shell region its page is placed in. The only way to
+        // reach a region a full-bleed component (or a child page) covers.
         if (selection.kind === "element") {
           setSelection({ kind: "cmp", id: selection.cmpId });
           setEditingElement(null);
@@ -556,6 +572,9 @@ function StudioEditor() {
           const region = rec ? locateCmp(rec.document, selection.id)?.region : undefined;
           if (region) setSelection({ kind: "region", id: region });
           e.preventDefault();
+        } else if (selection.kind === "region" && enclosingRegion) {
+          setSelection({ kind: "region", id: enclosingRegion.id });
+          e.preventDefault();
         }
       } else if (e.key === "Escape") {
         setSelection(null);
@@ -564,7 +583,7 @@ function StudioEditor() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [history, dialogOpen, selection, canWrite, pageSettled, runCmp, recordOfCmp, copySelection, cutSelection, pasteClipboard]);
+  }, [history, dialogOpen, selection, canWrite, pageSettled, runCmp, recordOfCmp, copySelection, cutSelection, pasteClipboard, enclosingRegion]);
 
   // ── Pages (wireframe-level REST) ─────────────────────────────────────────
 
@@ -1745,6 +1764,8 @@ function StudioEditor() {
               }}
               onSplit={(id, side) => runNode(id, (d, c) => A.splitRegionAction(d, c, id, side))}
               onRemoveRegion={(id) => runNode(id, (d, c) => A.removeRegionAction(d, c, id))}
+              enclosingRegion={enclosingRegion}
+              onSelectRegion={(id) => setSelection({ kind: "region", id })}
               onElementText={commitElementText}
               onElementData={(sel, key, value) => {
                 if (isElKey(sel.key)) runCmp(sel.cmpId, (d, c) => A.setElementData(d, c, sel.cmpId, sel.key.slice(EL_PREFIX.length), key, value), `eldata.${sel.cmpId}.${sel.key}.${key}`);
