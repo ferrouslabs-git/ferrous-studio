@@ -26,6 +26,11 @@ the workspace, or it was connected before the app could look people up -- the
 message goes to the channel instead, naming them. Assigning yourself sends
 nothing.
 
+People @-mentioned in a comment (FS-REQ-80) are told the same way: a direct
+message saying who mentioned them, on what, and what the comment says, else
+the channel naming them. Routes stage these with :func:`stage_mentions`, once
+per person per comment, so an edit never repeats one.
+
 Feedback is routed the same way to the project's team (Project details): the
 support developer hears about a new report, one moved back to New, and one
 confirmed for fixing; the product manager about an estimate awaiting the
@@ -47,7 +52,8 @@ from app.auth.config import get_settings as get_auth_settings
 from app.database import AsyncSessionLocal
 
 from . import slack_client
-from .board.models import Board, Feature, Feedback, Requirement, remember_board_key
+from .board import mentions
+from .board.models import Board, Comment, Feature, Feedback, Requirement, remember_board_key
 from .board.statuses import FEEDBACK_STATUS_LABEL
 from .models import Project, SlackConnection
 
@@ -138,6 +144,22 @@ def stage(session: Session, board: Board, actor_id: UUID | None, action: str, en
     for notice in team_notices(board, action, detail):
         if notice["user_id"] != actor:
             staged.append(StagedEvent(board.account_id, board.id, actor_id, "notify", entity_type, entity_id, notice))
+    if not staged:
+        session.info.pop(STAGED_KEY, None)
+
+
+def stage_mentions(session: Session, board: Board, actor_id: UUID | None, comment: Any, user_ids: list[UUID]) -> None:
+    """Tell each of ``user_ids`` they were mentioned in ``comment``, once
+    ``session`` commits. The caller has already left out anyone this comment
+    told before, and its author."""
+    staged = session.info.setdefault(STAGED_KEY, [])
+    for uid in user_ids:
+        staged.append(
+            StagedEvent(
+                board.account_id, board.id, actor_id, "mentioned", comment.entity_type, comment.entity_id,
+                {"user_id": str(uid), "comment_id": str(comment.id)},
+            )
+        )
     if not staged:
         session.info.pop(STAGED_KEY, None)
 
@@ -245,6 +267,16 @@ async def _entity_link(db, ev: "StagedEvent", base: str | None, epics_url: str |
     return (f"{epics_url}/{epic_id}?req={row.id}" if epic_id else epics_url), human_id, title
 
 
+async def mention_names(db, user_ids: list[UUID]) -> dict[UUID, str]:
+    """``{user id: name}`` for rendering mentions in a message."""
+    if not user_ids:
+        return {}
+    from app.auth.models.user import User
+
+    rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+    return {u.id: u.name or u.email for u in rows}
+
+
 async def _who(db, user_id: UUID | None) -> str:
     if user_id is None:
         return "Someone"
@@ -329,6 +361,22 @@ async def describe(db, ev: StagedEvent) -> tuple[str, list[dict[str, Any]]] | No
             text = f"{human_id} is now {label}"
         return text, [section(line), context(f"Feedback{where}")]
 
+    if ev.action == "mentioned":
+        comment = await db.get(Comment, UUID(ev.detail["comment_id"]))
+        if comment is None or comment.deleted_at is not None:
+            return None
+        url, human_id, title = await _entity_link(db, ev, base, epics_url)
+        subject = link(human_id, url) + (f"  {escape(clip(title, 150))}" if title else "")
+        names = await mention_names(db, mentions.mentioned_ids(comment.body))
+        said = clip(mentions.render(comment.body, names), 400) or "(attachment)"
+        what = "feedback report" if ev.entity_type == "feedback" else ev.entity_type
+        return f"{await _who(db, ev.actor_id)} mentioned you on {human_id}", [
+            # RECIPIENT reads "you" in a direct message and names them in the
+            # channel fallback (_deliver_to).
+            section(f"{who} mentioned {RECIPIENT} in a comment on the {escape(what)} {subject}\n>{escape(said)}"),
+            context(f"Comment{where}"),
+        ]
+
     if ev.action == "comment.created":
         human_id, title = await _label_for(db, ev.board_id, ev.entity_type, ev.entity_id)
         excerpt = clip(str(ev.detail.get("excerpt") or "(attachment)"), 400)
@@ -386,6 +434,10 @@ async def _deliver_to(db, token: str, channel_id: str, ev: StagedEvent, text: st
     await slack_client.post_message(token, channel_id, text, _address(blocks, f"*{name}*"))
 
 
+#: Events addressed to one person (``detail["user_id"]``), not the channel.
+PERSONAL = ("assigned", "notify", "mentioned")
+
+
 async def dispatch(batch: list[StagedEvent]) -> None:
     """Post ``batch`` to each event's organisation. Never raises."""
     if not slack_client.configured():
@@ -404,13 +456,18 @@ async def dispatch(batch: list[StagedEvent]) -> None:
                     continue
                 token = slack_client.decrypt_token(connection.bot_token)
                 for ev in events:
-                    message = await describe(db, ev)
-                    if message is None:
-                        continue
-                    text, blocks = message
-                    if ev.action in ("assigned", "notify"):
-                        await _deliver_to(db, token, connection.channel_id, ev, text, blocks)
-                        continue
-                    await slack_client.post_message(token, connection.channel_id, text, blocks)
+                    # One failed message (an unknown user, a rate limit) must
+                    # not cost the rest of the batch theirs.
+                    try:
+                        message = await describe(db, ev)
+                        if message is None:
+                            continue
+                        text, blocks = message
+                        if ev.action in PERSONAL:
+                            await _deliver_to(db, token, connection.channel_id, ev, text, blocks)
+                            continue
+                        await slack_client.post_message(token, connection.channel_id, text, blocks)
+                    except Exception:  # noqa: BLE001 -- best effort by design, see the module docstring
+                        logger.exception("Slack %s notification failed for organisation %s", ev.action, account_id)
         except Exception:  # noqa: BLE001 -- best effort by design, see the module docstring
             logger.exception("Slack notification failed for organisation %s", account_id)

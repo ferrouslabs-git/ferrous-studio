@@ -26,11 +26,11 @@ from .agents import maybe_wake_agent, sync_agent_status
 from app.auth.security.scope_context import ScopeContext
 from app.config import get_settings
 
-from .. import slack_client, storage
+from .. import slack_client, slack_notify, storage
 from ..common import get_project, require_any_studio_permission, require_studio_permission as require_permission
 from ..documents import ALLOWED_TYPES, EXTRA_TYPES, MAGIC_BYTES, _not_configured, sanitise_filename
 from ..models import Project, utc_now
-from . import service
+from . import mentions, service
 from .models import (
     Agent,
     ApprovalRequest,
@@ -1657,14 +1657,63 @@ async def create_comment(
     )
     db.add(comment)
     await db.flush()
+    names = await _mention_names(db, board, mentions.mentioned_ids(comment.body))
     await service.write_event(
         db, board, ctx.user_id, "comment.created", payload.entity_type, payload.entity_id,
-        {"comment_id": str(comment.id), "excerpt": _clip(comment.body)},
+        {"comment_id": str(comment.id), "excerpt": _clip(mentions.render(comment.body, names))},
     )
+    _stage_mentions(db, board, ctx, comment, names)
     await db.commit()
     await db.refresh(comment)
     # Files are uploaded to a comment after it exists, so a new one has none.
     return comment
+
+
+# ── @-mentions (FS-REQ-80) ──────────────────────────────────────────────
+#
+# A mention is a token in the comment body (mentions.py). Only someone who
+# can see the board -- an active member of its organisation, or an active
+# super admin, the same people it can be assigned to -- is notified; a token
+# naming anyone else stays in the text and reads as "@someone".
+
+
+async def _mention_names(db: AsyncSession, board: Board, user_ids: list[UUID]) -> dict[UUID, str]:
+    """Of ``user_ids``, those who can see this board, each with the name the
+    organisation knows them by."""
+    if not user_ids:
+        return {}
+    members = select(Membership.user_id).where(
+        Membership.scope_type == "account",
+        Membership.scope_id == board.account_id,
+        Membership.status == "active",
+    )
+    rows = (
+        await db.execute(
+            select(User).where(
+                User.id.in_(user_ids),
+                User.is_active.is_(True),
+                or_(
+                    User.id.in_(members),
+                    and_(User.is_platform_admin.is_(True), User.suspended_at.is_(None), User.archived_at.is_(None)),
+                ),
+            )
+        )
+    ).scalars().all()
+    return {u.id: u.name or (SUPPORT_LABEL if u.is_platform_admin else u.email) for u in rows}
+
+
+def _stage_mentions(db: AsyncSession, board: Board, ctx: ScopeContext, comment: Comment, names: dict[UUID, str]) -> None:
+    """Record who this save newly mentions and have Slack tell them once the
+    transaction commits. Sending happens after the response, and its
+    failures are logged, never raised (slack_notify): a mention can cost a
+    notification, never the comment."""
+    already = list(comment.mentioned_user_ids or [])
+    notify = mentions.to_notify(comment.body, already, ctx.user_id, names.keys())
+    if not notify:
+        return
+    # A new list, not an in-place append: JSONB changes are only noticed on assignment.
+    comment.mentioned_user_ids = already + [str(u) for u in notify]
+    slack_notify.stage_mentions(db.sync_session, board, ctx.user_id, comment, notify)
 
 
 async def _with_attachments(db: AsyncSession, board: Board, comments: list[Comment]) -> list[CommentRead]:
@@ -1756,10 +1805,12 @@ async def update_comment(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A comment needs text or files")
     comment.body = body
     comment.edited_at = utc_now()
+    names = await _mention_names(db, board, mentions.mentioned_ids(comment.body))
     await service.write_event(
         db, board, ctx.user_id, "comment.edited", comment.entity_type, comment.entity_id,
-        {"comment_id": str(comment.id), "excerpt": _clip(comment.body)},
+        {"comment_id": str(comment.id), "excerpt": _clip(mentions.render(comment.body, names))},
     )
+    _stage_mentions(db, board, ctx, comment, names)
     await db.commit()
     await db.refresh(comment)
     return (await _with_attachments(db, board, [comment]))[0]
@@ -1798,9 +1849,10 @@ async def delete_comment(
         )
         .values(deleted_at=comment.deleted_at)
     )
+    names = await _mention_names(db, board, mentions.mentioned_ids(comment.body))
     await service.write_event(
         db, board, ctx.user_id, "comment.deleted", comment.entity_type, comment.entity_id,
-        {"excerpt": _clip(comment.body)},
+        {"excerpt": _clip(mentions.render(comment.body, names))},
     )
     await db.commit()
 

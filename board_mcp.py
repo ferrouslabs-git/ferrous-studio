@@ -429,7 +429,10 @@ def list_comments(entity_type: str, entity_id: str) -> dict:
     entity_type="requirement"), never invented.
 
     Each comment carries its own `attachments` (screenshots and files the
-    human added to it); pass one's id to get_attachment to see it."""
+    human added to it); pass one's id to get_attachment to see it.
+
+    `@[user:<id>]` in a body is a person @-mentioned by a human (their
+    user id, not a name)."""
     return {"comments": _call("GET", f"/comments?entity_type={entity_type}&entity_id={entity_id}")}
 
 

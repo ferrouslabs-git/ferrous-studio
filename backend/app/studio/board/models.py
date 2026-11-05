@@ -589,6 +589,10 @@ class Comment(Base):
     #: Set by the author's last edit; NULL while the comment reads as posted.
     edited_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)
+    #: Everyone this comment has already told they were @-mentioned (user ids
+    #: as strings; see mentions.py) -- so an edit notifies only the newly
+    #: mentioned. The mentions themselves live in ``body`` as tokens.
+    mentioned_user_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
 
     __table_args__ = (Index("ix_board_comments_entity", "entity_type", "entity_id"),)
 
