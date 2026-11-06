@@ -14,9 +14,13 @@ const tree = (
 );
 
 // The landing page is prerendered into index.html at build time; hydrate it
-// rather than throwing the markup away. Every other route starts empty.
-if (container.hasChildNodes()) {
+// rather than throwing the markup away. The server sends that same index.html
+// for every route, so anywhere but "/" the markup is the wrong page: hydrating
+// it fails (#425/#423) and React re-renders the whole root to recover. Drop it
+// and render fresh instead.
+if (container.hasChildNodes() && window.location.pathname === "/") {
   hydrateRoot(container, tree);
 } else {
+  container.replaceChildren();
   createRoot(container).render(tree);
 }
