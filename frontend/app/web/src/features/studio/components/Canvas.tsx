@@ -6,7 +6,7 @@
 // Selection is three-level: a region (click its background), a component
 // (click it), or a single element inside one (click a nav item / button —
 // see selection.ts). Double-clicking a linked element follows its link.
-import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useLayoutEffect, useState } from "react";
+import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import { elementHosts } from "../catalog";
@@ -328,8 +328,47 @@ export function Canvas(props: Props) {
    *  above the wireframe. Re-measured whenever the box can have moved. */
   // The add cluster (FS-REQ-77) rides the same layer, hanging just below the
   // bottom-right corner, and stays up while an element inside is selected.
-  const [toolsAt, setToolsAt] = useState<{ id: string; host: HTMLElement; left: number; top: number; bottom: number } | null>(null);
+  //
+  // Only WHICH component and mat live in state; WHERE is written straight onto
+  // the two layer nodes. Measuring runs inside the layout pass on every
+  // document and live-drag change, and keeping the position in state made each
+  // measure a re-render from inside that pass -- one that moved a pixel, or
+  // chained with any other commit-phase update, ran into React's update-depth
+  // limit (#185). A DOM write cannot loop.
+  const [toolsAt, setToolsAt] = useState<{ id: string; host: HTMLElement } | null>(null);
   const [addHost, setAddHost] = useState<HTMLElement | null>(null);
+  const toolsPos = useRef<{ left: number; top: number; bottom: number } | null>(null);
+  const actionsEl = useRef<HTMLDivElement | null>(null);
+  const addsEl = useRef<HTMLDivElement | null>(null);
+  const placeTools = useCallback(() => {
+    const pos = toolsPos.current;
+    if (!pos) return;
+    if (actionsEl.current) {
+      actionsEl.current.style.left = `${pos.left}px`;
+      actionsEl.current.style.top = `${pos.top}px`;
+    }
+    if (addsEl.current) {
+      addsEl.current.style.left = `${pos.left}px`;
+      addsEl.current.style.top = `${pos.bottom}px`;
+    }
+  }, []);
+  // Stable callbacks: an inline ref is detached and re-attached on every
+  // commit, and setAddHost(null) then (el) would itself re-render each time.
+  const actionsRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      actionsEl.current = el;
+      placeTools();
+    },
+    [placeTools],
+  );
+  const addsRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      addsEl.current = el;
+      setAddHost(el);
+      placeTools();
+    },
+    [placeTools],
+  );
   const selectedCmpId = selection?.kind === "cmp" ? selection.id : selection?.kind === "element" ? selection.cmpId : null;
   useLayoutEffect(() => {
     if (!selectedCmpId) {
@@ -342,23 +381,23 @@ export function Canvas(props: Props) {
       setToolsAt(null);
       return;
     }
+    setToolsAt((prev) => (prev && prev.id === selectedCmpId && prev.host === mat ? prev : { id: selectedCmpId, host: mat }));
     const measure = () => {
       const r = node.getBoundingClientRect();
       const m = mat.getBoundingClientRect();
-      setToolsAt({
-        id: selectedCmpId,
-        host: mat,
+      toolsPos.current = {
         left: r.right - m.left + mat.scrollLeft - mat.clientLeft,
         top: r.top - m.top + mat.scrollTop - mat.clientTop,
         bottom: r.bottom - m.top + mat.scrollTop - mat.clientTop,
-      });
+      };
+      placeTools();
     };
     measure();
     const watch = new ResizeObserver(measure);
     watch.observe(node);
     watch.observe(mat);
     return () => watch.disconnect();
-  }, [selectedCmpId, doc, host, live, liveCmp, liveCmpPos]);
+  }, [selectedCmpId, doc, host, live, liveCmp, liveCmpPos, placeTools]);
   const clear = () => {
     setHint(null);
     setOverRegion(null);
@@ -987,8 +1026,7 @@ export function Canvas(props: Props) {
           {editable && toolsAt?.id === cmp.id && createPortal(
             <div
               className="cmp-adds"
-              ref={setAddHost}
-              style={{ left: toolsAt.left, top: toolsAt.bottom }}
+              ref={addsRef}
               onClick={(e) => e.stopPropagation()}
             />,
             toolsAt.host,
@@ -996,7 +1034,7 @@ export function Canvas(props: Props) {
           {editable && toolsAt?.id === cmp.id && selection?.kind === "cmp" && createPortal(
             <div
               className="cmp-actions"
-              style={{ left: toolsAt.left, top: toolsAt.top }}
+              ref={actionsRef}
               role="toolbar"
               aria-label={`${cmp.label} controls`}
               title={`${cmp.type} · ${cmp.label}`}
