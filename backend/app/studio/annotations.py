@@ -32,7 +32,7 @@ from app.auth.security import require_any_permission, require_permission
 from app.auth.security.scope_context import ScopeContext
 
 from .audit import record_event
-from .common import get_project, get_wireframe, get_wireframe_page
+from .common import get_project, get_project_page, get_wireframe
 from .models import Wireframe, WireframeAnnotation, utc_now
 from .ops import tree_region_ids
 from .schemas import AnnotationCreate, AnnotationRead, AnnotationUpdate
@@ -164,7 +164,9 @@ async def create_annotation(
             select(Wireframe).where(Wireframe.id == wireframe.id).with_for_update(key_share=True)
         )
     ).scalar_one()
-    page = await get_wireframe_page(db, ctx, wireframe.id, payload.page_id)
+    # Any page of the project: a page shared from another wireframe can carry
+    # this wireframe's notes and tasks, which stay with this wireframe.
+    page = await get_project_page(db, ctx, project.id, payload.page_id)
     if not find_annotation_target(page.document, payload.target_kind, payload.target_id, payload.target_cmp_id):
         # The client creates from a live selection, so a miss means the target
         # was deleted underneath it -- fail loudly rather than store an orphan.

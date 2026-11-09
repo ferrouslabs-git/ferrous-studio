@@ -124,6 +124,25 @@ async def get_wireframe_page(
     return page
 
 
+async def get_project_page(
+    db: AsyncSession, ctx: ScopeContext, project_id: UUID, page_id: UUID, lock: bool = False
+) -> ProjectPage:
+    """Any page of the project, whichever wireframe holds it. Pages are shared
+    across a project's wireframes: a link (and an edit made through it) may
+    reach a page whose home is another wireframe."""
+    stmt = select(ProjectPage).where(
+        ProjectPage.id == page_id,
+        ProjectPage.project_id == project_id,
+        ProjectPage.account_id == ctx.scope_id,
+    )
+    if lock:
+        stmt = stmt.with_for_update(key_share=True)
+    page = (await db.execute(stmt)).scalar_one_or_none()
+    if page is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
+    return page
+
+
 async def allow_cross_account(db: AsyncSession) -> None:
     """Let this transaction read rows belonging to every organisation.
 

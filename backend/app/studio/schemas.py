@@ -328,6 +328,24 @@ class PageSummary(BaseModel):
     version: int
 
 
+class ProjectPageSummary(PageSummary):
+    """A page of any wireframe in the project: what a link may point at once
+    pages are shared across wireframes."""
+
+    wireframe_id: UUID
+    wireframe_name: str
+    wireframe_status: str
+
+
+class PageUsage(BaseModel):
+    """A page of another wireframe whose elements link to the page asked about."""
+
+    page_id: UUID
+    page_name: str
+    wireframe_id: UUID
+    wireframe_name: str
+
+
 class WireframeDetail(WireframeRead):
     pages: list[PageSummary]
 

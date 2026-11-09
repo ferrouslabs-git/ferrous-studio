@@ -120,6 +120,23 @@ export function fallbackRegionId(root: LayoutNode): string {
   return fill ?? ids[0];
 }
 
+/** The region of `toRoot` standing in for region `fromRegionId` of `fromRoot`:
+ *  the one with the same label ("Content" in one shell is "Content" in
+ *  another), else `toRoot`'s main content region. Used when a page shared
+ *  from another wireframe swaps its home shell for the current one. */
+export function matchingRegionId(fromRoot: LayoutNode, fromRegionId: string, toRoot: LayoutNode): string {
+  const from = findNode(fromRoot, fromRegionId);
+  const label = from?.node.kind === "region" ? from.node.label?.trim() : undefined;
+  if (label) {
+    const match = regionIds(toRoot).find((id) => {
+      const found = findNode(toRoot, id);
+      return found?.node.kind === "region" && found.node.label?.trim() === label;
+    });
+    if (match) return match;
+  }
+  return fallbackRegionId(toRoot);
+}
+
 /** Display name for a region: its label, else "Region n" by tree order. */
 export function regionDisplayName(root: LayoutNode, id: string): string {
   const found = findNode(root, id);

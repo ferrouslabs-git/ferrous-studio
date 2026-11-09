@@ -109,6 +109,9 @@ export const PRESENTATION_LABELS: Record<PagePresentation, string> = {
 export interface PageRecord {
   id: string;
   project_id: string;
+  /** The page's home wireframe. A link may reach it from another wireframe
+   *  of the project (shared pages); absent on snapshot-rebuilt records. */
+  wireframe_id?: string;
   name: string;
   route: string | null;
   pos: string;

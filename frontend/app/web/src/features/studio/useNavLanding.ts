@@ -23,9 +23,13 @@ export function useNavLanding(
    *  shell is usually the host chain's outermost level, so the first
    *  child-page visit then builds its chain without another fetch. */
   cache?: MutableRefObject<Map<string, PageRecord>>,
+  /** Every page the open one may be — this wireframe's plus those shared
+   *  from the project's other wireframes. An open page outside it was
+   *  deleted, and the landing takes over again. */
+  reachable: readonly PageSummary[] = pages,
 ): PageDocument | null {
   const [shellDoc, setShellDoc] = useState<PageDocument | null>(null);
-  const missing = !!activePageId && !pages.some((p) => p.id === activePageId);
+  const missing = !!activePageId && !reachable.some((p) => p.id === activePageId);
 
   useEffect(() => {
     if (!pages.length || (activePageId && !missing)) return;

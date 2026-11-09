@@ -382,7 +382,9 @@ def _walk_components(layout: Any) -> Iterator[dict[str, Any]]:
             yield cmp
 
 
-def remap_page_ids(pages: list[dict[str, Any]], mapping: dict[str, str]) -> list[dict[str, Any]]:
+def remap_page_ids(
+    pages: list[dict[str, Any]], mapping: dict[str, str], keep: frozenset[str] | set[str] = frozenset()
+) -> list[dict[str, Any]]:
     """Deep-copy export-shaped ``pages`` with every page id rewritten through
     ``mapping``: the page's own id, a child page's ``placement.page_id`` and
     the link targets elements carry (``props.links``).
@@ -390,9 +392,11 @@ def remap_page_ids(pages: list[dict[str, Any]], mapping: dict[str, str]) -> list
     Page ids are identity in the database, so copying a wireframe has to mint
     new ones -- and then every reference to an old id has to follow, or the
     copy's links would point back at the original's pages. A target missing
-    from the mapping is dropped rather than kept: it would either dangle or,
-    worse, reach across into another wireframe. The ``@back`` sentinel is not
-    a page id and always survives.
+    from the mapping is dropped rather than kept: it would either dangle or
+    point back into the original. ``keep`` names the exceptions -- pages of
+    the project's OTHER wireframes, which a link may share deliberately; those
+    targets survive unchanged. The ``@back`` sentinel is not a page id and
+    always survives.
     """
 
     def remap_link(link: Any) -> Any:
@@ -402,7 +406,9 @@ def remap_page_ids(pages: list[dict[str, Any]], mapping: dict[str, str]) -> list
         if page_id == BACK_PAGE_ID:
             return dict(link)
         new_id = mapping.get(str(page_id))
-        return None if new_id is None else {**link, "pageId": new_id}
+        if new_id is None:
+            return dict(link) if str(page_id) in keep else None
+        return {**link, "pageId": new_id}
 
     def remap_links(props: dict[str, Any]) -> None:
         links = props.get("links")

@@ -36,6 +36,7 @@ function PreviewView({ wireframeId }: { wireframeId: string }) {
 
   return (
     <PreviewShell
+      wireframeId={wireframeId}
       interfaceType={wireframe.data.interface_type}
       pages={pages}
       landingPageId={wireframe.data.landing_page_id}

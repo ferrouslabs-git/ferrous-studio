@@ -19,13 +19,18 @@ import { PreviewCanvas } from "./components/PreviewCanvas";
 import { CustomDef } from "./model/actions";
 import { BACK_PAGE_ID, LinkTarget } from "./model/types";
 import { DESKTOP_DESIGN_W, DESKTOP_FLEX_FLOOR, Stage, useDesktopFit, useStageFit } from "./stage";
-import { useHostChain } from "./useHostChain";
+import { ShellContext, useHostChain } from "./useHostChain";
+import { withForeignPages } from "./model/sharedPages";
+import { useProjectPages } from "./useProjectPages";
 import { useNavLanding } from "./useNavLanding";
 import { useLandingVisit } from "./useLandingVisit";
 import { PageFetcher, usePageDocument } from "./usePageDocument";
 import { usePageNav } from "./usePageNav";
 
 interface Props {
+  /** The wireframe previewed: pages of the project's other wireframes are
+   *  shared ones, opened inside this wireframe's shell. */
+  wireframeId: string;
   interfaceType: InterfaceType;
   /** Every page that can be reached, in pos order. */
   pages: readonly PageSummary[];
@@ -44,6 +49,7 @@ interface Props {
 }
 
 export function PreviewShell({
+  wireframeId,
   interfaceType,
   pages,
   landingPageId,
@@ -60,22 +66,36 @@ export function PreviewShell({
   const canvasWrap = useRef<HTMLDivElement>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  const nav = usePageNav(pages, activePageId, setActivePageId);
+  // Links may reach pages shared from the project's other wireframes.
+  const projectPages = useProjectPages(project.id, wireframeId);
+  const allPages = useMemo(
+    () => withForeignPages(pages, projectPages.pages, wireframeId),
+    [pages, projectPages.pages, wireframeId],
+  );
+  // This wireframe's shell is the previewed pages' first — for a snapshot,
+  // the shell as it stood then, not the live one.
+  const ownShell = pages[0]?.id ?? null;
+  const liveShells = projectPages.shells;
+  const shells = useMemo<ShellContext>(
+    () => ({ wireframeId, shellOf: (wid) => (wid === wireframeId ? ownShell : liveShells.shellOf(wid)) }),
+    [wireframeId, ownShell, liveShells],
+  );
+  const nav = usePageNav(allPages, activePageId, setActivePageId);
 
   // The open page: the outgoing one stays rendered while the next loads, so
   // clicking through links never blanks the canvas (see usePageDocument).
   const doc = usePageDocument(fetchPage, activePageId, { onError: setNotice });
   const { page, pendingPageId } = doc;
   /** Navigation lands on a page's nav-driven default child (FS-REQ-57/62). */
-  const go = useLandingVisit(nav.visit, pages, fetchPage, doc.cache);
+  const go = useLandingVisit(nav.visit, allPages, fetchPage, doc.cache);
 
   // Land on the pinned landing page, else where the shell's nav points
   // first, else on the first page.
-  useNavLanding(fetchPage, pages, activePageId, go, landingPageId, doc.cache);
+  useNavLanding(fetchPage, pages, activePageId, go, landingPageId, doc.cache, allPages);
 
   // Ancestor shells for a child page: walk placements upwards. The preview
   // only reads the rendered levels; the records exist for the editor.
-  const host = useHostChain(fetchPage, page, doc.cache).levels;
+  const host = useHostChain(fetchPage, page, doc.cache, shells).levels;
 
   const toast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -87,13 +107,13 @@ export function PreviewShell({
       if (target.pageId === BACK_PAGE_ID) {
         if (nav.canBack) nav.back();
         else toast("No previous page to go back to");
-      } else if (pages.some((p) => p.id === target.pageId)) {
+      } else if (allPages.some((p) => p.id === target.pageId)) {
         go(target.pageId);
       } else {
         toast("The linked page no longer exists");
       }
     },
-    [pages, toast, go, nav.back, nav.canBack], // eslint-disable-line react-hooks/exhaustive-deps
+    [allPages, toast, go, nav.back, nav.canBack], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const activePageIds = useMemo(

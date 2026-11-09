@@ -18,6 +18,7 @@ import { cmpSize, findNode, SplitSide } from "../model/tree";
 import { BACK_PAGE_ID, ComponentNode, LinkTarget, PageDocument, PagePresentation, PageRecord, Size } from "../model/types";
 import { NAV_ICON_MARKS, navIconGlyph } from "./icons";
 import { isSvgFile, readImageFile } from "./imageFile";
+import type { ProjectPageSummary } from "../../project/wireframes/wireframesApi";
 import { LinkPicker } from "./LinkPicker";
 import { ElementSel, Selection } from "./selection";
 
@@ -27,6 +28,10 @@ interface Props {
    *  shells — a selection can live in any of them. */
   documents: readonly PageDocument[];
   pages: PageSummary[];
+  /** Every page of the project — other wireframes' pages are linkable as
+   *  shared pages. */
+  projectPages?: ProjectPageSummary[];
+  wireframeId?: string;
   /** Bindable datasets: platform defaults (read-only) + this project's own. */
   datasets: readonly Dataset[];
   selection: Selection | null;
@@ -555,7 +560,9 @@ export function Inspector(props: Props) {
   const elementSel = selection?.kind === "element" && selectedCmp ? selection : null;
   const link = elementSel && selectedCmp ? elementLink(selectedCmp, elementSel.key, elementSel.index) : null;
   const isBackLink = !!link && link.pageId === BACK_PAGE_ID;
-  const linkTargetPage = link && !isBackLink ? pages.find((p) => p.id === link.pageId) : null;
+  const linkTargetPage = link && !isBackLink
+    ? pages.find((p) => p.id === link.pageId) ?? props.projectPages?.find((p) => p.id === link.pageId)
+    : null;
   const cmpMeta = selectedCmp ? COMPONENTS[selectedCmp.type] ?? null : null;
   // A selected element node (as opposed to a scalar prop token).
   const elementNode =
@@ -958,6 +965,8 @@ export function Inspector(props: Props) {
               <LinkPicker
                 key={`${elementSel.cmpId}:${elementSel.key}:${elementSel.index ?? ""}`}
                 pages={pages}
+                projectPages={props.projectPages}
+                wireframeId={props.wireframeId}
                 regions={props.linkRegions}
                 ownRegionId={locateCmp(docOfCmp(elementSel.cmpId), elementSel.cmpId)?.region ?? null}
                 link={link}

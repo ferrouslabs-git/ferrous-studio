@@ -18,9 +18,12 @@ export function pageDisplayName(page: PageSummary, all: readonly PageSummary[]):
 }
 
 export function PageSelect({
-  pages, activeId, canWrite, landingId, landingPinned, onSelect, onAdd, onDelete, onSetLanding,
+  pages, activeId, activeName, canWrite, landingId, landingPinned, onSelect, onAdd, onDelete, onSetLanding,
 }: {
   pages: PageSummary[]; activeId: string | null; canWrite: boolean;
+  /** Name for an open page that is not in `pages` — one shared from another
+   *  wireframe ("Users · Persona A"). */
+  activeName?: string;
   /** The page the wireframe opens on — the pinned choice, or the nav-derived one. */
   landingId: string | null;
   /** Whether ``landingId`` is an explicit choice rather than nav-derived. */
@@ -79,7 +82,7 @@ export function PageSelect({
   return (
     <div className="page-select" ref={rootRef}>
       <button type="button" className="btn ghost page-select-trigger" title="Switch page" onClick={toggle}>
-        <span className="name">{active ? pageDisplayName(active, pages) : "Pages"}</span>
+        <span className="name">{active ? pageDisplayName(active, pages) : activeName ?? "Pages"}</span>
         {active?.route && <span className="route">{active.route}</span>}
         <span className="caret">▾</span>
       </button>

@@ -7,9 +7,15 @@
 // can outline the region it would replace. The menu expands in flow: the
 // inspector body scrolls, so an absolutely positioned dropdown would be
 // clipped by its overflow.
-import { KeyboardEvent, useEffect, useMemo, useState } from "react";
+//
+// Page also lists the pages of the project's other wireframes, grouped under
+// each wireframe's name: linking to one shares it (it opens inside this
+// wireframe's shell, and edits to it show everywhere it is used).
+import { Fragment, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import type { ProjectPageSummary } from "../../project/wireframes/wireframesApi";
 import type { PageSummary } from "../../projects/projectsApi";
 import { ComposedRegions } from "../model/linkRegions";
+import { sharedLinkGroups, sharedPageName } from "../model/sharedPages";
 import { BACK_PAGE_ID, LinkTarget, PagePresentation, PRESENTATION_LABELS } from "../model/types";
 import { pageDisplayName } from "./PageSelect";
 
@@ -34,10 +40,25 @@ export function linkChoices(pages: readonly PageSummary[]): { page: PageSummary;
 
 type View = "menu" | "regions" | "new" | "pages";
 
+/** One row of the Page view: this wireframe's pages, then each other
+ *  wireframe's under a `group` heading (set on its first row only). */
+interface PageRow {
+  page: PageSummary;
+  label: string;
+  group?: string;
+  /** The other wireframe a shared page lives in; absent for this one's. */
+  wireframe?: string;
+}
+
 export function LinkPicker({
-  pages, regions, ownRegionId, link, disabled, onSet, onCreatePage, onHoverRegion,
+  pages, projectPages = [], wireframeId = "", regions, ownRegionId, link, disabled, onSet, onCreatePage, onHoverRegion,
 }: {
   pages: PageSummary[];
+  /** Every page of the project; other wireframes' pages are offered as
+   *  shared pages. */
+  projectPages?: ProjectPageSummary[];
+  /** The open wireframe — which of `projectPages` are its own. */
+  wireframeId?: string;
   /** The visible composition's regions, in visual order, plus the aliases
    *  that map a bare placed page's root to the row that hosts it. */
   regions: ComposedRegions;
@@ -60,16 +81,43 @@ export function LinkPicker({
 
   const isBack = link?.pageId === BACK_PAGE_ID;
   const targetPage = link && !isBack ? pages.find((p) => p.id === link.pageId) ?? null : null;
-  const summary = !link ? "None" : isBack ? "‹ Back (previous page)" : targetPage ? pageDisplayName(targetPage, pages) : "Missing page";
+  const sharedTarget = link && !isBack && !targetPage ? projectPages.find((p) => p.id === link.pageId) ?? null : null;
+  const summary = !link
+    ? "None"
+    : isBack
+      ? "‹ Back (previous page)"
+      : targetPage
+        ? pageDisplayName(targetPage, pages)
+        : sharedTarget
+          ? sharedPageName(sharedTarget, projectPages)
+          : "Missing page";
 
   // Every page can be linked to: placed pages already are, by nav items, and
   // the one a list's Edit button should open is usually one of them. Top-level
   // pages come first; a placed page is named by its path ("Home ▸ Edit").
-  const choices = useMemo(() => linkChoices(pages), [pages]);
+  // Other wireframes' pages follow, one group per wireframe.
+  const choices = useMemo<PageRow[]>(() => {
+    const own: PageRow[] = linkChoices(pages);
+    const shared = sharedLinkGroups(projectPages, wireframeId).flatMap((g) =>
+      g.choices.map((c, i) => ({ page: c.page, label: c.label, group: i === 0 ? g.wireframeName : undefined, wireframe: g.wireframeName })),
+    );
+    return [...own, ...shared];
+  }, [pages, projectPages, wireframeId]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return choices;
-    return choices.filter((c) => c.label.toLowerCase().includes(q) || (c.page.route ?? "").toLowerCase().includes(q));
+    // A group heading belongs to whichever of its rows survive the filter.
+    const out: PageRow[] = [];
+    let lastWireframe: string | undefined;
+    for (const c of choices) {
+      const { wireframe } = c;
+      const hit = c.label.toLowerCase().includes(q) || (c.page.route ?? "").toLowerCase().includes(q)
+        || (!!wireframe && wireframe.toLowerCase().includes(q));
+      if (!hit) continue;
+      out.push({ ...c, group: wireframe && wireframe !== lastWireframe ? wireframe : undefined });
+      lastWireframe = wireframe;
+    }
+    return out;
   }, [choices, query]);
 
   const hover = (regionId: string | null) => onHoverRegion?.(regionId);
@@ -167,16 +215,18 @@ export function LinkPicker({
             onKeyDown={onSearchKey}
           />
           <div className="link-pages">
-            {filtered.map(({ page: p, label }, i) => (
-              <div
-                key={p.id}
-                className={`link-opt${p.id === link?.pageId ? " active" : ""}${i === highlight ? " highlight" : ""}`}
-                onMouseEnter={() => setHighlight(i)}
-                onClick={() => pick({ pageId: p.id })}
-              >
-                <span className="name">{label}</span>
-                {p.presentation && <span className="link-note">{PRESENTATION_LABELS[p.presentation]}</span>}
-              </div>
+            {filtered.map(({ page: p, label, group }, i) => (
+              <Fragment key={p.id}>
+                {group && <div className="link-group">{group}</div>}
+                <div
+                  className={`link-opt${p.id === link?.pageId ? " active" : ""}${i === highlight ? " highlight" : ""}`}
+                  onMouseEnter={() => setHighlight(i)}
+                  onClick={() => pick({ pageId: p.id })}
+                >
+                  <span className="name">{label}</span>
+                  {p.presentation && <span className="link-note">{PRESENTATION_LABELS[p.presentation]}</span>}
+                </div>
+              </Fragment>
             ))}
             {filtered.length === 0 && <div className="link-empty">No pages match “{query}”</div>}
           </div>

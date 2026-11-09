@@ -3,14 +3,15 @@
 // snapshot's pages into renderable documents in one request, so every page
 // this preview can reach is already in hand — the page source below resolves
 // from that map instead of the network, and PreviewShell never learns the
-// difference.
+// difference. A link into another wireframe (a shared page) is not part of
+// the snapshot, so it resolves to that page as it is now.
 import { useCallback, useMemo } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { formatDateTime } from "../../core/format";
 import { useLoad } from "../../core/useLoad";
 import { useProject } from "../project/ProjectLayout";
 import { snapshotTitle } from "../project/wireframes/snapshots";
-import { getWireframeVersionPreview } from "../project/wireframes/wireframesApi";
+import { getProjectPage, getWireframeVersionPreview } from "../project/wireframes/wireframesApi";
 import { byPos } from "./model/positions";
 import { PageRecord } from "./model/types";
 import { PreviewShell } from "./PreviewShell";
@@ -43,7 +44,7 @@ function SnapshotPreviewView({ wireframeId, versionId }: { wireframeId: string; 
     return new Map<string, PageRecord>(
       (snapshot.data?.pages ?? []).map((p) => [
         p.id,
-        { ...p, project_id: projectId, entity_versions: {}, version: 0, updated_at: taken },
+        { ...p, project_id: projectId, wireframe_id: wireframeId, entity_versions: {}, version: 0, updated_at: taken },
       ]),
     );
   }, [snapshot.data, projectId]);
@@ -51,11 +52,11 @@ function SnapshotPreviewView({ wireframeId, versionId }: { wireframeId: string; 
   const pages = useMemo(() => byPos([...records.values()]), [records]);
 
   const fetchPage = useCallback<PageFetcher>(
-    (pageId) => {
+    (pageId, opts) => {
       const record = records.get(pageId);
-      return record ? Promise.resolve(record) : Promise.reject(new Error("That page is not in this snapshot"));
+      return record ? Promise.resolve(record) : getProjectPage(projectId, pageId, opts);
     },
-    [records],
+    [records, projectId],
   );
 
   if (snapshot.loading) return <div className="page muted">Loading…</div>;
@@ -66,6 +67,7 @@ function SnapshotPreviewView({ wireframeId, versionId }: { wireframeId: string; 
 
   return (
     <PreviewShell
+      wireframeId={wireframeId}
       interfaceType={snapshot.data.interface_type}
       pages={pages}
       landingPageId={snapshot.data.landing_page_id}

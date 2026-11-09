@@ -8,7 +8,7 @@
 // be reported, everything else lands.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../../../core/api";
-import { getWireframePage, sendWireframeOpBatch } from "../../project/wireframes/wireframesApi";
+import { getProjectPage, sendWireframeOpBatch } from "../../project/wireframes/wireframesApi";
 import { applyOps } from "../model/applyOps";
 import { normalizePage } from "../model/positions";
 import { Op, OpBatch, PageRecord } from "../model/types";
@@ -62,7 +62,7 @@ export function useWireframeSync(
         setConflict(
           `Changed elsewhere: your edit to ${body.conflicts.map((c) => c.entity_id).join(", ")} was not applied. Reloading.`,
         );
-        void getWireframePage(projectId, wireframeId, batch.pageId)
+        void getProjectPage(projectId, batch.pageId)
           .then((raw) => {
             const fresh = normalizePage(raw);
             outbox.notePageVersion(fresh.id, fresh.version);

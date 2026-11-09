@@ -64,4 +64,5 @@ async def _patched_current_user(credentials=None, db: AsyncSession = None) -> Us
 studio_common.get_current_user = _patched_current_user
 
 if __name__ == "__main__":
-    uvicorn.run(m.app, host="127.0.0.1", port=8081, log_level="warning")
+    # VERIFY_PORT lets a second session run its own copy beside a live :8081.
+    uvicorn.run(m.app, host="127.0.0.1", port=int(__import__("os").environ.get("VERIFY_PORT", "8081")), log_level="warning")

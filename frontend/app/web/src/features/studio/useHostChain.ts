@@ -2,6 +2,13 @@
 // parent, outermost first. Shared by the editor and preview so both render
 // the same shell around a child page.
 //
+// Shared pages: a page from another wireframe of the project brings its own
+// ancestors with it, EXCEPT its home wireframe's shell (that wireframe's
+// first page), which gives way to the current wireframe's shell — so a
+// persona's nav reaching another persona's list page shows it inside the
+// persona's own nav. The landing region is the current shell's region with
+// the same label, else its main content region (matchingRegionId).
+//
 // A placement whose region has been removed from the parent's tree falls
 // back to the parent's main content region (fallbackRegionId), so the shell
 // — nav, header, panels — stays around the child and navigation only ever
@@ -21,7 +28,7 @@
 import { MutableRefObject, useCallback, useEffect, useMemo, useState } from "react";
 import { HostLevel } from "./components/Canvas";
 import { normalizePage } from "./model/positions";
-import { fallbackRegionId, regionIds } from "./model/tree";
+import { fallbackRegionId, matchingRegionId, regionIds } from "./model/tree";
 import { PageRecord } from "./model/types";
 import { PageFetcher } from "./usePageDocument";
 
@@ -42,10 +49,18 @@ export interface HostChain {
   update(pageId: string, next: (prev: PageRecord) => PageRecord): void;
 }
 
+/** Which wireframe is open, and each wireframe's shell page — what a shared
+ *  page's home shell is swapped for. Must be identity-stable (useMemo). */
+export interface ShellContext {
+  wireframeId: string;
+  shellOf(wireframeId: string): string | null;
+}
+
 export function useHostChain(
   fetchPage: PageFetcher,
   page: PageRecord | null,
   cache?: MutableRefObject<Map<string, PageRecord>>,
+  shells?: ShellContext,
 ): HostChain {
   const [stored, setStored] = useState<StoredLevel[]>([]);
 
@@ -59,18 +74,32 @@ export function useHostChain(
       return;
     }
     const controller = new AbortController();
+    const get = async (id: string) => {
+      let record = cache?.current.get(id) ?? null;
+      if (!record) {
+        record = normalizePage(await fetchPage(id, { signal: controller.signal }));
+        cache?.current.set(record.id, record);
+      }
+      return record;
+    };
     const load = async () => {
       const levels: StoredLevel[] = [];
       const seen = new Set<string>([page.id]);
       let placement = page.placement;
       while (placement && !seen.has(placement.page_id) && levels.length < 6) {
         try {
-          let parent = cache?.current.get(placement.page_id) ?? null;
-          if (!parent) {
-            parent = normalizePage(await fetchPage(placement.page_id, { signal: controller.signal }));
-            cache?.current.set(parent.id, parent);
+          let parent = await get(placement.page_id);
+          let regionId = placement.region_id;
+          const home = parent.wireframe_id;
+          const ownShell = shells && home && home !== shells.wireframeId && shells.shellOf(home) === parent.id
+            ? shells.shellOf(shells.wireframeId)
+            : null;
+          if (ownShell && !seen.has(ownShell)) {
+            const own = await get(ownShell);
+            regionId = matchingRegionId(parent.document.root, regionId, own.document.root);
+            parent = own;
           }
-          levels.unshift({ record: parent, placementRegionId: placement.region_id });
+          levels.unshift({ record: parent, placementRegionId: regionId });
           seen.add(parent.id);
           placement = parent.placement;
         } catch {
@@ -81,7 +110,7 @@ export function useHostChain(
     };
     void load();
     return () => controller.abort();
-  }, [page?.id, page?.placement, fetchPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page?.id, page?.placement, fetchPage, shells]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = useCallback(
     (pageId: string, next: (prev: PageRecord) => PageRecord) => {

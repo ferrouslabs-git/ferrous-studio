@@ -13,8 +13,9 @@
 // in-memory copy where storage is unavailable.
 //
 // The envelope records where the copy came from: pasting into a DIFFERENT
-// wireframe strips page links (page ids never resolve across wireframes;
-// only the `@back` sentinel keeps meaning). Dataset bindings and custom
+// project strips page links (pages are shared across a project's
+// wireframes, but never across projects; only the `@back` sentinel keeps
+// meaning). Dataset bindings and custom
 // component ids travel as-is — a dangling one already renders gracefully
 // (sample values / a "definition no longer exists" card).
 import { elementMeta } from "../catalog";
@@ -183,16 +184,17 @@ function cloneComponentFresh(source: ComponentNode): ComponentNode {
 }
 
 /** Where a paste lands relative to where the copy was made. Links target
- *  pages by id, so they only survive within the source wireframe. */
+ *  pages by id, and any page of the project may be linked from any of its
+ *  wireframes, so they survive anywhere within the source project. */
 export interface PasteScope {
-  sameWireframe: boolean;
+  sameProject: boolean;
 }
 
-const SAME_SCOPE: PasteScope = { sameWireframe: true };
+const SAME_SCOPE: PasteScope = { sameProject: true };
 
 const keepsMeaning = (target: LinkTarget | null | undefined): boolean => !!target && target.pageId === BACK_PAGE_ID;
 
-/** Drop links that point into another wireframe's pages (`@back` survives —
+/** Drop links that point into another project's pages (`@back` survives —
  *  it follows the visit history, not a page id). Returns how many went. */
 function stripForeignLinks(cmp: ComponentNode): number {
   const links = cmp.props?.links as LinksProp | undefined;
@@ -231,13 +233,13 @@ export function pasteComponent(
   const id = regionId && regionId in doc.regions ? regionId : firstRegionId(doc.root);
   const list = (doc.regions[id] ??= []);
   const cmp = cloneComponentFresh(item.node);
-  const dropped = scope.sameWireframe ? 0 : stripForeignLinks(cmp);
+  const dropped = scope.sameProject ? 0 : stripForeignLinks(cmp);
   const i = atIndex == null ? list.length : Math.max(0, Math.min(atIndex, list.length));
   cmp.pos = posAtIndex(list, i);
   list.splice(i, 0, cmp);
   return {
     selectCmpId: cmp.id,
-    ...(dropped ? { toast: "Pasted without its links — they point at pages in another wireframe" } : {}),
+    ...(dropped ? { toast: "Pasted without its links — they point at pages in another project" } : {}),
   };
 }
 
@@ -274,7 +276,7 @@ export function pasteElement(
   list.push(node);
   // The element is authoritative for the header again (see migrateHeader).
   if (node.type === "header" && cmp.props && "title" in cmp.props) delete cmp.props.title;
-  const linkSurvives = item.link && (scope.sameWireframe || keepsMeaning(item.link));
+  const linkSurvives = item.link && (scope.sameProject || keepsMeaning(item.link));
   if (item.link && linkSurvives) {
     const props = (cmp.props ??= {});
     const links = ((props.links as LinksProp | undefined) ?? (props.links = {})) as LinksProp;
@@ -292,6 +294,6 @@ export function pasteElement(
   }
   return {
     selectElement: { cmpId, key: elKey(node.id), index: null },
-    ...(item.link && !linkSurvives ? { toast: "Pasted without its link — it points at a page in another wireframe" } : {}),
+    ...(item.link && !linkSurvives ? { toast: "Pasted without its link — it points at a page in another project" } : {}),
   };
 }

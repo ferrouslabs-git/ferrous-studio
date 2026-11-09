@@ -36,7 +36,9 @@ import {
   deleteWireframePage,
   deviceClass,
   getWireframe,
-  getWireframePage,
+  getProjectPage,
+  listPageUsages,
+  PageUsage,
   listWireframeVersions,
   sendWireframeOpBatch,
   updateWireframe,
@@ -82,6 +84,9 @@ import { BACK_PAGE_ID, ComponentNode, LayoutNode, LinkTarget, Op, PageDocument, 
 import { defaultBatchId } from "./sync/outbox";
 import { useWireframeSync } from "./sync/useWireframeSync";
 import { useHostChain } from "./useHostChain";
+import { useProjectPages } from "./useProjectPages";
+import { sharedPageName, usageWireframes, withForeignPages } from "./model/sharedPages";
+import type { PageSummary } from "../projects/projectsApi";
 import { useNavLanding } from "./useNavLanding";
 import { useLandingVisit } from "./useLandingVisit";
 import { useLivePages, usePageDocument } from "./usePageDocument";
@@ -154,7 +159,27 @@ function StudioEditor() {
   const [pendingMigrate, setPendingMigrate] = useState<{ pageId: string; ops: ReturnType<typeof diffPage> } | null>(null);
 
   const pages = useMemo(() => byPos(wireframe.data?.pages ?? []), [wireframe.data]);
-  const nav = usePageNav(pages, activePageId, setActivePageId);
+  // Every page of the project: links may share a page from another
+  // wireframe, so navigation, landing and back/forward resolve against all
+  // of them, while the switcher and page creation stay with this wireframe's.
+  const projectPages = useProjectPages(projectId, wireframeId, wireframe.data);
+  const allPages = useMemo(
+    () => withForeignPages(pages, projectPages.pages, wireframeId),
+    [pages, projectPages.pages, wireframeId],
+  );
+  /** A page's home wireframe and that wireframe's pages (for pos keys). */
+  const homeOf = useCallback(
+    (pageId: string): { wireframeId: string; pages: PageSummary[] } => {
+      const shared = pages.some((p) => p.id === pageId) ? null : projectPages.pages.find((p) => p.id === pageId);
+      if (!shared) return { wireframeId, pages };
+      return {
+        wireframeId: shared.wireframe_id,
+        pages: byPos(projectPages.pages.filter((p) => p.wireframe_id === shared.wireframe_id)),
+      };
+    },
+    [pages, projectPages.pages, wireframeId],
+  );
+  const nav = usePageNav(allPages, activePageId, setActivePageId);
 
   // Reusable datasets (platform defaults + this project's own): elements bind
   // to them by id, so the same list feeds the canvas and the inspector.
@@ -196,8 +221,8 @@ function StudioEditor() {
   // the first host chain's outermost level.
   const pinnedLandingId = wireframe.data?.landing_page_id ?? null;
   /** Navigation lands on a page's nav-driven default child (FS-REQ-57/62). */
-  const go = useLandingVisit(nav.visit, pages, fetchPage, doc.cache);
-  const landingDoc = useNavLanding(fetchPage, pages, activePageId, go, pinnedLandingId, doc.cache);
+  const go = useLandingVisit(nav.visit, allPages, fetchPage, doc.cache);
+  const landingDoc = useNavLanding(fetchPage, pages, activePageId, go, pinnedLandingId, doc.cache, allPages);
 
   // Leaving a page abandons its selection, and a different page's document
   // arriving drops any pick made against the outgoing copy mid-switch. (A
@@ -213,7 +238,7 @@ function StudioEditor() {
   // accept edits, outbox ACKs and conflict reloads like the open page's.
   // Sharing the page cache lets sibling switches rebuild the chain without
   // refetching (usually without a repaint at all).
-  const hostChain = useHostChain(fetchPage, page, doc.cache);
+  const hostChain = useHostChain(fetchPage, page, doc.cache, projectPages.shells);
   const host = hostChain.levels;
   const { update: updateHostPage } = hostChain;
 
@@ -245,7 +270,7 @@ function StudioEditor() {
     pageSettled &&
     (!pendingReset || pendingReset.pageId !== page?.id) &&
     (!pendingMigrate || pendingMigrate.pageId !== page?.id);
-  const pageExists = useCallback((id: string) => pages.some((p) => p.id === id), [pages]);
+  const pageExists = useCallback((id: string) => allPages.some((p) => p.id === id), [allPages]);
   const history = usePageHistory(page, sync, {
     ready: pageReady,
     reset: sync.reset,
@@ -282,6 +307,13 @@ function StudioEditor() {
   const orderedPages = useMemo(
     () => orderPagesByNav(pages, shellDoc ? navLinkedPageIds(shellDoc) : []),
     [pages, shellDoc],
+  );
+  /** The open page when it is shared from another wireframe. */
+  const sharedOpen = useMemo(
+    () => (activePageId && !pages.some((p) => p.id === activePageId)
+      ? projectPages.pages.find((p) => p.id === activePageId) ?? null
+      : null),
+    [activePageId, pages, projectPages.pages],
   );
 
   // What the switcher marks as "opens first": the pinned page while it still
@@ -473,8 +505,9 @@ function StudioEditor() {
     const stored = readClipboard();
     if (!stored) return false;
     const { item } = stored;
-    // A copy made in another wireframe loses its page links on paste.
-    const scope = { sameWireframe: stored.wireframeId === wireframeId };
+    // Page links survive anywhere in the project (pages are shared across
+    // its wireframes); a copy made in another project loses them.
+    const scope = { sameProject: stored.projectId === projectId };
     if (item.kind === "cmp") {
       const rec = selectedCmpId ? recordOfCmp(selectedCmpId) : null;
       const loc = rec && selectedCmpId ? locateCmp(rec.document, selectedCmpId) : null;
@@ -530,7 +563,7 @@ function StudioEditor() {
     const item = copyComponentItem(loc.list[loc.index]);
     const { regionId, index } = place(dstRec.document);
     runOn(srcRec, (d, c) => A.removeComponent(d, c, srcId));
-    runOn(dstRec, (d, c) => pasteComponent(d, c, item, regionId, index, { sameWireframe: true }));
+    runOn(dstRec, (d, c) => pasteComponent(d, c, item, regionId, index, { sameProject: true }));
   };
 
   // Clicking dead space outside the canvas — the inspector background, the
@@ -656,8 +689,16 @@ function StudioEditor() {
     }
   };
 
+  /** Other wireframes linking to the page about to be deleted (null while
+   *  the lookup is in flight). */
+  const [deleteUsages, setDeleteUsages] = useState<PageUsage[] | null>(null);
   const removePage = (id: string) => {
-    if (pages.length > 1) setPendingDelete({ id });
+    if (pages.length <= 1) return;
+    setPendingDelete({ id });
+    setDeleteUsages(null);
+    listPageUsages(projectId, id)
+      .then(setDeleteUsages)
+      .catch(() => setDeleteUsages([]));
   };
 
   const confirmDelete = async () => {
@@ -796,13 +837,13 @@ function StudioEditor() {
         // wherever they came from rather than a fixed page.
         if (nav.canBack) nav.back();
         else toast("No previous page to go back to");
-      } else if (pages.some((p) => p.id === target.pageId)) {
+      } else if (allPages.some((p) => p.id === target.pageId)) {
         go(target.pageId);
       } else {
         toast("The linked page no longer exists");
       }
     },
-    [pages, toast, go, nav.back, nav.canBack],
+    [allPages, toast, go, nav.back, nav.canBack],
   );
 
   /** Setting a link takes you to what you linked. The target's document is
@@ -850,7 +891,7 @@ function StudioEditor() {
     // Later pages in the same region start empty (siblings, not copies). The
     // linking component itself never moves.
     const adopted =
-      regionId && !presentation && !pages.some((p) => p.placement?.page_id === regionOwner.id && p.placement.region_id === regionId)
+      regionId && !presentation && !allPages.some((p) => p.placement?.page_id === regionOwner.id && p.placement.region_id === regionId)
         ? (regionOwner.document.regions[regionId] ?? [])
         : [];
     const adopt = adopted.some((c) => c.id === sel.cmpId) ? [] : adopted;
@@ -865,12 +906,16 @@ function StudioEditor() {
       }
       document.regions[document.root.id] = structuredClone(adopt);
     }
+    // A page created from inside a shared page is part of that page's
+    // functionality: it lives in the shared page's home wireframe, beside
+    // the page it is placed in.
+    const home = homeOf(regionId ? regionOwner.id : owner.id);
     setBusy(true);
     try {
-      const created = await createWireframePage(projectId, wireframeId, {
+      const created = await createWireframePage(projectId, home.wireframeId, {
         name,
         route: slugOf(name),
-        pos: posAfterLast(pages),
+        pos: posAfterLast(home.pages),
         // An overlay is placed on the owner page too: the placement parent is
         // the backdrop it renders over, and the region is a sane landing spot
         // if it is ever converted back to an ordinary page.
@@ -884,7 +929,7 @@ function StudioEditor() {
         // reaches it — "Users > Edit" — rather than the server's blank default.
         document,
       });
-      await wireframe.reload();
+      await Promise.all([wireframe.reload(), projectPages.reload()]);
       // Link first, then open: every mutation gates on the open page being
       // settled, so navigating a line earlier would drop the link edit. The
       // batch is already queued, and the outbox sends per page, not per open
@@ -958,10 +1003,11 @@ function StudioEditor() {
       // opens that same form.
       let editPageId: string | null = editTargetOf(listCmp);
       if (gaps.edit) {
-        const created = await createWireframePage(projectId, wireframeId, {
+        const home = homeOf(owner.id);
+        const created = await createWireframePage(projectId, home.wireframeId, {
           name,
           route: slugOf(name),
-          pos: posAfterLast(pages),
+          pos: posAfterLast(home.pages),
           // The drawer opens over the page holding the list, the same way an
           // overlay created from the link picker is placed on its backdrop.
           placement: { page_id: owner.id, region_id: fallbackRegionId(owner.document.root) },
@@ -969,7 +1015,7 @@ function StudioEditor() {
           document: buildEditDocument(listCmp, linkedRegionLabel(listCmp, EDIT_ACTION_LABEL)),
         });
         editPageId = created.id;
-        await wireframe.reload();
+        await Promise.all([wireframe.reload(), projectPages.reload()]);
       }
 
       // One commit for the whole recipe, so it undoes as a single step.
@@ -1023,7 +1069,7 @@ function StudioEditor() {
     relabel?: { cmp: ComponentNode | null; before: string },
   ) => {
     try {
-      const target = await getWireframePage(projectId, wireframeId, pageId);
+      const target = await getProjectPage(projectId, pageId);
       const ops: Op[] = [
         { op: "set", path: "name", value: name },
         { op: "set", path: "route", value: slugOf(name) },
@@ -1063,7 +1109,7 @@ function StudioEditor() {
       link && link.pageId !== BACK_PAGE_ID
         ? link.pageId === owner?.id
           ? owner.name
-          : pages.find((p) => p.id === link.pageId)?.name
+          : allPages.find((p) => p.id === link.pageId)?.name
         : undefined;
     const follow = !!link && !!name && name !== before && targetName === before;
     if (follow && link && owner && link.pageId === owner.id) {
@@ -1458,7 +1504,7 @@ function StudioEditor() {
   // jumped-to page settles this applies the stashed selection last.
   useEffect(() => {
     if (!pendingReveal) return;
-    if (!pages.some((p) => p.id === pendingReveal.pageId)) {
+    if (!allPages.some((p) => p.id === pendingReveal.pageId)) {
       setPendingReveal(null);
       return;
     }
@@ -1490,7 +1536,7 @@ function StudioEditor() {
     if (found) setSelection(sel);
     else toast("Target no longer exists");
     setPendingReveal(null);
-  }, [pendingReveal, pageSettled, page, pages, toast]);
+  }, [pendingReveal, pageSettled, page, allPages, toast]);
 
   // Mobile and tablet wireframes edit inside a device-shaped stage scaled to
   // fit the canvas area; desktop keeps the full-bleed canvas (see stage.tsx
@@ -1567,6 +1613,7 @@ function StudioEditor() {
         <PageSelect
           pages={orderedPages}
           activeId={activePageId}
+          activeName={sharedOpen ? sharedPageName(sharedOpen, projectPages.pages) : undefined}
           canWrite={canWrite}
           landingId={landingId}
           landingPinned={landingPinned}
@@ -1777,6 +1824,8 @@ function StudioEditor() {
               page={page}
               documents={[page.document, ...host.map((h) => h.doc)]}
               pages={pages}
+              projectPages={projectPages.pages}
+              wireframeId={wireframeId}
               datasets={datasets}
               selection={selection}
               selectedCmp={selectedCmp}
@@ -1828,7 +1877,7 @@ function StudioEditor() {
                 // Clearing a link has no destination, and Back resolves only
                 // at follow time; every real page target opens.
                 if (!target || target.pageId === BACK_PAGE_ID) return;
-                if (pages.some((p) => p.id === target.pageId)) openLinkedPage(target.pageId);
+                if (allPages.some((p) => p.id === target.pageId)) openLinkedPage(target.pageId);
                 else toast("The linked page no longer exists");
               }}
               onCreateLinkedPage={(sel, regionId, presentation) => void createLinkedPage(sel, regionId, undefined, presentation)}
@@ -1929,6 +1978,11 @@ function StudioEditor() {
           Delete <b>{pages.find((p) => p.id === pendingDelete?.id)?.name ?? "this page"}</b>? Pages linked inside its regions
           become top-level. Saved versions keep their copy.
         </p>
+        {!!deleteUsages?.length && (
+          <p className="status-banner warn">
+            Used by {usageWireframes(deleteUsages)}. Links there will show as a missing page.
+          </p>
+        )}
       </ConfirmDrawer>
 
       {builder.open && (

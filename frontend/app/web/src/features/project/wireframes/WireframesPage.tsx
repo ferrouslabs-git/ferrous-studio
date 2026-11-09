@@ -12,6 +12,7 @@ import { formatDateTime } from "../../../core/format";
 import { useAutosave } from "../../../core/useAutosave";
 import { useLoad } from "../../../core/useLoad";
 import { ImportBundleDrawer } from "../ImportBundleDrawer";
+import { usageWireframes } from "../../studio/model/sharedPages";
 import { listPersonas, Persona } from "../personas/personasApi";
 import { useProject } from "../ProjectLayout";
 import { listActors, UseCaseActor } from "../usecases/useCasesApi";
@@ -20,6 +21,8 @@ import {
   copyWireframeVersion,
   createWireframe,
   deleteWireframe,
+  listWireframeUsages,
+  PageUsage,
   getWireframeExport,
   INTERFACE_TYPES,
   InterfaceType,
@@ -238,6 +241,20 @@ export function WireframesPage() {
   const [copyError, setCopyError] = useState<string | null>(null);
   // Archived wireframe awaiting delete confirmation.
   const [deleting, setDeleting] = useState<Wireframe | null>(null);
+  // Other wireframes whose links reach into the one being deleted: its pages
+  // may be shared, and those links will dangle once it is gone.
+  const [deleteUsages, setDeleteUsages] = useState<PageUsage[]>([]);
+  useEffect(() => {
+    setDeleteUsages([]);
+    if (!deleting) return;
+    let live = true;
+    listWireframeUsages(project.id, deleting.id)
+      .then((u) => live && setDeleteUsages(u))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [deleting, project.id]);
   const [importing, setImporting] = useState(false);
 
   const [wireframes, personas, actors] = data.data ?? [[], [], []];
@@ -607,6 +624,11 @@ export function WireframesPage() {
           Permanently delete <b>{deleting?.name}</b>? Its pages and snapshots are deleted with it. This cannot be
           undone.
         </p>
+        {deleteUsages.length > 0 && (
+          <p className="status-banner warn">
+            Its pages are used by {usageWireframes(deleteUsages)}. Links there will show as a missing page.
+          </p>
+        )}
       </ConfirmDrawer>
 
       <div className={`toast${toastMsg ? " show" : ""}`}>{toastMsg}</div>

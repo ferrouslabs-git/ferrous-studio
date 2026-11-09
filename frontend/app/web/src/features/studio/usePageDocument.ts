@@ -10,7 +10,7 @@
 // replace, and an edit against it would silently diverge from what arrives.
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage, RequestOptions } from "../../core/api";
-import { getWireframePage } from "../project/wireframes/wireframesApi";
+import { getProjectPage } from "../project/wireframes/wireframesApi";
 import { normalizePage } from "./model/positions";
 import { PageRecord } from "./model/types";
 
@@ -27,7 +27,7 @@ export type PageFetcher = (pageId: string, opts?: RequestOptions) => Promise<Pag
 /** The live pages of one wireframe. */
 export function useLivePages(projectId: string, wireframeId: string): PageFetcher {
   return useCallback(
-    (pageId, opts) => getWireframePage(projectId, wireframeId, pageId, opts),
+    (pageId, opts) => getProjectPage(projectId, pageId, opts),
     [projectId, wireframeId],
   );
 }

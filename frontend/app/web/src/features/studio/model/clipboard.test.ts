@@ -65,12 +65,12 @@ describe("pasteComponent", () => {
     expect(new Set(colIds).size).toBe(3);
   });
 
-  it("pasting into another wireframe strips page links but keeps @back", () => {
+  it("pasting into another project strips page links but keeps @back", () => {
     const original = sampleList();
     (original.props!.links as LinksProp).cancelText = { pageId: BACK_PAGE_ID };
     const p = page([original]);
-    const result = pasteComponent(p, ctx, copyComponentItem(original), null, null, { sameWireframe: false });
-    expect(result?.toast).toMatch(/another wireframe/);
+    const result = pasteComponent(p, ctx, copyComponentItem(original), null, null, { sameProject: false });
+    expect(result?.toast).toMatch(/another project/);
     const pasted = listOf(p)[1];
     expect(pasted.props!.links).toEqual({ cancelText: { pageId: BACK_PAGE_ID } });
     // The source keeps everything.
@@ -164,21 +164,21 @@ describe("pasteElement", () => {
     expect(pasted.data).toMatchObject({ x: "56", y: "76" });
   });
 
-  it("pasting into another wireframe drops the element's page link", () => {
+  it("pasting into another project drops the element's page link", () => {
     const source = navbar("c1", [el("e1", "nav-item", "Home", "a0")], { "el:e1": { pageId: "p7" } });
     const dest = navbar("c2", []);
     const p = page([source, dest]);
-    const result = pasteElement(p, ctx, "c2", copyElementItem(source, "e1")!, { sameWireframe: false });
-    expect(result?.toast).toMatch(/another wireframe/);
+    const result = pasteElement(p, ctx, "c2", copyElementItem(source, "e1")!, { sameProject: false });
+    expect(result?.toast).toMatch(/another project/);
     expect(dest.elements).toHaveLength(1);
     expect(dest.props?.links).toBeUndefined();
   });
 
-  it("pasting into another wireframe keeps an @back link — it is not a page id", () => {
+  it("pasting into another project keeps an @back link — it is not a page id", () => {
     const source = navbar("c1", [el("e1", "button", "Cancel", "a0")], { "el:e1": { pageId: BACK_PAGE_ID } });
     const dest = navbar("c2", []);
     const p = page([source, dest]);
-    const result = pasteElement(p, ctx, "c2", copyElementItem(source, "e1")!, { sameWireframe: false });
+    const result = pasteElement(p, ctx, "c2", copyElementItem(source, "e1")!, { sameProject: false });
     expect(result?.toast).toBeUndefined();
     expect((dest.props!.links as LinksProp)[elKey(dest.elements![0].id)]).toEqual({ pageId: BACK_PAGE_ID });
   });

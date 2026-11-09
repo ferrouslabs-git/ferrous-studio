@@ -23,6 +23,7 @@ from .common import (
     SHELL_REGION_LABEL,
     default_page_document,
     get_project,
+    get_project_page,
     get_wireframe,
     get_wireframe_page,
     get_writable_project,
@@ -49,6 +50,8 @@ from .schemas import (
     OpBatchResponse,
     PageCreate,
     PageRead,
+    PageUsage,
+    ProjectPageSummary,
     VersionCopy,
     VersionCreate,
     VersionDetail,
@@ -587,6 +590,126 @@ async def delete_page(
     await db.commit()
 
 
+# ── Shared pages ────────────────────────────────────────────────────────────
+# A link may point at a page of any wireframe in the project, so the studio
+# lists, fetches and edits pages project-wide. Same table and account as the
+# wireframe routes, so RLS needs nothing new.
+
+
+@router.get("/projects/{project_id}/pages", response_model=list[ProjectPageSummary])
+async def list_project_pages(
+    project_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[ProjectPageSummary]:
+    project = await get_project(db, project_id, ctx)
+    rows = await db.execute(
+        select(ProjectPage, Wireframe)
+        .join(Wireframe, Wireframe.id == ProjectPage.wireframe_id)
+        .where(ProjectPage.project_id == project.id, ProjectPage.account_id == project.account_id)
+        .order_by(Wireframe.pos.asc(), ProjectPage.pos.asc())
+    )
+    return [
+        ProjectPageSummary(
+            id=page.id,
+            name=page.name,
+            route=page.route,
+            pos=page.pos,
+            placement=page.placement,
+            presentation=page.presentation,
+            version=page.version,
+            wireframe_id=wireframe.id,
+            wireframe_name=wireframe.name,
+            wireframe_status=wireframe.status,
+        )
+        for page, wireframe in rows.all()
+    ]
+
+
+@router.get("/projects/{project_id}/pages/{page_id}", response_model=PageRead)
+async def get_shared_page(
+    project_id: UUID,
+    page_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:read")),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectPage:
+    project = await get_project(db, project_id, ctx)
+    return await get_project_page(db, ctx, project.id, page_id)
+
+
+def links_to(document: Any, page_id: str) -> bool:
+    """Whether any link in ``document`` targets ``page_id`` (scalar or array
+    entries of a component's ``props.links``)."""
+    if isinstance(document, dict):
+        links = document.get("links")
+        if isinstance(links, dict):
+            for entry in links.values():
+                for item in entry if isinstance(entry, list) else [entry]:
+                    if isinstance(item, dict) and str(item.get("pageId")) == page_id:
+                        return True
+        return any(links_to(value, page_id) for value in document.values())
+    if isinstance(document, list):
+        return any(links_to(value, page_id) for value in document)
+    return False
+
+
+async def page_usages(
+    db: AsyncSession, project: Project, page_ids: list[UUID], exclude_wireframe: UUID
+) -> list[PageUsage]:
+    """Pages outside ``exclude_wireframe`` whose links target any of
+    ``page_ids``. The text match narrows the scan in SQL; ``links_to``
+    confirms each hit really is a link."""
+    targets = [str(pid) for pid in page_ids]
+    if not targets:
+        return []
+    rows = await db.execute(
+        select(ProjectPage, Wireframe)
+        .join(Wireframe, Wireframe.id == ProjectPage.wireframe_id)
+        .where(
+            ProjectPage.project_id == project.id,
+            ProjectPage.account_id == project.account_id,
+            ProjectPage.wireframe_id != exclude_wireframe,
+        )
+        .order_by(Wireframe.pos.asc(), ProjectPage.pos.asc())
+    )
+    usages: list[PageUsage] = []
+    for row, wireframe in rows.all():
+        text = json.dumps(row.document)
+        if any(t in text and links_to(row.document, t) for t in targets):
+            usages.append(
+                PageUsage(page_id=row.id, page_name=row.name, wireframe_id=wireframe.id, wireframe_name=wireframe.name)
+            )
+    return usages
+
+
+@router.get("/projects/{project_id}/pages/{page_id}/usages", response_model=list[PageUsage])
+async def list_page_usages(
+    project_id: UUID,
+    page_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[PageUsage]:
+    """Where a page is used from other wireframes -- the delete-page warning."""
+    project = await get_project(db, project_id, ctx)
+    page = await get_project_page(db, ctx, project.id, page_id)
+    return await page_usages(db, project, [page.id], page.wireframe_id)
+
+
+@router.get("/projects/{project_id}/wireframes/{wireframe_id}/usages", response_model=list[PageUsage])
+async def list_wireframe_usages(
+    project_id: UUID,
+    wireframe_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[PageUsage]:
+    """Where any of a wireframe's pages is used from other wireframes -- the
+    delete-wireframe warning."""
+    project = await get_project(db, project_id, ctx)
+    wireframe = await get_wireframe(db, project, wireframe_id)
+    pages = await wireframe_pages(db, wireframe)
+    return await page_usages(db, project, [p.id for p in pages], wireframe.id)
+
+
 # ── Ops ─────────────────────────────────────────────────────────────────────
 
 
@@ -625,7 +748,11 @@ async def apply_op_batch(
             )
         return JSONResponse(status_code=existing.status_code, content=existing.response)
 
-    page = await get_wireframe_page(db, ctx, wireframe.id, payload.page_id, lock=True)
+    # The page may be shared from another wireframe of the project: the edit
+    # lands on it (and shows wherever it is used), and its history -- audit,
+    # updated_at -- belongs to its home wireframe, not the one editing it.
+    page = await get_project_page(db, ctx, project.id, payload.page_id, lock=True)
+    home = wireframe if page.wireframe_id == wireframe.id else await get_wireframe(db, project, page.wireframe_id)
 
     ops = [op.model_dump(mode="json") for op in payload.ops]
     try:
@@ -653,7 +780,7 @@ async def apply_op_batch(
     page.entity_versions = new.entity_versions
     page.version = new.version
     page.updated_at = utc_now()
-    wireframe.updated_at = utc_now()
+    home.updated_at = utc_now()
     project.updated_at = utc_now()
 
     # Renames arrive as ordinary set ops, so the old/new state comparison is
@@ -662,14 +789,14 @@ async def apply_op_batch(
         await record_event(
             db,
             project=project,
-            wireframe=wireframe,
+            wireframe=home,
             user_id=ctx.user_id,
             event="page_renamed",
             page_id=page.id,
             detail={"old_name": old_name, "new_name": page.name},
         )
     await record_page_edit(
-        db, project=project, wireframe=wireframe, user_id=ctx.user_id, page_id=page.id, page_name=page.name
+        db, project=project, wireframe=home, user_id=ctx.user_id, page_id=page.id, page_name=page.name
     )
 
     response = {"page_id": str(page.id), "version": page.version}
@@ -971,6 +1098,7 @@ async def insert_pages(
     wireframe: Wireframe,
     pages_data: list[dict[str, Any]],
     mapping: dict[str, str],
+    keep: frozenset[str] | set[str] = frozenset(),
 ) -> None:
     """Import each of ``pages_data`` (export-shaped, ids not yet remapped) as
     a fresh ``ProjectPage`` row on ``wireframe``, in array order.
@@ -981,7 +1109,7 @@ async def insert_pages(
     bundle" without a second copy of this loop.
     """
     pos: str | None = None
-    for data in remap_page_ids(pages_data, mapping):
+    for data in remap_page_ids(pages_data, mapping, keep):
         imported = import_page(data)
         page_id = _page_id_of(data)
         pos = key_after(pos)
@@ -1044,7 +1172,21 @@ async def copy_version_to_wireframe(
     await _set_personas(db, project, wireframe, await _live_ids(db, Persona, project, snapshot.get("personas")))
     await _set_actors(db, project, wireframe, await _live_ids(db, UseCaseActor, project, snapshot.get("userTypes")))
 
-    await insert_pages(db, project, wireframe, pages_data, mapping)
+    # Links into the project's other wireframes are shared pages, not stale
+    # references back into the source: they survive the copy as they are.
+    shared = {
+        str(pid)
+        for pid in (
+            await db.execute(
+                select(ProjectPage.id).where(
+                    ProjectPage.project_id == project.id,
+                    ProjectPage.account_id == project.account_id,
+                    ProjectPage.wireframe_id.not_in([source.id, wireframe.id]),
+                )
+            )
+        ).scalars()
+    }
+    await insert_pages(db, project, wireframe, pages_data, mapping, shared)
     # The landing choice is a page id like any other, so it follows the remap.
     landing = mapping.get(str(snapshot.get("landingPageId")))
     wireframe.landing_page_id = UUID(landing) if landing else None

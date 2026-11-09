@@ -97,6 +97,32 @@ export const getWireframeExport = (projectId: string, wireframeId: string) =>
 
 // ── Pages ─────────────────────────────────────────────────────────────────
 
+/** A page of any wireframe in the project — links may share a page across
+ *  wireframes, so pickers and navigation see the whole project. */
+export interface ProjectPageSummary extends PageSummary {
+  wireframe_id: string;
+  wireframe_name: string;
+  wireframe_status: string;
+}
+
+/** A page of another wireframe that links to the page (or wireframe) asked about. */
+export interface PageUsage {
+  page_id: string;
+  page_name: string;
+  wireframe_id: string;
+  wireframe_name: string;
+}
+
+export const listProjectPages = (projectId: string) =>
+  apiGet<ProjectPageSummary[]>(`/studio/projects/${projectId}/pages`);
+/** Any page of the project, whichever wireframe it lives in. */
+export const getProjectPage = (projectId: string, pageId: string, opts?: RequestOptions) =>
+  apiGet<PageRecord>(`/studio/projects/${projectId}/pages/${pageId}`, opts);
+export const listPageUsages = (projectId: string, pageId: string) =>
+  apiGet<PageUsage[]>(`/studio/projects/${projectId}/pages/${pageId}/usages`);
+export const listWireframeUsages = (projectId: string, wireframeId: string) =>
+  apiGet<PageUsage[]>(`${base(projectId, wireframeId)}/usages`);
+
 export const getWireframePage = (projectId: string, wireframeId: string, pageId: string, opts?: RequestOptions) =>
   apiGet<PageRecord>(`${base(projectId, wireframeId)}/pages/${pageId}`, opts);
 export const createWireframePage = (
