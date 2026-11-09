@@ -8,7 +8,7 @@
 // into the renderer: double-click to edit; committing an empty label keeps
 // the element and draws it with no text (FS-REQ-85). With no `edit` handlers
 // everything is read-only.
-import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
 import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, borderShown, elementMeta, fontStack, formSpan, imageList, isFilterType, isInputType, isMultiPick, listAlign, NavAlign, navAlign } from "../catalog";
@@ -269,6 +269,15 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const [dragSize, setDragSize] = useState<Record<string, { w: number; h: number }>>({});
   /** Live height override while the canvas resize handle is being dragged. */
   const [liveHeight, setLiveHeight] = useState<number | null>(null);
+  /** Shrink-to-fit factor for a canvas whose children reach past its right
+   *  edge (a narrow device): the drawing layer scales down as one picture,
+   *  so free-positioned px coordinates keep their arrangement. Never above 1. */
+  const canvasBox = useRef<HTMLDivElement>(null);
+  const canvasLayer = useRef<HTMLDivElement>(null);
+  const [canvasFit, setCanvasFit] = useState(1);
+  // Held while a child is dragged or resized: refitting mid-gesture would
+  // move the canvas under the pointer.
+  const canvasGesture = Object.keys(dragPos).length > 0 || Object.keys(dragSize).length > 0;
   /** Live list overrides while a grip is dragged: a column's width, an image
    *  column's picture size, a free card's height. */
   const [liveColW, setLiveColW] = useState<Record<string, number>>({});
@@ -2620,6 +2629,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     if (!from.size) return;
     const minX = Math.min(...[...from.values()].map((p) => p.x));
     const minY = Math.min(...[...from.values()].map((p) => p.y));
+    // Screen px per layer px: the stage fit and the canvas's own fit.
+    const k = scaleOf(canvasLayer.current);
     let started = false;
     let latest: Record<string, { x: number; y: number }> = {};
     const prevUserSelect = document.body.style.userSelect;
@@ -2636,8 +2647,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         // effect then clears the group).
         if (!multi.includes(el.id)) chrome?.onSelectElement?.(elKey(el.id), null);
       }
-      const cdx = Math.max(dx, -minX);
-      const cdy = Math.max(dy, -minY);
+      const cdx = Math.max(Math.round(dx / k), -minX);
+      const cdy = Math.max(Math.round(dy / k), -minY);
       latest = {};
       from.forEach((p, id) => {
         latest[id] = { x: p.x + cdx, y: p.y + cdy };
@@ -2678,17 +2689,19 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     if (!edit || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const box = (e.currentTarget as HTMLElement).closest(".ui-canvas-el, .ui-btn");
-    const rect = box?.getBoundingClientRect();
-    const fromW = numberOf(el.data?.w ?? "", Math.round(rect?.width ?? 120));
-    const fromH = numberOf(el.data?.h ?? "", Math.round(rect?.height ?? 40));
+    const box = (e.currentTarget as HTMLElement).closest(".ui-canvas-el, .ui-btn") as HTMLElement | null;
+    // Layout size (offset*), not the screen rect: a fitted canvas or stage
+    // renders the box scaled, and the pointer delta is unscaled by `k` below.
+    const fromW = numberOf(el.data?.w ?? "", box?.offsetWidth || 120);
+    const fromH = numberOf(el.data?.h ?? "", box?.offsetHeight || 40);
+    const k = scaleOf(box);
     const startX = e.clientX;
     const startY = e.clientY;
     let latest = { w: fromW, h: fromH };
     const move = (ev: PointerEvent) => {
       latest = {
-        w: Math.max(40, Math.min(2000, Math.round(fromW + ev.clientX - startX))),
-        h: Math.max(24, Math.min(2000, Math.round(fromH + ev.clientY - startY))),
+        w: Math.max(40, Math.min(2000, Math.round(fromW + (ev.clientX - startX) / k))),
+        h: Math.max(24, Math.min(2000, Math.round(fromH + (ev.clientY - startY) / k))),
       };
       setDragSize((s) => ({ ...s, [el.id]: latest }));
     };
@@ -2726,9 +2739,11 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     e.stopPropagation();
     const startY = e.clientY;
     const from = numberOf(scalarOf("height") ?? "", 280);
+    // The stored height is in layer px; the box shows it at the fit factor.
+    const k = scaleOf(canvasLayer.current);
     let latest = from;
     const move = (ev: PointerEvent) => {
-      latest = Math.max(0, Math.min(2000, Math.round(from + ev.clientY - startY)));
+      latest = Math.max(0, Math.min(2000, Math.round(from + (ev.clientY - startY) / k)));
       setLiveHeight(latest);
     };
     const up = () => {
@@ -2743,6 +2758,33 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     window.addEventListener("pointercancel", up, { once: true });
   };
 
+  // Fit the canvas layer to its box. Children are measured in layer space
+  // (offset* ignores transforms), so the extent is the design width whatever
+  // the current factor; the margin mirrors the leftmost child's, up to 16px.
+  useLayoutEffect(() => {
+    const box = canvasBox.current;
+    const layer = canvasLayer.current;
+    if (!box || !layer || canvasGesture || typeof ResizeObserver === "undefined") return;
+    const kids = () => [...layer.children].filter((c): c is HTMLElement => c instanceof HTMLElement && c.classList.contains("ui-canvas-el"));
+    const measure = () => {
+      let right = 0;
+      let left = Infinity;
+      for (const c of kids()) {
+        right = Math.max(right, c.offsetLeft + c.offsetWidth);
+        left = Math.min(left, c.offsetLeft);
+      }
+      const need = right + (Number.isFinite(left) ? Math.min(left, 16) : 0);
+      const avail = box.clientWidth;
+      const next = avail > 0 && need > avail ? Math.floor((avail / need) * 1000) / 1000 : 1;
+      setCanvasFit((prev) => (Math.abs(prev - next) < 0.002 ? prev : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    for (const c of kids()) ro.observe(c);
+    return () => ro.disconnect();
+  }, [cmp.type, cmp.elements, canvasGesture]);
+
   const renderCanvas = (): ReactNode => {
     // "float" sizes like "fill" (the .cmp wrapper overlays the region; see
     // .cmp.float in the stylesheet) — no fixed height, no resize bar. A
@@ -2755,12 +2797,21 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     // wrapper's user-set colour; backgroundColor (not the shorthand) keeps
     // the grid shape's dot pattern.
     const bg = scalarOf("bg");
+    // A fixed-height canvas shrinks with its fit, so a scaled-down drawing
+    // leaves no empty band beneath it; the layer keeps the design height.
+    const fit = canvasFit;
     return (
       <div className={`ui-canvas-wrap${fill ? " fill" : ""}`}>
         <div
+          ref={canvasBox}
           className={`ui-canvas ${shape}${fill ? " fill" : ""}`}
-          style={{ ...(fill ? undefined : { height }), ...(bg ? { backgroundColor: bg } : undefined) }}
+          style={{ ...(fill ? undefined : { height: Math.round(height * fit) }), ...(bg ? { backgroundColor: bg } : undefined) }}
         >
+          <div
+            ref={canvasLayer}
+            className="ui-canvas-layer"
+            style={fit < 1 ? { width: `${100 / fit}%`, height: `${100 / fit}%`, transform: `scale(${fit})` } : undefined}
+          >
           {els.map((el) => {
             const live = dragPos[el.id];
             const liveSize = dragSize[el.id];
@@ -2849,6 +2900,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             );
           })}
           {els.length === 0 && <div className="ui-canvas-hint">{edit ? "Add elements from the library's Elements tab" : null}</div>}
+          </div>
         </div>
         {edit && !fill && (
           <div className="ui-canvas-resize" title="Drag to resize" onPointerDown={startCanvasResize}>

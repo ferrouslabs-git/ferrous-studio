@@ -1901,6 +1901,10 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-canvas.grid {
   background: radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 14px 14px;
 }
+/* The drawing layer children are positioned in. When they reach past the
+   box's right edge (a narrow device), Schematic widens it to the design
+   width and scales it down from the top-left corner to fit. */
+.ui-canvas-layer { position: absolute; inset: 0; transform-origin: 0 0; }
 .ui-canvas-el { position: absolute; max-width: calc(100% - 16px); }
 /* Editable elements drag directly: press anywhere on one and move. The
    inner text token would otherwise re-assert its own cursor over the text. */
