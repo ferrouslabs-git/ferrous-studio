@@ -8,10 +8,10 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  anyElementMeta, borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_SPAN_OPTIONS, imageList, INPUT_TYPES, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  anyElementMeta, borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_COLUMN_OPTIONS, FORM_SPAN_OPTIONS, formColumns, formRows, imageList, INPUT_TYPES, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
-import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
+import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, elKey, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
 import { ComposedRegions } from "../model/linkRegions";
 import { byPos } from "../model/positions";
 import { cmpSize, findNode, SplitSide } from "../model/tree";
@@ -579,6 +579,16 @@ export function Inspector(props: Props) {
   // A form field's share of its row (FS-REQ-74); an inline form is one row.
   const showFormSpan =
     !!elementNode && selectedCmp?.type === "form" && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && isFormFieldType(elementNode.type);
+  // The form's column count, and the row the selected field sits on: its
+  // count is stored on the row's first field (data.rowCols).
+  const formCols = selectedCmp?.type === "form" ? formColumns(selectedCmp) : 1;
+  const formRowHead = (() => {
+    if (!showFormSpan) return null;
+    const fields = sortedEls.filter((e) => isFormFieldType(e.type));
+    const cells = formRows(fields, formCols);
+    const row = cells[fields.findIndex((e) => e.id === elementNode.id)]?.row;
+    return row == null ? null : fields[cells.findIndex((c) => c.row === row)];
+  })();
   const listBesideTitle = !!selectedCmp?.elements?.some((e) => e.type === "header" && e.data?.placement !== "above");
   // Nav items carry an icon only in the Icons shape (it is what draws them).
   const showIcon =
@@ -899,6 +909,23 @@ export function Inspector(props: Props) {
                     </select>
                   </div>
                 )}
+                {formRowHead && (
+                  <div className="field">
+                    <label>Row columns</label>
+                    <select
+                      value={formRowHead.data?.rowCols ?? ""}
+                      disabled={ro}
+                      onChange={(e) =>
+                        props.onElementData({ cmpId: selectedCmp.id, key: elKey(formRowHead.id), index: null }, "rowCols", e.target.value)
+                      }
+                    >
+                      <option value="">Follow form ({formCols})</option>
+                      {FORM_COLUMN_OPTIONS.map((n) => (
+                        <option key={n} value={String(n)}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {showFormSpan && (
                   <div className="field">
                     <label>Row width</label>
@@ -907,7 +934,7 @@ export function Inspector(props: Props) {
                       disabled={ro}
                       onChange={(e) => props.onElementData(elementSel, "span", e.target.value)}
                     >
-                      <option value="">Follow layout</option>
+                      <option value="">Follow row</option>
                       {FORM_SPAN_OPTIONS.map((o) => (
                         <option key={o.id} value={o.id}>{o.label}</option>
                       ))}
@@ -1010,8 +1037,18 @@ export function Inspector(props: Props) {
               <div className="field">
                 <label>Layout</label>
                 <select value={selectedCmp.layout ?? cmpMeta.defaultLayout} disabled={ro} onChange={(e) => props.onCmpLayout(selectedCmp.id, e.target.value)}>
-                  {cmpMeta.layouts.map((l) => (
+                  {cmpMeta.layouts.filter((l) => !l.retired).map((l) => (
                     <option key={l.id} value={l.id}>{l.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {selectedCmp.type === "form" && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && (
+              <div className="field">
+                <label>Columns</label>
+                <select value={String(formCols)} disabled={ro} onChange={(e) => props.onCmpProp(selectedCmp.id, "columns", e.target.value)}>
+                  {FORM_COLUMN_OPTIONS.map((n) => (
+                    <option key={n} value={String(n)}>{n}</option>
                   ))}
                 </select>
               </div>

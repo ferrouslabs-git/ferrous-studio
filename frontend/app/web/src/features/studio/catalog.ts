@@ -331,14 +331,64 @@ export const FORM_SPAN_OPTIONS = [
 /** Form elements that sit in the field grid (and so take a width). */
 export const isFormFieldType = (type: string): boolean =>
   type !== "header" && type !== "button" && type !== "step";
-/** A form field's span in twelfths: its own width, else what its form's
- *  layout gives it — a whole row in one column, half in two (wide fields
- *  and section headings always take the whole row). */
-export function formSpan(el: { type: string; data?: Record<string, string> }, layout: string): number {
+/** Column counts a form, or one of its rows, can take (all divide twelve). */
+export const FORM_COLUMN_OPTIONS = [1, 2, 3, 4] as const;
+const asColumns = (v: unknown): number | null => {
+  const n = Number(v);
+  return (FORM_COLUMN_OPTIONS as readonly number[]).includes(n) ? n : null;
+};
+/** A form's column count (`props.columns`). Forms saved before the control
+ *  carried it in the retired "two-column" layout. */
+export function formColumns(cmp: { layout?: string; props?: Record<string, unknown> }): number {
+  return asColumns(cmp.props?.columns) ?? (cmp.layout === "two-column" ? 2 : 1);
+}
+
+type FormFieldLike = { type: string; data?: Record<string, string> };
+const isWideField = (type: string): boolean =>
+  type === "text-area" || type === "file-upload" || type === "section-heading" || type === "help-text";
+
+/** A form field's span in twelfths within a row of `columns` columns: its
+ *  own width, else one column's share (wide fields and section headings
+ *  take the whole row unless told otherwise). */
+export function formSpan(el: FormFieldLike, columns: number): number {
   const own = FORM_SPAN_OPTIONS.find((o) => o.id === el.data?.span);
   if (own) return own.span;
-  const wide = el.type === "text-area" || el.type === "file-upload" || el.type === "section-heading" || el.type === "help-text";
-  return layout === "two-column" && !wide ? 6 : 12;
+  return isWideField(el.type) ? 12 : 12 / columns;
+}
+
+export interface FormCell {
+  /** Twelfths the field spans. */
+  span: number;
+  /** Row index, counting from 0. */
+  row: number;
+  /** The field opens its row (it is placed back at the first track). */
+  rowStart: boolean;
+  /** The column count of the field's row. */
+  columns: number;
+}
+
+/** Lays a form's fields into rows, the way the twelve-track grid wraps them.
+ *  Rows take the form's column count; the first field of a row may carry
+ *  `data.rowCols` to give that row its own count (and it always opens a
+ *  fresh row). Rows after it go back to the form's count. */
+export function formRows(fields: FormFieldLike[], formCols: number): FormCell[] {
+  const cells: FormCell[] = [];
+  let row = -1;
+  let cols = formCols;
+  let filled = 12;
+  for (const el of fields) {
+    const own = asColumns(el.data?.rowCols);
+    const rowStart = own !== null || filled + formSpan(el, cols) > 12;
+    if (rowStart) {
+      row += 1;
+      cols = own ?? formCols;
+      filled = 0;
+    }
+    const span = formSpan(el, cols);
+    filled += span;
+    cells.push({ span, row, rowStart, columns: cols });
+  }
+  return cells;
 }
 
 /** Where a list's chrome element sits on its line (stored as `data.align`):
@@ -569,6 +619,9 @@ export interface ShapeMeta {
 export interface LayoutMeta {
   id: string;
   label: string;
+  /** Still accepted in stored documents (and bundles) but no longer offered;
+   *  read-time migration moves it onto its replacement. */
+  retired?: boolean;
 }
 
 export interface ElementSeed {
@@ -666,9 +719,10 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
     ],
     defaultShape: "simple",
     layouts: [
-      { id: "one-column", label: "One column" },
-      { id: "two-column", label: "Two columns" },
+      { id: "one-column", label: "Labels above" },
       { id: "horizontal", label: "Labels beside" },
+      // Superseded by the Columns control (props.columns).
+      { id: "two-column", label: "Two columns", retired: true },
     ],
     defaultLayout: "one-column",
     elements: [HEADER, ...FORM_ELEMENTS],

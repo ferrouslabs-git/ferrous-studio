@@ -363,6 +363,13 @@ export function migrateComponent(cmp: ComponentNode): void {
     cmp.shape = cmp.layout === "vertical" ? "icons" : "plain";
   }
   if (cmp.shape === undefined) migrateShapeless(cmp);
+  // The form's "two-column" layout became the Columns control (2026-11):
+  // labels sit above again and the column count moves to props.columns.
+  if (cmp.type === "form" && cmp.layout === "two-column") {
+    cmp.layout = "one-column";
+    const props = (cmp.props ??= {});
+    if (props.columns == null) props.columns = "2";
+  }
   migrateHeader(cmp);
   migrateElements(cmp);
   // After the header and element migrations: a header element minted above

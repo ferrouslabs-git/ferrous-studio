@@ -11,7 +11,7 @@
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, borderShown, elementMeta, fontStack, formSpan, imageList, isFilterType, isInputType, isMultiPick, listAlign, NavAlign, navAlign } from "../catalog";
+import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, borderShown, elementMeta, fontStack, formColumns, formRows, imageList, isFilterType, isInputType, isMultiPick, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
@@ -2110,13 +2110,16 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       );
     }
 
-    // Once any field sets its own width (FS-REQ-74) the grid switches to
-    // twelfths and every field spans its share; until then forms keep the
-    // plain one/two-column grid they have always had.
-    const spans = flow.some((e) => e.data?.span);
-    const spanStyle = (el: ElementNode): CSSProperties | undefined =>
-      spans ? { gridColumn: `span ${formSpan(el, layout)}` } : undefined;
-    const gridClass = `ui-form-grid${spans ? " spans" : layout === "two-column" ? " cols-2" : ""}${layout === "horizontal" ? " labels-beside" : ""}`;
+    // Fields sit on twelve tracks: each row takes the form's column count or
+    // its own (data.rowCols on its first field), and a field's width
+    // (data.span, FS-REQ-74) overrides its one-column share. A row that
+    // sets its own count restarts at the first track.
+    const cells = formRows(flow, formColumns(cmp));
+    const spanStyle = (i: number): CSSProperties => {
+      const { span, rowStart } = cells[i];
+      return { gridColumn: rowStart ? `1 / span ${span}` : `span ${span}` };
+    };
+    const gridClass = `ui-form-grid spans${layout === "horizontal" ? " labels-beside" : ""}`;
     return (
       <div className="ui-card ui-form">
         {headerInline && <div className="ui-card-head">{elTok(headerInline, "ui-card-title")}</div>}
@@ -2132,9 +2135,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
           </ol>
         )}
         <div className={gridClass}>
-          {flow.map((el) => {
-            if (el.type === "section-heading") return <div key={el.id} className={`ui-field ui-form-section${spans ? "" : " wide"}`} style={spanStyle(el)}>{elTok(el, "ui-h3")}</div>;
-            if (el.type === "help-text") return <div key={el.id} className={`ui-field${spans ? "" : " wide"}`} style={spanStyle(el)}>{widget(el)}</div>;
+          {flow.map((el, i) => {
+            if (el.type === "section-heading") return <div key={el.id} className="ui-field ui-form-section" style={spanStyle(i)}>{elTok(el, "ui-h3")}</div>;
+            if (el.type === "help-text") return <div key={el.id} className="ui-field" style={spanStyle(i)}>{widget(el)}</div>;
             return elBox(
               el,
               `ui-field${wideField(el) ? " wide" : ""}`,
@@ -2142,7 +2145,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                 {el.type !== "checkbox" && el.type !== "toggle" && fieldLabel(el)}
                 {fieldWidget(el) ?? widget(el)}
               </>,
-              spanStyle(el),
+              spanStyle(i),
             );
           })}
         </div>

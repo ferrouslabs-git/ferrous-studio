@@ -1781,8 +1781,7 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 
 /* Form layouts. The grid now defaults to one column; layouts widen it. */
 .ui-form-grid { grid-template-columns: minmax(0, 1fr); }
-.ui-form-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-/* Per-field widths (FS-REQ-74): twelfths, each field spanning its share. */
+/* Form rows: twelve tracks; each field spans its row's column share or its own width. */
 .ui-form-grid.spans { grid-template-columns: repeat(12, minmax(0, 1fr)); }
 .ui-form-grid.labels-beside .ui-field:not(.wide) {
   display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; gap: 10px;

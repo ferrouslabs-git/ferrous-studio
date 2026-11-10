@@ -185,8 +185,8 @@ describe("buildEditDocument", () => {
   const columns = (n: number) => Array.from({ length: n }, (_, i) => col(`e${i}`, `Field ${i}`));
 
   it("stays one-column at the threshold and goes two-column above it", () => {
-    expect(formOf(buildEditDocument(list(columns(TWO_COLUMN_THRESHOLD)), "R")).layout).toBe("one-column");
-    expect(formOf(buildEditDocument(list(columns(TWO_COLUMN_THRESHOLD + 1)), "R")).layout).toBe("two-column");
+    expect(formOf(buildEditDocument(list(columns(TWO_COLUMN_THRESHOLD)), "R")).props?.columns).toBe("1");
+    expect(formOf(buildEditDocument(list(columns(TWO_COLUMN_THRESHOLD + 1)), "R")).props?.columns).toBe("2");
   });
 });
 

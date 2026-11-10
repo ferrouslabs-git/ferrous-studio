@@ -197,11 +197,12 @@ def _validate_element(
     if host_component_type == "canvas":
         allowed |= {"x", "y", "w", "h"}
     # A button carries its own size anywhere (FS-REQ-73); a form field its
-    # share of the row (FS-REQ-74).
+    # share of the row (FS-REQ-74), and the first field of a row that row's
+    # own column count.
     if el_type == "button":
         allowed |= {"w", "h"}
     if host_component_type == "form" and el_type not in ("header", "button", "step"):
-        allowed.add("span")
+        allowed |= {"span", "rowCols"}
     # A list column can draw an input in every cell, named by its shape.
     if el_type == "column":
         allowed.add("input")

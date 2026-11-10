@@ -120,7 +120,7 @@ export function fieldSeedForColumn(col: ElementNode): ElementSeed | null {
  *  Name/Email/Role/Team/Cancel/Save, which is not what a generated form wants.
  *  Every button it ends up with links back to wherever the page was opened
  *  from, which is how a drawer's Cancel and Save both behave. */
-function formComponent(type: string, label: string, layout: string, seeds: ElementSeed[]): ComponentNode {
+function formComponent(type: string, label: string, columns: number, seeds: ElementSeed[]): ComponentNode {
   const elements: ElementNode[] = [];
   for (const seed of seeds) {
     const node = makeElement(type, seed);
@@ -137,9 +137,9 @@ function formComponent(type: string, label: string, layout: string, seeds: Eleme
     label,
     pos: "a0",
     shape: "simple",
-    layout,
+    layout: "one-column",
     elements,
-    props: { ...getDefaultProps(type), links },
+    props: { ...getDefaultProps(type), columns: String(columns), links },
   };
 }
 
@@ -189,7 +189,7 @@ export function buildEditDocument(list: ComponentNode, regionLabel: string): Pag
 
   const doc = blankDocument(regionLabel);
   doc.regions[doc.root.id] = [
-    formComponent("form", title, fields.length > TWO_COLUMN_THRESHOLD ? "two-column" : "one-column", seeds),
+    formComponent("form", title, fields.length > TWO_COLUMN_THRESHOLD ? 2 : 1, seeds),
   ];
   return doc;
 }

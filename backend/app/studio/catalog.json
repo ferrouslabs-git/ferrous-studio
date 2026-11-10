@@ -526,8 +526,8 @@
       ],
       "layouts": [
         "one-column",
-        "two-column",
-        "horizontal"
+        "horizontal",
+        "two-column"
       ],
       "elements": {
         "header": {
