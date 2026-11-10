@@ -17,6 +17,7 @@ import type { PageSummary } from "../projects/projectsApi";
 import { deviceMinWidth } from "./components/Canvas";
 import { PreviewCanvas } from "./components/PreviewCanvas";
 import { CustomDef } from "./model/actions";
+import { focusView } from "./model/regionFocus";
 import { BACK_PAGE_ID, LinkTarget } from "./model/types";
 import { DESKTOP_DESIGN_W, DESKTOP_FLEX_FLOOR, Stage, useDesktopFit, useStageFit } from "./stage";
 import { ShellContext, useHostChain } from "./useHostChain";
@@ -96,6 +97,11 @@ export function PreviewShell({
   // Ancestor shells for a child page: walk placements upwards. The preview
   // only reads the rendered levels; the records exist for the editor.
   const host = useHostChain(fetchPage, page, doc.cache, shells).levels;
+  // A link to one region of a page narrows that page to the region.
+  const view = useMemo(
+    () => (page ? focusView(nav.focus, page, host) : null),
+    [nav.focus, page, host],
+  );
 
   const toast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -107,13 +113,17 @@ export function PreviewShell({
       if (target.pageId === BACK_PAGE_ID) {
         if (nav.canBack) nav.back();
         else toast("No previous page to go back to");
-      } else if (allPages.some((p) => p.id === target.pageId)) {
-        go(target.pageId);
-      } else {
+      } else if (!allPages.some((p) => p.id === target.pageId)) {
         toast("The linked page no longer exists");
+      } else if (target.regionId) {
+        // One region of the page: open the page itself (no descent to a
+        // default child), narrowed to that region.
+        nav.visit(target.pageId, { pageId: target.pageId, regionId: target.regionId });
+      } else {
+        go(target.pageId);
       }
     },
-    [allPages, toast, go, nav.back, nav.canBack], // eslint-disable-line react-hooks/exhaustive-deps
+    [allPages, toast, go, nav.back, nav.canBack, nav.visit], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const activePageIds = useMemo(
@@ -146,12 +156,12 @@ export function PreviewShell({
   const stageFit = useStageFit(canvasWrap, interfaceType, isPhone);
   // As in the studio: a desktop page scales down whole to fit (FS-REQ-37).
   const desktopDesignW = page
-    ? Math.max(DESKTOP_DESIGN_W, deviceMinWidth(page.document, host, page.presentation, DESKTOP_FLEX_FLOOR))
+    ? Math.max(DESKTOP_DESIGN_W, deviceMinWidth(view?.doc ?? page.document, view?.host ?? host, page.presentation, DESKTOP_FLEX_FLOOR))
     : DESKTOP_DESIGN_W;
   const desktopFit = useDesktopFit(canvasWrap, desktopDesignW, !framed && !!page);
   // Desktop pages widen for their fixed-px columns and the canvas scrolls to
   // them; a framed device keeps its screen width, like the hardware it draws.
-  const minDeviceWidth = !framed && page ? deviceMinWidth(page.document, host, page.presentation) : 0;
+  const minDeviceWidth = !framed && page ? deviceMinWidth(view?.doc ?? page.document, view?.host ?? host, page.presentation) : 0;
   // A switch in flight dims the (still rendered) outgoing page after a beat;
   // a fast switch shows nothing at all (see .page-switching in studio.css).
   const pageSwitching = !!page && (page.id !== activePageId || pendingPageId !== null);
@@ -189,8 +199,8 @@ export function PreviewShell({
           >
             {page ? (
               <PreviewCanvas
-                doc={page.document}
-                host={host}
+                doc={view?.doc ?? page.document}
+                host={view?.host ?? host}
                 presentation={page.presentation}
                 activePageIds={activePageIds}
                 defs={project.custom_components as CustomDef[]}

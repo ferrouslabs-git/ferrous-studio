@@ -335,6 +335,9 @@ class ProjectPageSummary(PageSummary):
     wireframe_id: UUID
     wireframe_name: str
     wireframe_status: str
+    # The page's regions in reading order ({id, label}): a link may open one
+    # region of a page instead of the whole page.
+    regions: list[dict[str, str]] = []
 
 
 class PageUsage(BaseModel):

@@ -77,6 +77,7 @@ import {
 import { diffPage } from "./model/diff";
 import { usePageHistory } from "./model/history";
 import { ComposedLevel, composeRegionOptions } from "./model/linkRegions";
+import { focusView } from "./model/regionFocus";
 import { firstNavTarget, navDescendants, navLevel, navLinkedPageIds, navRouteLabel, navSubItems, orderPagesByNav } from "./model/navOrder";
 import { byPos, isLegacyDocument, posAfterLast } from "./model/positions";
 import { blankDocument, CanvasLevel, contentRegionFor, enclosingRegionId, fallbackRegionId, findNode, regionDisplayName } from "./model/tree";
@@ -837,13 +838,17 @@ function StudioEditor() {
         // wherever they came from rather than a fixed page.
         if (nav.canBack) nav.back();
         else toast("No previous page to go back to");
-      } else if (allPages.some((p) => p.id === target.pageId)) {
-        go(target.pageId);
-      } else {
+      } else if (!allPages.some((p) => p.id === target.pageId)) {
         toast("The linked page no longer exists");
+      } else if (target.regionId) {
+        // One region of the page: open the page itself (no descent to a
+        // default child), narrowed to that region.
+        nav.visit(target.pageId, { pageId: target.pageId, regionId: target.regionId });
+      } else {
+        go(target.pageId);
       }
     },
-    [allPages, toast, go, nav.back, nav.canBack],
+    [allPages, toast, go, nav.back, nav.canBack, nav.visit],
   );
 
   /** Setting a link takes you to what you linked. The target's document is
@@ -852,8 +857,8 @@ function StudioEditor() {
   const openLinkedPage = useCallback(
     /** `edit`: an element (on a shell) whose label editor opens on arrival —
      *  a nav item just added keeps its name editor across the switch. */
-    (pageId: string, edit?: ElementSel) => {
-      nav.visit(pageId);
+    (pageId: string, edit?: ElementSel, regionId?: string) => {
+      nav.visit(pageId, regionId ? { pageId, regionId } : undefined);
       setPendingReveal({ pageId, sel: null, edit });
     },
     [nav.visit], // eslint-disable-line react-hooks/exhaustive-deps
@@ -1319,6 +1324,13 @@ function StudioEditor() {
 
   /** The open page plus its ancestor shells: a nav item linking to any of
    *  these renders as the current tab (see SchematicChrome.activePageIds). */
+  // A link to one region of a page narrows that page to the region: the
+  // canvas draws the narrowed levels, while every edit still resolves against
+  // the full documents (ids are unchanged).
+  const view = useMemo(
+    () => (page ? focusView(nav.focus, page, host) : null),
+    [nav.focus, page, host],
+  );
   const activePageIds = useMemo(
     () => (page ? [page.id, ...host.map((h) => h.pageId)] : []),
     [page?.id, host], // eslint-disable-line react-hooks/exhaustive-deps
@@ -1547,7 +1559,7 @@ function StudioEditor() {
   // A desktop page narrower than it is designed scales down whole instead of
   // squeezing its flexible columns (FS-REQ-37; see useDesktopFit).
   const desktopDesignW = page
-    ? Math.max(DESKTOP_DESIGN_W, deviceMinWidth(page.document, host, page.presentation, DESKTOP_FLEX_FLOOR))
+    ? Math.max(DESKTOP_DESIGN_W, deviceMinWidth(view?.doc ?? page.document, view?.host ?? host, page.presentation, DESKTOP_FLEX_FLOOR))
     : DESKTOP_DESIGN_W;
   const desktopFit = useDesktopFit(canvasWrap, desktopDesignW, interfaceType === "desktop" && !!page);
 
@@ -1562,7 +1574,7 @@ function StudioEditor() {
   const device = deviceClass(interfaceType);
   // Desktop pages widen for their fixed-px columns and the canvas scrolls to
   // them; a framed device keeps its screen width, like the hardware it draws.
-  const minDeviceWidth = !framed && page ? deviceMinWidth(page.document, host, page.presentation) : 0;
+  const minDeviceWidth = !framed && page ? deviceMinWidth(view?.doc ?? page.document, view?.host ?? host, page.presentation) : 0;
   // A switch in flight dims the (still rendered) outgoing page after a beat;
   // a fast switch shows nothing at all (see .page-switching in studio.css).
   const pageSwitching = !!page && !pageSettled;
@@ -1654,8 +1666,8 @@ function StudioEditor() {
               >
                 {page ? (
                   <Canvas
-                    doc={page.document}
-                    host={host}
+                    doc={view?.doc ?? page.document}
+                    host={view?.host ?? host}
                     presentation={page.presentation}
                     onDismissOverlay={() => {
                       // Back where the trail knows it; a page opened cold
@@ -1877,7 +1889,7 @@ function StudioEditor() {
                 // Clearing a link has no destination, and Back resolves only
                 // at follow time; every real page target opens.
                 if (!target || target.pageId === BACK_PAGE_ID) return;
-                if (allPages.some((p) => p.id === target.pageId)) openLinkedPage(target.pageId);
+                if (allPages.some((p) => p.id === target.pageId)) openLinkedPage(target.pageId, undefined, target.regionId);
                 else toast("The linked page no longer exists");
               }}
               onCreateLinkedPage={(sel, regionId, presentation) => void createLinkedPage(sel, regionId, undefined, presentation)}

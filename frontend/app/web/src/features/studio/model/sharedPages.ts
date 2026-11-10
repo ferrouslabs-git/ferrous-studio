@@ -33,7 +33,7 @@ export function withForeignPages(
 }
 
 /** A placed page named by its path within its own wireframe ("Home ▸ Users"). */
-function pathName(page: ProjectPageSummary, byId: Map<string, ProjectPageSummary>): string {
+export function pathName(page: ProjectPageSummary, byId: Map<string, ProjectPageSummary>): string {
   const names = [page.name];
   const seen = new Set([page.id]);
   let parent = page.placement ? byId.get(page.placement.page_id) : undefined;

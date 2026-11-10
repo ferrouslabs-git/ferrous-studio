@@ -563,6 +563,10 @@ export function Inspector(props: Props) {
   const linkTargetPage = link && !isBackLink
     ? pages.find((p) => p.id === link.pageId) ?? props.projectPages?.find((p) => p.id === link.pageId)
     : null;
+  // A region link whose page survives but whose region was removed. Unknown
+  // (not missing) until the project listing, which carries regions, loads.
+  const linkRegions = link?.regionId ? props.projectPages?.find((p) => p.id === link.pageId)?.regions : undefined;
+  const linkRegionMissing = !!link?.regionId && !!linkRegions && !linkRegions.some((r) => r.id === link.regionId);
   const cmpMeta = selectedCmp ? COMPONENTS[selectedCmp.type] ?? null : null;
   // A selected element node (as opposed to a scalar prop token).
   const elementNode =
@@ -1004,6 +1008,7 @@ export function Inspector(props: Props) {
               />
             </div>
             {link && !isBackLink && !linkTargetPage && <div className="insp-hint">The target page no longer exists.</div>}
+            {linkRegionMissing && <div className="insp-hint">The target region no longer exists.</div>}
             {elementNode && !ro && (
               <button className="btn small ghost danger" onClick={() => props.onRemoveElement(elementSel)}>
                 Remove element

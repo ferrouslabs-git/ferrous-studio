@@ -621,9 +621,29 @@ async def list_project_pages(
             wireframe_id=wireframe.id,
             wireframe_name=wireframe.name,
             wireframe_status=wireframe.status,
+            regions=region_summaries(page.document),
         )
         for page, wireframe in rows.all()
     ]
+
+
+def region_summaries(document: Any) -> list[dict[str, str]]:
+    """A page's regions in reading order, each with the name the studio shows
+    for it: its label, else "Region n" (regionDisplayName in tree.ts)."""
+    out: list[dict[str, str]] = []
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("kind") == "region":
+            label = node.get("label")
+            name = label if isinstance(label, str) and label else f"Region {len(out) + 1}"
+            out.append({"id": str(node.get("id")), "label": name})
+        for child in node.get("children") or []:
+            walk(child)
+
+    walk(document.get("root") if isinstance(document, dict) else None)
+    return out
 
 
 @router.get("/projects/{project_id}/pages/{page_id}", response_model=PageRead)

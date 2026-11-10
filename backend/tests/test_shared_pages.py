@@ -1,7 +1,7 @@
 """Pages shared across a project's wireframes: a link may target a page whose
 home is another wireframe. No database involved."""
 from app.studio.ops import remap_page_ids
-from app.studio.wireframes import links_to
+from app.studio.wireframes import links_to, region_summaries
 
 OLD_SHELL = "11111111-1111-1111-1111-111111111111"
 NEW_SHELL = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -69,3 +69,30 @@ def test_links_to_ignores_the_id_outside_a_link():
     # A placement or a stray string naming the page is not a link to it.
     doc = {"regions": {"r1": [{"id": "c1", "props": {"note": SHARED, "pageId": SHARED}}]}}
     assert not links_to(doc, SHARED)
+
+
+def test_region_summaries_list_regions_in_reading_order_with_display_names():
+    document = {
+        "root": {
+            "kind": "split",
+            "id": "s1",
+            "children": [
+                {"kind": "region", "id": "r1", "label": "Filters"},
+                {"kind": "split", "id": "s2", "children": [{"kind": "region", "id": "r2"}]},
+            ],
+        },
+        "regions": {},
+    }
+    assert region_summaries(document) == [
+        {"id": "r1", "label": "Filters"},
+        {"id": "r2", "label": "Region 2"},
+    ]
+    assert region_summaries({}) == []
+
+
+def test_a_region_link_keeps_its_region_through_a_copy():
+    link = {"pageId": OLD_SHELL, "regionId": "r1"}
+    pages = shell({"el:a": link})
+    copied = remap_page_ids(pages, {OLD_SHELL: NEW_SHELL})
+    assert links_of(copied[0])["el:a"] == {"pageId": NEW_SHELL, "regionId": "r1"}
+
