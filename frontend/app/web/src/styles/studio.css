@@ -294,6 +294,13 @@
    to see that a panel scrolls is a real affordance. */
 .device, .device * { scrollbar-width: none; scrollbar-gutter: auto; }
 .device::-webkit-scrollbar, .device *::-webkit-scrollbar { display: none; }
+/* The one bar that comes back: a table wider than its card. With it hidden
+   nothing says the columns carry on past the edge, and a mouse has no way to
+   reach them; the real screen would paint this bar too. Sideways only — a
+   filled table's rows still scroll without one. */
+.device .ui-table-scroll { scrollbar-width: auto; }
+.device .ui-table-scroll::-webkit-scrollbar:horizontal { display: block; height: 8px; }
+.device .ui-table-scroll::-webkit-scrollbar-thumb { background: var(--border-strong, var(--border)); border-radius: 4px; }
 
 /* ── Device stage ──
    The wireframe's interface type drives the shape of the editing area. Mobile
