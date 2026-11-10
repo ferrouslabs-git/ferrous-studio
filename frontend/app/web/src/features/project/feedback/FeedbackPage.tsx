@@ -537,11 +537,6 @@ export function FeedbackPage() {
                   return (
                     <NameCell sub={item.detail || undefined} onOpen={() => openDrawer(item)}>
                       {item.human_id} · {item.title}
-                      {item.screenshot_count > 0 && (
-                        <span className="badge muted" title={`${item.screenshot_count} screenshots`}>
-                          {item.screenshot_count} shot{item.screenshot_count === 1 ? "" : "s"}
-                        </span>
-                      )}
                       {comments > 0 && (
                         <span className="badge muted" title={`${comments} comments`}>
                           {comments} comment{comments === 1 ? "" : "s"}

@@ -86,6 +86,10 @@
   position: relative; width: 92px; height: 62px; border-radius: 6px; overflow: hidden;
   border: 1px solid var(--border-strong); background: var(--bg-deep);
 }
+.shot-thumb-view {
+  display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in;
+}
+.shot-thumb-view:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .shot-thumb canvas, .shot-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .shot-thumb-drop {
   position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0;
@@ -98,4 +102,40 @@
 .shot-thumb-state {
   position: absolute; inset: auto 0 0 0; padding: 1px 4px; font-size: 9px; text-align: center;
   background: rgba(0,0,0,.7); color: #fff; text-transform: uppercase; letter-spacing: .08em;
+}
+
+/* ── The full-size viewer ───────────────────────────────────────────────── */
+
+/* Above the drawer (40) and the studio overlays; the editor is a drawer of its
+   own, so nothing else is open over a report at the same time. */
+.shot-viewer {
+  position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
+  background: rgba(0,0,0,.82);
+}
+.shot-viewer-bar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.shot-viewer-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shot-viewer-stage {
+  position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 24px 64px;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr); /* so the canvas's max-* resolve against the stage */
+}
+/* Natural size when it fits, scaled down (never up) when it does not. */
+.shot-viewer-stage > canvas {
+  max-width: 100%; max-height: 100%; width: auto; height: auto;
+  box-shadow: var(--shadow); background: var(--bg-deep);
+}
+.shot-viewer-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 56px; padding: 0; border: 0; border-radius: 8px; cursor: pointer;
+  font-size: 32px; line-height: 1; background: rgba(0,0,0,.55); color: #fff;
+}
+.shot-viewer-nav:hover { background: rgba(0,0,0,.8); }
+.shot-viewer-nav.prev { left: 12px; }
+.shot-viewer-nav.next { right: 12px; }
+
+@media (max-width: 640px) {
+  .shot-viewer-stage { padding: 12px; }
+  .shot-viewer-nav { top: auto; bottom: 12px; transform: none; }
 }

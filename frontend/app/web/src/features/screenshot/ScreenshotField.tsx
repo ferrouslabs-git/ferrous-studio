@@ -6,6 +6,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { canCaptureScreen, Captured, CaptureError, captureScreen, fromClipboardEvent, fromFile } from "./capture";
+import { ScreenshotViewer } from "./ScreenshotViewer";
 import "./screenshot.css";
 
 const ScreenshotEditor = lazy(() =>
@@ -34,6 +35,8 @@ export function ScreenshotField({
 }) {
   const [capture, setCapture] = useState<Captured | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The index of the screenshot open full-size, if any.
+  const [viewing, setViewing] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const canCapture = canCaptureScreen();
 
@@ -119,10 +122,19 @@ export function ScreenshotField({
 
       {items.length > 0 && (
         <div className="shot-thumbs">
-          {items.map((item) => (
-            <Thumb key={item.id} item={item} onRemove={disabled ? undefined : () => onRemove(item.id)} />
+          {items.map((item, i) => (
+            <Thumb
+              key={item.id}
+              item={item}
+              onView={() => setViewing(i)}
+              onRemove={disabled ? undefined : () => onRemove(item.id)}
+            />
           ))}
         </div>
+      )}
+
+      {viewing !== null && items.length > 0 && (
+        <ScreenshotViewer items={items} start={Math.min(viewing, items.length - 1)} onClose={() => setViewing(null)} />
       )}
 
       {/* Portalled to the body rather than rendered here. This field lives
@@ -162,7 +174,7 @@ export function ScreenshotField({
  * outright in staging and production. Drawing costs nothing here -- the bitmap
  * is in hand -- and it sidesteps the revoke-on-unmount lifecycle entirely.
  */
-function Thumb({ item, onRemove }: { item: ScreenshotItem; onRemove?: () => void }) {
+function Thumb({ item, onView, onRemove }: { item: ScreenshotItem; onView: () => void; onRemove?: () => void }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -180,7 +192,9 @@ function Thumb({ item, onRemove }: { item: ScreenshotItem; onRemove?: () => void
       className={`shot-thumb${busy ? " is-busy" : ""}${item.status === "failed" ? " is-failed" : ""}`}
       title={item.error ?? item.file.name}
     >
-      <canvas ref={ref} />
+      <button type="button" className="shot-thumb-view" aria-label={`View ${item.file.name}`} onClick={onView}>
+        <canvas ref={ref} />
+      </button>
       {onRemove && item.status !== "uploading" && item.status !== "done" && (
         <button type="button" className="shot-thumb-drop" aria-label={`Remove ${item.file.name}`} onClick={onRemove}>
           ×
