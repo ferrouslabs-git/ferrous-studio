@@ -121,8 +121,10 @@ current page. See `template/src/pages/OrderDrawer.tsx`.
 A component's `props.links` maps an element to where it goes:
 
 ```json
-"props": { "links": { "el:<elementId>": { "pageId": "<page id>", "regionId": "<region id>" } } }
+"props": { "links": { "el:<elementId>": { "pageId": "<page id>", "regionId": "<region id>", "into": { "pageId": "<host page id>", "regionId": "<region id>" } } } }
 ```
+
+`regionId` and `into` are optional and usually absent.
 
 - The key is `el:` followed by the element's `id`.
 - The value is a `LinkTarget`, or an array of them (an element with several
@@ -131,6 +133,17 @@ A component's `props.links` maps an element to where it goes:
   Save usually carry it.
 - `regionId`, when present, means the link shows only that region of the
   target page. Navigate to the page and bring that region into view.
+
+- `into`, when present, says **where the target opens**: inside region
+  `into.regionId` of page `into.pageId` (a page of the composition the link
+  sits in), instead of wherever the target page is placed. A detail page's
+  tabs opening pages in the region beneath them is the usual case. The host
+  page and its shells stay on screen around it. In the prototype, give the
+  host page an `<Outlet />` in that region and register the target under it:
+  a second `PageEntry` with its own id (for example `<page id>@<host page id>`),
+  the same `component`, and `parentId` set to the host. The link then goes to
+  that entry. A page reached without the link still renders in its own
+  placement.
 
 In code, every one of these is `go(pageId, regionId)` from `useGo()`
 (`lib/nav.tsx`), or `go(BACK)`. Use `<NavLink to={pathOf(pageId)}>` for nav
