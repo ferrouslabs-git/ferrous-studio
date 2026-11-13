@@ -619,3 +619,106 @@ def test_there_is_no_llm_call_queue_or_worker_here():
 
 def test_versions_carry_designs_and_their_revisions():
     assert {"project_designs", "design_revisions"} <= COPIED_TABLES
+
+
+# ── The board MCP tools (the skill's hands) ──────────────────────────────
+
+
+@pytest.fixture
+def board_mcp(monkeypatch):
+    import importlib.util
+    import sys
+    import types
+
+    class FakeMCP:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def tool(self, *_a, **_k):
+            return lambda fn: fn
+
+    fastmcp = types.ModuleType("mcp.server.fastmcp")
+    fastmcp.FastMCP = FakeMCP
+    for name in ("mcp", "mcp.server"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, "mcp.server.mcpserver", None)
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fastmcp)
+    spec = importlib.util.spec_from_file_location(
+        "board_mcp_designs", pathlib.Path(__file__).parents[2] / "board_mcp.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.calls, module.puts, module.unchanged = [], [], False
+
+    def studio_call(method, path, body=None):
+        module.calls.append((method, path, body))
+        if path.endswith("/revisions"):
+            revision = {"id": "r2", "revision_no": 2}
+            if module.unchanged:
+                return {"unchanged": True, "revision": revision, "design": {"synced_at": "now"}}
+            return {
+                "unchanged": False, "revision": revision, "design": {"synced_at": None},
+                "html_upload": {"upload_url": "https://bucket/html", "headers": {"Content-Type": "text/html"}},
+                "source_upload": {"upload_url": "https://bucket/zip", "headers": {"Content-Type": "application/zip"}},
+            }
+        if path.endswith("/confirm"):
+            return {"synced_at": "now"}
+        raise AssertionError(path)
+
+    module._studio_call = studio_call
+    module._put_presigned = lambda url, data, headers: module.puts.append((url, data, headers))
+    return module
+
+
+def _prototype(tmp_path):
+    source = tmp_path / "proto"
+    (source / "src").mkdir(parents=True)
+    (source / "src" / "App.tsx").write_text("export default () => null")
+    (source / "package.json").write_text("{}")
+    (source / "node_modules" / "react").mkdir(parents=True)
+    (source / "node_modules" / "react" / "index.js").write_text("// installed, not source")
+    (source / "dist").mkdir()
+    html = source / "dist" / "index.html"
+    html.write_text("<!doctype html><html></html>")
+    return source, html
+
+
+def test_the_mcp_tool_uploads_html_and_source_then_confirms(board_mcp, tmp_path):
+    source, html = _prototype(tmp_path)
+    out = board_mcp.submit_design_revision("d1", str(html), "claude_code", source_dir=str(source), summary=" First ")
+    method, path, body = board_mcp.calls[0]
+    assert (method, path) == ("POST", "/designs/d1/revisions")
+    assert body["origin"] == "claude_code" and body["summary"] == "First"
+    assert body["html_bytes"] == html.stat().st_size and body["source_bytes"] > 0
+    assert DesignRevisionCreate(**body)  # the server accepts exactly what the tool sends
+    assert [url for url, _d, _h in board_mcp.puts] == ["https://bucket/html", "https://bucket/zip"]
+    assert board_mcp.puts[1][1].startswith(b"PK\x03\x04")
+    assert board_mcp.calls[-1][:2] == ("POST", "/designs/d1/revisions/r2/confirm")
+    assert out["unchanged"] is False and out["revision_no"] == 2
+
+
+def test_the_mcp_tool_uploads_nothing_when_unchanged(board_mcp, tmp_path):
+    source, html = _prototype(tmp_path)
+    board_mcp.unchanged = True
+    out = board_mcp.submit_design_revision("d1", str(html), "figma_make", source_dir=str(source))
+    assert out["unchanged"] is True
+    assert board_mcp.puts == [] and len(board_mcp.calls) == 1
+
+
+def test_the_source_hash_ignores_what_is_installed_or_built(board_mcp, tmp_path):
+    """Otherwise every sync would look like a change and mint a revision."""
+    source, html = _prototype(tmp_path)
+    before = board_mcp._source_hash(board_mcp._source_files(str(source)))
+    (source / "node_modules" / "react" / "index.js").write_text("// reinstalled")
+    html.write_text("<!doctype html><html>rebuilt</html>")
+    assert board_mcp._source_hash(board_mcp._source_files(str(source))) == before
+    (source / "src" / "App.tsx").write_text("export default () => 1")
+    assert board_mcp._source_hash(board_mcp._source_files(str(source))) != before
+
+
+def test_the_mcp_server_has_no_design_delete_or_edit_tool():
+    source = (pathlib.Path(__file__).parents[2] / "board_mcp.py").read_text(encoding="utf-8")
+    section = source.split("# ── High-fidelity designs", 1)[1]
+    tools = [line.split("def ")[1].split("(")[0] for line in section.splitlines() if line.startswith("def ") and not line.startswith("def _")]
+    assert tools == ["list_designs", "get_design_brief", "set_design_figma_url", "submit_design_revision"]
+    assert '"DELETE"' not in section and '"PATCH"' not in section

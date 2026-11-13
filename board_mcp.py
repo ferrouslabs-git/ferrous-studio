@@ -1,7 +1,8 @@
 """Ferrous Studio MCP server -- lets an AI coding agent read and update one
 project's board (releases, epics, features, sprints, requirements, docs,
-comments, attachments) AND its wireframes, diagrams and use case diagram, over the
-real REST API, authenticated as a board token rather than a human login.
+comments, attachments) AND its wireframes, diagrams, use case diagram and
+high-fidelity designs, over the real REST API, authenticated as a board token
+rather than a human login.
 
 Runs over stdio; add it to a project's .mcp.json. Deliberately isolated
 from the main app's dependencies -- `mcp` is not a backend/requirements.txt
@@ -837,6 +838,177 @@ def update_use_case(
     return _studio_call(
         "PATCH", f"/use-cases/{use_case_id}", _patch_of(name=name, description=description, actor_ids=actor_ids)
     )
+
+
+# ── High-fidelity designs ───────────────────────────────────────────────────
+#
+# Studio authors a design's brief and shows a read-only mirror of the result;
+# the design itself lives in a Figma Make file and is built by the agent
+# holding this token (docs/high-fidelity-design.md, and the studio-design
+# skill that drives these four tools). So: read the brief, record where the
+# Make file is, and upload a built revision. There is no tool to create,
+# rename, archive or delete a design -- that is filing, and stays with a
+# person in the app -- and none to change a revision once it is uploaded.
+
+#: Never part of a prototype's source: installed or generated, and different
+#: on every machine, so including them would make every sync look like a change.
+_SOURCE_SKIP_DIRS = {"node_modules", "dist", "build", ".git", ".vite", ".cache", ".turbo"}
+_SOURCE_SKIP_FILES = {".DS_Store", "Thumbs.db"}
+
+
+def _source_files(source_dir: str) -> list[tuple[str, str]]:
+    """(posix relative path, absolute path) for every source file, sorted."""
+    found = []
+    for root, dirs, files in os.walk(source_dir):
+        dirs[:] = sorted(d for d in dirs if d not in _SOURCE_SKIP_DIRS)
+        for name in files:
+            if name in _SOURCE_SKIP_FILES:
+                continue
+            path = os.path.join(root, name)
+            found.append((os.path.relpath(path, source_dir).replace(os.sep, "/"), path))
+    return sorted(found)
+
+
+def _source_hash(files: list[tuple[str, str]]) -> str:
+    """SHA-256 over each file's path and bytes, in path order -- the same
+    tree gives the same hash wherever and whenever it is built, which a hash
+    of the zip (timestamps, ordering) would not."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    for relative, path in files:
+        with open(path, "rb") as f:
+            data = f.read()
+        digest.update(relative.encode() + b"\0" + str(len(data)).encode() + b"\0" + data)
+    return digest.hexdigest()
+
+
+def _zip_source(files: list[tuple[str, str]]) -> bytes:
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for relative, path in files:
+            archive.write(path, relative)
+    return buffer.getvalue()
+
+
+@mcp.tool()
+def list_designs() -> dict:
+    """Every high-fidelity design in this project -- id, name, the wireframe
+    it is for, status (active | archived), figma_url, current_revision_id
+    (null until it has been generated) and synced_at. Start here to find the
+    real id of the design meant; never invent one."""
+    return {"designs": _studio_call("GET", "/designs")}
+
+
+@mcp.tool()
+def get_design_brief(design_id: str, download_images: bool = True) -> dict:
+    """Everything needed to build one design's prototype -- design_id from
+    list_designs(), never invented:
+
+    - brief: the aesthetics text a person wrote. It is the instruction.
+    - wireframe: the wireframe in its export shape (interfaceType, pages,
+      landingPageId, datasets, customComponents) -- what to build.
+    - catalogueReference: the component and element vocabulary that shape
+      uses.
+    - referenceImages: images to take the look from. With download_images
+      each is saved to a local temp folder and gets a saved_to path you can
+      open; their url is short-lived either way.
+    - design: where it stands -- figma_url, current_revision_id, synced_at.
+    - currentRevision: the build on show in Studio, with its source_hash."""
+    brief = _studio_call("GET", f"/designs/{design_id}/brief")
+    if download_images:
+        for image in brief.get("referenceImages") or []:
+            with urllib.request.urlopen(image["url"], timeout=60) as r:
+                data = r.read()
+            safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in image["filename"]) or "reference"
+            path = os.path.join(_attachment_dir(), f"{image['id'][:8]}-{safe_name}")
+            with open(path, "wb") as f:
+                f.write(data)
+            image["saved_to"] = path
+    return brief
+
+
+@mcp.tool()
+def set_design_figma_url(design_id: str, figma_url: str | None = None, published_url: str | None = None) -> dict:
+    """Record where a design lives in Figma -- design_id from list_designs().
+    figma_url: the Figma Make file, as returned when the project was sent to
+    Figma. published_url: the published site, if it has been published. Both
+    must be https links on figma.com or figma.site; an omitted one is left as
+    it is. This records an address only -- it changes nothing in Figma."""
+    return _studio_call(
+        "PUT", f"/designs/{design_id}/figma", _patch_of(figma_url=figma_url, published_url=published_url)
+    )
+
+
+@mcp.tool()
+def submit_design_revision(
+    design_id: str, html_path: str, origin: str, source_dir: str | None = None, summary: str = ""
+) -> dict:
+    """Upload a built prototype as the design's next revision -- what Studio
+    then shows. design_id from list_designs(), never invented.
+
+    html_path: the ONE self-contained HTML file the build produced (all
+    script and style inlined; at most 25 MB).
+    source_dir: the project folder it was built from. It is archived and
+    stored beside the HTML; node_modules, dist, build and .git are left out.
+    origin: figma_make if this source was read back from the Make file,
+    claude_code if it was written here.
+    summary: one line saying what changed, shown beside the revision.
+
+    Safe to call again and again: if the source is byte-for-byte what the
+    current revision was built from, nothing is uploaded and the result is
+    {"unchanged": true}. Otherwise the result carries the new revision and
+    its revision_no. Revisions are never edited or deleted afterwards."""
+    if origin not in ("figma_make", "claude_code"):
+        raise ValueError("origin must be figma_make or claude_code")
+    html_file = os.path.expanduser(html_path)
+    if not os.path.isfile(html_file):
+        raise ValueError(f"No file at {html_path}")
+    with open(html_file, "rb") as f:
+        html = f.read()
+    if not html:
+        raise ValueError(f"{os.path.basename(html_file)} is empty")
+
+    archive = None
+    if source_dir:
+        folder = os.path.expanduser(source_dir)
+        if not os.path.isdir(folder):
+            raise ValueError(f"No folder at {source_dir}")
+        files = _source_files(folder)
+        if not files:
+            raise ValueError(f"{source_dir} has no source files")
+        source_hash = _source_hash(files)
+        archive = _zip_source(files)
+    else:
+        import hashlib
+
+        source_hash = hashlib.sha256(html).hexdigest()
+    for label, size in (("The HTML file", len(html)), ("The source archive", len(archive or b""))):
+        if size > _UPLOAD_MAX_BYTES:
+            raise ValueError(f"{label} is {size / (1024 * 1024):.1f} MB; the limit is 25 MB")
+
+    ticket = _studio_call("POST", f"/designs/{design_id}/revisions", _patch_of(
+        origin=origin, summary=summary.strip() or None, source_hash=source_hash,
+        html_bytes=len(html), source_bytes=len(archive) if archive else None,
+    ))
+    revision = ticket["revision"]
+    if ticket["unchanged"]:
+        return {
+            "unchanged": True, "revision_no": revision["revision_no"], "revision_id": revision["id"],
+            "synced_at": ticket["design"]["synced_at"],
+        }
+    _put_presigned(ticket["html_upload"]["upload_url"], html, ticket["html_upload"]["headers"])
+    if archive and ticket.get("source_upload"):
+        _put_presigned(ticket["source_upload"]["upload_url"], archive, ticket["source_upload"]["headers"])
+    design = _studio_call("POST", f"/designs/{design_id}/revisions/{revision['id']}/confirm", {})
+    return {
+        "unchanged": False, "revision_no": revision["revision_no"], "revision_id": revision["id"],
+        "html_bytes": len(html), "source_bytes": len(archive) if archive else None,
+        "synced_at": design["synced_at"],
+    }
 
 
 if __name__ == "__main__":
