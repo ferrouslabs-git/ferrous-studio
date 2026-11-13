@@ -77,6 +77,7 @@ import {
 import { diffPage } from "./model/diff";
 import { usePageHistory } from "./model/history";
 import { ComposedLevel, composeRegionOptions } from "./model/linkRegions";
+import { defaultOpensIn, HostOverride, hostOverrideFor } from "./model/linkHost";
 import { focusView } from "./model/regionFocus";
 import { firstNavTarget, navDescendants, navLevel, navLinkedPageIds, navRouteLabel, navSubItems, orderPagesByNav } from "./model/navOrder";
 import { byPos, isLegacyDocument, posAfterLast } from "./model/positions";
@@ -180,6 +181,7 @@ function StudioEditor() {
     },
     [pages, projectPages.pages, wireframeId],
   );
+  const isOwnPage = useCallback((pageId: string) => pages.some((p) => p.id === pageId), [pages]);
   const nav = usePageNav(allPages, activePageId, setActivePageId);
 
   // Reusable datasets (platform defaults + this project's own): elements bind
@@ -239,7 +241,11 @@ function StudioEditor() {
   // accept edits, outbox ACKs and conflict reloads like the open page's.
   // Sharing the page cache lets sibling switches rebuild the chain without
   // refetching (usually without a repaint at all).
-  const hostChain = useHostChain(fetchPage, page, doc.cache, projectPages.shells);
+  // A link's "opens in" applies to the page it was followed to: mid-switch
+  // the outgoing page keeps the one it was drawn with.
+  const shownHost = useRef(nav.host);
+  if (page && page.id === activePageId) shownHost.current = nav.host;
+  const hostChain = useHostChain(fetchPage, page, doc.cache, projectPages.shells, shownHost.current);
   const host = hostChain.levels;
   const { update: updateHostPage } = hostChain;
 
@@ -840,15 +846,16 @@ function StudioEditor() {
         else toast("No previous page to go back to");
       } else if (!allPages.some((p) => p.id === target.pageId)) {
         toast("The linked page no longer exists");
-      } else if (target.regionId) {
-        // One region of the page: open the page itself (no descent to a
-        // default child), narrowed to that region.
-        nav.visit(target.pageId, { pageId: target.pageId, regionId: target.regionId });
       } else {
-        go(target.pageId);
+        // A link with "opens in" sets where its target renders; one without
+        // keeps whatever the view it is followed from already has.
+        const opensIn = hostOverrideFor(target, allPages, isOwnPage) ?? undefined;
+        // One region of the page: the page narrowed to it, on whatever is
+        // placed in that region. A whole page: its nav-driven default child.
+        go(target.pageId, target.regionId ? { pageId: target.pageId, regionId: target.regionId } : undefined, opensIn);
       }
     },
-    [allPages, toast, go, nav.back, nav.canBack, nav.visit],
+    [allPages, isOwnPage, toast, go, nav.back, nav.canBack],
   );
 
   /** Setting a link takes you to what you linked. The target's document is
@@ -857,12 +864,44 @@ function StudioEditor() {
   const openLinkedPage = useCallback(
     /** `edit`: an element (on a shell) whose label editor opens on arrival —
      *  a nav item just added keeps its name editor across the switch. */
-    (pageId: string, edit?: ElementSel, regionId?: string) => {
-      nav.visit(pageId, regionId ? { pageId, regionId } : undefined);
+    (pageId: string, edit?: ElementSel, regionId?: string, opensIn?: HostOverride) => {
+      nav.visit(pageId, regionId ? { pageId, regionId } : undefined, opensIn);
       setPendingReveal({ pageId, sel: null, edit });
     },
     [nav.visit], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  /** Store a link and open what it points at, where it will open. */
+  const commitLink = (sel: ElementSel, target: LinkTarget | null) => {
+    runCmp(sel.cmpId, (d, c) => A.setElementLink(d, c, sel.cmpId, sel.key, sel.index, target));
+    // Clearing a link has no destination, and Back resolves only at follow
+    // time; every real page target opens.
+    if (!target || target.pageId === BACK_PAGE_ID) return;
+    if (allPages.some((p) => p.id === target.pageId)) {
+      openLinkedPage(target.pageId, undefined, target.regionId, hostOverrideFor(target, allPages, isOwnPage) ?? undefined);
+    } else toast("The linked page no longer exists");
+  };
+
+  /** A link picked from the menu: where it opens starts from the default
+   *  (defaultOpensIn), which "Opens in" then changes. */
+  const setLinkFromPicker = (sel: ElementSel, target: LinkTarget | null) => {
+    const linked = target && target.pageId !== BACK_PAGE_ID ? allPages.find((p) => p.id === target.pageId) : null;
+    const owner = recordOfCmp(sel.cmpId);
+    const loc = owner ? locateCmp(owner.document, sel.cmpId) : null;
+    if (!target || !linked || linked.presentation || !owner || !loc) {
+      commitLink(sel, target);
+      return;
+    }
+    const into = defaultOpensIn({
+      componentType: loc.list[loc.index].type,
+      ownerPageId: owner.id,
+      ownerRoot: owner.document.root,
+      ownRegionId: loc.region,
+      target: linked,
+      shared: !isOwnPage(linked.id),
+    });
+    commitLink(sel, into ? { ...target, into } : target);
+  };
 
   /** `just` names the element's page and component outright — for a
    *  component added in this same handler, which this render's records do
@@ -1885,14 +1924,8 @@ function StudioEditor() {
               onRemoveElement={(sel) => {
                 if (isElKey(sel.key)) runCmp(sel.cmpId, (d, c) => A.removeElement(d, c, sel.cmpId, sel.key.slice(EL_PREFIX.length)));
               }}
-              onSetLink={(sel, target) => {
-                runCmp(sel.cmpId, (d, c) => A.setElementLink(d, c, sel.cmpId, sel.key, sel.index, target));
-                // Clearing a link has no destination, and Back resolves only
-                // at follow time; every real page target opens.
-                if (!target || target.pageId === BACK_PAGE_ID) return;
-                if (allPages.some((p) => p.id === target.pageId)) openLinkedPage(target.pageId, undefined, target.regionId);
-                else toast("The linked page no longer exists");
-              }}
+              onSetLink={setLinkFromPicker}
+              onSetLinkOpensIn={commitLink}
               onCreateLinkedPage={(sel, regionId, presentation) => void createLinkedPage(sel, regionId, undefined, presentation)}
               onHoverLinkRegion={setLinkHotRegion}
               linkRegions={linkRegions}

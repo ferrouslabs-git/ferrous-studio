@@ -13,6 +13,7 @@ from .audit import router as audit_router
 from .board.agent_routes import router as board_agent_router
 from .board.routes import router as board_router
 from .datasets import router as datasets_router
+from .designs import router as designs_router
 from .diagrams import router as diagrams_router
 from .documents import router as documents_router
 from .github import project_router as github_project_router
@@ -35,6 +36,7 @@ router.include_router(diagrams_router)
 router.include_router(documents_router)
 router.include_router(use_cases_router)
 router.include_router(datasets_router)
+router.include_router(designs_router)
 router.include_router(importing_router)
 router.include_router(project_agent_router)
 router.include_router(github_router)

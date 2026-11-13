@@ -2339,3 +2339,45 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
    any text in it turns back so it stays readable. */
 .ui-shape { transform: rotate(var(--rot, 0deg)); }
 .ui-shape .ui-shape-text { transform: rotate(calc(-1 * var(--rot, 0deg))); }
+
+/* ── High-fidelity design ──
+   A design revision on the same drafting mat the wireframe lies on, drawn in
+   a sandboxed frame (features/project/design/PrototypeFrame.tsx). The frame's
+   own document supplies every colour inside it; only the mat and the sheet's
+   edge are Studio's. A framed device (mobile, tablet) is sized and scaled by
+   stage.tsx exactly as the wireframe preview is; desktop fills the mat. */
+.design-back { display: block; font-size: 13px; text-decoration: none; }
+.design-back:hover { text-decoration: underline; }
+.design-synced { font-size: 13px; white-space: nowrap; }
+.design-summary { margin: 0; font-size: 13px; }
+.design-mat {
+  --mat: #E7EAEE;
+  --mat-line: rgba(27,32,39,.05);
+  display: flex;
+  min-height: 360px;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--mat);
+  background-image:
+    linear-gradient(var(--mat-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mat-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.design-mat .stage { flex: 0 0 auto; margin: auto; }
+.design-device {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #C3CAD2;
+  box-shadow: 0 1px 2px rgba(27,32,39,.06), 0 10px 28px rgba(27,32,39,.10);
+}
+.design-mat.framed .design-device { flex: 0 0 auto; transform-origin: top left; }
+.design-mat.framed .design-device.mobile { border-radius: 24px; }
+.design-frame { display: block; width: 100%; height: 100%; border: 0; }
+.design-empty { margin: auto; padding: 16px 20px; border-radius: var(--radius); background: var(--bg); }
+.design-references { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.design-references li { display: flex; align-items: center; gap: 10px; }
+.design-reference-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

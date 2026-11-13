@@ -5,18 +5,23 @@
 // screen), so stale trail entries never become dead stops.
 //
 // A visit may carry a region focus (a link to one region of a page — see
-// model/regionFocus.ts). It lives on the trail entry, so back/forward bring
-// back exactly the view that was left, and a plain visit keeps it only for
-// a page placed under the focused one.
+// model/regionFocus.ts) and a host override (a link that says which region
+// its target opens in — see model/linkHost.ts). Both live on the trail
+// entry, so back/forward bring back exactly the view that was left, and a
+// plain visit keeps them only for a page that belongs to what was linked.
 //
 // This is navigation history, not edit history — undo/redo of document edits
 // lives in model/history.ts and is deliberately a separate stack.
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { PageSummary } from "../projects/projectsApi";
+import { HostOverride, inheritsHost, sameHost } from "./model/linkHost";
 import { inheritsFocus, RegionFocus, sameFocus } from "./model/regionFocus";
 
-type Entry = { id: string; focus: RegionFocus | null };
+type Entry = { id: string; focus: RegionFocus | null; host: HostOverride | null };
 type Trail = { stack: Entry[]; index: number };
+
+const sameView = (a: Entry | undefined, focus: RegionFocus | null, host: HostOverride | null): boolean =>
+  sameFocus(a?.focus ?? null, focus) && sameHost(a?.host ?? null, host);
 
 export function usePageNav(
   pages: readonly PageSummary[],
@@ -29,16 +34,18 @@ export function usePageNav(
   pagesRef.current = pages;
 
   /** Switch page and record the step; a repeat visit of the current entry is
-   *  a no-op. `focus` narrows the view to one region; left out, the current
-   *  focus carries over when `id` is placed under the focused page. */
+   *  a no-op. `focus` narrows the view to one region and `host` opens a page
+   *  in a region other than its own; left out, the current one carries over
+   *  when `id` belongs to what it was set for. */
   const visit = useCallback(
-    (id: string, focus?: RegionFocus | null) => {
+    (id: string, focus?: RegionFocus | null, host?: HostOverride | null) => {
       setActivePageId(id);
       setTrail((t) => {
         const current = t.stack[t.index];
-        const next = focus !== undefined ? focus : current && inheritsFocus(id, current.focus, pagesRef.current) ? current.focus : null;
-        if (current && current.id === id && sameFocus(current.focus, next)) return t;
-        const stack = [...t.stack.slice(0, t.index + 1), { id, focus: next }];
+        const nextFocus = focus !== undefined ? focus : current && inheritsFocus(id, current.focus, pagesRef.current) ? current.focus : null;
+        const nextHost = host !== undefined ? host : current && inheritsHost(id, current.host, pagesRef.current) ? current.host : null;
+        if (current && current.id === id && sameView(current, nextFocus, nextHost)) return t;
+        const stack = [...t.stack.slice(0, t.index + 1), { id, focus: nextFocus, host: nextHost }];
         return { stack, index: stack.length - 1 };
       });
     },
@@ -50,10 +57,10 @@ export function usePageNav(
   const target = useCallback(
     (t: Trail, dir: -1 | 1): number => {
       const alive = new Set(pages.map((p) => p.id));
-      const here = t.stack[t.index]?.focus ?? null;
+      const here = t.stack[t.index];
       for (let i = t.index + dir; i >= 0 && i < t.stack.length; i += dir) {
         const entry = t.stack[i];
-        if (alive.has(entry.id) && (entry.id !== activePageId || !sameFocus(entry.focus, here))) return i;
+        if (alive.has(entry.id) && (entry.id !== activePageId || !sameView(here, entry.focus, entry.host))) return i;
       }
       return -1;
     },
@@ -75,10 +82,12 @@ export function usePageNav(
   const canBack = useMemo(() => target(trail, -1) >= 0, [trail, target]);
   const canForward = useMemo(() => target(trail, 1) >= 0, [trail, target]);
 
-  /** The region focus of the view on screen. A page opened outside the trail
-   *  (the first landing) has none. */
+  /** The region focus and host override of the view on screen. A page opened
+   *  outside the trail (the first landing) has neither. */
   const current = trail.stack[trail.index];
-  const focus = current && current.id === activePageId ? current.focus : null;
+  const onScreen = current && current.id === activePageId ? current : null;
+  const focus = onScreen?.focus ?? null;
+  const host = onScreen?.host ?? null;
 
-  return { visit, back, forward, canBack, canForward, focus };
+  return { visit, back, forward, canBack, canForward, focus, host };
 }
