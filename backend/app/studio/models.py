@@ -589,3 +589,82 @@ class ProjectDocument(Base):
         Index("ix_project_documents_account_project", "account_id", "project_id", "created_at"),
         Index("ix_project_documents_purpose", "account_id", "project_id", "purpose", "created_at"),
     )
+
+
+# ── High-fidelity designs ───────────────────────────────────────────────────
+
+
+class ProjectDesign(Base):
+    """A brief for a high-fidelity prototype, and a pointer to its result.
+
+    Studio authors only the brief: which wireframe, a name, the aesthetics
+    text and the reference images. The prototype itself lives in a Figma Make
+    file (``figma_url``), which is the single source of truth; what Studio
+    holds is a read-only mirror, one ``DesignRevision`` per sync. See
+    docs/high-fidelity-design.md.
+
+    ``wireframe_id`` and ``current_revision_id`` are soft references like
+    ``Wireframe.landing_page_id`` (no FK): deleting the wireframe must not
+    take the design and its revisions with it.
+    """
+
+    __tablename__ = "project_designs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    wireframe_id = Column(UUID(as_uuid=True), nullable=False)
+    name = Column(String(255), nullable=False)
+    brief = Column(Text, nullable=False, default="")
+    # ids of project_documents rows with purpose "design_reference".
+    reference_document_ids = Column(JSONB, nullable=False, default=list)
+    figma_url = Column(String(2048), nullable=True)
+    # A published Make site. Stored for a later live embed; nothing reads it yet.
+    published_url = Column(String(2048), nullable=True)
+    current_revision_id = Column(UUID(as_uuid=True), nullable=True)
+    status = Column(String(20), nullable=False, default="active")  # active | archived
+    pos = Column(String(64), nullable=False)
+    # When the mirror was last checked against the Make file -- moved by a
+    # sync that found nothing new as well as by one that uploaded a revision.
+    synced_at = Column(DateTime, nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (Index("ix_project_designs_account_project", "account_id", "project_id"),)
+
+
+class DesignRevision(Base):
+    """One synced build of a design: a single self-contained HTML file in S3,
+    and optionally the source archive it was built from. Append-only -- no
+    route updates or deletes an uploaded revision; ``pending`` is the same
+    in-flight state a document upload sits in before its object is confirmed.
+
+    ``project_id`` is redundant with ``design_id`` on purpose: it is what
+    versioning and tests/test_version_coverage.py key project-owned tables on.
+    """
+
+    __tablename__ = "design_revisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    design_id = Column(UUID(as_uuid=True), ForeignKey("project_designs.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    revision_no = Column(Integer, nullable=False)
+    html_key = Column(String(512), nullable=False, unique=True)
+    source_key = Column(String(512), nullable=True, unique=True)
+    html_bytes = Column(BigInteger, nullable=False)
+    source_bytes = Column(BigInteger, nullable=True)
+    # SHA-256 of the source tree, computed by the uploader. A sync whose hash
+    # equals the current revision's creates nothing.
+    source_hash = Column(String(64), nullable=False)
+    origin = Column(String(20), nullable=False)  # figma_make | claude_code
+    summary = Column(Text, nullable=True)
+    status = Column(String(12), nullable=False, default="pending")  # pending | uploaded
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("design_id", "revision_no", name="uq_design_revisions_design_no"),
+        Index("ix_design_revisions_account_design", "account_id", "design_id", "revision_no"),
+        Index("ix_design_revisions_account_project", "account_id", "project_id"),
+    )

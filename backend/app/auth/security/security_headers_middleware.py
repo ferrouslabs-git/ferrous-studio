@@ -24,6 +24,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # a blob). A blob: URL is low risk there; it must never be added to
         # script-src, worker-src or object-src, where it would let any
         # in-page string run as code.
+        #
+        # frame-src also names the documents bucket: a high-fidelity design
+        # revision is generated HTML with its own inline script, which
+        # script-src 'self' rightly refuses to run on this origin (a blob:
+        # frame inherits this policy). It is framed from the bucket's origin
+        # instead, in a sandbox without allow-same-origin -- see
+        # docs/high-fidelity-design.md.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "base-uri 'self'; "
@@ -35,7 +42,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self' https://js.stripe.com; "
-            "frame-src blob: https://js.stripe.com https://hooks.stripe.com;"
+            "frame-src blob: https://js.stripe.com https://hooks.stripe.com https://s3.eu-west-1.amazonaws.com https://*.s3.eu-west-1.amazonaws.com;"
         )
 
         return response
