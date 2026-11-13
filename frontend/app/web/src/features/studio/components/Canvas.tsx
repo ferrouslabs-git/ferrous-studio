@@ -365,6 +365,20 @@ export function Canvas(props: Props) {
   // limit (#185). A DOM write cannot loop.
   const [toolsAt, setToolsAt] = useState<{ id: string; host: HTMLElement } | null>(null);
   const [addHost, setAddHost] = useState<HTMLElement | null>(null);
+  // This effect re-runs on every live-drag frame, and a setState inside a
+  // layout effect is a synchronous re-render even when the value is the same
+  // (React only skips it when the component has no other work queued, which
+  // mid-drag it usually has). Those no-op re-renders still count towards the
+  // update-depth limit (#185), so the effect and the ref callback compare
+  // against what was last set and only call setState on a real change.
+  const toolsAtSet = useRef(toolsAt);
+  const showToolsAt = useCallback((next: { id: string; host: HTMLElement } | null) => {
+    const prev = toolsAtSet.current;
+    if (prev === next || (prev && next && prev.id === next.id && prev.host === next.host)) return;
+    toolsAtSet.current = next;
+    setToolsAt(next);
+  }, []);
+  const addHostSet = useRef<HTMLElement | null>(null);
   const toolsPos = useRef<{ left: number; top: number; bottom: number } | null>(null);
   const actionsEl = useRef<HTMLDivElement | null>(null);
   const addsEl = useRef<HTMLDivElement | null>(null);
@@ -392,7 +406,14 @@ export function Canvas(props: Props) {
   const addsRef = useCallback(
     (el: HTMLDivElement | null) => {
       addsEl.current = el;
-      setAddHost(el);
+      // Detach (null) is skipped: a remount detaches and re-attaches in one
+      // commit, and setting null then the new node would be two re-renders.
+      // A detached node is never read -- addHost is only used while toolsAt
+      // still names this component, which is when the cluster is mounted.
+      if (el && el !== addHostSet.current) {
+        addHostSet.current = el;
+        setAddHost(el);
+      }
       placeTools();
     },
     [placeTools],
@@ -400,16 +421,16 @@ export function Canvas(props: Props) {
   const selectedCmpId = selection?.kind === "cmp" ? selection.id : selection?.kind === "element" ? selection.cmpId : null;
   useLayoutEffect(() => {
     if (!selectedCmpId) {
-      setToolsAt(null);
+      showToolsAt(null);
       return;
     }
     const node = document.querySelector<HTMLElement>(`[data-cmp-id="${CSS.escape(selectedCmpId)}"]`);
     const mat = node?.closest(".canvas-wrap") as HTMLElement | null;
     if (!node || !mat) {
-      setToolsAt(null);
+      showToolsAt(null);
       return;
     }
-    setToolsAt((prev) => (prev && prev.id === selectedCmpId && prev.host === mat ? prev : { id: selectedCmpId, host: mat }));
+    showToolsAt({ id: selectedCmpId, host: mat });
     const measure = () => {
       const r = node.getBoundingClientRect();
       const m = mat.getBoundingClientRect();
@@ -425,7 +446,7 @@ export function Canvas(props: Props) {
     watch.observe(node);
     watch.observe(mat);
     return () => watch.disconnect();
-  }, [selectedCmpId, doc, host, live, liveCmp, liveCmpPos, placeTools]);
+  }, [selectedCmpId, doc, host, live, liveCmp, liveCmpPos, placeTools, showToolsAt]);
   const clear = () => {
     setHint(null);
     setOverRegion(null);
