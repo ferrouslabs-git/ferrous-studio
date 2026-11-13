@@ -39,3 +39,26 @@ describe("canvas shapes", () => {
     expect(renderToStaticMarkup(<Schematic cmp={canvasOf([badge])} defs={[]} />)).toContain("el-variant-pill");
   });
 });
+
+describe("rotating canvas elements (FS-REQ-90)", () => {
+  const at = (type: string, rotate?: string): ElementNode => ({
+    id: "r", type, label: "Go", pos: "a0", data: { x: "10", y: "40", ...(rotate ? { rotate } : {}) },
+  });
+  const render = (el: ElementNode, props = {}) => renderToStaticMarkup(<Schematic cmp={canvasOf([el])} defs={[]} {...props} />);
+
+  it("turns any element whole, by the stored angle", () => {
+    expect(render(at("button", "30"))).toContain("transform:rotate(30deg)");
+    expect(render(at("button"))).not.toContain("rotate(");
+  });
+
+  it("keeps turning a basic shape's geometry only, so its text stays upright", () => {
+    const html = render(at("square", "90"));
+    expect(html).toContain("--rot:90deg");
+    expect(html).not.toContain("transform:rotate(90deg)");
+  });
+
+  it("offers the rotate handle only while editing", () => {
+    expect(render(at("button"), { edit })).toContain("ui-canvas-el-rotate");
+    expect(render(at("button"))).not.toContain("ui-canvas-el-rotate");
+  });
+});

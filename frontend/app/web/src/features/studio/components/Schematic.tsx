@@ -11,7 +11,7 @@
 import { CSSProperties, Fragment, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Dataset } from "../../project/datasets/datasetsApi";
-import { EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, borderShown, elementMeta, fontStack, formColumns, formRows, imageList, isFilterType, isInputType, isMultiPick, listAlign, NavAlign, navAlign } from "../catalog";
+import { COLUMN_BUTTON_LABEL, ELEMENT_GROUP_OF, EL_FILL_OPTIONS, EL_VARIANT_OPTIONS, borderShown, elementMeta, fontStack, formColumns, formRows, imageList, isFilterType, rotationOf, wizardSteps, WizardStep, isInputType, isMultiPick, listAlign, NavAlign, navAlign } from "../catalog";
 import { CustomDef, elKey } from "../model/actions";
 import { navDescendants, navLevel, navSubItems } from "../model/navOrder";
 import { byPos } from "../model/positions";
@@ -27,7 +27,9 @@ export interface SchematicEdit {
   /** Rename an element; an empty commit keeps it, with no text. */
   setElementLabel(id: string, text: string): void;
   setElementData(id: string, key: string, value: string): void;
-  addElement(type: string): void;
+  /** Add an element; `afterId` places it straight after that element (a
+   *  wizard adds a field at the end of the step on screen). */
+  addElement(type: string, afterId?: string | null): void;
   removeElement(id: string): void;
   addRow(): void;
   /** Delete one sample record (FS-REQ-87). */
@@ -267,6 +269,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const suppressClick = useRef(false);
   /** Live w/h override while a canvas child corner-resize is in flight. */
   const [dragSize, setDragSize] = useState<Record<string, { w: number; h: number }>>({});
+  /** The wizard step last clicked (see renderWizard). */
+  const [wizStep, setWizStep] = useState(0);
+  /** Live angle override while a canvas child's rotate handle is dragged. */
+  const [dragRot, setDragRot] = useState<Record<string, number>>({});
   /** Live height override while the canvas resize handle is being dragged. */
   const [liveHeight, setLiveHeight] = useState<number | null>(null);
   /** Shrink-to-fit factor for a canvas whose children reach past its right
@@ -649,7 +655,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   /** A basic shape's orientation (data.rotate) as the --rot the shape CSS
    *  turns by; the shape's own text turns back so it stays upright. */
   const rotation = (el: ElementNode): CSSProperties | undefined => {
-    const deg = ((numberOf(el.data?.rotate ?? "", 0) % 360) + 360) % 360;
+    const deg = dragRot[el.id] ?? rotationOf(el);
     return deg ? ({ "--rot": `${deg}deg` } as CSSProperties) : undefined;
   };
 
@@ -1667,6 +1673,15 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       if (col.data?.kind === "image") return imageCell(col, ri);
       const own = rows[ri]?.[col.id];
       const ds = datasetOf(col);
+      if (col.data?.input === "button") {
+        // A button per row (FS-REQ-88): the label is the cell's value, so a
+        // double click relabels just that row; with no samples every row
+        // reads the same stock label rather than a made-up name.
+        const hasSamples = !!datasetOf(col)?.values.length || splitList(col.data?.samples).length > 0;
+        const label = own != null ? "" : hasSamples ? sampleAt(col, ri) : COLUMN_BUTTON_LABEL;
+        const linkCls = chrome?.linkOf(elKey(col.id), null) ? " ui-cell-link" : "";
+        return tok(`ui-btn sm ui-cell-btn${linkCls}`, own ?? null, label, (t) => edit?.setListCell(ri, col.id, t), undefined, { key: elKey(col.id), index: null }, true, fsStyle(col));
+      }
       const sample = own != null ? "" : sampleAt(col, ri);
       if (col.data?.input && isInputType(col.data.input)) {
         const valueTok = tok("", own ?? null, sample, (t) => edit?.setListCell(ri, col.id, t), undefined, { key: elKey(col.id), index: null }, true, fsStyle(col));
@@ -2092,9 +2107,8 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   // ── Form ──────────────────────────────────────────────────────────────────
 
   const renderForm = (): ReactNode => {
-    const steps = byType("step");
     const buttons = byType("button");
-    const flow = els.filter((e) => e.type !== "step" && e.type !== "button" && e.type !== "header");
+    const flow = els.filter((e) => e.type !== "button" && e.type !== "header");
 
     if (shape === "inline") {
       return (
@@ -2110,45 +2124,10 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       );
     }
 
-    // Fields sit on twelve tracks: each row takes the form's column count or
-    // its own (data.rowCols on its first field), and a field's width
-    // (data.span, FS-REQ-74) overrides its one-column share. A row that
-    // sets its own count restarts at the first track.
-    const cells = formRows(flow, formColumns(cmp));
-    const spanStyle = (i: number): CSSProperties => {
-      const { span, rowStart } = cells[i];
-      return { gridColumn: rowStart ? `1 / span ${span}` : `span ${span}` };
-    };
-    const gridClass = `ui-form-grid spans${layout === "horizontal" ? " labels-beside" : ""}`;
     return (
       <div className="ui-card ui-form">
         {headerInline && <div className="ui-card-head">{elTok(headerInline, "ui-card-title")}</div>}
-        {shape === "wizard" && steps.length > 0 && (
-          <ol className="ui-stepper">
-            {steps.map((s2, i) => (
-              <li key={s2.id} className={`ui-step${i === 0 ? " active" : ""}`}>
-                <span className="ui-step-dot">{i === 0 ? i + 1 : i < 1 ? <CheckIcon /> : i + 1}</span>
-                {elTok(s2, "")}
-                {i < steps.length - 1 && <span className="ui-step-line" aria-hidden />}
-              </li>
-            ))}
-          </ol>
-        )}
-        <div className={gridClass}>
-          {flow.map((el, i) => {
-            if (el.type === "section-heading") return <div key={el.id} className="ui-field ui-form-section" style={spanStyle(i)}>{elTok(el, "ui-h3")}</div>;
-            if (el.type === "help-text") return <div key={el.id} className="ui-field" style={spanStyle(i)}>{widget(el)}</div>;
-            return elBox(
-              el,
-              `ui-field${wideField(el) ? " wide" : ""}`,
-              <>
-                {el.type !== "checkbox" && el.type !== "toggle" && fieldLabel(el)}
-                {fieldWidget(el) ?? widget(el)}
-              </>,
-              spanStyle(i),
-            );
-          })}
-        </div>
+        {fieldGrid(flow)}
         {buttons.length > 0 && (
           <div className="ui-form-actions">
             {buttons.map((b) => <Fragment key={b.id}>{btnTok(b)}</Fragment>)}
@@ -2157,7 +2136,113 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         {addCluster(
           <>
             {addEl("text-input", "Add field", "+ Field", "text")}
-            {shape === "wizard" && addEl("step", "Add step", "+ Step", "text")}
+            {addEl("button", "Add button", "+ Button", "text")}
+          </>,
+        )}
+      </div>
+    );
+  };
+
+  /** A form's (or a wizard step's) fields on twelve tracks: each row takes
+   *  the component's column count or its own (data.rowCols on its first
+   *  field), and a field's width (data.span, FS-REQ-74) overrides its
+   *  one-column share. A row that sets its own count restarts at the first
+   *  track. */
+  const fieldGrid = (flow: ElementNode[]): ReactNode => {
+    const cells = formRows(flow, formColumns(cmp));
+    const spanStyle = (i: number): CSSProperties => {
+      const { span, rowStart } = cells[i];
+      return { gridColumn: rowStart ? `1 / span ${span}` : `span ${span}` };
+    };
+    return (
+      <div className={`ui-form-grid spans${layout === "horizontal" ? " labels-beside" : ""}`}>
+        {flow.map((el, i) => {
+          if (el.type === "section-heading") return <div key={el.id} className="ui-field ui-form-section" style={spanStyle(i)}>{elTok(el, "ui-h3")}</div>;
+          if (el.type === "help-text") return <div key={el.id} className="ui-field" style={spanStyle(i)}>{widget(el)}</div>;
+          return elBox(
+            el,
+            `ui-field${wideField(el) ? " wide" : ""}`,
+            <>
+              {el.type !== "checkbox" && el.type !== "toggle" && fieldLabel(el)}
+              {fieldWidget(el) ?? widget(el)}
+            </>,
+            spanStyle(i),
+          );
+        })}
+      </div>
+    );
+  };
+
+  // -- Wizard -----------------------------------------------------------------
+
+  /** Steps, each owning the fields after it (FS-REQ-89; see wizardSteps).
+   *  One step shows at a time: the step holding the selected element while
+   *  editing, else the one last clicked (steps switch on a click, in the
+   *  editor and in preview alike). */
+  const renderWizard = (): ReactNode => {
+    const buttons = byType("button");
+    const flow = els.filter((e) => e.type !== "button" && e.type !== "header");
+    const groups = wizardSteps(flow);
+    const selKey = chrome?.selected?.key ?? "";
+    const selId = selKey.startsWith("el:") ? selKey.slice(3) : null;
+    const holding = selId ? groups.findIndex((g) => g.step?.id === selId || g.fields.some((f) => f.id === selId)) : -1;
+    const at = Math.min(holding >= 0 ? holding : wizStep, groups.length - 1);
+    const current = groups[at];
+    const stepped = groups.length > 1 || !!current.step;
+    // "+ Field" lands at the end of the step on screen, not the wizard's end.
+    const lastOfStep = current.fields[current.fields.length - 1] ?? current.step;
+    const addField = add((e) => e.addElement("text-input", lastOfStep?.id ?? null), "Add field", "+ Field", "text");
+    const go = (i: number) => () => setWizStep(i);
+    const stepTok = (g: WizardStep<ElementNode>) => (g.step ? elTok(g.step, "") : null);
+    const nav = !stepped ? null : shape === "progress" ? (
+      <div className="ui-wizard-progress">
+        <div className="ui-wizard-progress-meta">
+          <span className="ui-muted">Step {at + 1} of {groups.length}</span>
+          {stepTok(current)}
+        </div>
+        <span className="ui-wizard-progress-track" aria-hidden>
+          <span style={{ width: `${((at + 1) / groups.length) * 100}%` }} />
+        </span>
+      </div>
+    ) : (
+      <ol className={`ui-stepper${shape === "side" ? " side" : ""}`}>
+        {groups.map((g, i) => (
+          <li key={g.step?.id ?? i} className={`ui-step${i === at ? " active" : i < at ? " done" : ""}`} onClickCapture={go(i)}>
+            <span className="ui-step-dot">{i < at ? <CheckIcon /> : i + 1}</span>
+            {stepTok(g)}
+            {shape !== "side" && i < groups.length - 1 && <span className="ui-step-line" aria-hidden />}
+          </li>
+        ))}
+      </ol>
+    );
+    const body = (
+      <>
+        {fieldGrid(current.fields)}
+        {buttons.length > 0 && (
+          <div className="ui-form-actions">
+            {buttons.map((b) => <Fragment key={b.id}>{btnTok(b)}</Fragment>)}
+          </div>
+        )}
+      </>
+    );
+    return (
+      <div className="ui-card ui-form ui-wizard">
+        {headerInline && <div className="ui-card-head">{elTok(headerInline, "ui-card-title")}</div>}
+        {shape === "side" ? (
+          <div className="ui-wizard-side">
+            {nav}
+            <div className="ui-wizard-body">{body}</div>
+          </div>
+        ) : (
+          <>
+            {nav}
+            {body}
+          </>
+        )}
+        {addCluster(
+          <>
+            {addEl("step", "Add step", "+ Step", "text")}
+            {addField}
             {addEl("button", "Add button", "+ Button", "text")}
           </>,
         )}
@@ -2616,7 +2701,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     if (!edit || e.button !== 0) return;
     // Text editing, the toolbar, the resize grip and open menus own their
     // own pointer gestures.
-    if ((e.target as HTMLElement).closest(".inline-edit-input, .ui-canvas-tools, .ui-canvas-el-resize, .ui-select-menu")) return;
+    if ((e.target as HTMLElement).closest(".inline-edit-input, .ui-canvas-tools, .ui-canvas-el-resize, .ui-canvas-el-rotate, .ui-select-menu")) return;
     // Cancelling pointerdown stops the draggable .cmp ancestor from starting
     // a native HTML5 drag (which would pointercancel this gesture midway).
     // click and dblclick still fire, so select and edit are unaffected.
@@ -2688,6 +2773,53 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   /** Corner drag on a canvas child or a flow button: sets its width and
    *  height; one commit on release. The starting size is the rendered box,
    *  so the first resize of an auto-sized element feels continuous. */
+  /** Turn a canvas element about its centre (FS-REQ-90): the angle follows
+   *  the pointer around the centre, snapping to 15 degrees unless Shift is
+   *  held; one commit (data.rotate) on release. */
+  const startElRotate = (el: ElementNode) => (e: ReactPointerEvent) => {
+    if (!edit || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const box = (e.currentTarget as HTMLElement).closest(".ui-canvas-el") as HTMLElement | null;
+    if (!box) return;
+    // The screen rect of a rotated box is its bounding box, whose centre is
+    // still the element's centre -- rotation is about the centre.
+    const r = box.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const from = rotationOf(el);
+    let latest = from;
+    const move = (ev: PointerEvent) => {
+      // 0 degrees = the handle straight above the centre, clockwise positive.
+      const raw = (Math.atan2(ev.clientX - cx, cy - ev.clientY) * 180) / Math.PI;
+      const snapped = ev.shiftKey ? Math.round(raw) : Math.round(raw / 15) * 15;
+      latest = ((snapped % 360) + 360) % 360;
+      setDragRot((s) => ({ ...s, [el.id]: latest }));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      setDragRot((s) => {
+        const next = { ...s };
+        delete next[el.id];
+        return next;
+      });
+      if (latest !== from) {
+        edit.setElementData(el.id, "rotate", latest ? String(latest) : "");
+        const swallow = (ev: MouseEvent) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+        };
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointercancel", up, { once: true });
+  };
+
   const startElResize = (el: ElementNode) => (e: ReactPointerEvent) => {
     if (!edit || e.button !== 0) return;
     e.preventDefault();
@@ -2823,6 +2955,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
             const w = liveSize?.w ?? (el.data?.w ? numberOf(el.data.w, 0) : null);
             const h = liveSize?.h ?? (el.data?.h ? numberOf(el.data.h, 0) : null);
             const selected = chrome?.selected?.key === elKey(el.id);
+            // Basic shapes turn their own geometry and keep their text
+            // upright (see rotation); every other element turns whole.
+            const turn = ELEMENT_GROUP_OF[el.type] === "basic" ? 0 : dragRot[el.id] ?? rotationOf(el);
             const cls = [
               "ui-canvas-el",
               edit ? "movable" : "",
@@ -2838,7 +2973,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
               <div
                 key={el.id}
                 className={cls}
-                style={{ left: x, top: y, width: w ?? undefined, height: h ?? undefined }}
+                style={{ left: x, top: y, width: w ?? undefined, height: h ?? undefined, transform: turn ? `rotate(${turn}deg)` : undefined }}
                 onPointerDown={edit ? startCanvasDrag(el) : undefined}
                 // Capture phase: it must run before the text tokens' own
                 // click handlers (which stop propagation), so Ctrl+click on
@@ -2851,7 +2986,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                           e.stopPropagation();
                           return;
                         }
-                        if ((e.target as HTMLElement).closest(".ui-canvas-tools, .ui-canvas-el-resize")) return;
+                        if ((e.target as HTMLElement).closest(".ui-canvas-tools, .ui-canvas-el-resize, .ui-canvas-el-rotate")) return;
                         if (e.ctrlKey || e.metaKey) {
                           e.preventDefault();
                           e.stopPropagation();
@@ -2893,6 +3028,15 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
                 {edit && (
                   <button
                     type="button"
+                    className="ui-canvas-el-rotate"
+                    title="Drag to rotate (Shift: free angle)"
+                    aria-label={`Rotate ${el.label || el.type}`}
+                    onPointerDown={startElRotate(el)}
+                  />
+                )}
+                {edit && (
+                  <button
+                    type="button"
                     className="ui-canvas-el-resize"
                     title="Drag to resize"
                     aria-label={`Resize ${el.label || el.type}`}
@@ -2919,6 +3063,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
       case "navbar": return renderNavbar();
       case "list": return renderList();
       case "form": return renderForm();
+      case "wizard": return renderWizard();
       case "graph": return renderGraph();
       case "canvas": return renderCanvas();
       case "calendar": return renderCalendar();

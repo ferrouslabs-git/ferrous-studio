@@ -149,3 +149,32 @@ def test_a_column_can_name_an_input_shape_for_its_cells():
     bad = list_page({"id": "c", "type": "column", "label": "Done", "data": {"input": "teapot"}})
     errors = validate_bundle(_wireframe_bundle(bad), CATALOG)
     assert any(e.path.endswith(".data.input") for e in errors)
+
+
+def test_a_wizard_shaped_form_imports_as_a_wizard_with_fields_under_its_first_step():
+    from app.studio.catalog import get_catalog, normalise_legacy_elements
+
+    component = {
+        "id": "c1", "type": "form", "shape": "wizard", "layout": "two-column",
+        "elements": [
+            {"id": "h", "type": "header", "label": "Book"},
+            {"id": "s1", "type": "step", "label": "Tickets"},
+            {"id": "s2", "type": "step", "label": "Details"},
+            {"id": "f1", "type": "text-input", "label": "Name"},
+            {"id": "b", "type": "button", "label": "Next"},
+        ],
+    }
+    pages = [{"layout": {"components": [component]}}]
+    normalise_legacy_elements(pages, get_catalog())
+    assert (component["type"], component["shape"], component["layout"]) == ("wizard", "steps", "one-column")
+    assert component["props"]["columns"] == "2"
+    assert [e["id"] for e in component["elements"]] == ["h", "s1", "f1", "s2", "b"]
+
+
+def test_a_stray_step_is_dropped_from_a_form():
+    from app.studio.catalog import get_catalog, normalise_legacy_elements
+
+    component = {"id": "c1", "type": "form", "shape": "simple", "elements": [
+        {"id": "s1", "type": "step", "label": "One"}, {"id": "f1", "type": "text-input", "label": "Name"}]}
+    normalise_legacy_elements([{"layout": {"components": [component]}}], get_catalog())
+    assert [e["id"] for e in component["elements"]] == ["f1"]

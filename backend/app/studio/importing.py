@@ -42,11 +42,12 @@ from .schemas import DiagramKind, InterfaceType, UseCaseActorKind
 # than copied a third time.
 from .wireframes import _set_actors, _set_personas, _snapshot, insert_pages, wireframe_pages
 
-# The input shapes a list column can show in its cells (data.input);
-# mirrors INPUT_TYPES in the frontend catalogue.
+# What a list column can show in its cells (data.input): the input shapes
+# plus a per-row button; mirrors COLUMN_CELL_TYPES in the frontend catalogue.
 COLUMN_INPUTS = frozenset({
     "text-input", "text-area", "select", "multi-select", "date-picker", "date-time",
     "radio-group", "checkbox", "toggle", "read-only", "file-upload", "slider",
+    "button",
 })
 
 #: Matches the request-body cap the import route will enforce; checked here
@@ -195,13 +196,14 @@ def _validate_element(
     if meta.fillable:
         allowed.add("fill")
     if host_component_type == "canvas":
-        allowed |= {"x", "y", "w", "h"}
+        # Any canvas element may be turned (FS-REQ-90).
+        allowed |= {"x", "y", "w", "h", "rotate"}
     # A button carries its own size anywhere (FS-REQ-73); a form field its
     # share of the row (FS-REQ-74), and the first field of a row that row's
     # own column count.
     if el_type == "button":
         allowed |= {"w", "h"}
-    if host_component_type == "form" and el_type not in ("header", "button", "step"):
+    if host_component_type in ("form", "wizard") and el_type not in ("header", "button", "step"):
         allowed |= {"span", "rowCols"}
     # A list column can draw an input in every cell, named by its shape.
     if el_type == "column":

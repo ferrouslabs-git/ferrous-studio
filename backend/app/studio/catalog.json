@@ -521,7 +521,6 @@
       "shapes": [
         "simple",
         "sections",
-        "wizard",
         "inline"
       ],
       "layouts": [
@@ -648,12 +647,159 @@
           "variantable": false,
           "fillable": false
         },
+        "help-text": {
+          "group": "text",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "button": {
+          "group": "action",
+          "fields": [
+            "style"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        }
+      }
+    },
+    "wizard": {
+      "shapes": [
+        "steps",
+        "side",
+        "progress"
+      ],
+      "layouts": [
+        "one-column",
+        "horizontal"
+      ],
+      "elements": {
+        "header": {
+          "group": "text",
+          "fields": [
+            "placement"
+          ],
+          "max": 1,
+          "variantable": false,
+          "fillable": false
+        },
         "step": {
           "group": "ui",
           "fields": [],
           "max": null,
           "variantable": true,
           "fillable": true
+        },
+        "text-input": {
+          "group": "input",
+          "fields": [
+            "kind",
+            "placeholder"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "text-area": {
+          "group": "input",
+          "fields": [
+            "placeholder"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "select": {
+          "group": "input",
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "multi-select": {
+          "group": "input",
+          "fields": [
+            "dataset",
+            "options",
+            "selected"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "radio-group": {
+          "group": "input",
+          "fields": [
+            "options"
+          ],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "checkbox": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "toggle": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "date-picker": {
+          "group": "input",
+          "fields": [
+            "placeholder",
+            "selected"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "date-time": {
+          "group": "input",
+          "fields": [
+            "placeholder",
+            "selected",
+            "time"
+          ],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "read-only": {
+          "group": "input",
+          "fields": [
+            "dataset",
+            "value"
+          ],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
+        "file-upload": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": true,
+          "fillable": true
+        },
+        "section-heading": {
+          "group": "text",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
         },
         "help-text": {
           "group": "text",
@@ -1101,6 +1247,9 @@
       "filter-multi-search": {
         "type": "multi-select"
       }
+    },
+    "form": {
+      "step": null
     },
     "list": {
       "filter": {

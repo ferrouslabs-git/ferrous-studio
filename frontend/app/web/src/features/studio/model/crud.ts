@@ -81,7 +81,8 @@ export function fieldSeedForColumn(col: ElementNode): ElementSeed | null {
   if (col.type !== "column") return null;
   const label = col.label;
   const kind = col.data?.kind ?? "text";
-  if (kind === "actions") return null;
+  // A column of buttons is something a row does, not a value it holds.
+  if (kind === "actions" || col.data?.input === "button") return null;
 
   const dataset = col.data?.dataset;
   if (dataset) return { type: "select", label, data: { dataset } };

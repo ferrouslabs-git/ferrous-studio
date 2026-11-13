@@ -8,7 +8,7 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  anyElementMeta, borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_COLUMN_OPTIONS, FORM_SPAN_OPTIONS, formColumns, formRows, imageList, INPUT_TYPES, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  anyElementMeta, borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_COLUMN_OPTIONS, FORM_SPAN_OPTIONS, formColumns, formRows, imageList, COLUMN_CELL_TYPES, isFieldGridHost, isFormFieldType, rotationOf, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, elKey, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
@@ -582,10 +582,10 @@ export function Inspector(props: Props) {
   const showListAlign = !!elementNode && selectedCmp?.type === "list" && LIST_ALIGNABLE.has(elementNode.type);
   // A form field's share of its row (FS-REQ-74); an inline form is one row.
   const showFormSpan =
-    !!elementNode && selectedCmp?.type === "form" && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && isFormFieldType(elementNode.type);
+    !!elementNode && !!selectedCmp && isFieldGridHost(selectedCmp.type) && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && isFormFieldType(elementNode.type);
   // The form's column count, and the row the selected field sits on: its
   // count is stored on the row's first field (data.rowCols).
-  const formCols = selectedCmp?.type === "form" ? formColumns(selectedCmp) : 1;
+  const formCols = selectedCmp && isFieldGridHost(selectedCmp.type) ? formColumns(selectedCmp) : 1;
   const formRowHead = (() => {
     if (!showFormSpan) return null;
     const fields = sortedEls.filter((e) => isFormFieldType(e.type));
@@ -643,7 +643,7 @@ export function Inspector(props: Props) {
                       <label>Shape</label>
                       {colType === "input" ? (
                         <select value={input} disabled={ro} onChange={(e) => set("input", e.target.value)}>
-                          {INPUT_TYPES.map((t) => (
+                          {COLUMN_CELL_TYPES.map((t) => (
                             <option key={t} value={t}>{anyElementMeta(t)?.label ?? t}</option>
                           ))}
                         </select>
@@ -819,20 +819,27 @@ export function Inspector(props: Props) {
                     />
                   </div>
                 )}
-                {elementNodeMeta?.rotatable && (
-                  <div className="field">
-                    <label>Rotation</label>
-                    <select
-                      value={elementNode.data?.rotate || "0"}
-                      disabled={ro}
-                      onChange={(e) => props.onElementData(elementSel, "rotate", e.target.value === "0" ? "" : e.target.value)}
-                    >
-                      {EL_ROTATION_OPTIONS.map((r) => (
-                        <option key={r} value={r}>{r}°</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                {(elementNodeMeta?.rotatable || selectedCmp.type === "canvas") && (() => {
+                  // Any canvas element turns (FS-REQ-90). The canvas handle sets
+                  // any whole degree, so an angle off the steps is listed too.
+                  const deg = String(rotationOf(elementNode));
+                  const steps: readonly string[] = EL_ROTATION_OPTIONS;
+                  const options = steps.includes(deg) ? steps : [...steps, deg].sort((a, b) => Number(a) - Number(b));
+                  return (
+                    <div className="field">
+                      <label>Rotation</label>
+                      <select
+                        value={deg}
+                        disabled={ro}
+                        onChange={(e) => props.onElementData(elementSel, "rotate", e.target.value === "0" ? "" : e.target.value)}
+                      >
+                        {options.map((r) => (
+                          <option key={r} value={r}>{r}°</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
                 {elementNodeMeta?.variantable && (
                   <div className="field">
                     <label>Variant</label>
@@ -1048,7 +1055,7 @@ export function Inspector(props: Props) {
                 </select>
               </div>
             )}
-            {selectedCmp.type === "form" && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && (
+            {isFieldGridHost(selectedCmp.type) && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && (
               <div className="field">
                 <label>Columns</label>
                 <select value={String(formCols)} disabled={ro} onChange={(e) => props.onCmpProp(selectedCmp.id, "columns", e.target.value)}>

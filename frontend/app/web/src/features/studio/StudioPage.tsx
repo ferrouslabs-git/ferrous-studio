@@ -1155,14 +1155,15 @@ function StudioEditor() {
    *  a page of its own, placed in the content region that nav bar serves —
    *  its immediate child region on the page that owns the nav bar (see
    *  contentRegionFor). */
-  const addElementTo = (cmpId: string, type: string, afterSelection = true) => {
+  const addElementTo = (cmpId: string, type: string, afterSelection = true, afterThis: string | null = null) => {
     const owner = recordOfCmp(cmpId);
     const loc = owner ? locateCmp(owner.document, cmpId) : null;
     const hostCmp = loc ? loc.list[loc.index] : null;
     const afterId =
-      afterSelection && selection?.kind === "element" && selection.cmpId === cmpId && isElKey(selection.key)
+      afterThis ??
+      (afterSelection && selection?.kind === "element" && selection.cmpId === cmpId && isElKey(selection.key)
         ? selection.key.slice(EL_PREFIX.length)
-        : null;
+        : null);
     // A sub-item added with a nav item selected nests one level under it and
     // goes after that item's whole branch, as its last child (FS-REQ-64).
     let seed: string | ElementSeed = type;
@@ -1307,7 +1308,7 @@ function StudioEditor() {
     setPropValue: (key, text) => runCmp(id, (d, c) => A.setPropValue(d, c, id, key, text)),
     setElementLabel: (elId, text) => commitElementText({ cmpId: id, key: elKey(elId), index: null }, text),
     setElementData: (elId, key, value) => runCmp(id, (d, c) => A.setElementData(d, c, id, elId, key, value)),
-    addElement: (type) => addElementTo(id, type),
+    addElement: (type, afterId) => addElementTo(id, type, true, afterId ?? null),
     removeElement: (elId) => runCmp(id, (d, c) => A.removeElement(d, c, id, elId)),
     addRow: () => runCmp(id, (d, c) => A.addListRow(d, c, id)),
     removeRow: (row, shown) => runCmp(id, (d, c) => A.removeListRow(d, c, id, row, shown)),
