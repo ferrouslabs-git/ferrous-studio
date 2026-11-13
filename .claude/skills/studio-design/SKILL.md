@@ -137,7 +137,7 @@ frozen; say so and skip it.
 
 ## What a revision must be
 
-Studio frames the file from storage with `sandbox="allow-scripts"` and no
+Studio frames the file from storage with `sandbox="allow-scripts allow-forms"` and no
 `allow-same-origin`, so the prototype runs in an opaque origin:
 
 - **One HTML file**, at most 25 MB, script and style inlined (the template's

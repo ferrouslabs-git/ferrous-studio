@@ -61,9 +61,18 @@ Studio's CSP (`backend/app/auth/security/security_headers_middleware.py`) has
 generated JavaScript cannot run from a blob. It can only run from another
 origin. A revision is therefore one self-contained HTML file in the documents
 bucket, loaded through `presign_get(..., inline_as="text/html")` into
-`<iframe sandbox="allow-scripts">` **without** `allow-same-origin`: the
-prototype runs in an opaque origin, cannot read Studio's storage or cookies and
-cannot call Studio's API.
+`<iframe sandbox="allow-scripts allow-forms">` **without** `allow-same-origin`:
+the prototype runs in an opaque origin, cannot read Studio's storage or cookies
+and cannot call Studio's API as the signed-in user. It also has no
+`allow-top-navigation`, `allow-popups` or `allow-modals`.
+
+`allow-forms` is an addition to the approved `sandbox="allow-scripts"`. Without
+it the browser drops a form's `submit` event altogether, so a prototype's Save
+button (usually a form submit handled in script) does nothing, and code written
+in Make is not ours to rewrite. It grants nothing a script in that frame could
+not already do. The value lives in one place,
+`frontend/app/web/src/features/project/design/PrototypeFrame.tsx`, and is
+pinned by a test.
 
 `frame-src` gains the two documents-bucket hosts already present in
 `connect-src`. No Figma host is added.
@@ -229,6 +238,23 @@ outcome.
 5. **Do Figma file metadata or webhooks report changes to Make files?** If
    they do, `sync` can be triggered rather than polled. Until known, `sync` is
    run by hand or under `/loop`, and is cheap when nothing changed.
+
+### What was checked locally
+
+Not a substitute for the spikes, but it narrows two of them:
+
+- The skill's template builds to one HTML file, and that file runs, routes,
+  opens its overlay and submits its form inside a cross-origin
+  `sandbox="allow-scripts allow-forms"` iframe on a page served with the exact
+  `Content-Security-Policy` string from `security_headers_middleware.py`. The
+  storage host was a local stand-in, so **S3's own response headers and a real
+  presigned URL were not exercised** (spike 4 stays open).
+- The whole Studio side ran against a local Postgres with the migration
+  applied and S3 replaced by an in-memory stand-in: create a design with a
+  reference image, read the brief and upload two revisions through the real
+  `board_mcp.py` tools with a real board token, see the new revision appear on
+  window focus, switch revisions, archive, restore, and a viewer being refused
+  every write.
 
 ## Manual steps left
 
