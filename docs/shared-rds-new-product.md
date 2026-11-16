@@ -41,8 +41,8 @@ Why per-environment databases (rather than processmapper's schema-per-env):
   environment's `DATABASE_URL` is a plain connection string.
 
 Naming: databases `<product>_staging` / `<product>_prod`; roles
-`<product>_staging_app` / `<product>_prod_app`; secrets
-`<product>/<env>/DATABASE_URL`.
+`<product>_staging_app` / `<product>_prod_app`; config and secrets
+`/<product>/<env>/DATABASE_URL` (AWS Parameter Store, see §3).
 
 ## 1. Connect as the master user (in-VPC)
 
@@ -106,35 +106,87 @@ psql "postgresql://<product>_staging_app:<pw>@<endpoint>:5432/<product>_prod"
 psql "postgresql://<product>_staging_app:<pw>@<endpoint>:5432/<product>_staging"
 ```
 
-## 3. Secrets Manager
+## 3. Secrets and config — Parameter Store by default
 
-Keep the established `<product>/<env>/...` naming so IAM policies can be
-scoped per product:
+**Default: AWS Systems Manager Parameter Store, type `SecureString`, standard
+tier.** It is encrypted with the AWS-managed key, costs nothing (up to 10,000
+parameters), and ECS reads it natively. **Do not create new Secrets Manager
+secrets** for a new product: each one costs $0.40/month forever, and a shared
+account with dozens of products and tenants adds up (we cut 64 secrets to 5 in
+Nov 2026 — INT-REQ-11).
+
+Naming: `/<product>/<env>/<KEY>`, for example `/<product>/staging/DATABASE_URL`.
+The path prefix is what the IAM policy in §4 is scoped to.
+
+**What goes where**
+
+| Value | Put it in |
+|---|---|
+| Passwords, API keys, tokens, DB URLs, signing keys | Parameter Store `SecureString` |
+| Identifiers that are not credentials (Cognito pool/client ID, bucket name, sender email, public keys) | a plain `environment` entry in the task definition |
+| Per-customer / per-tenant secrets created at runtime | **never one Secrets Manager secret each.** Store them as SecureStrings under `/<product>/<env>/tenants/<tenant>/…` (as fnai does) or encrypted in the product's own database |
+| Secrets that need *automatic rotation* (e.g. the RDS master, which RDS manages) or a service that only accepts Secrets Manager (AgentCore Identity) | Secrets Manager — the exception, and say why in the ticket |
+
+Create a parameter (pass the value from a file so it never lands in shell
+history, and write it **without a trailing newline** — a stray newline breaks
+database URLs):
 
 ```bash
-aws secretsmanager create-secret --region eu-west-1 \
-  --name <product>/staging/DATABASE_URL \
-  --secret-string 'postgresql+psycopg://<product>_staging_app:<pw>@ferrous-internal-tools-database.crwye4eoshr1.eu-west-1.rds.amazonaws.com:5432/<product>_staging'
+printf '%s' 'postgresql+psycopg://<product>_staging_app:<pw>@ferrous-internal-tools-database.crwye4eoshr1.eu-west-1.rds.amazonaws.com:5432/<product>_staging' > /tmp/v.txt
+aws ssm put-parameter --region eu-west-1 \
+  --name /<product>/staging/DATABASE_URL --type SecureString --tier Standard \
+  --value file:///tmp/v.txt --no-overwrite
+shred -u /tmp/v.txt
 
-aws secretsmanager create-secret --region eu-west-1 \
-  --name <product>/prod/DATABASE_URL \
-  --secret-string 'postgresql+psycopg://<product>_prod_app:<pw>@ferrous-internal-tools-database.crwye4eoshr1.eu-west-1.rds.amazonaws.com:5432/<product>_prod'
+# repeat for /<product>/prod/DATABASE_URL (the prod DB URL)
 ```
 
 (Adjust the `+psycopg` driver suffix to whatever the new product's stack
 expects — plain `postgresql://` for most non-SQLAlchemy stacks.)
 
-## 4. IAM — let the new product's tasks read *its* secrets only
-
-The existing `ecsTaskExecutionRole` policy is scoped to `processmapper/*`.
-Give the new product its own statement (or its own execution role — preferred
-if the products deploy independently):
+Verify the stored value is exactly what you meant (compare, don't print):
 
 ```bash
-aws iam put-role-policy --role-name <product>EcsTaskExecutionRole \
-  --policy-name read-<product>-secrets \
-  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"secretsmanager:GetSecretValue","Resource":"arn:aws:secretsmanager:eu-west-1:690488446356:secret:<product>/*"}]}'
+aws ssm get-parameter --region eu-west-1 --name /<product>/staging/DATABASE_URL \
+  --with-decryption --query Parameter.Value --output text | wc -c   # = length + 1 newline from the CLI
 ```
+
+## 4. IAM and task definition — let the new product read *its* parameters only
+
+ECS reads parameters **at task start** using the task *execution* role (not the
+task role), so rotating a value means redeploying the service.
+
+Give the new product its own execution role (preferred — the shared
+`ecsTaskExecutionRole` already carries many inline policies and IAM caps a
+role's inline policies at 10,240 characters in total):
+
+```bash
+cat > /tmp/pol.json <<'EOF'
+{"Version":"2012-10-17","Statement":[
+ {"Effect":"Allow","Action":["ssm:GetParameters","ssm:GetParameter"],
+  "Resource":"arn:aws:ssm:eu-west-1:690488446356:parameter/<product>/*"},
+ {"Effect":"Allow","Action":"kms:Decrypt","Resource":"*",
+  "Condition":{"StringEquals":{"kms:ViaService":"ssm.eu-west-1.amazonaws.com"}}}]}
+EOF
+aws iam put-role-policy --role-name <product>EcsTaskExecutionRole \
+  --policy-name read-<product>-params --policy-document file:///tmp/pol.json
+```
+
+In the task definition, reference the parameter by ARN in `secrets`, and keep
+non-secret identifiers in `environment`:
+
+```json
+"secrets": [
+  { "name": "DATABASE_URL",
+    "valueFrom": "arn:aws:ssm:eu-west-1:690488446356:parameter/<product>/staging/DATABASE_URL" }
+],
+"environment": [
+  { "name": "COGNITO_USER_POOL_ID", "value": "eu-west-1_xxxxxxxxx" }
+]
+```
+
+Do not let one product's policy reach another's prefix, and never use `*` as
+the parameter resource.
 
 ## 5. Network — allow the new app to reach RDS
 
@@ -245,7 +297,7 @@ Notes:
 - The ALB and its 80/443-from-anywhere security group are shared as-is; a new
   product only ever adds *SNI certificates* and *listener rules* to it.
 - Each product keeps its **own** task security group, execution/task IAM
-  roles, ECR repo, log group, and Secrets Manager prefix — the only shared
+  roles, ECR repo, log group, and Parameter Store prefix (`/<product>/…`) — the only shared
   pieces are the VPC/subnets, ALB, ECS cluster, and RDS instance.
 
 ## Instance-level housekeeping (as products accumulate)

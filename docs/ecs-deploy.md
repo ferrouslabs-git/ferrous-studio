@@ -61,6 +61,12 @@ GRANT CREATE ON DATABASE processmapper TO processmapper_app;  -- so Alembic can 
 
 ## 2. Store secrets in Secrets Manager
 
+> **Superseded (Nov 2026):** new products and all current services now keep secrets in
+> AWS Parameter Store (`/<product>/<env>/KEY`, `SecureString`, free), not Secrets Manager.
+> ProcessMapper itself was moved (INT-REQ-11). Follow
+> [shared-rds-new-product.md](shared-rds-new-product.md) §3–§4 for new work; the commands
+> below are kept only as the original ProcessMapper history.
+
 The task definition reads three secrets (DB URL + Stripe secret/webhook). The
 Stripe **publishable** key is public, so it stays as a plain env var.
 
