@@ -2341,15 +2341,17 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-shape .ui-shape-text { transform: rotate(calc(-1 * var(--rot, 0deg))); }
 
 /* ── High-fidelity design ──
-   A design revision on the same drafting mat the wireframe lies on, drawn in
-   a sandboxed frame (features/project/design/PrototypeFrame.tsx). The frame's
-   own document supplies every colour inside it; only the mat and the sheet's
-   edge are Studio's. A framed device (mobile, tablet) is sized and scaled by
-   stage.tsx exactly as the wireframe preview is; desktop fills the mat. */
+   The site published from the design's Figma Make file, on the same drafting
+   mat the wireframe lies on, in a sandboxed frame
+   (features/project/design/PrototypeFrame.tsx). The site supplies every colour
+   inside it; only the mat and the sheet's edge are Studio's. A framed device
+   (mobile, tablet) is sized and scaled by stage.tsx exactly as the wireframe
+   preview is; desktop fills the mat. Full screen is the mat itself, edge to
+   edge. */
 .design-back { display: block; font-size: 13px; text-decoration: none; }
 .design-back:hover { text-decoration: underline; }
-.design-synced { font-size: 13px; white-space: nowrap; }
-.design-summary { margin: 0; font-size: 13px; }
+.design-mat:fullscreen { border: 0; border-radius: 0; padding: 0; }
+.design-mat.framed:fullscreen { padding: 16px; }
 .design-mat {
   --mat: #E7EAEE;
   --mat-line: rgba(27,32,39,.05);

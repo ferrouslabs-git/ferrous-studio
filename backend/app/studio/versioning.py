@@ -30,10 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import storage
 from .audit import record_event
 from .documents import s3_key_for
-from .designs import revision_keys
 from .models import (
     Dataset,
-    DesignRevision,
     Persona,
     Project,
     ProjectDesign,
@@ -68,7 +66,6 @@ COPIED_TABLES = frozenset(
         "project_diagrams",
         "project_documents",
         "project_designs",
-        "design_revisions",
     }
 )
 
@@ -148,8 +145,7 @@ async def copy_project(
 ) -> tuple[Project, "PendingCopies"]:
     """Deep-copy ``source`` into a new version. Flushes, but does not commit.
 
-    Returns the new project and the S3 copies its documents and design
-    revisions still need. Those run after the caller commits
+    Returns the new project and the S3 copies its documents still need. Those run after the caller commits
     (``finish_copies``): they are blocking network calls, and holding a write
     transaction open across them would be a long-lived lock for no benefit.
     """
@@ -275,8 +271,8 @@ async def copy_project(
     page_map = await _copy_pages(db, source, copy, wireframe_map, dataset_map, pairs)
     await _copy_annotations(db, source, copy, wireframe_map, page_map)
     document_copies, document_map = await _copy_documents(db, source, copy)
-    revision_copies = await _copy_designs(db, source, copy, wireframe_map, document_map)
-    pending_copies = PendingCopies(documents=document_copies, revisions=revision_copies)
+    await _copy_designs(db, source, copy, wireframe_map, document_map)
+    pending_copies = PendingCopies(documents=document_copies)
 
     if lock_source:
         source.locked_at = utc_now()
@@ -441,22 +437,10 @@ async def _copy_annotations(
 
 
 @dataclass(frozen=True)
-class RevisionCopy:
-    """The objects one copied design revision still needs: its new id, and
-    ``(source_key, destination_key)`` for the HTML and, if it has one, the
-    source archive."""
-
-    revision_id: UUID
-    html: tuple[str, str]
-    source: tuple[str, str] | None
-
-
-@dataclass(frozen=True)
 class PendingCopies:
     """The S3 work a new version is still owed once its rows are committed."""
 
     documents: list[tuple[str, str]]
-    revisions: list[RevisionCopy]
 
 
 async def _copy_documents(
@@ -503,158 +487,46 @@ async def _copy_designs(
     copy: Project,
     wireframe_map: dict[UUID, UUID],
     document_map: dict[UUID, UUID],
-) -> list[RevisionCopy]:
-    """High-fidelity designs and their revisions, plus the S3 work the
-    revisions still need.
+) -> None:
+    """High-fidelity designs.
 
-    Revisions land as ``pending`` for the reason documents do: a row must
-    never offer an object nobody has written yet. ``current_revision_id`` is
-    remapped straight away and corrected by ``finish_design_copies`` if that
-    object does not arrive.
-
-    ``figma_url`` travels: the new version mirrors the same Make file. The
-    source is normally locked by versioning, and a locked project refuses
-    every design write, so syncs land on one version, not both.
+    ``figma_url`` and ``published_url`` travel: the new version shows the same
+    Make file and its site. The source is normally locked by versioning, and a
+    locked project refuses every design write.
 
     ``wireframe_ids`` has no foreign key, so an id is remapped or dropped --
     keeping one would point the copy back into the source version. A design
     that picked wireframes and has none left that travelled is dropped, like
     an annotation whose page did not. "All wireframes" needs no mapping.
     """
-    design_map: dict[UUID, UUID] = {}
-    copies: dict[UUID, ProjectDesign] = {}
-    current_of: dict[UUID, UUID | None] = {}
     for row in await _rows(db, ProjectDesign, source, ProjectDesign.pos.asc()):
         mapped = [_mapped(wireframe_id, wireframe_map) for wireframe_id in row.wireframe_ids or []]
         wireframe_ids = [str(wireframe_id) for wireframe_id in mapped if wireframe_id is not None]
         if not row.all_wireframes and not wireframe_ids:
             continue
         references = [_mapped(doc_id, document_map) for doc_id in row.reference_document_ids or []]
-        new = ProjectDesign(
-            id=uuid4(),
-            project_id=copy.id,
-            account_id=copy.account_id,
-            all_wireframes=row.all_wireframes,
-            wireframe_ids=wireframe_ids,
-            name=row.name,
-            brief=row.brief,
-            reference_document_ids=[str(doc_id) for doc_id in references if doc_id is not None],
-            figma_url=row.figma_url,
-            published_url=row.published_url,
-            current_revision_id=None,
-            status=row.status,
-            pos=row.pos,
-            synced_at=row.synced_at,
-            created_by=row.created_by,
-        )
-        design_map[row.id] = new.id
-        copies[row.id] = new
-        current_of[row.id] = row.current_revision_id
-        db.add(new)
-
-    # Parents before children: the session orders inserts between tables by
-    # mapped relationships, and these models declare none.
-    await db.flush()
-
-    work: list[RevisionCopy] = []
-    for row in await _rows(db, DesignRevision, source, DesignRevision.revision_no.asc()):
-        new_design = design_map.get(row.design_id)
-        if new_design is None or row.status != "uploaded":
-            continue
-        new_id = uuid4()
-        html_key, source_key = revision_keys(copy.account_id, copy.id, new_design, new_id)
         db.add(
-            DesignRevision(
-                id=new_id,
-                design_id=new_design,
+            ProjectDesign(
+                id=uuid4(),
                 project_id=copy.id,
                 account_id=copy.account_id,
-                revision_no=row.revision_no,
-                html_key=html_key,
-                source_key=source_key if row.source_key else None,
-                html_bytes=row.html_bytes,
-                source_bytes=row.source_bytes,
-                source_hash=row.source_hash,
-                origin=row.origin,
-                summary=row.summary,
-                status="pending",
-                created_at=row.created_at,
+                all_wireframes=row.all_wireframes,
+                wireframe_ids=wireframe_ids,
+                name=row.name,
+                brief=row.brief,
+                reference_document_ids=[str(doc_id) for doc_id in references if doc_id is not None],
+                figma_url=row.figma_url,
+                published_url=row.published_url,
+                status=row.status,
+                pos=row.pos,
+                created_by=row.created_by,
             )
         )
-        if current_of[row.design_id] == row.id:
-            copies[row.design_id].current_revision_id = new_id
-        work.append(
-            RevisionCopy(
-                revision_id=new_id,
-                html=(row.html_key, html_key),
-                source=(row.source_key, source_key) if row.source_key else None,
-            )
-        )
-    return work
 
 
 async def finish_copies(db: AsyncSession, copy: Project, pending: PendingCopies) -> None:
     """Everything a new version is owed from S3, after its rows are committed."""
     await finish_document_copies(db, copy, pending.documents)
-    await finish_design_copies(db, copy, pending.revisions)
-
-
-async def finish_design_copies(db: AsyncSession, copy: Project, work: list[RevisionCopy]) -> int:
-    """Copy each revision's objects, then mark those that arrived as uploaded.
-
-    A revision counts as arrived once its HTML is there -- that is what the
-    page shows; a missing source archive costs the copy its ``source_key``,
-    not the revision. A design whose current revision did not arrive is
-    pointed at its newest one that did, or at none.
-    """
-    if not work:
-        return 0
-    arrived: dict[UUID, bool] = {}  # revision id -> whether its source archive came too
-    for item in work:
-        try:
-            await storage.copy_object(*item.html)
-        except storage.ObjectMissing:
-            continue
-        except storage.StorageNotConfigured:
-            break
-        has_source = False
-        if item.source is not None:
-            try:
-                await storage.copy_object(*item.source)
-                has_source = True
-            except storage.ObjectMissing:
-                pass
-        arrived[item.revision_id] = has_source
-
-    revisions = list(
-        (
-            await db.execute(
-                select(DesignRevision)
-                .where(DesignRevision.project_id == copy.id, DesignRevision.account_id == copy.account_id)
-                .order_by(DesignRevision.revision_no.asc())
-            )
-        ).scalars()
-    )
-    newest: dict[UUID, UUID] = {}
-    for revision in revisions:
-        if revision.id in arrived:
-            revision.status = "uploaded"
-            if not arrived[revision.id]:
-                revision.source_key = None
-                revision.source_bytes = None
-        if revision.status == "uploaded":
-            newest[revision.design_id] = revision.id
-    uploaded = {revision.id for revision in revisions if revision.status == "uploaded"}
-    designs = (
-        await db.execute(
-            select(ProjectDesign).where(ProjectDesign.project_id == copy.id, ProjectDesign.account_id == copy.account_id)
-        )
-    ).scalars()
-    for design in designs:
-        if design.current_revision_id not in uploaded:
-            design.current_revision_id = newest.get(design.id)
-    await db.commit()
-    return len(arrived)
 
 
 async def finish_document_copies(db: AsyncSession, copy: Project, work: list[tuple[str, str]]) -> int:

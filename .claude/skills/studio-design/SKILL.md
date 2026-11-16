@@ -1,23 +1,28 @@
 ---
 name: studio-design
-description: Generate a high-fidelity interactive prototype for a Ferrous Studio design in Figma Make, and keep Studio's read-only mirror of it in sync. Use when asked to generate, sync or edit a Studio "High fidelity design", to send one, several or all wireframes and their aesthetics brief to Figma Make, or to refresh what Studio shows after a design changed in Make. Commands - generate <design>, sync [design], edit <design>.
+description: Generate a high-fidelity interactive prototype for a Ferrous Studio design in Figma Make, record its published site for Studio to show, and keep its source in the repository for coding agents. Use when asked to generate, sync or edit a Studio "High fidelity design", to send one, several or all wireframes and their aesthetics brief to Figma Make, or to pull a design's current code out of Make. Commands - generate <design>, sync [design], edit <design>.
 ---
 
-# Studio design: brief → Figma Make → Studio mirror
+# Studio design: brief → Figma Make → published site in Studio
 
 A *design* in Ferrous Studio is a brief: one, several or all of the
 project's wireframes, a name, aesthetics text and reference images. However
 many wireframes it has, it becomes **one** prototype in **one** Make file.
-You turn that brief into an interactive prototype, put it in a **Figma Make**
-file, and upload a built copy back to Studio so people can see it there.
+You turn that brief into an interactive prototype and put it in a **Figma
+Make** file. Studio shows it by framing the site published from that file.
 
-Three rules decide everything else:
+Four rules decide everything else:
 
 1. **The Figma Make file is the single source of truth.** Studio never edits
-   a design; it shows a read-only copy.
-2. **Studio's copy is one self-contained HTML file** (a *revision*), shown in
-   a sandboxed iframe. Revisions are append-only.
-3. **You author nothing in Studio except through the four design tools.**
+   a design and holds no copy of it.
+2. **Studio frames the published site** (`published_url`, an
+   `https://<name>.figma.site` address). Its Sync button reloads that site, so
+   whatever was last published in Make is on show. Nothing is built or
+   uploaded to Studio.
+3. **The source lives in this repository**, at `designs/<design-slug>/`, for
+   coding agents to read. `sync` overwrites it with exactly what Make holds;
+   git history shows each change.
+4. **You author nothing in Studio except through the three design tools.**
    Never create, rename, archive or delete a design, and never change which
    wireframes the brief points at.
 
@@ -29,22 +34,23 @@ Check both connections. If one is missing, stop and say which.
 
 | Needed | How to tell | If missing |
 |---|---|---|
-| Studio board MCP with design tools | `list_designs`, `get_design_brief`, `set_design_figma_url`, `submit_design_revision` are available | The connection runs the *deployed* `board_mcp.py`; the tools appear after a deploy and a session restart |
+| Studio board MCP with design tools | `list_designs`, `get_design_brief`, `set_design_figma_url` are available | The connection runs the *deployed* `board_mcp.py`; the tools appear after a deploy and a session restart |
 | Figma connector | `send_code_to_figma` and `get_design_context` are available | Ask the user to connect Figma in Claude Code |
 
 For everything Figma-side, follow the `figma:figma-code-workflows` skill. It
 owns the mechanics (how a project is packaged and sent, how a Make file's
-code is read); `references/figma-make.md` only lists what this skill needs
-from it and what is still unverified.
+code is read); `references/figma-make.md` lists what this skill needs from it.
 
 **Resolving `<design>`:** call `list_designs` and match by name or id. If
 more than one is plausible, ask. Never invent an id. Skip archived designs
-unless the user names one, and then say it is archived: an archived design
-takes no revision.
+unless the user names one, and then say it is archived.
 
-**Working folder:** one per design, outside any repository:
-`~/studio-designs/<design-id>/`. It holds the prototype project and nothing
-else.
+**The design's folder:** `designs/<design-slug>/` at the repository root,
+where the slug is the design's name in lower case with runs of anything else
+turned into `-` (`Easy Sales Design V1` → `easy-sales-design-v1`). It holds
+the prototype's source and nothing else: no `node_modules/`, no `dist/`
+(`designs/.gitignore` keeps them out). Builds and archives go to a temporary
+folder outside the repository and are deleted when the command finishes.
 
 ## `generate <design>`
 
@@ -56,8 +62,8 @@ create a second Make file and split the source of truth.
    open every reference image (`saved_to`), and read every wireframe export
    in `wireframes` before writing code. A design set to all wireframes gets
    the project's active ones as they are now.
-2. **Scaffold.** Copy `template/` from this skill into the working folder
-   and run `npm install`.
+2. **Scaffold.** Copy `template/` from this skill into the design's folder and
+   run `npm install` there.
 3. **Build the prototype.** Follow `references/wireframe-to-prototype.md`:
    it maps the wireframe exports onto the template (pages, routes, overlays,
    nested pages, components, sample data, several wireframes). Every page of
@@ -66,66 +72,61 @@ create a second Make file and split the source of truth.
    - The **brief and reference images** decide how it looks.
    - Where they conflict, structure follows the wireframe and you say so in
      the summary.
-4. **Build and check.**
-   ```bash
-   npm run build
-   node <skill-dir>/scripts/check_build.mjs .
-   ```
-   Fix every problem the check reports. Then open `dist/index.html` in a
-   browser, click through each page and each overlay, and fix what is wrong.
-5. **Send to Figma Make.** With `send_code_to_figma`, send the project
-   folder (source, not `dist/` or `node_modules/`) to a **new Figma Make
-   file** named after the design. Keep the URL it returns. If it returns
-   none, ask the user to open the file and paste its URL.
+4. **Build and check.** `npm run build`, then serve `dist/` and click through
+   each page and each overlay in a browser, and fix what is wrong.
+5. **Hand over to Figma Make.** Create a new Make file named after the
+   design (`create_new_file`, `editorType: "figmake"`), then send the design's
+   folder (source, not `dist/` or `node_modules/`) to it with
+   `send_code_to_figma`, following its returned instructions. The import needs
+   the Make lifecycle files; see "Handing over" in `references/figma-make.md`.
+   Keep the file URL without its query string.
 6. **Record the URL.** `set_design_figma_url(design_id, figma_url=...)`.
-7. **Submit revision 1.**
-   `submit_design_revision(design_id, html_path="<folder>/dist/index.html",
-   origin="claude_code", source_dir="<folder>", summary="...")`.
-8. **Report**: the Make URL, the revision number, and anything in the brief
-   you could not honour.
+7. **Mirror Make.** Run the `sync` steps for this design, so the folder holds
+   what Make holds rather than what you sent.
+8. **Report**: the Make URL, and anything in the brief you could not honour.
+   Tell the user to **Publish** the file in Make (Studio shows nothing until
+   then) and to give you the `figma.site` address, which you record with
+   `set_design_figma_url(design_id, published_url=...)`.
 
 ## `sync [design]`
 
-Brings Studio's copy up to date with the Make file. With no design named,
-sync every active design that has a `figma_url`.
+Pulls the Make file's current code into the design's folder. With no design
+named, sync every active design that has a `figma_url`.
 
 For each design:
 
 1. `get_design_brief(design_id, download_images=False)` for `design.figma_url`
-   and `currentRevision`.
-2. **Read the Make file's current code** through the Figma connector
-   (`get_design_context` and the Make file's resources), following
-   `figma:figma-code-workflows`. Replace the contents of the working
-   folder's source with what you read: every file, exactly as it is in Make.
-   Do not tidy, reformat or "fix" anything; a change you make here is not in
-   Make and would be lost at the next sync.
-3. `npm install` if `package.json` changed, then `npm run build` and
-   `check_build.mjs`.
-4. `submit_design_revision(..., origin="figma_make", source_dir=..., summary=...)`.
-   - `{"unchanged": true}`: nothing changed since the last revision. Say so
-     in one line and move on.
-   - Otherwise a new revision was created; report its number.
+   and `design.published_url`.
+2. **Read the Make file's current code** and write it into the design's
+   folder, replacing what is there: `get_design_context(fileKey=<make key>,
+   nodeId="0:1")` lists every source file as a resource link
+   (`file://figma/make/source/<key>/<path>`); read each with the MCP resource
+   reader and write it out exactly as it is in Make. Delete files Make no
+   longer has (Make does not list dotfiles; keep those). Details and traps are
+   in "Reading the code back" in `references/figma-make.md`. Do not tidy,
+   reformat or "fix" anything: the folder is a mirror of Make.
+3. **Report what changed**: `git status`/`git diff --stat` on the folder, in
+   a line or two. Nothing changed: say so in one line.
+4. If the user gives you a published address that is not recorded yet,
+   `set_design_figma_url(design_id, published_url=...)`.
 
-**Safe to repeat.** Nothing is uploaded when the source is unchanged, so
-this can run under `/loop` (for example `/loop 10m /studio-design sync`).
-In a loop, stay quiet when everything is unchanged.
+Nothing is built or uploaded, and nothing is committed unless the user asks.
+Studio picks up a republished site by itself (its Sync button reloads it).
 
-**If the build fails or the check fails** on code that came from Make: do
-not patch it locally and upload. Report what failed. The fix belongs in Make
-(or in `edit`), because Studio must show what Make has.
+**Safe to repeat.** An unchanged Make file leaves the folder unchanged, so this
+can run under `/loop`. In a loop, stay quiet when nothing changed.
 
-**If you cannot read the complete source back** (see spike 1 in
-`references/figma-make.md`): stop and say so. Do not submit a revision built
-from partial code.
+**If you cannot read the complete source back:** stop and say so. Do not
+leave the folder half-written; restore it with `git checkout -- <folder>`.
 
 **A locked project** answers 423 to every design write. That version is
-frozen; say so and skip it.
+frozen; say so and skip recording addresses for it.
 
 **When the brief's wireframes change after generation** (someone adds a
 wireframe to the design, or a new wireframe joins a design set to all),
 `sync` does not pick that up: it mirrors what Make has. The new pages reach
-Make through `edit`, or, until spike 2 is settled, by being built in Make.
-Say so when a sync's brief lists a wireframe the prototype does not have.
+Make through `edit`, or by being built in Make. Say so when a sync's brief
+lists a wireframe the prototype does not have.
 
 ## `edit <design>` (conditional)
 
@@ -135,36 +136,32 @@ Say so when a sync's brief lists a wireframe the prototype does not have.
 > made in Figma Make and picked up with `sync`. Never work round it by
 > sending to a new Make file; that would fork the design.
 
-1. Run steps 1 and 2 of `sync` so the working folder holds exactly what Make
-   has. If that produced a new revision, mention it.
-2. Make the requested change in the working folder.
+1. Run `sync` so the design's folder holds exactly what Make has.
+2. Make the requested change in the folder.
 3. Build and check, as in `generate` step 4.
-4. Send the project back to the **same** Make file with `send_code_to_figma`.
-5. Run `sync`. The revision it uploads comes from what Make now holds, which
-   proves the change landed.
+4. Send the folder back to the **same** Make file with `send_code_to_figma`.
+5. Run `sync`. The folder then holds what Make now has, which proves the change
+   landed. Remind the user to republish in Make.
 
-## What a revision must be
+## What the prototype must be
 
-Studio frames the file from storage with `sandbox="allow-scripts allow-forms"` and no
-`allow-same-origin`, so the prototype runs in an opaque origin:
+Studio frames the published site with `sandbox="allow-scripts allow-forms
+allow-same-origin"` on `figma.site`, another origin from Studio's:
 
-- **One HTML file**, at most 25 MB, script and style inlined (the template's
-  build does this).
-- **Nothing fetched at run time**: no CDN script, web font, remote image or
-  API call. Import images from `src/` so they are inlined.
-- **No browser storage**: `localStorage`, `sessionStorage`, `indexedDB` and
-  cookies throw in that frame. Keep state in memory.
-- **Hash routing only.** The file does not control its own URL path.
+- **Hash routing only.** Studio adds a `?studio_sync=` cache-buster to the
+  address; the app must not depend on its own query string.
+- **No popups, dialogs (`alert`, `confirm`) or top-level navigation**: the
+  sandbox blocks them.
 - No `window.parent`, `window.top` or `postMessage` to the host.
-
-`scripts/check_build.mjs` checks the first four.
+- Prefer assets bundled from `src/` over remote ones, so the prototype shows
+  the same everywhere.
 
 ## Files
 
-- `template/` — Vite + React + hash routing + `vite-plugin-singlefile`.
+- `template/` — Vite + React + hash routing.
 - `references/wireframe-to-prototype.md` — the mapping from a wireframe
   export to the template.
-- `references/figma-make.md` — what is needed from the Figma connector, and
-  the open spikes.
-- `scripts/check_build.mjs` — verifies a build is a self-contained single
-  file.
+- `references/figma-make.md` — what is needed from the Figma connector:
+  handing over, reading the code back, and the open spikes.
+- `scripts/check_build.mjs` — checks a build is one self-contained file; no
+  longer required, useful when a prototype must work offline.

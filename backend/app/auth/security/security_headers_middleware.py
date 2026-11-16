@@ -25,11 +25,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # script-src, worker-src or object-src, where it would let any
         # in-page string run as code.
         #
-        # frame-src also names the documents bucket: a high-fidelity design
-        # revision is generated HTML with its own inline script, which
-        # script-src 'self' rightly refuses to run on this origin (a blob:
-        # frame inherits this policy). It is framed from the bucket's origin
-        # instead, in a sandbox without allow-same-origin -- see
+        # frame-src also names https://*.figma.site: a high-fidelity design is
+        # shown by framing the site published from its Figma Make file. It is
+        # another origin, so it cannot read this page, its storage or its
+        # cookies; the frame's sandbox adds the rest -- see
         # docs/high-fidelity-design.md.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
@@ -42,7 +41,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self' https://js.stripe.com; "
-            "frame-src blob: https://js.stripe.com https://hooks.stripe.com https://s3.eu-west-1.amazonaws.com https://*.s3.eu-west-1.amazonaws.com;"
+            "frame-src blob: https://js.stripe.com https://hooks.stripe.com https://*.figma.site;"
         )
 
         return response

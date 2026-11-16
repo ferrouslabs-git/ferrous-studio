@@ -50,14 +50,12 @@ BOARD_TOKEN_ROUTES = {
     "get_bundle_format_guide",
     # High-fidelity designs (docs/high-fidelity-design.md). The generator is a
     # Claude Code skill, not the backend, so everything it does to a design
-    # goes through a token: find the design, read its brief, record where the
-    # Figma Make file is, and upload a built revision (ticket, then confirm).
-    # Creating, renaming, archiving and deleting a design stay with a person.
+    # goes through a token: find the design, read its brief, and record where
+    # the Figma Make file and its published site are. Creating, renaming,
+    # archiving and deleting a design stay with a person.
     "list_designs",
     "get_design_brief",
     "set_design_figma",
-    "create_design_revision",
-    "confirm_design_revision",
 }
 
 

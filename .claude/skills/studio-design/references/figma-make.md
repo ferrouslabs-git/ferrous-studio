@@ -21,36 +21,63 @@ Code. It cannot be called from a backend, which is why this is a skill.
 Record the outcome of each in `docs/high-fidelity-design.md` when you learn
 it, and adjust `SKILL.md` to match.
 
-1. **Reading the full source back after an edit in Make.** If only part of
-   the project comes back (the entry file but not the rest, or a summary
-   rather than files), `sync` cannot build a faithful copy. Then: do not
-   submit partial builds; tell the user. The fallback is showing the
-   published Make site instead of a built revision, which Studio is not yet
-   built to do (`published_url` is stored for it).
+1. **Reading the full source back after an edit in Make.** *Settled
+   2026-11-16: it works* (see "Reading the code back" below). Every source
+   file came back whole after Make had restyled the prototype, and a build of
+   it matched Make. Still: if a read ever returns only part of the project,
+   do not leave a half-written folder; tell the user.
 2. **Replacing an existing Make file's code, and getting its URL back.** If
    it cannot, `edit` is dropped and all changes are made in Make. If the
    tool does not return a URL even for a new file, ask the user to paste it
    in `generate`.
-3. **Framing a published Make site.** Not this skill's concern, but if the
-   user publishes the site, record it:
+3. **Framing a published Make site.** *Settled 2026-11-16: it can be framed.*
+   A published site (`https://<name>.figma.site`) sends no `X-Frame-Options`
+   and no CSP `frame-ancestors`, so Studio frames it directly; Studio's own
+   CSP allows `frame-src https://*.figma.site`. This replaced building and
+   uploading revisions. Record the address with
    `set_design_figma_url(design_id, published_url=...)`.
-4. **The built file running in Studio's frame.** Checked locally against a
-   stand-in for storage, not against the deployed Studio. If a revision
-   shows blank in Studio, the browser console of the Studio page says why.
-5. **Change notifications for Make files.** Unknown whether Figma file
+4. **Change notifications for Make files.** Unknown whether Figma file
    metadata or webhooks report them. Until known, `sync` is run by hand or
-   on a loop; it is cheap when nothing changed.
+   on a loop; it is cheap when nothing changed. Publishing is always a person
+   pressing Publish in Make; no tool does it.
 
-## The source hash
+## Handing over (`generate`)
 
-`submit_design_revision` hashes every file under `source_dir` (path and
-bytes, in path order), leaving out `node_modules`, `dist`, `build` and
-`.git`. Two consequences:
+What `send_code_to_figma` needed on 2026-11-16, beyond what the template has:
 
-- The first `sync` after `generate` may create revision 2 with no visible
-  difference, if Make stores the project with any file added, removed or
-  rewritten. That is expected, and it happens once.
-- If Make returns files with unstable content (timestamps, reordered JSON),
-  every sync would look like a change. If you see a new revision on every
-  run with nothing changed in Make, stop the loop and report it rather than
-  filling the revision list.
+- **Lifecycle files** in `.figma/make/`: executable `install` (`npm ci`),
+  `dev` (`exec npx --no-install vite --port "$PORT" --host
+  "${FIGMA_DEV_SERVER_HOST:-0.0.0.0}" --strictPort`), `deploy-preview` and
+  `deploy` (`npm run build`, check `dist` exists, then
+  `figma make deploy-preview` / `figma make deploy --build-dir dist`), plus
+  `deploy.json` with `{ "adapter": "static" }`. LF line endings, mode 0755.
+- **A `server` block in `vite.config.ts`** that takes `PORT` and
+  `FIGMA_DEV_SERVER_HOST` when `FIGMA` is set. `tsc` type-checks the config,
+  so read the environment through `globalThis` rather than adding
+  `@types/node`.
+- **On Windows**: build the archive with Python's `tarfile` and set the
+  script modes explicitly (Windows tar loses them), and give `curl` the
+  `cygpath -m` form of the `/tmp/...` archive path, or it cannot read the file.
+- `create_session` does not support Make files; skip it.
+- Windows App Control blocks rollup's native binary; `package.json`
+  `"overrides": { "rollup": "npm:@rollup/wasm-node@^4.30.0" }` builds without it.
+
+## Reading the code back (`sync`)
+
+- `get_design_context(fileKey, nodeId="0:1")` on a Make file returns resource
+  links: `file://figma/make/source/<key>/<path>` for each source file and
+  `file://figma/make/image/<key>/<hash>.png` for Make's own screenshots
+  (not source; ignore them).
+- Read each source link with the MCP resource reader (`ReadMcpResourceTool`,
+  server `plugin:marketing:figma`). Subagents may not have that tool; do it
+  in the main session.
+- Text comes back inline and must be written byte for byte. A large result
+  is saved to a file instead; extract its `contents[0].text` with a script
+  rather than retyping it.
+- Files keep their own line endings (LF for what Make or prettier wrote; CRLF
+  for files that came from this repo's template unchanged).
+- Dotfiles are not listed (`.figma/make/*`, `.gitignore`). Keep the ones the
+  hand-over sent; Make still has them.
+- Make can add remote assets, such as image URLs in data (on 2026-11-16 it
+  added three Unsplash avatars). The published site loads them; mention it,
+  but do not patch it locally: the folder mirrors Make.

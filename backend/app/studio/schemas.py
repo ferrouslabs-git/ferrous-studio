@@ -829,8 +829,6 @@ class ProjectAgentStatus(BaseModel):
 # ── High-fidelity designs ─────────────────────────────────────────────────
 
 
-DesignOrigin = Literal["figma_make", "claude_code"]
-
 #: A brief may carry this many reference images.
 ReferenceDocumentIds = Annotated[list[UUID], Field(max_length=12)]
 
@@ -851,8 +849,8 @@ class DesignCreate(BaseModel):
 
 class DesignUpdate(BaseModel):
     """Everything a person may change: the brief, and how the design is filed.
-    Nothing here reaches the design's content -- that only ever arrives as a
-    revision (see designs.py)."""
+    Nothing here reaches the design's content -- that lives in Figma Make
+    (see designs.py)."""
 
     name: str | None = Field(None, min_length=1, max_length=255)
     brief: str | None = Field(None, max_length=20000)
@@ -876,10 +874,8 @@ class DesignRead(BaseModel):
     reference_document_ids: list[UUID]
     figma_url: str | None
     published_url: str | None
-    current_revision_id: UUID | None
     status: str
     pos: str
-    synced_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -890,52 +886,3 @@ class DesignFigmaUpdate(BaseModel):
 
     figma_url: str | None = Field(None, max_length=2048)
     published_url: str | None = Field(None, max_length=2048)
-
-
-class DesignRevisionRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    design_id: UUID
-    revision_no: int
-    origin: DesignOrigin
-    summary: str | None
-    source_hash: str
-    html_bytes: int
-    source_bytes: int | None
-    status: str
-    created_at: datetime
-
-
-class DesignRevisionCreate(BaseModel):
-    origin: DesignOrigin
-    summary: str | None = Field(None, max_length=2000)
-    #: SHA-256 (hex) of the source tree the HTML was built from.
-    source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    html_bytes: int = Field(gt=0)
-    #: Absent when the source could not be archived; the HTML alone is kept.
-    source_bytes: int | None = Field(None, gt=0)
-
-
-class UploadTicket(BaseModel):
-    upload_url: str
-    method: Literal["PUT"] = "PUT"
-    headers: dict[str, str]
-    expires_in: int
-
-
-class DesignRevisionTicket(BaseModel):
-    """The answer to "here is a build". ``unchanged`` means its source hash
-    is the current revision's: nothing was created and there is nothing to
-    upload."""
-
-    unchanged: bool
-    design: DesignRead
-    revision: DesignRevisionRead | None
-    html_upload: UploadTicket | None = None
-    source_upload: UploadTicket | None = None
-
-
-class DesignRevisionView(BaseModel):
-    url: str
-    expires_in: int

@@ -1,8 +1,7 @@
 // What the design pages say about a design, derived from what the API returns:
-// the status badge, which revision is on show, what may link out to Figma.
-// Pure, and kept apart from designsApi.ts (which reaches the network) so it
-// can be tested on its own.
-import { formatDateTime } from "../../../core/format";
+// the status badge, what may be framed, what may link out to Figma. Pure, and
+// kept apart from designsApi.ts (which reaches the network) so it can be
+// tested on its own.
 import type { InterfaceType, Wireframe } from "../wireframes/wireframesApi";
 
 export interface Design {
@@ -15,29 +14,14 @@ export interface Design {
   name: string;
   brief: string;
   reference_document_ids: string[];
+  /** The Figma Make file: the design itself. */
   figma_url: string | null;
+  /** The site published from the Make file: what the design page frames. */
   published_url: string | null;
-  current_revision_id: string | null;
   status: "active" | "archived";
   pos: string;
-  synced_at: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export type DesignOrigin = "figma_make" | "claude_code";
-
-export interface DesignRevision {
-  id: string;
-  design_id: string;
-  revision_no: number;
-  origin: DesignOrigin;
-  summary: string | null;
-  source_hash: string;
-  html_bytes: number;
-  source_bytes: number | null;
-  status: "pending" | "uploaded";
-  created_at: string;
 }
 
 export interface DesignInput {
@@ -87,57 +71,49 @@ export function interfaceTypesOf(wireframes: Pick<Wireframe, "interface_type">[]
   return [...new Set(wireframes.map((w) => w.interface_type))];
 }
 
-/** Whether a design has ever been built: it has a revision on show, or none. */
-export type DesignState = "not_generated" | "synced";
+/** Where a design has got to: nothing yet, a Make file, or a published site. */
+export type DesignState = "not_generated" | "in_figma" | "published";
 
-export const designState = (design: Pick<Design, "current_revision_id">): DesignState =>
-  design.current_revision_id ? "synced" : "not_generated";
+export const designState = (design: Pick<Design, "figma_url" | "published_url">): DesignState =>
+  publishedSite(design.published_url) ? "published" : design.figma_url ? "in_figma" : "not_generated";
 
 export const DESIGN_STATE_LABEL: Record<DesignState, string> = {
   not_generated: "Not generated",
-  synced: "Synced",
+  in_figma: "In Figma",
+  published: "Published",
 };
 
-export const ORIGIN_LABEL: Record<DesignOrigin, string> = {
-  figma_make: "Figma Make",
-  claude_code: "Claude Code",
+const onHost = (url: string | null, hosts: string[]): string | null => {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const allowed = hosts.some((h) => host === h || host.endsWith(`.${h}`));
+    return parsed.protocol === "https:" && allowed && !parsed.username && !parsed.password ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
 };
-
-/** "Revision 3 · 13 Nov 2026, 14:05 · Figma Make", marking the one on show. */
-export function revisionLabel(revision: DesignRevision, currentId: string | null): string {
-  const parts = [`Revision ${revision.revision_no}`, formatDateTime(revision.created_at), ORIGIN_LABEL[revision.origin]];
-  if (revision.id === currentId) parts.push("Current");
-  return parts.join(" · ");
-}
-
-/**
- * The revision to show: the one picked, while it still exists; otherwise the
- * design's current one; otherwise the newest. Null when there are none.
- * `revisions` arrive newest first.
- */
-export function shownRevision(
-  revisions: DesignRevision[],
-  pickedId: string | null,
-  currentId: string | null,
-): DesignRevision | null {
-  return (
-    revisions.find((r) => r.id === pickedId) ?? revisions.find((r) => r.id === currentId) ?? revisions[0] ?? null
-  );
-}
 
 /**
  * Only Figma's own https addresses become a link. The server already holds a
  * design's URLs to this rule; checking again here means a link is never built
  * from a value the page has not looked at.
  */
-export function figmaHref(url: string | null): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-    const onFigma = ["figma.com", "figma.site"].some((h) => host === h || host.endsWith(`.${h}`));
-    return parsed.protocol === "https:" && onFigma ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
+export const figmaHref = (url: string | null): string | null => onHost(url, ["figma.com", "figma.site"]);
+
+/**
+ * The published site to frame: a subdomain of figma.site only, the one host
+ * Studio's CSP lets a frame load from. Anything else is not framed at all.
+ */
+export function publishedSite(url: string | null): string | null {
+  const href = onHost(url, ["figma.site"]);
+  return href && new URL(href).hostname.toLowerCase() !== "figma.site" ? href : null;
+}
+
+/** The site's address with a cache-buster, so Sync fetches it afresh. */
+export function freshSiteUrl(site: string, stamp: number): string {
+  const url = new URL(site);
+  url.searchParams.set("studio_sync", String(stamp));
+  return url.toString();
 }

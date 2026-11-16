@@ -10,7 +10,7 @@ import { Drawer, Field } from "../../../components/Drawer";
 import { ListTable, NameCell } from "../../../components/ListTable";
 import { ListToolbar, matches } from "../../../components/ListToolbar";
 import { errorMessage } from "../../../core/api";
-import { formatBytes, formatDateTime } from "../../../core/format";
+import { formatBytes } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import {
   deleteDocument,
@@ -345,11 +345,6 @@ export function HighFidelityDesignPage() {
               </span>
             ),
           },
-          {
-            header: "Last synced",
-            className: "when muted",
-            render: (d) => (d.synced_at ? formatDateTime(d.synced_at) : "—"),
-          },
         ]}
         rows={visible}
         rowKey={(d) => d.id}
@@ -404,8 +399,8 @@ export function HighFidelityDesignPage() {
         }}
       >
         <p>
-          Permanently delete <b>{deleting?.name}</b>? Its brief, reference images and every revision held in Studio are
-          deleted with it. The Figma Make file is not touched. This cannot be undone.
+          Permanently delete <b>{deleting?.name}</b>? Its brief and reference images are deleted with it. The Figma Make
+          file and its published site are not touched. This cannot be undone.
         </p>
       </ConfirmDrawer>
 

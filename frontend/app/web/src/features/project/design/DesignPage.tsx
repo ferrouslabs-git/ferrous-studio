@@ -1,80 +1,60 @@
-// One high-fidelity design: a read-only mirror of the prototype held in its
-// Figma Make file. The revision on show is drawn in a sandboxed frame on a
-// stage the size of its wireframes' device (with a choice when they differ);
-// the switchers only choose what to look at. There is nothing here that changes the design --
+// One high-fidelity design: the site published from its Figma Make file,
+// framed on a stage the size of its wireframes' device (with a choice when
+// they differ). Sync reloads the site, so whatever was last published in Make
+// is what is on show. There is nothing here that changes the design --
 // changes are made in Figma Make (docs/high-fidelity-design.md).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { errorMessage } from "../../../core/api";
-import { formatDateTime } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import { Stage, useStageFit } from "../../studio/stage";
 import { useFillViewport } from "../epics/useFillViewport";
 import { useProject } from "../ProjectLayout";
 import { deviceClass, INTERFACE_TYPES, InterfaceType, listWireframes } from "../wireframes/wireframesApi";
-import {
-  DesignRevision,
-  designWireframes,
-  figmaHref,
-  getDesign,
-  getRevisionViewUrl,
-  interfaceTypesOf,
-  listDesignRevisions,
-  revisionLabel,
-  shownRevision,
-} from "./designsApi";
+import { designWireframes, figmaHref, freshSiteUrl, getDesign, interfaceTypesOf, publishedSite } from "./designsApi";
 import { DesignStatusBadge } from "./DesignStatusBadge";
 import { PrototypeFrame } from "./PrototypeFrame";
 import { useRefetchOnFocus } from "./useRefetchOnFocus";
 
-/** The frame's URL for one revision. Keyed on the revision alone, so a
- *  refetch that finds nothing new does not reload a prototype someone is
- *  halfway through clicking around. */
-function useRevisionUrl(projectId: string, designId: string, revision: DesignRevision | null) {
-  const [state, setState] = useState<{ id: string; url: string | null; error: string | null } | null>(null);
-  const revisionId = revision?.id ?? null;
-
+/** Whether `el` is the element the browser is showing full screen, kept in
+ *  step with Esc and the browser's own controls. */
+function useFullscreen(el: React.RefObject<HTMLElement | null>) {
+  const [on, setOn] = useState(false);
   useEffect(() => {
-    if (!revisionId) return;
-    let live = true;
-    getRevisionViewUrl(projectId, designId, revisionId)
-      .then((view) => live && setState({ id: revisionId, url: view.url, error: null }))
-      .catch((err) => live && setState({ id: revisionId, url: null, error: errorMessage(err) }));
-    return () => {
-      live = false;
-    };
-  }, [projectId, designId, revisionId]);
-
-  return state && state.id === revisionId ? state : null;
+    const sync = () => setOn(document.fullscreenElement !== null && document.fullscreenElement === el.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, [el]);
+  const toggle = useCallback(() => {
+    // A browser may refuse (no user gesture, a policy); the button then just
+    // does nothing rather than throwing.
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else el.current?.requestFullscreen().catch(() => {});
+  }, [el]);
+  return { on, toggle, supported: typeof document !== "undefined" && document.fullscreenEnabled };
 }
 
 export function DesignPage() {
   const { designId = "" } = useParams();
   const { project, orgId } = useProject();
   const data = useLoad(
-    () =>
-      Promise.all([
-        getDesign(project.id, designId),
-        listDesignRevisions(project.id, designId),
-        listWireframes(project.id),
-      ]),
+    () => Promise.all([getDesign(project.id, designId), listWireframes(project.id)]),
     [project.id, designId],
   );
-  // A sync lands from outside the app; coming back to the tab shows it.
+  // The published address can be recorded from outside the app; coming back
+  // to the tab shows it.
   useRefetchOnFocus(data.reload);
 
-  /** The revision picked in the switcher; null follows the current one. */
-  const [pickedId, setPickedId] = useState<string | null>(null);
   /** The device picked when the wireframes are drawn on more than one. */
   const [pickedDevice, setPickedDevice] = useState<InterfaceType | null>(null);
+  /** Bumped by Sync: a fresh fetch of the published site. */
+  const [syncedAt, setSyncedAt] = useState(() => Date.now());
 
-  const [design, revisions, wireframes] = data.data ?? [null, [], []];
+  const [design, wireframes] = data.data ?? [null, []];
   const resolved = design ? designWireframes(design, wireframes) : { wireframes: [], missing: 0 };
   const devices = interfaceTypesOf(resolved.wireframes);
   const interfaceType: InterfaceType =
     pickedDevice && devices.includes(pickedDevice) ? pickedDevice : devices[0] ?? "desktop";
-  const revision = shownRevision(revisions, pickedId, design?.current_revision_id ?? null);
-  const view = useRevisionUrl(project.id, designId, revision);
+  const site = publishedSite(design?.published_url ?? null);
   const figma = figmaHref(design?.figma_url ?? null);
 
   const mat = useRef<HTMLDivElement | null>(null);
@@ -87,7 +67,13 @@ export function DesignPage() {
     [fill],
   );
   const fit = useStageFit(mat, interfaceType);
+  const fullscreen = useFullscreen(mat);
   const listPath = `/orgs/${orgId}/projects/${project.id}/high-fidelity-design`;
+
+  const sync = () => {
+    setSyncedAt(Date.now());
+    void data.reload();
+  };
 
   if (!design) {
     return (
@@ -114,8 +100,7 @@ export function DesignPage() {
           {design.status === "archived" && <span className="badge">Archived</span>}
         </span>
         <span className="shell-spacer" />
-        {design.synced_at && <span className="muted design-synced">Last synced {formatDateTime(design.synced_at)}</span>}
-        {devices.length > 1 && revision && (
+        {devices.length > 1 && site && (
           <select
             className="select"
             aria-label="Device"
@@ -129,19 +114,15 @@ export function DesignPage() {
             ))}
           </select>
         )}
-        {revisions.length > 0 && revision && (
-          <select
-            className="select"
-            aria-label="Revision"
-            value={revision.id}
-            onChange={(e) => setPickedId(e.target.value)}
-          >
-            {revisions.map((r) => (
-              <option key={r.id} value={r.id}>
-                {revisionLabel(r, design.current_revision_id)}
-              </option>
-            ))}
-          </select>
+        {site && (
+          <button type="button" className="btn" onClick={sync}>
+            Sync
+          </button>
+        )}
+        {site && fullscreen.supported && (
+          <button type="button" className="btn" onClick={fullscreen.toggle} aria-pressed={fullscreen.on}>
+            {fullscreen.on ? "Exit full screen" : "Full screen"}
+          </button>
         )}
         {figma && (
           <a className="btn" href={figma} target="_blank" rel="noopener noreferrer">
@@ -164,28 +145,29 @@ export function DesignPage() {
             : `${resolved.missing} of this design's wireframes no longer exist.`}
         </div>
       )}
-      {revision?.summary && <p className="muted design-summary">{revision.summary}</p>}
 
-      {!revision ? (
+      {!site ? (
         // No mat without a sheet to lie on it: an empty state reads as one.
         <section className="section">
           <div className="empty">
-            <b>Not generated yet.</b> Run <code>/studio-design generate "{design.name}"</code> in Claude Code.
+            {figma ? (
+              <>
+                <b>Not published yet.</b> Publish it in Figma Make.
+              </>
+            ) : (
+              <>
+                <b>Not generated yet.</b> Run <code>/studio-design generate "{design.name}"</code> in Claude Code.
+              </>
+            )}
           </div>
         </section>
       ) : (
         <div className={`design-mat${fit ? " framed" : ""}`} ref={matRef}>
-          {view?.error ? (
-            <div className="empty error design-empty">{view.error}</div>
-          ) : (
-            <Stage fit={fit}>
-              <div className={`design-device ${deviceClass(interfaceType)}`} style={fit?.device}>
-                {view?.url && (
-                  <PrototypeFrame key={revision.id} url={view.url} title={`${design.name}, revision ${revision.revision_no}`} />
-                )}
-              </div>
-            </Stage>
-          )}
+          <Stage fit={fit}>
+            <div className={`design-device ${deviceClass(interfaceType)}`} style={fit?.device}>
+              <PrototypeFrame key={syncedAt} url={freshSiteUrl(site, syncedAt)} title={design.name} />
+            </div>
+          </Stage>
         </div>
       )}
     </div>
