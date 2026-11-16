@@ -110,7 +110,8 @@ $serviceName = "$Product-$Env"
 $existing = aws ecs describe-services --region $Region --cluster $Shared.ecs_cluster --services $serviceName --query "services[?status=='ACTIVE'] | [0]" --output json | ConvertFrom-Json
 if ($existing) {
     aws ecs update-service --region $Region --cluster $Shared.ecs_cluster --service $serviceName `
-        --task-definition "$Product-$Env" --force-new-deployment | Out-Null
+        --task-definition "$Product-$Env" --force-new-deployment `
+        --propagate-tags SERVICE --enable-ecs-managed-tags | Out-Null
     Write-Host "  updated existing service (forced new deployment)" -ForegroundColor Green
 } else {
     aws ecs create-service --region $Region --cluster $Shared.ecs_cluster `
@@ -118,7 +119,9 @@ if ($existing) {
         --desired-count 1 --launch-type FARGATE `
         --network-configuration $netConfig `
         --load-balancers "targetGroupArn=$tgArn,containerName=$Product,containerPort=$($Config.container_port)" `
-        --health-check-grace-period-seconds 60 | Out-Null
+        --health-check-grace-period-seconds 60 `
+        --propagate-tags SERVICE --enable-ecs-managed-tags `
+        --tags "key=Product,value=$Product" "key=Environment,value=$Env" "key=ManagedBy,value=deploy-script" | Out-Null
     Write-Host "  created new service" -ForegroundColor Green
 }
 

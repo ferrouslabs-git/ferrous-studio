@@ -6,6 +6,11 @@
   "memory": "512",
   "executionRoleArn": "{{EXECUTION_ROLE_ARN}}",
   "taskRoleArn": "{{TASK_ROLE_ARN}}",
+  "tags": [
+    { "key": "Product", "value": "{{PRODUCT_NAME}}" },
+    { "key": "Environment", "value": "{{ENV}}" },
+    { "key": "ManagedBy", "value": "deploy-script" }
+  ],
   "runtimePlatform": { "cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX" },
   "containerDefinitions": [
     {
@@ -41,16 +46,16 @@
         { "name": "DOCUMENTS_BUCKET", "value": "{{DOCUMENTS_BUCKET}}" }
       ],
       "secrets": [
-        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" },
-        { "name": "GITHUB_APP_ID", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_ID" },
-        { "name": "GITHUB_APP_SLUG", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_SLUG" },
-        { "name": "GITHUB_APP_PRIVATE_KEY", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_PRIVATE_KEY" },
-        { "name": "GITHUB_CLIENT_ID", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_CLIENT_ID" },
-        { "name": "GITHUB_CLIENT_SECRET", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/GITHUB_CLIENT_SECRET" },
-        { "name": "SLACK_CLIENT_ID", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/SLACK_CLIENT_ID" },
-        { "name": "SLACK_CLIENT_SECRET", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/SLACK_CLIENT_SECRET" },
-        { "name": "SLACK_SIGNING_SECRET", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/SLACK_SIGNING_SECRET" },
-        { "name": "SLACK_TOKEN_KEY", "valueFrom": "arn:aws:secretsmanager:{{AWS_REGION}}:{{ACCOUNT_ID}}:secret:{{PRODUCT_NAME}}/{{ENV}}/SLACK_TOKEN_KEY" }
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" },
+        { "name": "GITHUB_APP_ID", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_ID" },
+        { "name": "GITHUB_APP_SLUG", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_SLUG" },
+        { "name": "GITHUB_APP_PRIVATE_KEY", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_PRIVATE_KEY" },
+        { "name": "GITHUB_CLIENT_ID", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GITHUB_CLIENT_ID" },
+        { "name": "GITHUB_CLIENT_SECRET", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GITHUB_CLIENT_SECRET" },
+        { "name": "SLACK_CLIENT_ID", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/SLACK_CLIENT_ID" },
+        { "name": "SLACK_CLIENT_SECRET", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/SLACK_CLIENT_SECRET" },
+        { "name": "SLACK_SIGNING_SECRET", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/SLACK_SIGNING_SECRET" },
+        { "name": "SLACK_TOKEN_KEY", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/SLACK_TOKEN_KEY" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

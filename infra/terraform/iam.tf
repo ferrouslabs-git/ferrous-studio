@@ -5,17 +5,27 @@ data "aws_iam_role" "ecs_execution" {
   name = reverse(split("/", local.shared.ecs_execution_role_arn))[0]
 }
 
-resource "aws_iam_role_policy" "read_secrets" {
-  name = "read-${local.product_name}-secrets"
+resource "aws_iam_role_policy" "read_parameters" {
+  name = "read-${local.product_name}-params"
   role = data.aws_iam_role.ecs_execution.name
 
+  # ECS reads the task's secrets from Parameter Store when a task starts, using this
+  # execution role. Scoped to this product's own path.
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "secretsmanager:GetSecretValue"
-      Resource = "arn:aws:secretsmanager:${local.region}:${local.shared.account_id}:secret:${local.product_name}/*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameters", "ssm:GetParameter"]
+        Resource = "arn:aws:ssm:${local.region}:${local.shared.account_id}:parameter/${local.product_name}/*"
+      },
+      {
+        Effect    = "Allow"
+        Action    = "kms:Decrypt"
+        Resource  = "*"
+        Condition = { StringEquals = { "kms:ViaService" = "ssm.${local.region}.amazonaws.com" } }
+      }
+    ]
   })
 }
 
@@ -40,6 +50,7 @@ resource "aws_iam_role_policy" "create_log_group" {
 # emails and Cognito admin actions below; add S3 etc. here as needed).
 resource "aws_iam_role" "task" {
   name = "${local.product_name}-task-role"
+  tags = { Environment = "shared" }
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

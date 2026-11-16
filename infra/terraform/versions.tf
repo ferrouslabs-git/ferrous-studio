@@ -41,4 +41,14 @@ terraform {
 provider "aws" {
   region = local.region
   # Uses the AWS default profile / credential chain -- no profile pinned here.
+
+  # Account tagging standard (INT-REQ-15/17): Product and ManagedBy for everything
+  # this config creates. Environment differs per resource (staging and prod are
+  # built from one config), so it is set on each resource below, not here.
+  default_tags {
+    tags = {
+      Product   = local.product_name
+      ManagedBy = "terraform"
+    }
+  }
 }
