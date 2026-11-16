@@ -276,6 +276,26 @@ class CloudopsCostSnapshot(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
 
+class CloudopsAction(Base):
+    """Every attempt to change a service from the CloudOps panel (INT-REQ-14, phase 3): who, what, on which
+    service, the state before and after, and whether it worked, was refused or failed. Written for refusals
+    too, so a blocked attempt on production is on the record. Platform-wide, so no RLS."""
+
+    __tablename__ = "cloudops_actions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_email = Column(String(255), nullable=False)       # kept as text so the record outlives the account
+    action = Column(String(32), nullable=False)
+    service = Column(String(255), nullable=False)
+    params = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    before = Column(JSONB, nullable=True)
+    after = Column(JSONB, nullable=True)
+    status = Column(String(16), nullable=False)             # ok | refused | error
+    message = Column(String(500), nullable=True)
+
+
 # ── Use case model ──────────────────────────────────────────────────────────
 
 

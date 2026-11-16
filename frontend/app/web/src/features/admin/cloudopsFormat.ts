@@ -63,3 +63,30 @@ export function countStates(rows: ServiceRow[]): Record<ServiceState, number> {
   for (const r of rows) out[r.state] += 1;
   return out;
 }
+
+// ── Actions ─────────────────────────────────────────────────────────────────
+
+export const canStop = (state: ServiceState): boolean => state === "running" || state === "starting" || state === "unhealthy";
+export const canStart = (state: ServiceState): boolean => state === "asleep" || state === "stopped";
+
+export const ACTION_LABEL: Record<string, string> = {
+  start: "Started",
+  stop: "Stopped",
+  set_autowake: "Changed auto-wake",
+  set_keep_awake: "Changed keep-awake",
+};
+
+/** A <input type="datetime-local"> value ("2026-11-21T18:00", the person's own time) as an ISO UTC string, or null when empty. */
+export function toIsoUtc(local: string): string | null {
+  if (!local) return null;
+  const d = new Date(local);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** Idle minutes as typed: blank means the default (null); anything not a whole number from 5 to 1440 is an error message. */
+export function parseIdle(text: string): { value: number | null; error?: string } {
+  if (text.trim() === "") return { value: null };
+  const n = Number(text);
+  if (!Number.isInteger(n) || n < 5 || n > 1440) return { value: null, error: "Idle minutes must be a whole number from 5 to 1440." };
+  return { value: n };
+}

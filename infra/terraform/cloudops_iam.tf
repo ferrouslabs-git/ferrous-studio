@@ -62,3 +62,23 @@ resource "aws_iam_role_policy" "cloudops_resources_read" {
     ]
   })
 }
+
+# CloudOps > Resources actions (INT-REQ-14, phase 3): Studio may only INVOKE the control function.
+#
+# Studio's task role is shared by staging and prod, so it is deliberately given no permission to change ECS
+# services itself. The cloudops-control function (infra/cloudops/control in the functionAI repo) does the changing,
+# and AWS stops that function touching any service whose name contains "-prod". This policy names exactly one
+# function, so it cannot invoke anything else. The function's own resource policy also lists only this role.
+resource "aws_iam_role_policy" "cloudops_control_invoke" {
+  name = "cloudops-control-invoke"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "lambda:InvokeFunction"
+      Resource = "arn:aws:lambda:${local.region}:${local.shared.account_id}:function:cloudops-control"
+    }]
+  })
+}

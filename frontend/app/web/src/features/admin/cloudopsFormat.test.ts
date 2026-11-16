@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { ServiceRow } from "./cloudopsApi";
-import { autowakeText, barHeights, countStates, dayLabel, peak, perMonth, share, sizeLabel, usd } from "./cloudopsFormat";
+import {
+  ACTION_LABEL,
+  autowakeText,
+  barHeights,
+  canStart,
+  canStop,
+  countStates,
+  dayLabel,
+  parseIdle,
+  peak,
+  perMonth,
+  share,
+  sizeLabel,
+  toIsoUtc,
+  usd,
+} from "./cloudopsFormat";
 
 describe("usd", () => {
   it("formats with a thousands separator and two decimals", () => {
@@ -70,5 +85,35 @@ describe("resources formatting", () => {
   it("counts services by state", () => {
     const rows = [{ state: "running" }, { state: "running" }, { state: "asleep" }] as ServiceRow[];
     expect(countStates(rows)).toEqual({ running: 2, asleep: 1, stopped: 0, starting: 0, unhealthy: 0 });
+  });
+});
+
+
+describe("what a person may do to a service in each state", () => {
+  it("can stop what is up and start what is off, never the reverse", () => {
+    for (const s of ["running", "starting", "unhealthy"] as const) expect([canStop(s), canStart(s)]).toEqual([true, false]);
+    for (const s of ["asleep", "stopped"] as const) expect([canStop(s), canStart(s)]).toEqual([false, true]);
+  });
+});
+
+describe("the auto-wake form", () => {
+  it("treats blank idle minutes as the default and checks the range", () => {
+    expect(parseIdle("")).toEqual({ value: null });
+    expect(parseIdle(" 90 ")).toEqual({ value: 90 });
+    expect(parseIdle("5").value).toBe(5);
+    expect(parseIdle("1440").value).toBe(1440);
+    for (const bad of ["4", "1441", "0", "-5", "2.5", "soon"]) expect(parseIdle(bad).error).toContain("from 5 to 1440");
+  });
+
+  it("turns a local date and time into UTC, and nothing into null", () => {
+    expect(toIsoUtc("")).toBeNull();
+    expect(toIsoUtc("not a date")).toBeNull();
+    const out = toIsoUtc("2026-11-21T18:00") as string;
+    expect(out.endsWith("Z")).toBe(true); // UTC, whatever zone this runs in
+    expect(new Date(out).getTime()).toBe(new Date("2026-11-21T18:00").getTime()); // and the very same moment
+  });
+
+  it("names every action the audit log can hold", () => {
+    expect(Object.keys(ACTION_LABEL).sort()).toEqual(["set_autowake", "set_keep_awake", "start", "stop"]);
   });
 });

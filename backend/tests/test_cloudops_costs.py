@@ -315,8 +315,8 @@ def test_every_cloudops_route_checks_for_a_platform_admin_first():
                 yield prefix + r.path, r
 
     routes = [(p, r) for p, r in walk(app.routes) if "/cloudops" in p]
-    assert len(routes) == 3                         # costs, costs/refresh, resources
+    assert len(routes) == 8     # costs, refresh, resources, start, stop, autowake, keep-awake, audit log
     for path, route in routes:
         src = inspect.getsource(route.endpoint)
-        assert "ensure_platform_admin" in src, path
-        assert src.index("ensure_platform_admin") < src.index("get_settings"), path   # who you are before anything else
+        # the very first thing the route awaits is the platform-admin check: nothing else happens before it
+        assert src[src.index("await "):].startswith("await ensure_platform_admin("), path
