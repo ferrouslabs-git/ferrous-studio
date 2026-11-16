@@ -20,7 +20,7 @@ import { BACK_PAGE_ID, ComponentNode, LinkTarget, PageDocument, PagePresentation
 import { NAV_ICON_MARKS, navIconGlyph } from "./icons";
 import { isSvgFile, readImageFile } from "./imageFile";
 import type { ProjectPageSummary } from "../../project/wireframes/wireframesApi";
-import { LinkPicker } from "./LinkPicker";
+import { LinkPicker, OpensInPicker } from "./LinkPicker";
 import { ElementSel, Selection } from "./selection";
 
 interface Props {
@@ -1027,27 +1027,18 @@ export function Inspector(props: Props) {
             {link && linkTargetPage && !linkTargetPage.presentation && (
               <div className="field">
                 <label>Opens in</label>
-                <select
-                  value={link.into ? `${link.into.pageId}:${link.into.regionId}` : ""}
+                <OpensInPicker
+                  key={`${elementSel.cmpId}:${elementSel.key}:${elementSel.index ?? ""}`}
+                  options={props.linkRegions.options.filter((o) => o.pageId !== link.pageId)}
+                  into={link.into ?? null}
+                  unlistedName={link.into && !opensInListed ? opensInName ?? "Missing region" : null}
                   disabled={ro}
-                  onChange={(e) => {
+                  onPick={(into) => {
                     const { into: _dropped, ...plain } = link;
-                    const picked = props.linkRegions.options.find((o) => `${o.pageId}:${o.id}` === e.target.value);
-                    props.onSetLinkOpensIn(elementSel, picked ? { ...plain, into: { pageId: picked.pageId, regionId: picked.id } } : plain);
+                    props.onSetLinkOpensIn(elementSel, into ? { ...plain, into } : plain);
                   }}
-                >
-                  <option value="">Default</option>
-                  {link.into && !opensInListed && (
-                    <option value={`${link.into.pageId}:${link.into.regionId}`}>{opensInName ?? "Missing region"}</option>
-                  )}
-                  {props.linkRegions.options
-                    .filter((o) => o.pageId !== link.pageId)
-                    .map((o) => (
-                      <option key={`${o.pageId}:${o.id}`} value={`${o.pageId}:${o.id}`}>
-                        {o.note ? `${o.label} · ${o.note}` : o.label}
-                      </option>
-                    ))}
-                </select>
+                  onHoverRegion={props.onHoverLinkRegion}
+                />
               </div>
             )}
             {link && !isBackLink && !linkTargetPage && <div className="insp-hint">The target page no longer exists.</div>}
