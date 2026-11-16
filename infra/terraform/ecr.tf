@@ -4,4 +4,6 @@ resource "aws_ecr_repository" "app" {
   # Lets `terraform destroy` remove the repo even with images pushed
   # (the default otherwise refuses to delete a non-empty repository).
   force_delete = true
+
+  tags = { Environment = "shared" }
 }
