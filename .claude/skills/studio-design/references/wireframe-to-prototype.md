@@ -1,7 +1,8 @@
 # Wireframe export → prototype
 
-`get_design_brief` returns the wireframe as `wireframe`, in Studio's export
-shape. This file maps each part of that shape onto the template. The
+`get_design_brief` returns the design's wireframes as `wireframes` -- one or
+more, each in Studio's export shape. They all go into **one** prototype (see
+[Several wireframes](#several-wireframes)). This file maps each part of that shape onto the template. The
 vocabulary of component and element types is in `catalogueReference` in the
 same response; `.claude/skills/reverse-engineer-repo/references/catalogue.md`
 describes what each component is *for*.
@@ -59,7 +60,35 @@ so links resolve by lookup.
 | `presentation` | `presentation` (`modal`, `drawer`, `drawer-left`) |
 | `landingPageId` (wireframe) | `LANDING_PAGE_ID`. Null: the first page a nav item of the shell links to |
 
+Every `PageEntry` also takes `wireframeId`, the `wireframeId` of the export
+it came from.
+
 `App.tsx` builds the routes from the registry; do not edit it to add pages.
+
+## Several wireframes
+
+A design may be for one wireframe, several, or all of the project's. Build
+them as **one** prototype, one Make file:
+
+- `WIREFRAMES` in `src/pages.ts` gets one entry per export, in the brief's
+  order: `id` = `wireframeId`, `name` = `wireframeName`, `landingPageId` =
+  that export's `landingPageId` (null: as for `LANDING_PAGE_ID` above).
+- `PAGES` holds every page of every export. Page ids are unique across a
+  project, so a link from one wireframe into another's page resolves by the
+  same lookup; never rewrite one.
+- Paths must not collide across wireframes. When two pages would share an
+  absolute path (two shells at `/`), prefix every top-level path of each
+  wireframe after the first with a slug of its name (`/admin/...`).
+- The prototype opens on the first wireframe's landing page. With more than
+  one wireframe the template shows a small "Wireframe" switcher
+  (`lib/WireframeSwitcher.tsx`); it is prototype chrome, so leave it out of
+  the brief's styling and do not remove it.
+- `datasets` and `customComponents` are the project's and repeat in each
+  export; use them once.
+- `missingWireframeIds` lists picked wireframes since deleted. Build the rest
+  and say so in the summary.
+- Wireframes may have different `interfaceType`s. Studio shows the
+  prototype on each device in turn, so pages must work on every one of them.
 
 ## Layout tree → layout
 
@@ -212,7 +241,8 @@ so the build inlines it.
 
 ## Before submitting
 
-- Every wireframe page has a `PageEntry` and renders.
+- Every page of every wireframe has a `PageEntry` and renders.
+- With several wireframes, the switcher reaches each one's landing page.
 - Every `props.links` entry navigates to its target; `@back` goes back.
 - Every `presentation` page opens as its overlay and closes.
 - Every `placement` page renders inside its parent's region.

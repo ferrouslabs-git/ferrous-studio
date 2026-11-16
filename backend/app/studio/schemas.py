@@ -834,9 +834,15 @@ DesignOrigin = Literal["figma_make", "claude_code"]
 #: A brief may carry this many reference images.
 ReferenceDocumentIds = Annotated[list[UUID], Field(max_length=12)]
 
+#: The wireframes a design is for, in the order picked.
+DesignWireframeIds = Annotated[list[UUID], Field(max_length=200)]
+
 
 class DesignCreate(BaseModel):
-    wireframe_id: UUID
+    #: True sends every active wireframe of the project, including ones added
+    #: later; otherwise ``wireframe_ids`` names one or more.
+    all_wireframes: bool = False
+    wireframe_ids: DesignWireframeIds = []
     name: str = Field(min_length=1, max_length=255)
     brief: str = Field("", max_length=20000)
     reference_document_ids: ReferenceDocumentIds = []
@@ -851,6 +857,9 @@ class DesignUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     brief: str | None = Field(None, max_length=20000)
     reference_document_ids: ReferenceDocumentIds | None = None
+    #: Sent together: the pair is checked as one choice.
+    all_wireframes: bool | None = None
+    wireframe_ids: DesignWireframeIds | None = None
     status: Literal["active", "archived"] | None = None
     pos: str | None = Field(None, min_length=1, max_length=64)
 
@@ -860,7 +869,8 @@ class DesignRead(BaseModel):
 
     id: UUID
     project_id: UUID
-    wireframe_id: UUID
+    all_wireframes: bool
+    wireframe_ids: list[UUID]
     name: str
     brief: str
     reference_document_ids: list[UUID]

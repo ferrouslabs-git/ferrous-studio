@@ -26,7 +26,7 @@ from app.auth.security.scope_context import ScopeContext
 from app.auth.services.auth_config_loader import get_auth_config
 from app.main import app
 from app.studio import common, designs, documents, storage
-from app.studio.models import DesignRevision, Project, ProjectDesign
+from app.studio.models import DesignRevision, Project, ProjectDesign, Wireframe
 from app.studio.schemas import DesignFigmaUpdate, DesignRevisionCreate, DesignUpdate
 from app.studio.versioning import COPIED_TABLES
 
@@ -119,7 +119,8 @@ def _project(**over) -> Project:
 
 def _design(project, **over) -> ProjectDesign:
     fields = dict(
-        id=uuid4(), project_id=project.id, account_id=project.account_id, wireframe_id=uuid4(),
+        id=uuid4(), project_id=project.id, account_id=project.account_id,
+        all_wireframes=False, wireframe_ids=[str(uuid4())],
         name="Checkout", brief="Calm, generous spacing", reference_document_ids=[], figma_url=None,
         published_url=None, current_revision_id=None, status="active", pos="a0", synced_at=None,
         created_at=NOW, updated_at=NOW,
@@ -181,7 +182,7 @@ def _call(route, ctx, db, **over):
         project_id=uuid4(), design_id=uuid4(), revision_id=uuid4(), ctx=ctx, db=db, response=Response(),
     )
     bodies = {
-        designs.create_design: dict(wireframe_id=uuid4(), name="Checkout"),
+        designs.create_design: dict(wireframe_ids=[uuid4()], name="Checkout"),
         designs.update_design: dict(name="Renamed"),
         designs.set_design_figma: dict(figma_url="https://www.figma.com/make/abc/Checkout"),
         designs.create_design_revision: _payload().model_dump(),
@@ -272,7 +273,9 @@ def test_only_confirm_writes_to_a_revision():
 def test_a_person_cannot_edit_a_designs_content():
     """The session PATCH is filing: no field of it reaches the Figma link, the
     revision on show or anything a revision holds."""
-    assert set(DesignUpdate.model_fields) == {"name", "brief", "reference_document_ids", "status", "pos"}
+    assert set(DesignUpdate.model_fields) == {
+        "name", "brief", "reference_document_ids", "all_wireframes", "wireframe_ids", "status", "pos",
+    }
 
 
 def test_confirming_an_uploaded_revision_changes_nothing(monkeypatch, configured):
@@ -615,6 +618,102 @@ def test_there_is_no_llm_call_queue_or_worker_here():
     code = source.split('"""', 2)[2]  # past the module docstring, which says so in words
     for word in ("anthropic", "openai", "sqs", "celery", "BackgroundTasks", "create_task"):
         assert word not in code, word
+
+
+# ── Which wireframes a design is for ─────────────────────────────────────
+
+
+def _wireframe(project, name="W", **over) -> Wireframe:
+    fields = dict(id=uuid4(), project_id=project.id, account_id=project.account_id, name=name,
+                  interface_type="desktop", status="active", pos="a0")
+    fields.update(over)
+    return Wireframe(**fields)
+
+
+def test_all_wireframes_stores_no_ids():
+    project = _project()
+    assert asyncio.run(designs._checked_wireframe_ids(_Db(), project, True, [uuid4()])) == []
+
+
+def test_picking_no_wireframe_is_refused():
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(designs._checked_wireframe_ids(_Db(), _project(), False, []))
+    assert err.value.status_code == 422
+
+
+def test_picked_wireframes_keep_their_order_once_each():
+    project = _project()
+    a, b = uuid4(), uuid4()
+    stored = asyncio.run(designs._checked_wireframe_ids(_Db([b, a]), project, False, [b, a, b]))
+    assert stored == [str(b), str(a)]
+
+
+def test_a_wireframe_of_another_project_is_refused():
+    project = _project()
+    mine, theirs = uuid4(), uuid4()
+    with pytest.raises(HTTPException) as err:
+        # The lookup is confined to this project, so only one id comes back.
+        asyncio.run(designs._checked_wireframe_ids(_Db([mine]), project, False, [mine, theirs]))
+    assert err.value.status_code == 404
+    source = inspect.getsource(designs._checked_wireframe_ids)
+    assert "Wireframe.project_id == project.id" in source
+
+
+def test_picked_wireframes_resolve_in_order_and_report_deleted_ones():
+    project = _project()
+    first, second = _wireframe(project, "First"), _wireframe(project, "Second")
+    gone = uuid4()
+    design = _design(project, wireframe_ids=[str(second.id), str(gone), str(first.id)])
+    found, missing = asyncio.run(designs.design_wireframes(_Db([first, second]), project, design))
+    assert [w.name for w in found] == ["Second", "First"]
+    assert missing == [str(gone)]
+
+
+def test_all_wireframes_resolves_to_the_active_ones_now():
+    project = _project()
+    current = [_wireframe(project, "One"), _wireframe(project, "Two")]
+    design = _design(project, all_wireframes=True, wireframe_ids=[])
+    found, missing = asyncio.run(designs.design_wireframes(_Db(current), project, design))
+    assert found == current and missing == []
+    source = inspect.getsource(designs.design_wireframes)
+    assert 'Wireframe.status == "active"' in source
+
+
+def test_a_brief_with_no_wireframe_left_is_a_conflict(monkeypatch):
+    project = _project()
+    design = _design(project)
+
+    async def fake_project(*_a, **_k):
+        return project
+
+    async def fake_design(*_a, **_k):
+        return design
+
+    monkeypatch.setattr(designs, "get_project", fake_project)
+    monkeypatch.setattr(designs, "_design", fake_design)
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(designs.get_design_brief(project.id, design.id, ctx=_ctx(), db=_Db([])))
+    assert err.value.status_code == 409
+
+
+def test_naming_wireframes_turns_all_off(monkeypatch):
+    project = _project()
+    design = _design(project, all_wireframes=True, wireframe_ids=[])
+    picked = uuid4()
+
+    async def fake_project(*_a, **_k):
+        return project
+
+    async def fake_design(*_a, **_k):
+        return design
+
+    monkeypatch.setattr(designs, "get_writable_project", fake_project)
+    monkeypatch.setattr(designs, "_design", fake_design)
+    asyncio.run(designs.update_design(
+        project.id, design.id, DesignUpdate(wireframe_ids=[picked]), ctx=_ctx(), db=_Db([picked]),
+    ))
+    assert design.all_wireframes is False
+    assert design.wireframe_ids == [str(picked)]
 
 
 def test_versions_carry_designs_and_their_revisions():

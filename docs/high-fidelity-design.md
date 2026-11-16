@@ -6,10 +6,10 @@ spikes open** (see [Open spikes](#open-spikes)).
 
 ## 1. What it is
 
-A wireframe plus an aesthetics brief goes to Figma Make; the resulting
-interactive prototype is shown inside Studio.
+One, several or all of a project's wireframes plus an aesthetics brief go to
+Figma Make as **one** prototype; the result is shown inside Studio.
 
-Studio authors exactly one thing: **the brief** (which wireframe, a name, the
+Studio authors exactly one thing: **the brief** (which wireframes, a name, the
 aesthetics text, reference images). It never edits a design. Changes to a
 design are made in Figma Make or in Claude Code, and Studio shows a read-only
 mirror of the result. **The Figma Make file is the single source of truth.**
@@ -40,8 +40,8 @@ Studio (brief) ──board MCP──► Claude Code skill ──Figma MCP──�
             (presigned PUT → confirm)
 ```
 
-1. A person with `data:write` creates a design in Studio: wireframe, name,
-   brief text, reference images.
+1. A person with `data:write` creates a design in Studio: all wireframes or a
+   chosen set (one or more), name, brief text, reference images.
 2. In Claude Code, `/studio-design generate <design>` reads the brief over the
    board MCP, scaffolds a prototype from the skill's template, builds it, sends
    the project to a new Figma Make file, records the Make URL on the design and
@@ -79,15 +79,19 @@ pinned by a test.
 
 ## 5. Data model
 
-One migration, `a4c8e2f6b913_project_designs.py`, with row-level security on
-both tables.
+Two migrations: `a4c8e2f6b913_project_designs.py` creates both tables with
+row-level security; `b5d1f7e3a926_design_wireframe_set.py` replaces
+`wireframe_id` with `all_wireframes` + `wireframe_ids` and backfills existing
+rows (lifting FORCE RLS for its own transaction, since the narrowed WITH CHECK
+admits no cross-organisation write).
 
 `project_designs`
 
 | Column | Notes |
 |---|---|
 | `id`, `account_id`, `project_id` | `project_id` cascades with the project |
-| `wireframe_id` | Soft reference, no foreign key. A deleted wireframe leaves the design and its revisions readable; only the brief stops resolving |
+| `all_wireframes` | True: every **active** wireframe of the project, resolved each time the brief is read, so a wireframe added later is in the next build |
+| `wireframe_ids` | Otherwise the wireframes picked, in order (JSONB list, at least one). Soft references, no foreign key: a deleted wireframe drops out of the brief (reported as `missingWireframeIds`); the design and its revisions stay readable. Editable after generation, like the brief text; the change reaches Make at the next build |
 | `name`, `brief` | The authored part |
 | `reference_document_ids` | JSONB list of `project_documents.id` with `purpose = 'design_reference'` |
 | `figma_url`, `published_url` | Set by the skill. `published_url` is stored for spike 3 and not used by the UI |
@@ -124,7 +128,7 @@ applied migration to name tables that did not exist yet would break it).
 ### Versioning
 
 Both tables are in `COPIED_TABLES`. A new project version carries its designs
-and every uploaded revision: rows are remapped (wireframe id, reference
+and every uploaded revision: rows are remapped (wireframe ids, reference
 document ids, revision ids), revision rows land as `pending`, and the S3
 objects are copied after the commit by `finish_design_copies`, exactly as
 documents are. A design whose current revision's object did not arrive falls
@@ -164,9 +168,11 @@ None of the session routes changes design content; the only way a revision
 comes into being is the ticket → direct PUT → confirm path, the same one
 `documents.py` uses.
 
-- **Brief payload**: the design, the brief text, `assemble_wireframe_export()`
-  for the wireframe, `catalogue_reference()`, and a presigned GET URL per
-  reference image.
+- **Brief payload**: the design, the brief text, `wireframes` (one
+  `assemble_wireframe_export()` per wireframe, in order),
+  `missingWireframeIds`, `catalogue_reference()`, and a presigned GET URL per
+  reference image. 409 when no wireframe resolves. Page ids are unique across
+  a project, so links between the wireframes resolve inside one prototype.
 - **Revision request**: the caller declares origin, summary, source hash and
   sizes. If the hash equals the current revision's, the answer is
   `unchanged: true`, no row is created and `synced_at` moves. Otherwise a
@@ -201,9 +207,11 @@ self-contained HTML file containing every page of the wireframe. Commands:
 `frontend/app/web/src/features/project/design/`:
 
 - `HighFidelityDesignPage` — the list, with a "Not generated" / "Synced"
-  badge, Open / Edit / Archive, and the "New design" drawer.
+  badge, Open / Edit / Archive, and the "New design" drawer ("All wireframes"
+  or "Choose wireframes" with a checklist).
 - `DesignPage` at `high-fidelity-design/:designId` — the sandboxed iframe on a
-  stage sized from the wireframe's interface type, the revision switcher, the
+  stage sized from the wireframes' interface type (a Device select when they
+  differ), the revision switcher, the
   "Last synced" readout and "Open in Figma". No refine box, no edit controls.
 - `designsApi.ts` — refetches on window focus so a new sync appears without a
   reload.
@@ -258,7 +266,8 @@ Not a substitute for the spikes, but it narrows two of them:
 
 ## Manual steps left
 
-1. Apply the Alembic migration (`a4c8e2f6b913`) per environment.
+1. Apply the Alembic migrations (`a4c8e2f6b913`, then `b5d1f7e3a926`) per
+   environment.
 2. Deploy, then restart the Claude Code session so the new MCP tools load.
 3. Run the five spikes.
 4. Run the first `generate` end to end.

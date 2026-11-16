@@ -2,7 +2,17 @@
 // here: the status badge, which revision is on show, and what may become a
 // link out to Figma.
 import { describe, expect, it } from "vitest";
-import { DesignRevision, designState, figmaHref, revisionLabel, shownRevision } from "./designModel";
+import type { Wireframe } from "../wireframes/wireframesApi";
+import {
+  DesignRevision,
+  designState,
+  designWireframes,
+  figmaHref,
+  interfaceTypesOf,
+  revisionLabel,
+  shownRevision,
+  wireframeSummary,
+} from "./designModel";
 
 const revision = (over: Partial<DesignRevision>): DesignRevision => ({
   id: "r1",
@@ -76,5 +86,59 @@ describe("figmaHref", () => {
     ]) {
       expect(figmaHref(url)).toBeNull();
     }
+  });
+});
+
+const wireframe = (id: string, over: Partial<Wireframe> = {}): Wireframe => ({
+  id,
+  project_id: "p1",
+  name: id.toUpperCase(),
+  interface_type: "desktop",
+  status: "active",
+  pos: "a0",
+  landing_page_id: null,
+  persona_ids: [],
+  actor_ids: [],
+  created_at: "2026-11-16T09:00:00",
+  updated_at: "2026-11-16T09:00:00",
+  ...over,
+});
+
+describe("designWireframes", () => {
+  const all = [wireframe("a"), wireframe("b", { status: "archived" }), wireframe("c")];
+
+  it("is every active wireframe for all", () => {
+    const got = designWireframes({ all_wireframes: true, wireframe_ids: [] }, all);
+    expect(got.wireframes.map((w) => w.id)).toEqual(["a", "c"]);
+    expect(got.missing).toBe(0);
+  });
+  it("keeps the picked order, archived included, and counts deleted ones", () => {
+    const got = designWireframes({ all_wireframes: false, wireframe_ids: ["c", "gone", "b"] }, all);
+    expect(got.wireframes.map((w) => w.id)).toEqual(["c", "b"]);
+    expect(got.missing).toBe(1);
+  });
+});
+
+describe("wireframeSummary", () => {
+  const all = [wireframe("a"), wireframe("b"), wireframe("c")];
+  const picked = (ids: string[]) => wireframeSummary({ all_wireframes: false, wireframe_ids: ids }, all);
+
+  it("names all, a few, or the first and a count", () => {
+    expect(wireframeSummary({ all_wireframes: true, wireframe_ids: [] }, all)).toBe("All wireframes");
+    expect(picked(["b"])).toBe("B");
+    expect(picked(["b", "a"])).toBe("B, A");
+    expect(picked(["c", "a", "b"])).toBe("C and 2 more");
+    expect(picked(["gone"])).toBe("Deleted wireframes");
+  });
+});
+
+describe("interfaceTypesOf", () => {
+  it("lists each device once, in wireframe order", () => {
+    const types = interfaceTypesOf([
+      wireframe("a", { interface_type: "mobile" }),
+      wireframe("b"),
+      wireframe("c", { interface_type: "mobile" }),
+    ]);
+    expect(types).toEqual(["mobile", "desktop"]);
   });
 });

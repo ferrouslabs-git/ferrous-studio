@@ -3,11 +3,15 @@
 // Pure, and kept apart from designsApi.ts (which reaches the network) so it
 // can be tested on its own.
 import { formatDateTime } from "../../../core/format";
+import type { InterfaceType, Wireframe } from "../wireframes/wireframesApi";
 
 export interface Design {
   id: string;
   project_id: string;
-  wireframe_id: string;
+  /** Every active wireframe of the project, including ones added later. */
+  all_wireframes: boolean;
+  /** The wireframes picked, in order; empty when all_wireframes. */
+  wireframe_ids: string[];
   name: string;
   brief: string;
   reference_document_ids: string[];
@@ -37,14 +41,51 @@ export interface DesignRevision {
 }
 
 export interface DesignInput {
-  wireframe_id: string;
+  all_wireframes: boolean;
+  wireframe_ids: string[];
   name: string;
   brief: string;
   reference_document_ids: string[];
 }
 
 /** What a person may change afterwards: the brief, and how the design is filed. */
-export type DesignPatch = Partial<Pick<Design, "name" | "brief" | "reference_document_ids" | "status">>;
+export type DesignPatch = Partial<
+  Pick<Design, "name" | "brief" | "reference_document_ids" | "all_wireframes" | "wireframe_ids" | "status">
+>;
+
+/**
+ * The wireframes a design is for, in order, as the server resolves them for
+ * the brief: "all" is every active wireframe now; otherwise the ones picked,
+ * minus any since deleted (counted in `missing`).
+ */
+export function designWireframes(
+  design: Pick<Design, "all_wireframes" | "wireframe_ids">,
+  wireframes: Wireframe[],
+): { wireframes: Wireframe[]; missing: number } {
+  if (design.all_wireframes) {
+    return { wireframes: wireframes.filter((w) => w.status === "active"), missing: 0 };
+  }
+  const byId = new Map(wireframes.map((w) => [w.id, w]));
+  const found = design.wireframe_ids.map((id) => byId.get(id)).filter((w): w is Wireframe => !!w);
+  return { wireframes: found, missing: design.wireframe_ids.length - found.length };
+}
+
+/** The list's one-line answer to "which wireframes?". */
+export function wireframeSummary(
+  design: Pick<Design, "all_wireframes" | "wireframe_ids">,
+  wireframes: Wireframe[],
+): string {
+  if (design.all_wireframes) return "All wireframes";
+  const { wireframes: found } = designWireframes(design, wireframes);
+  if (found.length === 0) return "Deleted wireframes";
+  if (found.length <= 2) return found.map((w) => w.name).join(", ");
+  return `${found[0].name} and ${found.length - 1} more`;
+}
+
+/** The device kinds a design's wireframes are drawn on, each once, in order. */
+export function interfaceTypesOf(wireframes: Pick<Wireframe, "interface_type">[]): InterfaceType[] {
+  return [...new Set(wireframes.map((w) => w.interface_type))];
+}
 
 /** Whether a design has ever been built: it has a revision on show, or none. */
 export type DesignState = "not_generated" | "synced";

@@ -516,23 +516,26 @@ async def _copy_designs(
     source is normally locked by versioning, and a locked project refuses
     every design write, so syncs land on one version, not both.
 
-    A design whose wireframe did not travel is dropped, like an annotation
-    whose page did not: ``wireframe_id`` has no foreign key, so keeping it
-    would point the copy back into the source version.
+    ``wireframe_ids`` has no foreign key, so an id is remapped or dropped --
+    keeping one would point the copy back into the source version. A design
+    that picked wireframes and has none left that travelled is dropped, like
+    an annotation whose page did not. "All wireframes" needs no mapping.
     """
     design_map: dict[UUID, UUID] = {}
     copies: dict[UUID, ProjectDesign] = {}
     current_of: dict[UUID, UUID | None] = {}
     for row in await _rows(db, ProjectDesign, source, ProjectDesign.pos.asc()):
-        new_wireframe = wireframe_map.get(row.wireframe_id)
-        if new_wireframe is None:
+        mapped = [_mapped(wireframe_id, wireframe_map) for wireframe_id in row.wireframe_ids or []]
+        wireframe_ids = [str(wireframe_id) for wireframe_id in mapped if wireframe_id is not None]
+        if not row.all_wireframes and not wireframe_ids:
             continue
         references = [_mapped(doc_id, document_map) for doc_id in row.reference_document_ids or []]
         new = ProjectDesign(
             id=uuid4(),
             project_id=copy.id,
             account_id=copy.account_id,
-            wireframe_id=new_wireframe,
+            all_wireframes=row.all_wireframes,
+            wireframe_ids=wireframe_ids,
             name=row.name,
             brief=row.brief,
             reference_document_ids=[str(doc_id) for doc_id in references if doc_id is not None],

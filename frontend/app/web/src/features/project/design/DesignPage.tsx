@@ -1,7 +1,7 @@
 // One high-fidelity design: a read-only mirror of the prototype held in its
 // Figma Make file. The revision on show is drawn in a sandboxed frame on a
-// stage the size of the wireframe's device; the switcher only chooses which
-// revision to look at. There is nothing here that changes the design --
+// stage the size of its wireframes' device (with a choice when they differ);
+// the switchers only choose what to look at. There is nothing here that changes the design --
 // changes are made in Figma Make (docs/high-fidelity-design.md).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -11,12 +11,14 @@ import { useLoad } from "../../../core/useLoad";
 import { Stage, useStageFit } from "../../studio/stage";
 import { useFillViewport } from "../epics/useFillViewport";
 import { useProject } from "../ProjectLayout";
-import { InterfaceType, listWireframes } from "../wireframes/wireframesApi";
+import { deviceClass, INTERFACE_TYPES, InterfaceType, listWireframes } from "../wireframes/wireframesApi";
 import {
   DesignRevision,
+  designWireframes,
   figmaHref,
   getDesign,
   getRevisionViewUrl,
+  interfaceTypesOf,
   listDesignRevisions,
   revisionLabel,
   shownRevision,
@@ -63,10 +65,14 @@ export function DesignPage() {
 
   /** The revision picked in the switcher; null follows the current one. */
   const [pickedId, setPickedId] = useState<string | null>(null);
+  /** The device picked when the wireframes are drawn on more than one. */
+  const [pickedDevice, setPickedDevice] = useState<InterfaceType | null>(null);
 
   const [design, revisions, wireframes] = data.data ?? [null, [], []];
-  const wireframe = design ? wireframes.find((w) => w.id === design.wireframe_id) : undefined;
-  const interfaceType: InterfaceType = wireframe?.interface_type ?? "desktop";
+  const resolved = design ? designWireframes(design, wireframes) : { wireframes: [], missing: 0 };
+  const devices = interfaceTypesOf(resolved.wireframes);
+  const interfaceType: InterfaceType =
+    pickedDevice && devices.includes(pickedDevice) ? pickedDevice : devices[0] ?? "desktop";
   const revision = shownRevision(revisions, pickedId, design?.current_revision_id ?? null);
   const view = useRevisionUrl(project.id, designId, revision);
   const figma = figmaHref(design?.figma_url ?? null);
@@ -109,6 +115,20 @@ export function DesignPage() {
         </span>
         <span className="shell-spacer" />
         {design.synced_at && <span className="muted design-synced">Last synced {formatDateTime(design.synced_at)}</span>}
+        {devices.length > 1 && revision && (
+          <select
+            className="select"
+            aria-label="Device"
+            value={interfaceType}
+            onChange={(e) => setPickedDevice(e.target.value as InterfaceType)}
+          >
+            {INTERFACE_TYPES.filter((t) => devices.includes(t.value)).map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        )}
         {revisions.length > 0 && revision && (
           <select
             className="select"
@@ -130,8 +150,19 @@ export function DesignPage() {
         )}
       </div>
 
-      {!wireframe && wireframes.length > 0 && (
-        <div className="status-banner warn">The wireframe this design was made from no longer exists.</div>
+      {data.data && resolved.wireframes.length === 0 && (
+        <div className="status-banner warn">
+          {design.all_wireframes
+            ? "This project has no active wireframes."
+            : "The wireframes this design was made from no longer exist."}
+        </div>
+      )}
+      {resolved.missing > 0 && resolved.wireframes.length > 0 && (
+        <div className="status-banner warn">
+          {resolved.missing === 1
+            ? "One of this design's wireframes no longer exists."
+            : `${resolved.missing} of this design's wireframes no longer exist.`}
+        </div>
       )}
       {revision?.summary && <p className="muted design-summary">{revision.summary}</p>}
 
@@ -148,7 +179,7 @@ export function DesignPage() {
             <div className="empty error design-empty">{view.error}</div>
           ) : (
             <Stage fit={fit}>
-              <div className={`design-device ${interfaceType}`} style={fit?.device}>
+              <div className={`design-device ${deviceClass(interfaceType)}`} style={fit?.device}>
                 {view?.url && (
                   <PrototypeFrame key={revision.id} url={view.url} title={`${design.name}, revision ${revision.revision_no}`} />
                 )}

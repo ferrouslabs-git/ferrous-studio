@@ -1,14 +1,15 @@
 ---
 name: studio-design
-description: Generate a high-fidelity interactive prototype for a Ferrous Studio design in Figma Make, and keep Studio's read-only mirror of it in sync. Use when asked to generate, sync or edit a Studio "High fidelity design", to send a wireframe and its aesthetics brief to Figma Make, or to refresh what Studio shows after a design changed in Make. Commands - generate <design>, sync [design], edit <design>.
+description: Generate a high-fidelity interactive prototype for a Ferrous Studio design in Figma Make, and keep Studio's read-only mirror of it in sync. Use when asked to generate, sync or edit a Studio "High fidelity design", to send one, several or all wireframes and their aesthetics brief to Figma Make, or to refresh what Studio shows after a design changed in Make. Commands - generate <design>, sync [design], edit <design>.
 ---
 
 # Studio design: brief → Figma Make → Studio mirror
 
-A *design* in Ferrous Studio is a brief: a wireframe, a name, aesthetics
-text and reference images. You turn that brief into an interactive
-prototype, put it in a **Figma Make** file, and upload a built copy back to
-Studio so people can see it there.
+A *design* in Ferrous Studio is a brief: one, several or all of the
+project's wireframes, a name, aesthetics text and reference images. However
+many wireframes it has, it becomes **one** prototype in **one** Make file.
+You turn that brief into an interactive prototype, put it in a **Figma Make**
+file, and upload a built copy back to Studio so people can see it there.
 
 Three rules decide everything else:
 
@@ -17,8 +18,8 @@ Three rules decide everything else:
 2. **Studio's copy is one self-contained HTML file** (a *revision*), shown in
    a sandboxed iframe. Revisions are append-only.
 3. **You author nothing in Studio except through the four design tools.**
-   Never create, rename, archive or delete a design, and never change the
-   wireframe the brief points at.
+   Never create, rename, archive or delete a design, and never change which
+   wireframes the brief points at.
 
 Background and the decisions behind this: `docs/high-fidelity-design.md`.
 
@@ -52,15 +53,16 @@ has one, stop and offer `sync` or `edit` instead: generating again would
 create a second Make file and split the source of truth.
 
 1. **Read the brief.** `get_design_brief(design_id)`. Read the brief text,
-   open every reference image (`saved_to`), and read the whole wireframe
-   export before writing code.
+   open every reference image (`saved_to`), and read every wireframe export
+   in `wireframes` before writing code. A design set to all wireframes gets
+   the project's active ones as they are now.
 2. **Scaffold.** Copy `template/` from this skill into the working folder
    and run `npm install`.
 3. **Build the prototype.** Follow `references/wireframe-to-prototype.md`:
-   it maps the wireframe export onto the template (pages, routes, overlays,
-   nested pages, components, sample data). Every page of the wireframe is in
-   the prototype; every link in it works.
-   - The **wireframe** decides what exists: pages, structure, content, flow.
+   it maps the wireframe exports onto the template (pages, routes, overlays,
+   nested pages, components, sample data, several wireframes). Every page of
+   every wireframe is in the prototype; every link in it works.
+   - The **wireframes** decide what exists: pages, structure, content, flow.
    - The **brief and reference images** decide how it looks.
    - Where they conflict, structure follows the wireframe and you say so in
      the summary.
@@ -118,6 +120,12 @@ from partial code.
 
 **A locked project** answers 423 to every design write. That version is
 frozen; say so and skip it.
+
+**When the brief's wireframes change after generation** (someone adds a
+wireframe to the design, or a new wireframe joins a design set to all),
+`sync` does not pick that up: it mirrors what Make has. The new pages reach
+Make through `edit`, or, until spike 2 is settled, by being built in Make.
+Say so when a sync's brief lists a wireframe the prototype does not have.
 
 ## `edit <design>` (conditional)
 

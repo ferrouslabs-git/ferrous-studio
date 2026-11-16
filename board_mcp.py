@@ -896,8 +896,9 @@ def _zip_source(files: list[tuple[str, str]]) -> bytes:
 
 @mcp.tool()
 def list_designs() -> dict:
-    """Every high-fidelity design in this project -- id, name, the wireframe
-    it is for, status (active | archived), figma_url, current_revision_id
+    """Every high-fidelity design in this project -- id, name, which
+    wireframes it is for (all_wireframes, else wireframe_ids), status
+    (active | archived), figma_url, current_revision_id
     (null until it has been generated) and synced_at. Start here to find the
     real id of the design meant; never invent one."""
     return {"designs": _studio_call("GET", "/designs")}
@@ -909,8 +910,12 @@ def get_design_brief(design_id: str, download_images: bool = True) -> dict:
     list_designs(), never invented:
 
     - brief: the aesthetics text a person wrote. It is the instruction.
-    - wireframe: the wireframe in its export shape (interfaceType, pages,
-      landingPageId, datasets, customComponents) -- what to build.
+    - wireframes: one or more wireframes, each in its export shape
+      (wireframeId, wireframeName, interfaceType, pages, landingPageId,
+      datasets, customComponents) -- what to build, as ONE prototype. Page
+      ids are unique across them, so a link into another wireframe's page
+      resolves.
+    - missingWireframeIds: picked wireframes since deleted; build the rest.
     - catalogueReference: the component and element vocabulary that shape
       uses.
     - referenceImages: images to take the look from. With download_images

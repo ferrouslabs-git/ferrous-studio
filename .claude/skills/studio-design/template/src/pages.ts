@@ -1,5 +1,5 @@
-// The page registry: one entry per page of the wireframe, keyed by the
-// wireframe's own page id so a link in the brief (`props.links` →
+// The page registry: one entry per page of every wireframe in the brief, keyed
+// by the wireframe's own page id so a link in the brief (`props.links` →
 // `{ pageId }`) resolves by lookup rather than by guesswork.
 //
 // Replace the example entries with the wireframe's pages. See
@@ -12,9 +12,20 @@ import { ShellPage } from "./pages/ShellPage";
 
 export type Presentation = "modal" | "drawer" | "drawer-left";
 
+export interface WireframeEntry {
+  /** The wireframe id (`wireframeId` in the brief). */
+  id: string;
+  /** `wireframeName`: what the wireframe switcher shows. */
+  name: string;
+  /** The page this wireframe opens on: its `landingPageId`. */
+  landingPageId: string;
+}
+
 export interface PageEntry {
   /** The wireframe page id. */
   id: string;
+  /** The wireframe the page came from: one of WIREFRAMES. */
+  wireframeId: string;
   /** Hash route, without the leading #. A placed page's path is relative to
    *  its parent's. */
   path: string;
@@ -28,12 +39,20 @@ export interface PageEntry {
   presentation?: Presentation;
 }
 
-export const PAGES: PageEntry[] = [
-  { id: "page-shell", path: "/", title: "Shell", component: ShellPage },
-  { id: "page-dashboard", path: "", title: "Dashboard", component: DashboardPage, parentId: "page-shell" },
-  { id: "page-orders", path: "orders", title: "Orders", component: OrdersPage, parentId: "page-shell" },
-  { id: "page-order", path: "/order", title: "Order", component: OrderDrawer, presentation: "drawer" },
+/** The brief's wireframes, in the brief's order. With more than one, the
+ *  prototype shows a switcher between them (lib/WireframeSwitcher.tsx). */
+export const WIREFRAMES: WireframeEntry[] = [
+  { id: "wf-management", name: "Management app", landingPageId: "page-dashboard" },
 ];
 
-/** The wireframe's `landingPageId`: where the prototype opens. */
-export const LANDING_PAGE_ID = "page-dashboard";
+const WF = "wf-management";
+
+export const PAGES: PageEntry[] = [
+  { id: "page-shell", wireframeId: WF, path: "/", title: "Shell", component: ShellPage },
+  { id: "page-dashboard", wireframeId: WF, path: "", title: "Dashboard", component: DashboardPage, parentId: "page-shell" },
+  { id: "page-orders", wireframeId: WF, path: "orders", title: "Orders", component: OrdersPage, parentId: "page-shell" },
+  { id: "page-order", wireframeId: WF, path: "/order", title: "Order", component: OrderDrawer, presentation: "drawer" },
+];
+
+/** Where the prototype opens: the first wireframe's landing page. */
+export const LANDING_PAGE_ID = WIREFRAMES[0].landingPageId;

@@ -1,5 +1,6 @@
-// High fidelity design: the project's designs. A design is a brief -- a
-// wireframe, a name, aesthetics text and reference images -- that a Claude
+// High fidelity design: the project's designs. A design is a brief -- one,
+// several or all of the project's wireframes, a name, aesthetics text and
+// reference images -- that a Claude
 // Code skill turns into a prototype in Figma Make. This page files designs
 // and edits their briefs; it never edits a design (docs/high-fidelity-design.md).
 import { FormEvent, useMemo, useState } from "react";
@@ -20,7 +21,7 @@ import {
 } from "../documents/documentsApi";
 import { useProject } from "../ProjectLayout";
 import { listWireframes, Wireframe } from "../wireframes/wireframesApi";
-import { createDesign, deleteDesign, Design, listDesigns, updateDesign } from "./designsApi";
+import { createDesign, deleteDesign, Design, listDesigns, updateDesign, wireframeSummary } from "./designsApi";
 import { DesignStatusBadge } from "./DesignStatusBadge";
 import { useRefetchOnFocus } from "./useRefetchOnFocus";
 
@@ -49,8 +50,15 @@ function DesignDrawer({
   onSaved: () => Promise<unknown>;
   onClose: () => void;
 }) {
-  const choices = wireframes.filter((w) => w.status === "active" || w.id === design?.wireframe_id);
-  const [wireframeId, setWireframeId] = useState(design?.wireframe_id ?? choices[0]?.id ?? "");
+  const [allWireframes, setAllWireframes] = useState(design?.all_wireframes ?? true);
+  const [picked, setPicked] = useState<string[]>(() => design?.wireframe_ids ?? []);
+  // Archived wireframes stay listed while picked, so editing a brief never
+  // drops one silently.
+  const choices = wireframes.filter((w) => w.status === "active" || picked.includes(w.id));
+  const gone = picked.filter((id) => !wireframes.some((w) => w.id === id));
+  const togglePicked = (id: string) =>
+    setPicked((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const wireframesChosen = allWireframes || picked.length > 0;
   const [name, setName] = useState(design?.name ?? "");
   const [brief, setBrief] = useState(design?.brief ?? "");
   /** Reference images already on the design that are being kept. */
@@ -64,7 +72,6 @@ function DesignDrawer({
   const [formError, setFormError] = useState<string | null>(null);
 
   const room = MAX_REFERENCES - kept.length - added.length;
-  const wireframeGone = design !== null && !wireframes.some((w) => w.id === design.wireframe_id);
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -77,15 +84,25 @@ function DesignDrawer({
       }
       setBusy("Saving…");
       const referenceIds = [...kept, ...uploaded].map((d) => d.id);
+      // Deleted wireframes are dropped from the choice when it is saved.
+      const choice = {
+        all_wireframes: allWireframes,
+        wireframe_ids: allWireframes ? [] : picked.filter((id) => !gone.includes(id)),
+      };
       if (design) {
-        await updateDesign(projectId, design.id, { name: name.trim(), brief, reference_document_ids: referenceIds });
+        await updateDesign(projectId, design.id, {
+          ...choice,
+          name: name.trim(),
+          brief,
+          reference_document_ids: referenceIds,
+        });
         // Images taken off the brief belong to nothing else; failing to remove
         // one leaves an unused file, not a wrong brief.
         const dropped = design.reference_document_ids.filter((id) => !referenceIds.includes(id));
         await Promise.allSettled(dropped.map((id) => deleteDocument(projectId, id)));
       } else {
         await createDesign(projectId, {
-          wireframe_id: wireframeId,
+          ...choice,
           name: name.trim(),
           brief,
           reference_document_ids: referenceIds,
@@ -114,28 +131,39 @@ function DesignDrawer({
           <button type="button" className="btn ghost" onClick={onClose} disabled={!!busy}>
             Cancel
           </button>
-          <button className="btn primary" disabled={!!busy || !name.trim() || !wireframeId}>
+          <button className="btn primary" disabled={!!busy || !name.trim() || !wireframesChosen}>
             {busy ?? (design ? "Save" : "Create design")}
           </button>
         </>
       }
     >
-      <Field label="Wireframe">
+      <Field label="Wireframes">
         <select
           className="select"
-          required
-          value={wireframeId}
-          disabled={design !== null}
-          onChange={(e) => setWireframeId(e.target.value)}
+          value={allWireframes ? "all" : "chosen"}
+          onChange={(e) => setAllWireframes(e.target.value === "all")}
         >
-          {wireframeGone && <option value={design.wireframe_id}>Deleted wireframe</option>}
-          {choices.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
+          <option value="all">All wireframes</option>
+          <option value="chosen">Choose wireframes</option>
         </select>
       </Field>
+      {!allWireframes && (
+        <div className="check-list" role="group" aria-label="Wireframes to send">
+          {choices.length === 0 && <span className="muted">This project has no wireframes yet.</span>}
+          {choices.map((w) => (
+            <label key={w.id} className="check-item">
+              <input type="checkbox" checked={picked.includes(w.id)} onChange={() => togglePicked(w.id)} />
+              <span>{w.name}</span>
+              {w.status === "archived" && <span className="badge">Archived</span>}
+            </label>
+          ))}
+          {gone.length > 0 && (
+            <span className="muted">
+              {gone.length === 1 ? "1 picked wireframe was deleted." : `${gone.length} picked wireframes were deleted.`}
+            </span>
+          )}
+        </div>
+      )}
       <Field label="Name">
         <input className="input" required maxLength={255} value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
@@ -220,16 +248,22 @@ export function HighFidelityDesignPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [designs, wireframes, references] = data.data ?? [[], [], []];
-  const wireframeNames = useMemo(() => new Map(wireframes.map((w) => [w.id, w.name])), [wireframes]);
   const base = `/orgs/${orgId}/projects/${project.id}/high-fidelity-design`;
 
   const visible = useMemo(
     () =>
       designs.filter(
         (d) =>
-          (statusFilter === "all" || d.status === statusFilter) && matches(query, d.name, wireframeNames.get(d.wireframe_id)),
+          (statusFilter === "all" || d.status === statusFilter) &&
+          matches(
+            query,
+            d.name,
+            ...(d.all_wireframes
+              ? ["All wireframes"]
+              : d.wireframe_ids.map((id) => wireframes.find((w) => w.id === id)?.name)),
+          ),
       ),
-    [designs, wireframeNames, query, statusFilter],
+    [designs, wireframes, query, statusFilter],
   );
   const filtered = query.trim() !== "" || statusFilter !== "active";
 
@@ -297,7 +331,7 @@ export function HighFidelityDesignPage() {
             header: "Design",
             className: "primary",
             render: (d) => (
-              <NameCell to={`${base}/${d.id}`} sub={wireframeNames.get(d.wireframe_id) ?? "Deleted wireframe"}>
+              <NameCell to={`${base}/${d.id}`} sub={wireframeSummary(d, wireframes)}>
                 {d.name}
               </NameCell>
             ),
@@ -340,7 +374,7 @@ export function HighFidelityDesignPage() {
           ) : (
             <>
               <b>No designs yet.</b>{" "}
-              {canWrite ? "Create one from a wireframe and an aesthetics brief." : "Nothing here yet."}
+              {canWrite ? "Create one from your wireframes and an aesthetics brief." : "Nothing here yet."}
             </>
           )
         }

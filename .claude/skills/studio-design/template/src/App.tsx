@@ -3,6 +3,7 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Overlay } from "./lib/Overlay";
 import { OverlayState, pathOf } from "./lib/nav";
+import { WireframeSwitcher } from "./lib/WireframeSwitcher";
 import { LANDING_PAGE_ID, PAGES, PageEntry } from "./pages";
 
 const ordinary = PAGES.filter((page) => !page.presentation);
@@ -57,6 +58,7 @@ export function App() {
           ))}
         </Routes>
       )}
+      <WireframeSwitcher />
     </>
   );
 }

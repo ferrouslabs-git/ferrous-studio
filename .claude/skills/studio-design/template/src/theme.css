@@ -56,6 +56,10 @@ h2 { margin: 0; font-size: 17px; }
 .overlay-head { display: flex; align-items: center; justify-content: space-between; padding: var(--space); border-bottom: 1px solid var(--line); }
 .overlay-body { padding: var(--space); overflow: auto; }
 
+/* Prototype chrome, not part of the design: only shown with several wireframes. */
+.wireframe-switcher { position: fixed; left: 12px; bottom: 12px; z-index: 10; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 4px 16px rgba(15, 18, 22, 0.12); font-size: 13px; color: var(--text-muted); }
+.wireframe-switcher select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--text); background: var(--surface); }
+
 @media (max-width: 640px) {
   .shell { flex-direction: column; }
   .shell-nav { flex-direction: row; align-items: center; width: auto; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }

@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -597,15 +598,18 @@ class ProjectDocument(Base):
 class ProjectDesign(Base):
     """A brief for a high-fidelity prototype, and a pointer to its result.
 
-    Studio authors only the brief: which wireframe, a name, the aesthetics
+    Studio authors only the brief: which wireframes, a name, the aesthetics
     text and the reference images. The prototype itself lives in a Figma Make
     file (``figma_url``), which is the single source of truth; what Studio
     holds is a read-only mirror, one ``DesignRevision`` per sync. See
     docs/high-fidelity-design.md.
 
-    ``wireframe_id`` and ``current_revision_id`` are soft references like
-    ``Wireframe.landing_page_id`` (no FK): deleting the wireframe must not
-    take the design and its revisions with it.
+    Which wireframes: ``all_wireframes`` means every active wireframe of the
+    project, resolved whenever the brief is read; otherwise
+    ``wireframe_ids``, in the order picked. The ids and
+    ``current_revision_id`` are soft references like
+    ``Wireframe.landing_page_id`` (no FK): deleting a wireframe must not take
+    the design and its revisions with it.
     """
 
     __tablename__ = "project_designs"
@@ -613,7 +617,9 @@ class ProjectDesign(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     account_id = Column(UUID(as_uuid=True), nullable=False)
-    wireframe_id = Column(UUID(as_uuid=True), nullable=False)
+    all_wireframes = Column(Boolean, nullable=False, default=False)
+    # Wireframe ids as strings; empty when all_wireframes.
+    wireframe_ids = Column(JSONB, nullable=False, default=list)
     name = Column(String(255), nullable=False)
     brief = Column(Text, nullable=False, default="")
     # ids of project_documents rows with purpose "design_reference".

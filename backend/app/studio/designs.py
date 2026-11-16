@@ -1,7 +1,7 @@
 """High-fidelity design routes. See docs/high-fidelity-design.md.
 
-Studio authors one thing here -- the brief: which wireframe, a name, the
-aesthetics text and the reference images. It never edits a design. The
+Studio authors one thing here -- the brief: which wireframes (one, several or
+all of the project's), a name, the aesthetics text and the reference images. It never edits a design. The
 prototype lives in a Figma Make file, which is the single source of truth, and
 is put there by a Claude Code skill on the user's own machine. There is no LLM
 call in this module, and no queue or worker behind it.
@@ -37,8 +37,8 @@ from app.config import get_settings
 
 from . import storage
 from .catalog import catalogue_reference
-from .common import get_project, get_wireframe, get_writable_project, next_pos, require_studio_permission
-from .models import DesignRevision, Project, ProjectDesign, ProjectDocument, utc_now
+from .common import get_project, get_writable_project, next_pos, require_studio_permission
+from .models import DesignRevision, Project, ProjectDesign, ProjectDocument, Wireframe, utc_now
 from .schemas import (
     DesignCreate,
     DesignFigmaUpdate,
@@ -192,6 +192,64 @@ async def _checked_reference_ids(db: AsyncSession, project: Project, ids: list[U
     return [str(doc_id) for doc_id in unique]
 
 
+async def _checked_wireframe_ids(
+    db: AsyncSession, project: Project, all_wireframes: bool, ids: list[UUID]
+) -> list[str]:
+    """What ``wireframe_ids`` stores for this choice: nothing for "all",
+    otherwise the ids given, de-duplicated in order. Each must be a
+    wireframe of this project -- otherwise a brief could be made to export
+    another project's."""
+    if all_wireframes:
+        return []
+    unique = list(dict.fromkeys(ids))
+    if not unique:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Choose at least one wireframe, or all of them",
+        )
+    found = set(
+        (
+            await db.execute(
+                select(Wireframe.id).where(
+                    Wireframe.id.in_(unique),
+                    Wireframe.project_id == project.id,
+                    Wireframe.account_id == project.account_id,
+                )
+            )
+        ).scalars()
+    )
+    if len(found) != len(unique):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wireframe not found")
+    return [str(wireframe_id) for wireframe_id in unique]
+
+
+async def design_wireframes(
+    db: AsyncSession, project: Project, design: ProjectDesign
+) -> tuple[list[Wireframe], list[str]]:
+    """The wireframes a design is for, in order, and the ids of picked ones
+    that no longer exist. "All" is every active wireframe as of now, so a
+    wireframe added since the design was made is in its next build."""
+    scope = (Wireframe.project_id == project.id, Wireframe.account_id == project.account_id)
+    if design.all_wireframes:
+        rows = (
+            await db.execute(
+                select(Wireframe).where(*scope, Wireframe.status == "active").order_by(Wireframe.pos.asc())
+            )
+        ).scalars()
+        return list(rows), []
+    wanted: list[UUID] = []
+    for raw in design.wireframe_ids or []:
+        try:
+            wanted.append(UUID(str(raw)))
+        except ValueError:
+            continue
+    if not wanted:
+        return [], []
+    rows = (await db.execute(select(Wireframe).where(*scope, Wireframe.id.in_(wanted)))).scalars()
+    by_id = {row.id: row for row in rows}
+    return [by_id[w] for w in wanted if w in by_id], [str(w) for w in wanted if w not in by_id]
+
+
 def _ticket(key: str, content_type: str, size: int, expires: int) -> UploadTicket:
     return UploadTicket(
         upload_url=storage.presign_put(key, content_type, size, expires),
@@ -243,11 +301,11 @@ async def create_design(
     db: AsyncSession = Depends(get_db),
 ) -> ProjectDesign:
     project = await get_writable_project(db, project_id, ctx)
-    wireframe = await get_wireframe(db, project, payload.wireframe_id)
     design = ProjectDesign(
         project_id=project.id,
         account_id=project.account_id,
-        wireframe_id=wireframe.id,
+        all_wireframes=payload.all_wireframes,
+        wireframe_ids=await _checked_wireframe_ids(db, project, payload.all_wireframes, payload.wireframe_ids),
         name=payload.name,
         brief=payload.brief,
         reference_document_ids=await _checked_reference_ids(db, project, payload.reference_document_ids),
@@ -281,14 +339,27 @@ async def update_design(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectDesign:
-    """Rename, edit the brief, archive or restore. DesignUpdate has no field
-    that reaches the design's content, its Figma link or its revisions."""
+    """Rename, edit the brief (its wireframes included), archive or restore.
+    DesignUpdate has no field that reaches the design's content, its Figma
+    link or its revisions.
+
+    A changed choice of wireframes reaches the prototype at its next build,
+    as an edited brief text does."""
     project = await get_writable_project(db, project_id, ctx)
     design = await _design(db, project, design_id)
     updates = payload.model_dump(exclude_unset=True)
     if updates.get("reference_document_ids") is not None:
         design.reference_document_ids = await _checked_reference_ids(db, project, payload.reference_document_ids)
     updates.pop("reference_document_ids", None)
+    all_given = updates.pop("all_wireframes", None)
+    ids_given = updates.pop("wireframe_ids", None)
+    if all_given is not None or ids_given is not None:
+        # Naming wireframes means "these", so it turns "all" off unless the
+        # same request says otherwise.
+        all_wireframes = all_given if all_given is not None else False
+        ids = payload.wireframe_ids if ids_given is not None else []
+        design.wireframe_ids = await _checked_wireframe_ids(db, project, all_wireframes, ids or [])
+        design.all_wireframes = all_wireframes
     for field_name, value in updates.items():
         if value is not None:
             setattr(design, field_name, value)
@@ -395,20 +466,29 @@ async def get_design_brief(
     ctx: ScopeContext = Depends(require_studio_permission("data:read")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Everything needed to build the prototype: the brief, the wireframe in
-    its export shape, the component vocabulary that shape uses, and a
-    download URL for each reference image."""
+    """Everything needed to build the prototype: the brief, each of its
+    wireframes in their export shape (one prototype covers them all; page ids
+    are unique across the project, so a link from one wireframe into another
+    resolves), the component vocabulary that shape uses, and a download URL
+    for each reference image.
+
+    ``missingWireframeIds`` names picked wireframes that have since been
+    deleted; the build goes ahead with the rest."""
     project = await get_project(db, project_id, ctx)
     design = await _design(db, project, design_id)
-    try:
-        wireframe = await get_wireframe(db, project, design.wireframe_id)
-    except HTTPException:
+    wireframes, missing = await design_wireframes(db, project, design)
+    if not wireframes:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="The wireframe this design was made from no longer exists.",
-        ) from None
+            detail=(
+                "This project has no active wireframes."
+                if design.all_wireframes
+                else "The wireframes this design was made from no longer exist."
+            ),
+        )
 
     settings = get_settings()
+    datasets = await dataset_export_payload(db, project)
     references = await _reference_documents(db, project, design.reference_document_ids)
     current = await _current_revision(db, design)
     return {
@@ -417,14 +497,18 @@ async def get_design_brief(
         "currentRevision": (
             DesignRevisionRead.model_validate(current).model_dump(mode="json") if current is not None else None
         ),
-        "wireframe": assemble_wireframe_export(
-            project,
-            wireframe,
-            await _linked_personas(db, wireframe),
-            await linked_actors(db, wireframe),
-            await wireframe_pages(db, wireframe),
-            await dataset_export_payload(db, project),
-        ),
+        "wireframes": [
+            assemble_wireframe_export(
+                project,
+                wireframe,
+                await _linked_personas(db, wireframe),
+                await linked_actors(db, wireframe),
+                await wireframe_pages(db, wireframe),
+                datasets,
+            )
+            for wireframe in wireframes
+        ],
+        "missingWireframeIds": missing,
         "catalogueReference": catalogue_reference(),
         "referenceImages": [
             {
