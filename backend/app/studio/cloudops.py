@@ -8,6 +8,7 @@ Opening the page reads the latest saved report and makes **no** AWS call. Only `
 asks Cost Explorer (about a cent a call, a few cents a refresh) and saves the result.
 """
 import asyncio
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -24,6 +25,8 @@ from app.auth.security import get_current_user
 from app.config import get_settings
 
 from .cloudops_report import build_report, fetch_raw
+from .cloudops_resources import build_report as build_resources
+from .cloudops_resources import fetch_raw as fetch_resources
 from .models import CloudopsCostSnapshot, utc_now
 
 router = APIRouter()
@@ -44,6 +47,21 @@ class CostSnapshotRead(BaseModel):
 class CostsResponse(BaseModel):
     enabled: bool
     snapshot: CostSnapshotRead | None = None
+
+
+class ResourcesResponse(BaseModel):
+    enabled: bool
+    resources: dict[str, Any] | None = None
+
+
+def _aws_error(exc: Exception, what: str, needs: str) -> HTTPException:
+    """Say plainly why AWS said no, never a bare 500."""
+    name = type(exc).__name__
+    denied = "AccessDenied" in name or "AccessDenied" in str(exc)
+    return HTTPException(
+        status.HTTP_502_BAD_GATEWAY,
+        f"AWS refused the request: the Studio task role needs {needs}" if denied else f"Could not fetch {what} ({name})",
+    )
 
 
 def _run_report() -> dict[str, Any]:
@@ -96,14 +114,8 @@ async def refresh_costs(
 
     try:
         report = await asyncio.to_thread(_run_report)
-    except Exception as exc:  # AWS refused, or the call failed: say so plainly, never a bare 500
-        name = type(exc).__name__
-        denied = "AccessDenied" in name or "AccessDenied" in str(exc)
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            "Cost Explorer refused the request: the Studio task role needs Cost Explorer read permission"
-            if denied else f"Could not fetch the AWS cost report ({name})",
-        ) from exc
+    except Exception as exc:
+        raise _aws_error(exc, "the AWS cost report", "Cost Explorer read permission") from exc
 
     row = CloudopsCostSnapshot(report=report, created_by=current_user.id)
     db.add(row)
@@ -113,3 +125,27 @@ async def refresh_costs(
     await db.commit()
     await db.refresh(row)
     return CostsResponse(enabled=True, snapshot=_read(row, current_user.email))
+
+
+def _run_resources() -> dict[str, Any]:
+    """Reads the ECS services and their load balancer rules. Free calls, so it is live on every open."""
+    import boto3
+
+    region = os.getenv("AWS_REGION", "eu-west-1")
+    return build_resources(fetch_resources(boto3.client("ecs", region_name=region), boto3.client("elbv2", region_name=region)))
+
+
+@router.get("/admin/cloudops/resources", response_model=ResourcesResponse)
+async def get_resources(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ResourcesResponse:
+    """Read-only: every ECS service with its state, size, estimated cost, URLs and auto-wake settings."""
+    await ensure_platform_admin(current_user, "view the CloudOps resources", db, permission="accounts:read")
+    if not get_settings().cloudops_enabled:
+        return ResourcesResponse(enabled=False)
+    try:
+        resources = await asyncio.to_thread(_run_resources)
+    except Exception as exc:
+        raise _aws_error(exc, "the ECS services", "ECS and load balancer read permission") from exc
+    return ResourcesResponse(enabled=True, resources=resources)

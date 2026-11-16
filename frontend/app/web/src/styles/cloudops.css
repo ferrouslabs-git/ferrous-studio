@@ -14,3 +14,13 @@
 .cloudops-chart svg { width: 100%; height: 72px; display: block; background: var(--panel-2); border-radius: var(--radius); }
 .cloudops-chart .bar.current { fill: var(--accent); }
 .cloudops-chart .bar.previous { fill: var(--text-mute); }
+
+/* Resources: the state of a service, as a small pill. */
+.cloudops-state { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
+.cloudops-state.running { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.cloudops-state.asleep, .cloudops-state.stopped { color: var(--text-dim); background: var(--panel-2); }
+.cloudops-state.starting { color: var(--text); }
+.cloudops-state.unhealthy { color: var(--warn); border-color: var(--warn-border); background: var(--warn-soft); }
+.cloudops-badge { font-size: 11px; color: var(--warn); }
+.cloudops-section tfoot th { text-align: left; font-weight: 600; border-top: 1px solid var(--border); }
+.cloudops-section tfoot th.num { text-align: right; }

@@ -56,3 +56,46 @@ const BASE = "/studio/admin/cloudops/costs";
 
 export const getCosts = () => apiGet<CostsResponse>(BASE, { scope: null });
 export const refreshCosts = () => apiPost<CostsResponse>(`${BASE}/refresh`, {}, { scope: null });
+
+// ── Resources (phase 2, read-only) ──────────────────────────────────────────
+
+export type ServiceState = "running" | "asleep" | "stopped" | "starting" | "unhealthy";
+
+export interface AutoWake {
+  enabled: boolean;
+  idle_minutes: number | null;
+  keep_awake_until: string | null;
+  follows: string | null;
+}
+
+export interface ServiceRow {
+  service: string;
+  app: string;
+  environment: string;
+  app_source: "tag" | "name";
+  state: ServiceState;
+  state_detail: string;
+  desired: number;
+  running: number;
+  vcpu: number;
+  memory_gb: number;
+  public_ip: boolean;
+  cost: { per_task: number; now: number; when_running: number };
+  urls: string[];
+  reached_via: string[];
+  autowake: AutoWake;
+  production: boolean;
+}
+
+export interface ResourcesReport {
+  services: ServiceRow[];
+  totals: { now: number; when_all_running: number };
+  pricing_note: string;
+}
+
+export interface ResourcesResponse {
+  enabled: boolean;
+  resources: ResourcesReport | null;
+}
+
+export const getResources = () => apiGet<ResourcesResponse>("/studio/admin/cloudops/resources", { scope: null });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { barHeights, dayLabel, peak, share, usd } from "./cloudopsFormat";
+import type { ServiceRow } from "./cloudopsApi";
+import { autowakeText, barHeights, countStates, dayLabel, peak, perMonth, share, sizeLabel, usd } from "./cloudopsFormat";
 
 describe("usd", () => {
   it("formats with a thousands separator and two decimals", () => {
@@ -42,5 +43,32 @@ describe("dayLabel", () => {
   it("reads like a person would say it", () => {
     expect(dayLabel("2026-11-16")).toBe("16 Nov");
     expect(dayLabel("2026-01-02")).toBe("2 Jan");
+  });
+});
+
+
+describe("resources formatting", () => {
+  it("shows the monthly estimate and the size plainly", () => {
+    expect(perMonth(12.66)).toBe("$12.66/mo");
+    expect(sizeLabel(0.25, 0.5)).toBe("0.25 vCPU · 0.5 GB");
+  });
+
+  it("says what the auto-wake tags amount to", () => {
+    const off = { enabled: false, idle_minutes: null, keep_awake_until: null, follows: null };
+    expect(autowakeText(off)).toBe("Off");
+    expect(autowakeText({ ...off, enabled: true })).toBe("On · sleeps after 60 min idle");
+    expect(autowakeText({ ...off, enabled: true, idle_minutes: 90 })).toBe("On · sleeps after 90 min idle");
+    expect(autowakeText({ ...off, follows: "fnai-uat" })).toBe("Follows fnai-uat");
+  });
+
+  it("mentions keep-awake only while it is still in the future", () => {
+    const a = { enabled: true, idle_minutes: 60, keep_awake_until: "2026-11-20T18:00:00Z", follows: null };
+    expect(autowakeText(a, new Date("2026-11-19T00:00:00Z"))).toContain("awake until 2026-11-20 18:00:00 UTC");
+    expect(autowakeText(a, new Date("2026-11-21T00:00:00Z"))).not.toContain("awake until");
+  });
+
+  it("counts services by state", () => {
+    const rows = [{ state: "running" }, { state: "running" }, { state: "asleep" }] as ServiceRow[];
+    expect(countStates(rows)).toEqual({ running: 2, asleep: 1, stopped: 0, starting: 0, unhealthy: 0 });
   });
 });

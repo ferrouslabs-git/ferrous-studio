@@ -315,7 +315,7 @@ def test_every_cloudops_route_checks_for_a_platform_admin_first():
                 yield prefix + r.path, r
 
     routes = [(p, r) for p, r in walk(app.routes) if "/cloudops" in p]
-    assert len(routes) == 2
+    assert len(routes) == 3                         # costs, costs/refresh, resources
     for path, route in routes:
         src = inspect.getsource(route.endpoint)
         assert "ensure_platform_admin" in src, path

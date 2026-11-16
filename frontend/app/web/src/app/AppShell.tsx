@@ -166,6 +166,7 @@ export function AppShell() {
               <NavItem to="/admin/users" icon="users" label="Users" />
               <NavItem to="/admin/datasets" icon="list" label="Datasets" />
               <NavItem to="/admin/cloudops/costs" icon="chart" label="Costs" />
+              <NavItem to="/admin/cloudops/resources" icon="layout" label="Resources" />
             </NavGroup>
           )}
         </div>

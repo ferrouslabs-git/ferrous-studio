@@ -25,3 +25,40 @@ resource "aws_iam_role_policy" "cloudops_costs" {
     }]
   })
 }
+
+# CloudOps > Resources (INT-REQ-14, phase 2): the read-only list of ECS services, their state and web addresses.
+#
+# Describe/List only: nothing here can start, stop, scale, tag or re-route anything. The start/stop panel (phase 3)
+# will add ecs:UpdateService and tagging in its own policy, reviewed on its own. Describe and List actions have no
+# useful resource-level scoping, so the resource is "*".
+resource "aws_iam_role_policy" "cloudops_resources_read" {
+  name = "cloudops-resources-read"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:ListServices",
+          "ecs:DescribeServices",
+          "ecs:DescribeTaskDefinition",
+          "ecs:ListTagsForResource",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:DescribeRules",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeTargetHealth",
+          "elasticloadbalancing:DescribeTags",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+}
