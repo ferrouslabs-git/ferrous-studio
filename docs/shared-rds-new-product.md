@@ -201,6 +201,40 @@ per app and per environment:
 
 Keys are written exactly like that; values are lowercase kebab-case. Pass them as
 `--tags` when you deploy a CloudFormation stack and add a `tags` block to task definitions.
+Copy-paste: tag at creation, so nothing needs cleaning up later.
+
+```bash
+# ECS service: tag it AND pass the tags on to its running tasks (Fargate is billed per task)
+aws ecs create-service ... \
+  --propagate-tags SERVICE --enable-ecs-managed-tags \
+  --tags key=Product,value=<product> key=Environment,value=<env> key=ManagedBy,value=deploy-script
+aws ecs update-service ... --propagate-tags SERVICE --enable-ecs-managed-tags   # for an existing service
+
+# CloudFormation: stack-level tags reach every resource the stack creates
+aws cloudformation deploy ... --tags Product=<product> Environment=<env> ManagedBy=cloudformation
+
+# S3 bucket
+aws s3api put-bucket-tagging --bucket <bucket> --tagging \
+  'TagSet=[{Key=Product,Value=<product>},{Key=Environment,Value=<env>},{Key=ManagedBy,Value=deploy-script}]'
+
+# Lambda
+aws lambda create-function ... --tags Product=<product>,Environment=<env>,ManagedBy=deploy-script
+```
+
+In the task definition JSON add a top-level block:
+
+```json
+"tags": [
+  { "key": "Product", "value": "<product>" },
+  { "key": "Environment", "value": "<env>" },
+  { "key": "ManagedBy", "value": "deploy-script" }
+]
+```
+
+Terraform: set `default_tags { tags = { Product = "<product>", ManagedBy = "terraform" } }` on the
+provider, and `tags = { Environment = ... }` on each resource (or `each.key` for per-environment
+resources). Serverless Framework: `provider.tags` and `provider.stackTags`.
+
 Full rules, allowed values and a command for every resource type:
 [`infra/cloudops/TAGGING.md`](https://github.com/ferrouslabs-git/functionalAI/blob/uat/infra/cloudops/TAGGING.md)
 in the functionalAI repo.
