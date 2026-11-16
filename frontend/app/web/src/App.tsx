@@ -5,6 +5,7 @@ import { HomeRedirect } from "./app/HomeRedirect";
 import { ProtectedRoute } from "./app/ProtectedRoute";
 import { SessionProvider } from "./app/session";
 import { AdminDatasetsPage } from "./features/admin/AdminDatasetsPage";
+import { CloudOpsCostsPage } from "./features/admin/CloudOpsCostsPage";
 import { AdminOrgsPage } from "./features/admin/AdminOrgsPage";
 import { AdminProjectsPage } from "./features/admin/AdminProjectsPage";
 import { AdminUsersPage } from "./features/admin/AdminUsersPage";
@@ -141,6 +142,7 @@ export function App() {
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/admin/projects" element={<AdminProjectsPage />} />
             <Route path="/admin/datasets" element={<AdminDatasetsPage />} />
+            <Route path="/admin/cloudops/costs" element={<CloudOpsCostsPage />} />
           </Route>
         </Route>
 

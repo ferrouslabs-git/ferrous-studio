@@ -263,6 +263,19 @@ class PlatformDataset(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
 
+class CloudopsCostSnapshot(Base):
+    """One saved run of the AWS cost report (INT-REQ-14). Opening the CloudOps > Costs page reads the
+    latest row and makes no AWS call; only an explicit refresh asks Cost Explorer (about a cent a call).
+    Platform-wide, so no owning organisation and no RLS, like ``platform_datasets``."""
+
+    __tablename__ = "cloudops_cost_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    report = Column(JSONB, nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
 # ── Use case model ──────────────────────────────────────────────────────────
 
 

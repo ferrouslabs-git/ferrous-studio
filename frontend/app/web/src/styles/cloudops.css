@@ -1,0 +1,16 @@
+/* CloudOps admin pages (INT-REQ-14): the Costs report. Tokens only; no new colours. */
+.cloudops-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.cloudops-card, .cloudops-section { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.cloudops-card h2, .cloudops-section h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.cloudops-lines { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; margin: 0; }
+.cloudops-lines dt, .cloudops-lines dd { margin: 0; }
+.cloudops-lines dd { text-align: right; font-variant-numeric: tabular-nums; }
+.cloudops-lines .strong { font-weight: 600; padding-top: 6px; border-top: 1px solid var(--border); }
+.cloudops-section .num { text-align: right; font-variant-numeric: tabular-nums; }
+.cloudops-note, .cloudops-notes { font-size: 12px; margin: 8px 0 0; }
+.cloudops-notes { padding-left: 18px; }
+.cloudops-chart { margin: 0 0 12px; }
+.cloudops-chart figcaption { font-size: 12px; margin-bottom: 4px; }
+.cloudops-chart svg { width: 100%; height: 72px; display: block; background: var(--panel-2); border-radius: var(--radius); }
+.cloudops-chart .bar.current { fill: var(--accent); }
+.cloudops-chart .bar.previous { fill: var(--text-mute); }

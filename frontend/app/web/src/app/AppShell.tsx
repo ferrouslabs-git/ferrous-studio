@@ -165,6 +165,7 @@ export function AppShell() {
               <NavItem to="/admin/orgs" icon="grid" label="Organisations" />
               <NavItem to="/admin/users" icon="users" label="Users" />
               <NavItem to="/admin/datasets" icon="list" label="Datasets" />
+              <NavItem to="/admin/cloudops/costs" icon="chart" label="Costs" />
             </NavGroup>
           )}
         </div>
@@ -357,9 +358,18 @@ type IconName =
   | "slack"
   | "audit"
   | "agent"
+  | "chart"
   | "arrowLeft";
 
 const PATHS: Record<IconName, ReactNode> = {
+  chart: (
+    <>
+      <path d="M4 20V11" />
+      <path d="M10 20V5" />
+      <path d="M16 20v-6" />
+      <path d="M22 20H2" />
+    </>
+  ),
   folder: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
   grid: (
     <>
