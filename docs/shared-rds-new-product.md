@@ -188,6 +188,23 @@ non-secret identifiers in `environment`:
 Do not let one product's policy reach another's prefix, and never use `*` as
 the parameter resource.
 
+## 4b. Tag everything
+
+Every resource you create for the new product carries three tags, so the AWS bill can be split
+per app and per environment:
+
+| Key | Value |
+|---|---|
+| `Product` | the product name, e.g. `fnai` (add new products to the standard first) |
+| `Environment` | `prod`, `staging`, `uat`, `dev` or `shared` |
+| `ManagedBy` | `cloudformation`, `terraform`, `deploy-script`, `serverless` or `manual` |
+
+Keys are written exactly like that; values are lowercase kebab-case. Pass them as
+`--tags` when you deploy a CloudFormation stack and add a `tags` block to task definitions.
+Full rules, allowed values and a command for every resource type:
+[`infra/cloudops/TAGGING.md`](https://github.com/ferrouslabs-git/functionalAI/blob/uat/infra/cloudops/TAGGING.md)
+in the functionalAI repo.
+
 ## 5. Network — allow the new app to reach RDS
 
 Whatever runs the new product (ECS task, Lambda in-VPC, App Runner VPC
