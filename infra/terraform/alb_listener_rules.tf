@@ -15,7 +15,18 @@ resource "aws_lb_listener_rule" "http" {
   for_each     = toset(local.envs)
   listener_arn = local.shared.alb_http_listener_arn
   priority     = local.config.alb_priority_base + (each.key == "staging" ? 0 : 1)
-  tags         = { Environment = each.key }
+  # cloudops:service marks the rule as belonging to this service. Auto-wake (INT-REQ-13) reads it, so
+  # Terraform must keep it or the next apply would strip it. Only staging has auto-wake.
+  tags = merge(
+    { Environment = each.key },
+    each.key == "staging" ? { "cloudops:service" = "ferrous-studio-staging" } : {},
+  )
+
+  lifecycle {
+    # Auto-wake swaps this rule between the app and its "waker" while the service sleeps. Without this,
+    # an apply during sleep would point the rule back at a stopped app and visitors would get a 503.
+    ignore_changes = [action]
+  }
 
   action {
     type             = "forward"
