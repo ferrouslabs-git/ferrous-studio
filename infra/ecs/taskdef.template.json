@@ -37,6 +37,7 @@
         { "name": "FRONTEND_URL", "value": "{{APP_PUBLIC_URL}}" },
 
         { "name": "PLATFORM_ADMIN_EMAILS", "value": "{{PLATFORM_ADMIN_EMAILS}}" },
+        { "name": "CLOUDOPS_ENABLED", "value": "{{CLOUDOPS_ENABLED}}" },
 
         { "name": "SES_REGION", "value": "{{AWS_REGION}}" },
         { "name": "SES_SENDER_EMAIL", "value": "{{SES_SENDER_EMAIL}}" },
