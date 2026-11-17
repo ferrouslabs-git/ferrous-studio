@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { CostReport, CostsResponse } from "./cloudopsApi";
 import { CostsView } from "./CloudOpsCostsPage";
+import { monthName, monthOptions } from "./cloudopsFormat";
 
 const totals = (usage: number, credits: number, vat: number) => ({
   usage, credits, before_vat: usage + credits, vat, with_vat: usage + credits + vat, effective: usage + credits,
@@ -80,5 +81,60 @@ describe("CostsView", () => {
     const html = view(data(), { error: "Cost Explorer refused the request" });
     expect(html).toContain("Cost Explorer refused the request");
     expect(html).toContain("This month so far");
+  });
+});
+
+
+describe("picking another month", () => {
+  const october: CostReport = {
+    ...report,
+    period: { month_start: "2026-10-01", through: "2026-10-31", last_month_start: "2026-09-01", complete: true },
+    forecast: null,
+  };
+  const pastData = (): CostsResponse => ({
+    enabled: true,
+    snapshot: { id: "2", created_at: "2026-11-16T12:00:00", created_by: null, report: october },
+  });
+  const pick = (d: CostsResponse | null, month: string) =>
+    renderToStaticMarkup(<CostsView data={d} loading={false} refreshing={false} error={null} onRefresh={() => {}} month={month} onMonth={() => {}} />);
+
+  it("offers this month and the 11 before it, newest first, and crosses the new year", () => {
+    const o = monthOptions(new Date("2026-02-10T00:00:00Z"));
+    expect(o).toHaveLength(12);
+    expect(o[0]).toEqual({ value: "", label: "February 2026 (this month)" });
+    expect(o[1].value).toBe("2026-01");
+    expect(o[2]).toEqual({ value: "2025-12", label: "December 2025" });
+    expect(o[11].value).toBe("2025-03");
+  });
+
+  it("names a month from its first day", () => {
+    expect(monthName("2026-10-01")).toBe("October 2026");
+  });
+
+  it("shows the picker, with the chosen month selected", () => {
+    const html = pick(pastData(), "2026-10");
+    expect(html).toContain('aria-label="Month"');
+    expect(html).toMatch(/<option value="2026-10" selected/);
+  });
+
+  it("titles a finished month by its name and drops the forecast, which a finished month cannot have", () => {
+    const html = pick(pastData(), "2026-10");
+    expect(html).toContain("October 2026");
+    expect(html).toContain("September 2026"); // the comparison card is the month before, not "Last month"
+    expect(html).not.toContain("Expected by the end of the month");
+    expect(html).not.toContain("This month so far");
+  });
+
+  it("keeps the forecast on this month", () => {
+    expect(pick(data(), "")).toContain("Expected by the end of the month");
+  });
+
+  it("says which month has no report yet instead of a bare 'no report'", () => {
+    const html = pick({ enabled: true, snapshot: null }, "2026-10");
+    expect(html).toContain("No report for October 2026 yet.");
+  });
+
+  it("hides the picker where CloudOps is switched off", () => {
+    expect(pick({ enabled: false, snapshot: null }, "")).not.toContain('aria-label="Month"');
   });
 });
