@@ -134,6 +134,14 @@ describe("picking another month", () => {
     expect(html).toContain("No report for October 2026 yet.");
   });
 
+  it("says it is fetching, not 'no report', while a newly picked month is being fetched", () => {
+    const html = renderToStaticMarkup(
+      <CostsView data={{ enabled: true, snapshot: null }} loading={false} refreshing={true} error={null} onRefresh={() => {}} month="2026-10" onMonth={() => {}} />,
+    );
+    expect(html).toContain("Fetching the AWS bill…");
+    expect(html).not.toContain("No report for");
+  });
+
   it("hides the picker where CloudOps is switched off", () => {
     expect(pick({ enabled: false, snapshot: null }, "")).not.toContain('aria-label="Month"');
   });
