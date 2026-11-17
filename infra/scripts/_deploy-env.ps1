@@ -73,7 +73,8 @@ $rendered = $template `
     -replace "{{EMAIL_FROM_NAME}}", $Config.email.from_name `
     -replace "{{EMAIL_LEGAL}}", $Config.email.legal `
     -replace "{{DOCUMENTS_BUCKET}}", $documentsBucket `
-    -replace "{{PLATFORM_ADMIN_EMAILS}}", $Config.platform_admin_emails
+    -replace "{{PLATFORM_ADMIN_EMAILS}}", $Config.platform_admin_emails `
+    -replace "{{CLOUDOPS_ENABLED}}", "$env:CLOUDOPS_ENABLED"
 $genDir = Join-Path $RepoRoot "infra\ecs\generated"
 New-Item -ItemType Directory -Force -Path $genDir | Out-Null
 $renderedPath = Join-Path $genDir "$Product-$Env.taskdef.json"
