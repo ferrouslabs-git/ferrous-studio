@@ -1,7 +1,7 @@
 // Super admin: the AWS bill so far, by app and by AWS service (INT-REQ-14, phase 1).
 // Opening this page reads the last saved report and asks AWS nothing. "Refresh report" is the only thing
 // that calls Cost Explorer (a few cents), and the server saves what it gets for next time.
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../core/api";
 import { formatDateTime } from "../../core/format";
 import { useLoad } from "../../core/useLoad";
@@ -225,8 +225,14 @@ export function CostsView({
       )}
       {enabled && data && !snapshot && (
         <div className="empty">
-          <p>{month ? `No report for ${months.find((m) => m.value === month)?.label ?? month} yet.` : "No report yet."}</p>
-          <p className="empty-hint">Press “Refresh report” to fetch the AWS bill. It costs a few cents and is saved for next time.</p>
+          {refreshing ? (
+            <p>Fetching the AWS bill…</p>
+          ) : (
+            <>
+              <p>{month ? `No report for ${months.find((m) => m.value === month)?.label ?? month} yet.` : "No report yet."}</p>
+              <p className="empty-hint">Press “Refresh report” to fetch the AWS bill. It costs a few cents and is saved for next time.</p>
+            </>
+          )}
         </div>
       )}
       {snapshot && <Report report={snapshot.report} />}
@@ -240,6 +246,18 @@ export function CloudOpsCostsPage() {
   const [fresh, setFresh] = useState<{ month: string; data: CostsResponse } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Picking a month nobody has fetched yet fetches it, once. A month that already has a saved report just
+  // opens it (free), and a failed fetch is not retried on its own.
+  const picked = useRef(false);
+  const tried = useRef(new Set<string>());
+  useEffect(() => {
+    const d = costs.data;
+    if (!picked.current || costs.loading || refreshing || !d || !d.enabled || d.snapshot || tried.current.has(month)) return;
+    tried.current.add(month);
+    void onRefresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [costs.loading, costs.data, month]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -263,6 +281,7 @@ export function CloudOpsCostsPage() {
       month={month}
       onMonth={(m) => {
         setError(null);
+        picked.current = true;
         setMonth(m);
       }}
     />
