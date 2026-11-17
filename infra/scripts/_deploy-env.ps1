@@ -3,6 +3,15 @@
 param([Parameter(Mandatory)][ValidateSet("staging", "prod")][string]$Env)
 
 $ErrorActionPreference = "Stop"
+
+# Native executables (aws, docker, terraform) do not raise PowerShell errors
+# when they fail -- they only set $LASTEXITCODE. Without this check after each
+# call, a failed `aws ecs update-service` let the script carry on and print
+# "deploy succeeded" against the previous, already-completed deployment.
+function Assert-Exit([string]$What) {
+    if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)" }
+}
+
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $TerraformDir = Join-Path $RepoRoot "infra\terraform"
 $Config = Get-Content (Join-Path $RepoRoot "app.config.json") | ConvertFrom-Json
@@ -10,6 +19,7 @@ $Product = $Config.product_name
 $Region = $Config.aws_region
 $Shared = $Config.shared_infra
 $identity = aws sts get-caller-identity --output json | ConvertFrom-Json
+Assert-Exit "aws sts get-caller-identity"
 $AccountId = $identity.Account
 
 Write-Host "== Deploying '$Product' to $Env ($Region) ==" -ForegroundColor Cyan
@@ -17,7 +27,9 @@ Write-Host "== Deploying '$Product' to $Env ($Region) ==" -ForegroundColor Cyan
 # ── Pull what `terraform apply` created (infra/terraform) ──
 Push-Location $TerraformDir
 $tfOut = terraform output -json | ConvertFrom-Json
+$tfExit = $LASTEXITCODE
 Pop-Location
+if ($tfExit -ne 0) { throw "terraform output failed (exit $tfExit) -- run 'terraform init' in infra/terraform first" }
 if (-not $tfOut) {
     throw "No Terraform outputs found -- run 'terraform apply' in infra/terraform first (see README.md)."
 }
@@ -50,7 +62,9 @@ docker build -t "${Product}:$Env" `
     .
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "docker build failed" }
 docker tag "${Product}:$Env" "${repoUri}:$Env"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "docker tag failed" }
 docker push "${repoUri}:$Env"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "docker push failed" }
 Pop-Location
 
 # ── 2. Render + register task definition ──
@@ -80,6 +94,7 @@ New-Item -ItemType Directory -Force -Path $genDir | Out-Null
 $renderedPath = Join-Path $genDir "$Product-$Env.taskdef.json"
 Set-Content -Path $renderedPath -Value $rendered
 aws ecs register-task-definition --region $Region --cli-input-json "file://$renderedPath" | Out-Null
+Assert-Exit "aws ecs register-task-definition"
 Write-Host "  registered $Product-$Env" -ForegroundColor Green
 
 # ── 3. Run migrations once ──
@@ -95,9 +110,12 @@ $overridesFile = [IO.Path]::GetTempFileName()
 $taskArn = aws ecs run-task --region $Region --cluster $Shared.ecs_cluster --launch-type FARGATE `
     --network-configuration $netConfig --task-definition "$Product-$Env" --overrides "file://$overridesFile" `
     --query "tasks[0].taskArn" --output text
+$runExit = $LASTEXITCODE
 Remove-Item $overridesFile -ErrorAction SilentlyContinue
+if ($runExit -ne 0 -or -not $taskArn -or $taskArn -eq "None") { throw "could not start the migration task" }
 Write-Host "  migration task $taskArn running..." -NoNewline
 aws ecs wait tasks-stopped --region $Region --cluster $Shared.ecs_cluster --tasks $taskArn
+Assert-Exit "waiting for the migration task"
 $exitCode = aws ecs describe-tasks --region $Region --cluster $Shared.ecs_cluster --tasks $taskArn --query "tasks[0].containers[0].exitCode" --output text
 if ($exitCode -ne "0") {
     Write-Host " FAILED (exit $exitCode) -- see CloudWatch /ecs/$Product-$Env" -ForegroundColor Red
@@ -109,20 +127,47 @@ Write-Host " ok" -ForegroundColor Green
 Write-Host "`n[4/5] ECS service" -ForegroundColor Cyan
 $serviceName = "$Product-$Env"
 $existing = aws ecs describe-services --region $Region --cluster $Shared.ecs_cluster --services $serviceName --query "services[?status=='ACTIVE'] | [0]" --output json | ConvertFrom-Json
+Assert-Exit "aws ecs describe-services"
 if ($existing) {
-    aws ecs update-service --region $Region --cluster $Shared.ecs_cluster --service $serviceName `
+    # A sleeping service (CloudOps auto-wake, staging only) has its listener
+    # rules parked on the waker, which leaves this target group with no load
+    # balancer -- and ECS rejects update-service for that. A visit to the app
+    # makes the waker scale the service up and hand the rules back; wait for
+    # that before deploying.
+    $lbs = aws elbv2 describe-target-groups --region $Region --target-group-arns $tgArn --query "TargetGroups[0].LoadBalancerArns | length(@)" --output text
+    Assert-Exit "aws elbv2 describe-target-groups"
+    if ($lbs -eq "0") {
+        Write-Host "  service is asleep -- waking it via $appPublicUrl ..." -NoNewline
+        $awake = $false
+        for ($i = 0; $i -lt 40; $i++) {
+            try {
+                Invoke-WebRequest -Uri $appPublicUrl -UseBasicParsing -TimeoutSec 15 `
+                    -Headers @{ Accept = "text/html" } -UserAgent "Mozilla/5.0 (deploy script)" | Out-Null
+            } catch { }   # the waker answers 503 "starting up" until the app is back
+            $lbs = aws elbv2 describe-target-groups --region $Region --target-group-arns $tgArn --query "TargetGroups[0].LoadBalancerArns | length(@)" --output text
+            if ($LASTEXITCODE -eq 0 -and $lbs -ne "0") { $awake = $true; break }
+            Start-Sleep -Seconds 15
+        }
+        if (-not $awake) { throw "service did not wake within 10 minutes -- check the CloudOps auto-wake function" }
+        Write-Host " awake" -ForegroundColor Green
+    }
+    $deploymentId = aws ecs update-service --region $Region --cluster $Shared.ecs_cluster --service $serviceName `
         --task-definition "$Product-$Env" --force-new-deployment `
-        --propagate-tags SERVICE --enable-ecs-managed-tags | Out-Null
-    Write-Host "  updated existing service (forced new deployment)" -ForegroundColor Green
+        --propagate-tags SERVICE --enable-ecs-managed-tags `
+        --query "service.deployments[?status=='PRIMARY'].id | [0]" --output text
+    Assert-Exit "aws ecs update-service"
+    Write-Host "  updated existing service (forced new deployment $deploymentId)" -ForegroundColor Green
 } else {
-    aws ecs create-service --region $Region --cluster $Shared.ecs_cluster `
+    $deploymentId = aws ecs create-service --region $Region --cluster $Shared.ecs_cluster `
         --service-name $serviceName --task-definition "$Product-$Env" `
         --desired-count 1 --launch-type FARGATE `
         --network-configuration $netConfig `
         --load-balancers "targetGroupArn=$tgArn,containerName=$Product,containerPort=$($Config.container_port)" `
         --health-check-grace-period-seconds 60 `
         --propagate-tags SERVICE --enable-ecs-managed-tags `
-        --tags "key=Product,value=$Product" "key=Environment,value=$Env" "key=ManagedBy,value=deploy-script" | Out-Null
+        --tags "key=Product,value=$Product" "key=Environment,value=$Env" "key=ManagedBy,value=deploy-script" `
+        --query "service.deployments[?status=='PRIMARY'].id | [0]" --output text
+    Assert-Exit "aws ecs create-service"
     Write-Host "  created new service" -ForegroundColor Green
 }
 
@@ -134,14 +179,16 @@ if ($existing) {
 # still healthy, and still running the previous image. Polling it reported
 # "deploy succeeded" while the new task was pending, so the very next request
 # hit the old code and made the deploy look like it had silently done nothing.
-# rolloutState is the only signal that means what this step claims.
-Write-Host "`n[5/5] Waiting for the new deployment to roll out..." -ForegroundColor Cyan
+# rolloutState is the only signal that means what this step claims -- and only
+# for the deployment step 4 started (by id): the service's PRIMARY deployment
+# can still be the previous one, already COMPLETED.
+Write-Host "`n[5/5] Waiting for deployment $deploymentId to roll out..." -ForegroundColor Cyan
 $rolledOut = $false
 for ($i = 0; $i -lt 60; $i++) {
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     $state = aws ecs describe-services --region $Region --cluster $Shared.ecs_cluster --services $serviceName `
-        --query "services[0].deployments[?status=='PRIMARY'].rolloutState | [0]" --output text 2>$null
+        --query "services[0].deployments[?id=='$deploymentId'].rolloutState | [0]" --output text 2>$null
     $ErrorActionPreference = $prevPref
     if ($state -eq "COMPLETED") { $rolledOut = $true; break }
     if ($state -eq "FAILED") {
@@ -152,5 +199,5 @@ for ($i = 0; $i -lt 60; $i++) {
 if ($rolledOut) {
     Write-Host "`n== $Env deploy succeeded -- new task definition is live ==" -ForegroundColor Green
 } else {
-    Write-Host "`n== $Env deploy: rollout still in progress after 10 min -- check 'aws ecs describe-services --cluster $($Shared.ecs_cluster) --services $serviceName' and CloudWatch /ecs/$Product-$Env ==" -ForegroundColor Yellow
+    throw "$Env deploy NOT confirmed: rollout still in progress after 10 min -- check 'aws ecs describe-services --cluster $($Shared.ecs_cluster) --services $serviceName' and CloudWatch /ecs/$Product-$Env"
 }

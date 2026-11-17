@@ -98,19 +98,45 @@ echo; echo "[4/5] ECS service"
 SERVICE_NAME="$PRODUCT-$ENV_NAME"
 EXISTING=$(aws ecs describe-services --region "$REGION" --cluster "$ECS_CLUSTER" --services "$SERVICE_NAME" --query "services[?status=='ACTIVE'] | [0]" --output json)
 if [ "$EXISTING" != "null" ]; then
-  aws ecs update-service --region "$REGION" --cluster "$ECS_CLUSTER" --service "$SERVICE_NAME" \
+  # A sleeping service (CloudOps auto-wake, staging only) has its listener
+  # rules parked on the waker, which leaves this target group with no load
+  # balancer -- and ECS rejects update-service for that. A visit to the app
+  # makes the waker scale the service up and hand the rules back; wait for
+  # that before deploying.
+  tg_lbs() {
+    aws elbv2 describe-target-groups --region "$REGION" --target-group-arns "$TG_ARN" \
+      --query "TargetGroups[0].LoadBalancerArns | length(@)" --output text
+  }
+  if [ "$(tg_lbs)" = "0" ]; then
+    printf "  service is asleep -- waking it via %s ..." "$APP_PUBLIC_URL"
+    AWAKE=0
+    for i in $(seq 1 40); do
+      # The waker answers 503 "starting up" until the app is back.
+      curl -s -o /dev/null --max-time 15 -H "Accept: text/html" -A "Mozilla/5.0 (deploy script)" "$APP_PUBLIC_URL" || true
+      if [ "$(tg_lbs)" != "0" ]; then AWAKE=1; break; fi
+      sleep 15
+    done
+    if [ "$AWAKE" != "1" ]; then
+      echo; echo "service did not wake within 10 minutes -- check the CloudOps auto-wake function" >&2
+      exit 1
+    fi
+    echo " awake"
+  fi
+  DEPLOYMENT_ID=$(aws ecs update-service --region "$REGION" --cluster "$ECS_CLUSTER" --service "$SERVICE_NAME" \
     --task-definition "$PRODUCT-$ENV_NAME" --force-new-deployment \
-    --propagate-tags SERVICE --enable-ecs-managed-tags >/dev/null
-  echo "  updated existing service (forced new deployment)"
+    --propagate-tags SERVICE --enable-ecs-managed-tags \
+    --query "service.deployments[?status=='PRIMARY'].id | [0]" --output text)
+  echo "  updated existing service (forced new deployment $DEPLOYMENT_ID)"
 else
-  aws ecs create-service --region "$REGION" --cluster "$ECS_CLUSTER" \
+  DEPLOYMENT_ID=$(aws ecs create-service --region "$REGION" --cluster "$ECS_CLUSTER" \
     --service-name "$SERVICE_NAME" --task-definition "$PRODUCT-$ENV_NAME" \
     --desired-count 1 --launch-type FARGATE \
     --network-configuration "$NET_CONFIG" \
     --load-balancers "targetGroupArn=$TG_ARN,containerName=$PRODUCT,containerPort=$CONTAINER_PORT" \
     --health-check-grace-period-seconds 60 \
     --propagate-tags SERVICE --enable-ecs-managed-tags \
-    --tags "key=Product,value=$PRODUCT" "key=Environment,value=$ENV_NAME" "key=ManagedBy,value=deploy-script" >/dev/null
+    --tags "key=Product,value=$PRODUCT" "key=Environment,value=$ENV_NAME" "key=ManagedBy,value=deploy-script" \
+    --query "service.deployments[?status=='PRIMARY'].id | [0]" --output text)
   echo "  created new service"
 fi
 
@@ -122,12 +148,14 @@ fi
 # healthy, still running the previous image. Polling it reported "deploy
 # succeeded" while the new task was pending, so the next request hit the old
 # code and the deploy looked like it had silently done nothing. rolloutState
-# is the only signal that means what this step claims.
-echo; echo "[5/5] Waiting for the new deployment to roll out..."
+# is the only signal that means what this step claims -- and only for the
+# deployment step 4 started (by id): the service's PRIMARY deployment can
+# still be the previous one, already COMPLETED.
+echo; echo "[5/5] Waiting for deployment $DEPLOYMENT_ID to roll out..."
 ROLLED_OUT=0
 for i in $(seq 1 60); do
   STATE=$(aws ecs describe-services --region "$REGION" --cluster "$ECS_CLUSTER" --services "$SERVICE_NAME" \
-    --query "services[0].deployments[?status=='PRIMARY'].rolloutState | [0]" --output text 2>/dev/null || true)
+    --query "services[0].deployments[?id=='$DEPLOYMENT_ID'].rolloutState | [0]" --output text 2>/dev/null || true)
   if [ "$STATE" = "COMPLETED" ]; then ROLLED_OUT=1; break; fi
   if [ "$STATE" = "FAILED" ]; then
     echo "ECS rollout FAILED -- see CloudWatch /ecs/$PRODUCT-$ENV_NAME" >&2
@@ -138,5 +166,6 @@ done
 if [ "$ROLLED_OUT" = "1" ]; then
   echo; echo "== $ENV_NAME deploy succeeded -- new task definition is live =="
 else
-  echo; echo "== $ENV_NAME deploy: rollout still in progress after 10 min -- check 'aws ecs describe-services --cluster $ECS_CLUSTER --services $SERVICE_NAME' and CloudWatch /ecs/$PRODUCT-$ENV_NAME =="
+  echo; echo "== $ENV_NAME deploy NOT confirmed: rollout still in progress after 10 min -- check 'aws ecs describe-services --cluster $ECS_CLUSTER --services $SERVICE_NAME' and CloudWatch /ecs/$PRODUCT-$ENV_NAME ==" >&2
+  exit 1
 fi
