@@ -15,6 +15,7 @@ resource "aws_lb_listener_rule" "http" {
   for_each     = toset(local.envs)
   listener_arn = local.shared.alb_http_listener_arn
   priority     = local.config.alb_priority_base + (each.key == "staging" ? 0 : 1)
+  tags         = { Environment = each.key }
 
   action {
     type             = "forward"
