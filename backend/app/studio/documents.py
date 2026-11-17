@@ -57,6 +57,12 @@ EXTRA_TYPES: dict[str, dict[str, tuple[str, set[str]]]] = {
     },
 }
 
+# The reference images of a high-fidelity design brief are images and nothing
+# else: they are handed to a design tool, which has no use for a .docx.
+ONLY_TYPES: dict[str, frozenset[str]] = {
+    "design_reference": frozenset({"png", "jpg", "jpeg"}),
+}
+
 # First bytes of each binary format; text types are not checked.
 MAGIC_BYTES: dict[str, tuple[bytes, ...]] = {
     "application/pdf": (b"%PDF",),
@@ -87,8 +93,11 @@ def sanitise_filename(raw: str) -> str:
 
 
 def allowed_types(purpose: str) -> dict[str, tuple[str, set[str]]]:
-    """What this purpose accepts: the shared list, plus anything only it takes."""
-    return {**ALLOWED_TYPES, **EXTRA_TYPES.get(purpose, {})}
+    """What this purpose accepts: the shared list, plus anything only it
+    takes, narrowed to its own list where it has one."""
+    permitted = {**ALLOWED_TYPES, **EXTRA_TYPES.get(purpose, {})}
+    only = ONLY_TYPES.get(purpose)
+    return {ext: entry for ext, entry in permitted.items() if ext in only} if only else permitted
 
 
 def resolve_type(filename: str, client_type: str, purpose: str = "document") -> str:

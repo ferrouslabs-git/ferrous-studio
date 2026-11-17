@@ -11,7 +11,7 @@ import { DragPayload, setPayload } from "./dnd";
 import { LIB_ICONS } from "./icons";
 
 /** Bar order: these lead, and anything added to the catalogue later follows. */
-const PRIMARY = ["navbar", "list", "form", "graph", "canvas", "calendar"];
+const PRIMARY = ["navbar", "list", "form", "wizard", "graph", "canvas", "calendar"];
 
 /** Chip captions, where the catalogue label runs long. */
 const SHORT_NAMES: Record<string, string> = {

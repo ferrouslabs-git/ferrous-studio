@@ -91,6 +91,7 @@ export const LIB_ICONS: Record<string, ReactNode> = {
   navbar: navSvg(<><rect x="2" y="2.5" width="12" height="11" rx="1.5" /><path d="M2 6h12M4 4.25h4" /></>),
   list: navSvg(<path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01" />),
   form: navSvg(<><rect x="2" y="2.5" width="12" height="4.5" rx="1" /><rect x="2" y="9" width="7.5" height="4.5" rx="2.25" /></>),
+  wizard: navSvg(<><circle cx="3.5" cy="4.5" r="1.5" /><path d="M5 4.5h1.5" /><circle cx="8" cy="4.5" r="1.5" /><path d="M9.5 4.5H11" /><circle cx="12.5" cy="4.5" r="1.5" /><rect x="2" y="9" width="12" height="4.5" rx="1" /></>),
   graph: NAV_ICON_MARKS.chart,
   canvas: navSvg(<><rect x="2" y="2" width="12" height="12" rx="1.5" strokeDasharray="2.6 2.2" /><circle cx="8" cy="8" r="2" /></>),
   calendar: NAV_ICON_MARKS.calendar,

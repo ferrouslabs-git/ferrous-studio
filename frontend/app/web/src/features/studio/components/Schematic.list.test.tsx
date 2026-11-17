@@ -41,6 +41,24 @@ describe("column widths (FS-REQ-59)", () => {
   });
 });
 
+describe("button columns (FS-REQ-88)", () => {
+  const head = { id: "h", type: "column-header", label: "", pos: "a" } as ElementNode;
+  const labels = (html: string) => [...html.matchAll(/class="[^"]*ui-btn sm ui-cell-btn[^"]*"[^>]*>([^<]*)</g)].map((m) => m[1]);
+
+  it("draws a button in every row, under the column's header", () => {
+    const html = render(list([head, col("b1", "Open", { input: "button" })], { props: { rows: [{}, {}, {}] } }));
+    expect(html).toContain(">Open<");
+    expect(labels(html)).toEqual(["View", "View", "View"]);
+  });
+
+  it("labels each row from its own value, else the column's samples", () => {
+    const cmp = list([col("b1", "Action", { input: "button", samples: "Approve, Reject" })], {
+      props: { rows: [{ b1: "Resend" }, {}, {}] },
+    });
+    expect(labels(render(cmp))).toEqual(["Resend", "Reject", "Approve"]);
+  });
+});
+
 describe("image columns (FS-REQ-70)", () => {
   it("shows one image per cell, cycling through the uploads by row", () => {
     const cmp = list([col("b1", "Photo", { kind: "image", images: JSON.stringify([IMG_A, IMG_B]) })], {
@@ -107,5 +125,35 @@ describe("free card layout (FS-REQ-69)", () => {
     const html = render(cards([col("b1", "Name", { x: "30", y: "50" })], {}));
     expect(html).not.toContain("ui-card-free-el");
     expect(html).toContain("ui-card-item-head");
+  });
+});
+
+describe("wizard (FS-REQ-89)", () => {
+  const el = (id: string, type: string, label: string): ElementNode => ({ id, type, label, pos: id }) as ElementNode;
+  const wizard = (shape = "steps"): ComponentNode => ({
+    id: "w1", type: "wizard", label: "Sign up", pos: "a0", shape, layout: "one-column",
+    elements: [
+      el("a", "text-input", "Lead field"),
+      el("b", "step", "Account"),
+      el("c", "text-input", "Name"),
+      el("d", "step", "Review"),
+      el("e", "checkbox", "Agree"),
+      el("f", "button", "Next"),
+    ],
+  });
+
+  it("shows only the first step's fields, with the fields before any step", () => {
+    const html = render(wizard());
+    expect(html).toContain("Lead field");
+    expect(html).toContain("Name");
+    expect(html).not.toContain("Agree");
+    expect(html).toContain("Next");
+    expect(html.match(/class="ui-step[ "]/g)).toHaveLength(2);
+  });
+
+  it("draws a progress bar for the progress shape", () => {
+    const html = render(wizard("progress"));
+    expect(html).toContain("ui-wizard-progress-track");
+    expect(html).toContain("Step 1 of 2");
   });
 });

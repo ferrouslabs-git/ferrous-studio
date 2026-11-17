@@ -8,18 +8,19 @@ import type { Dataset } from "../../project/datasets/datasetsApi";
 import { parseDatasetValues, splitTerms } from "../../project/datasets/datasetValues";
 import type { PageSummary } from "../../projects/projectsApi";
 import {
-  anyElementMeta, borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_COLUMN_OPTIONS, FORM_SPAN_OPTIONS, formColumns, formRows, imageList, INPUT_TYPES, isFormFieldType, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
+  anyElementMeta, borderShown, COMPONENTS, DataFieldMeta, EL_FILL_OPTIONS, EL_ROTATION_OPTIONS, ElementTypeMeta, EL_VARIANT_OPTIONS, elementGroups, elementMeta, FONTS, FORM_COLUMN_OPTIONS, FORM_SPAN_OPTIONS, formColumns, formRows, imageList, COLUMN_CELL_TYPES, isFieldGridHost, isFormFieldType, rotationOf, LIST_ALIGN_OPTIONS, LIST_ALIGNABLE, listAlign,
   LOGO_ICONS, NAV_ALIGN_OPTIONS, NAV_ICONS, navAlign,
 } from "../catalog";
 import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, elKey, findElement, isElKey, locateCmp, TYPE_OPTIONS } from "../model/actions";
 import { ComposedRegions } from "../model/linkRegions";
 import { byPos } from "../model/positions";
 import { cmpSize, findNode, SplitSide } from "../model/tree";
+import { regionLinkName } from "../model/regionFocus";
 import { BACK_PAGE_ID, ComponentNode, LinkTarget, PageDocument, PagePresentation, PageRecord, Size } from "../model/types";
 import { NAV_ICON_MARKS, navIconGlyph } from "./icons";
 import { isSvgFile, readImageFile } from "./imageFile";
 import type { ProjectPageSummary } from "../../project/wireframes/wireframesApi";
-import { LinkPicker } from "./LinkPicker";
+import { LinkPicker, OpensInPicker } from "./LinkPicker";
 import { ElementSel, Selection } from "./selection";
 
 interface Props {
@@ -71,6 +72,8 @@ interface Props {
   onMoveElement(sel: ElementSel, delta: -1 | 1 | "front" | "back"): void;
   onRemoveElement(sel: ElementSel): void;
   onSetLink(sel: ElementSel, target: LinkTarget | null): void;
+  /** The same link with the region it opens in changed ("Opens in"). */
+  onSetLinkOpensIn(sel: ElementSel, target: LinkTarget): void;
   onCreateLinkedPage(sel: ElementSel, regionId: string | null, presentation?: PagePresentation): void;
   /** The link menu's Region list is hovering a region: the canvas outlines it. */
   onHoverLinkRegion(regionId: string | null): void;
@@ -563,6 +566,17 @@ export function Inspector(props: Props) {
   const linkTargetPage = link && !isBackLink
     ? pages.find((p) => p.id === link.pageId) ?? props.projectPages?.find((p) => p.id === link.pageId)
     : null;
+  // A region link whose page survives but whose region was removed. Unknown
+  // (not missing) until the project listing, which carries regions, loads.
+  const linkRegions = link?.regionId ? props.projectPages?.find((p) => p.id === link.pageId)?.regions : undefined;
+  const linkRegionMissing = !!link?.regionId && !!linkRegions && !linkRegions.some((r) => r.id === link.regionId);
+  // "Opens in": the region of the visible composition the link's target
+  // renders in. One set from another view may not be on the canvas now.
+  const opensInListed = !!link?.into
+    && props.linkRegions.options.some((o) => o.pageId === link.into?.pageId && o.id === link.into.regionId && o.pageId !== link.pageId);
+  const opensInName = link?.into
+    ? regionLinkName(link.into, props.projectPages ?? [], props.wireframeId ?? "")
+    : null;
   const cmpMeta = selectedCmp ? COMPONENTS[selectedCmp.type] ?? null : null;
   // A selected element node (as opposed to a scalar prop token).
   const elementNode =
@@ -578,10 +592,10 @@ export function Inspector(props: Props) {
   const showListAlign = !!elementNode && selectedCmp?.type === "list" && LIST_ALIGNABLE.has(elementNode.type);
   // A form field's share of its row (FS-REQ-74); an inline form is one row.
   const showFormSpan =
-    !!elementNode && selectedCmp?.type === "form" && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && isFormFieldType(elementNode.type);
+    !!elementNode && !!selectedCmp && isFieldGridHost(selectedCmp.type) && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && isFormFieldType(elementNode.type);
   // The form's column count, and the row the selected field sits on: its
   // count is stored on the row's first field (data.rowCols).
-  const formCols = selectedCmp?.type === "form" ? formColumns(selectedCmp) : 1;
+  const formCols = selectedCmp && isFieldGridHost(selectedCmp.type) ? formColumns(selectedCmp) : 1;
   const formRowHead = (() => {
     if (!showFormSpan) return null;
     const fields = sortedEls.filter((e) => isFormFieldType(e.type));
@@ -639,7 +653,7 @@ export function Inspector(props: Props) {
                       <label>Shape</label>
                       {colType === "input" ? (
                         <select value={input} disabled={ro} onChange={(e) => set("input", e.target.value)}>
-                          {INPUT_TYPES.map((t) => (
+                          {COLUMN_CELL_TYPES.map((t) => (
                             <option key={t} value={t}>{anyElementMeta(t)?.label ?? t}</option>
                           ))}
                         </select>
@@ -815,20 +829,27 @@ export function Inspector(props: Props) {
                     />
                   </div>
                 )}
-                {elementNodeMeta?.rotatable && (
-                  <div className="field">
-                    <label>Rotation</label>
-                    <select
-                      value={elementNode.data?.rotate || "0"}
-                      disabled={ro}
-                      onChange={(e) => props.onElementData(elementSel, "rotate", e.target.value === "0" ? "" : e.target.value)}
-                    >
-                      {EL_ROTATION_OPTIONS.map((r) => (
-                        <option key={r} value={r}>{r}°</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                {(elementNodeMeta?.rotatable || selectedCmp.type === "canvas") && (() => {
+                  // Any canvas element turns (FS-REQ-90). The canvas handle sets
+                  // any whole degree, so an angle off the steps is listed too.
+                  const deg = String(rotationOf(elementNode));
+                  const steps: readonly string[] = EL_ROTATION_OPTIONS;
+                  const options = steps.includes(deg) ? steps : [...steps, deg].sort((a, b) => Number(a) - Number(b));
+                  return (
+                    <div className="field">
+                      <label>Rotation</label>
+                      <select
+                        value={deg}
+                        disabled={ro}
+                        onChange={(e) => props.onElementData(elementSel, "rotate", e.target.value === "0" ? "" : e.target.value)}
+                      >
+                        {options.map((r) => (
+                          <option key={r} value={r}>{r}°</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
                 {elementNodeMeta?.variantable && (
                   <div className="field">
                     <label>Variant</label>
@@ -1003,7 +1024,25 @@ export function Inspector(props: Props) {
                 onHoverRegion={props.onHoverLinkRegion}
               />
             </div>
+            {link && linkTargetPage && !linkTargetPage.presentation && (
+              <div className="field">
+                <label>Opens in</label>
+                <OpensInPicker
+                  key={`${elementSel.cmpId}:${elementSel.key}:${elementSel.index ?? ""}`}
+                  options={props.linkRegions.options.filter((o) => o.pageId !== link.pageId)}
+                  into={link.into ?? null}
+                  unlistedName={link.into && !opensInListed ? opensInName ?? "Missing region" : null}
+                  disabled={ro}
+                  onPick={(into) => {
+                    const { into: _dropped, ...plain } = link;
+                    props.onSetLinkOpensIn(elementSel, into ? { ...plain, into } : plain);
+                  }}
+                  onHoverRegion={props.onHoverLinkRegion}
+                />
+              </div>
+            )}
             {link && !isBackLink && !linkTargetPage && <div className="insp-hint">The target page no longer exists.</div>}
+            {linkRegionMissing && <div className="insp-hint">The target region no longer exists.</div>}
             {elementNode && !ro && (
               <button className="btn small ghost danger" onClick={() => props.onRemoveElement(elementSel)}>
                 Remove element
@@ -1043,7 +1082,7 @@ export function Inspector(props: Props) {
                 </select>
               </div>
             )}
-            {selectedCmp.type === "form" && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && (
+            {isFieldGridHost(selectedCmp.type) && (selectedCmp.shape ?? cmpMeta?.defaultShape) !== "inline" && (
               <div className="field">
                 <label>Columns</label>
                 <select value={String(formCols)} disabled={ro} onChange={(e) => props.onCmpProp(selectedCmp.id, "columns", e.target.value)}>

@@ -77,6 +77,8 @@ import {
 import { diffPage } from "./model/diff";
 import { usePageHistory } from "./model/history";
 import { ComposedLevel, composeRegionOptions } from "./model/linkRegions";
+import { defaultOpensIn, HostOverride, hostOverrideFor } from "./model/linkHost";
+import { focusView } from "./model/regionFocus";
 import { firstNavTarget, navDescendants, navLevel, navLinkedPageIds, navRouteLabel, navSubItems, orderPagesByNav } from "./model/navOrder";
 import { byPos, isLegacyDocument, posAfterLast } from "./model/positions";
 import { blankDocument, CanvasLevel, contentRegionFor, enclosingRegionId, fallbackRegionId, findNode, regionDisplayName } from "./model/tree";
@@ -179,6 +181,7 @@ function StudioEditor() {
     },
     [pages, projectPages.pages, wireframeId],
   );
+  const isOwnPage = useCallback((pageId: string) => pages.some((p) => p.id === pageId), [pages]);
   const nav = usePageNav(allPages, activePageId, setActivePageId);
 
   // Reusable datasets (platform defaults + this project's own): elements bind
@@ -238,7 +241,11 @@ function StudioEditor() {
   // accept edits, outbox ACKs and conflict reloads like the open page's.
   // Sharing the page cache lets sibling switches rebuild the chain without
   // refetching (usually without a repaint at all).
-  const hostChain = useHostChain(fetchPage, page, doc.cache, projectPages.shells);
+  // A link's "opens in" applies to the page it was followed to: mid-switch
+  // the outgoing page keeps the one it was drawn with.
+  const shownHost = useRef(nav.host);
+  if (page && page.id === activePageId) shownHost.current = nav.host;
+  const hostChain = useHostChain(fetchPage, page, doc.cache, projectPages.shells, shownHost.current);
   const host = hostChain.levels;
   const { update: updateHostPage } = hostChain;
 
@@ -837,13 +844,18 @@ function StudioEditor() {
         // wherever they came from rather than a fixed page.
         if (nav.canBack) nav.back();
         else toast("No previous page to go back to");
-      } else if (allPages.some((p) => p.id === target.pageId)) {
-        go(target.pageId);
-      } else {
+      } else if (!allPages.some((p) => p.id === target.pageId)) {
         toast("The linked page no longer exists");
+      } else {
+        // A link with "opens in" sets where its target renders; one without
+        // keeps whatever the view it is followed from already has.
+        const opensIn = hostOverrideFor(target, allPages, isOwnPage) ?? undefined;
+        // One region of the page: the page narrowed to it, on whatever is
+        // placed in that region. A whole page: its nav-driven default child.
+        go(target.pageId, target.regionId ? { pageId: target.pageId, regionId: target.regionId } : undefined, opensIn);
       }
     },
-    [allPages, toast, go, nav.back, nav.canBack],
+    [allPages, isOwnPage, toast, go, nav.back, nav.canBack],
   );
 
   /** Setting a link takes you to what you linked. The target's document is
@@ -852,12 +864,44 @@ function StudioEditor() {
   const openLinkedPage = useCallback(
     /** `edit`: an element (on a shell) whose label editor opens on arrival —
      *  a nav item just added keeps its name editor across the switch. */
-    (pageId: string, edit?: ElementSel) => {
-      nav.visit(pageId);
+    (pageId: string, edit?: ElementSel, regionId?: string, opensIn?: HostOverride) => {
+      nav.visit(pageId, regionId ? { pageId, regionId } : undefined, opensIn);
       setPendingReveal({ pageId, sel: null, edit });
     },
     [nav.visit], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  /** Store a link and open what it points at, where it will open. */
+  const commitLink = (sel: ElementSel, target: LinkTarget | null) => {
+    runCmp(sel.cmpId, (d, c) => A.setElementLink(d, c, sel.cmpId, sel.key, sel.index, target));
+    // Clearing a link has no destination, and Back resolves only at follow
+    // time; every real page target opens.
+    if (!target || target.pageId === BACK_PAGE_ID) return;
+    if (allPages.some((p) => p.id === target.pageId)) {
+      openLinkedPage(target.pageId, undefined, target.regionId, hostOverrideFor(target, allPages, isOwnPage) ?? undefined);
+    } else toast("The linked page no longer exists");
+  };
+
+  /** A link picked from the menu: where it opens starts from the default
+   *  (defaultOpensIn), which "Opens in" then changes. */
+  const setLinkFromPicker = (sel: ElementSel, target: LinkTarget | null) => {
+    const linked = target && target.pageId !== BACK_PAGE_ID ? allPages.find((p) => p.id === target.pageId) : null;
+    const owner = recordOfCmp(sel.cmpId);
+    const loc = owner ? locateCmp(owner.document, sel.cmpId) : null;
+    if (!target || !linked || linked.presentation || !owner || !loc) {
+      commitLink(sel, target);
+      return;
+    }
+    const into = defaultOpensIn({
+      componentType: loc.list[loc.index].type,
+      ownerPageId: owner.id,
+      ownerRoot: owner.document.root,
+      ownRegionId: loc.region,
+      target: linked,
+      shared: !isOwnPage(linked.id),
+    });
+    commitLink(sel, into ? { ...target, into } : target);
+  };
 
   /** `just` names the element's page and component outright — for a
    *  component added in this same handler, which this render's records do
@@ -1150,14 +1194,15 @@ function StudioEditor() {
    *  a page of its own, placed in the content region that nav bar serves —
    *  its immediate child region on the page that owns the nav bar (see
    *  contentRegionFor). */
-  const addElementTo = (cmpId: string, type: string, afterSelection = true) => {
+  const addElementTo = (cmpId: string, type: string, afterSelection = true, afterThis: string | null = null) => {
     const owner = recordOfCmp(cmpId);
     const loc = owner ? locateCmp(owner.document, cmpId) : null;
     const hostCmp = loc ? loc.list[loc.index] : null;
     const afterId =
-      afterSelection && selection?.kind === "element" && selection.cmpId === cmpId && isElKey(selection.key)
+      afterThis ??
+      (afterSelection && selection?.kind === "element" && selection.cmpId === cmpId && isElKey(selection.key)
         ? selection.key.slice(EL_PREFIX.length)
-        : null;
+        : null);
     // A sub-item added with a nav item selected nests one level under it and
     // goes after that item's whole branch, as its last child (FS-REQ-64).
     let seed: string | ElementSeed = type;
@@ -1302,7 +1347,7 @@ function StudioEditor() {
     setPropValue: (key, text) => runCmp(id, (d, c) => A.setPropValue(d, c, id, key, text)),
     setElementLabel: (elId, text) => commitElementText({ cmpId: id, key: elKey(elId), index: null }, text),
     setElementData: (elId, key, value) => runCmp(id, (d, c) => A.setElementData(d, c, id, elId, key, value)),
-    addElement: (type) => addElementTo(id, type),
+    addElement: (type, afterId) => addElementTo(id, type, true, afterId ?? null),
     removeElement: (elId) => runCmp(id, (d, c) => A.removeElement(d, c, id, elId)),
     addRow: () => runCmp(id, (d, c) => A.addListRow(d, c, id)),
     removeRow: (row, shown) => runCmp(id, (d, c) => A.removeListRow(d, c, id, row, shown)),
@@ -1319,6 +1364,13 @@ function StudioEditor() {
 
   /** The open page plus its ancestor shells: a nav item linking to any of
    *  these renders as the current tab (see SchematicChrome.activePageIds). */
+  // A link to one region of a page narrows that page to the region: the
+  // canvas draws the narrowed levels, while every edit still resolves against
+  // the full documents (ids are unchanged).
+  const view = useMemo(
+    () => (page ? focusView(nav.focus, page, host) : null),
+    [nav.focus, page, host],
+  );
   const activePageIds = useMemo(
     () => (page ? [page.id, ...host.map((h) => h.pageId)] : []),
     [page?.id, host], // eslint-disable-line react-hooks/exhaustive-deps
@@ -1547,7 +1599,7 @@ function StudioEditor() {
   // A desktop page narrower than it is designed scales down whole instead of
   // squeezing its flexible columns (FS-REQ-37; see useDesktopFit).
   const desktopDesignW = page
-    ? Math.max(DESKTOP_DESIGN_W, deviceMinWidth(page.document, host, page.presentation, DESKTOP_FLEX_FLOOR))
+    ? Math.max(DESKTOP_DESIGN_W, deviceMinWidth(view?.doc ?? page.document, view?.host ?? host, page.presentation, DESKTOP_FLEX_FLOOR))
     : DESKTOP_DESIGN_W;
   const desktopFit = useDesktopFit(canvasWrap, desktopDesignW, interfaceType === "desktop" && !!page);
 
@@ -1562,7 +1614,7 @@ function StudioEditor() {
   const device = deviceClass(interfaceType);
   // Desktop pages widen for their fixed-px columns and the canvas scrolls to
   // them; a framed device keeps its screen width, like the hardware it draws.
-  const minDeviceWidth = !framed && page ? deviceMinWidth(page.document, host, page.presentation) : 0;
+  const minDeviceWidth = !framed && page ? deviceMinWidth(view?.doc ?? page.document, view?.host ?? host, page.presentation) : 0;
   // A switch in flight dims the (still rendered) outgoing page after a beat;
   // a fast switch shows nothing at all (see .page-switching in studio.css).
   const pageSwitching = !!page && !pageSettled;
@@ -1654,8 +1706,8 @@ function StudioEditor() {
               >
                 {page ? (
                   <Canvas
-                    doc={page.document}
-                    host={host}
+                    doc={view?.doc ?? page.document}
+                    host={view?.host ?? host}
                     presentation={page.presentation}
                     onDismissOverlay={() => {
                       // Back where the trail knows it; a page opened cold
@@ -1872,14 +1924,8 @@ function StudioEditor() {
               onRemoveElement={(sel) => {
                 if (isElKey(sel.key)) runCmp(sel.cmpId, (d, c) => A.removeElement(d, c, sel.cmpId, sel.key.slice(EL_PREFIX.length)));
               }}
-              onSetLink={(sel, target) => {
-                runCmp(sel.cmpId, (d, c) => A.setElementLink(d, c, sel.cmpId, sel.key, sel.index, target));
-                // Clearing a link has no destination, and Back resolves only
-                // at follow time; every real page target opens.
-                if (!target || target.pageId === BACK_PAGE_ID) return;
-                if (allPages.some((p) => p.id === target.pageId)) openLinkedPage(target.pageId);
-                else toast("The linked page no longer exists");
-              }}
+              onSetLink={setLinkFromPicker}
+              onSetLinkOpensIn={commitLink}
               onCreateLinkedPage={(sel, regionId, presentation) => void createLinkedPage(sel, regionId, undefined, presentation)}
               onHoverLinkRegion={setLinkHotRegion}
               linkRegions={linkRegions}

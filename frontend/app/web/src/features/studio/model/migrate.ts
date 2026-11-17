@@ -119,12 +119,13 @@ function consume(ctx: Ctx, keys: string[]): void {
 }
 
 const asForm = (shape: string) => (ctx: Ctx) => {
-  ctx.cmp.type = "form";
-  ctx.cmp.shape = shape;
+  // A legacy stepper is a wizard, a component of its own (FS-REQ-89).
+  ctx.cmp.type = shape === "wizard" ? "wizard" : "form";
+  ctx.cmp.shape = shape === "wizard" ? "steps" : shape;
   // Old forms rendered two columns; keep the look after migration.
   ctx.cmp.layout = shape === "simple" ? "two-column" : "one-column";
   const items = arr(ctx.props.items);
-  if (ctx.cmp.type === "form" && shape === "wizard") putItems(ctx, "items", items, (label) => ({ type: "step", label }));
+  if (shape === "wizard") putItems(ctx, "items", items, (label) => ({ type: "step", label }));
   else if (shape === "inline") putItems(ctx, "items", items, (label, i) => ({ type: "button", label, data: { style: i === items.length - 1 ? "primary" : "secondary" } }));
   else putItems(ctx, "items", items, (label) => fieldSeed(label));
   if (ctx.props.cancelText != null) put(ctx, { type: "button", label: s(ctx.props.cancelText, "Cancel"), data: { style: "secondary" } }, scalarLink(ctx, "cancelText"));
@@ -244,7 +245,7 @@ const MIGRATIONS: Record<string, (ctx: Ctx) => void> = {
 };
 
 /** Component types whose header moved from the `title` prop to an element. */
-const HEADER_HOSTS = new Set(["list", "form", "graph", "calendar"]);
+const HEADER_HOSTS = new Set(["list", "form", "wizard", "graph", "calendar"]);
 
 /** Header prop → element (2026-09): the title of a list/form/graph/calendar
  *  became a max-1 `header` element so it styles and places like any other
@@ -363,6 +364,20 @@ export function migrateComponent(cmp: ComponentNode): void {
     cmp.shape = cmp.layout === "vertical" ? "icons" : "plain";
   }
   if (cmp.shape === undefined) migrateShapeless(cmp);
+  // A wizard was a form shape until it became its own component (FS-REQ-89):
+  // the type changes and its steps, fields and buttons carry straight over.
+  // Before migrateElements, which drops steps from any form.
+  if (cmp.type === "form" && cmp.shape === "wizard") {
+    cmp.type = "wizard";
+    cmp.shape = "steps";
+    // The retired two-column layout carries over as the Columns control.
+    if (cmp.layout === "two-column") {
+      const props = (cmp.props ??= {});
+      if (props.columns == null) props.columns = "2";
+    }
+    if (cmp.layout !== "horizontal") cmp.layout = "one-column";
+    gatherLegacySteps(cmp);
+  }
   // The form's "two-column" layout became the Columns control (2026-11):
   // labels sit above again and the column count moves to props.columns.
   if (cmp.type === "form" && cmp.layout === "two-column") {
@@ -375,6 +390,34 @@ export function migrateComponent(cmp: ComponentNode): void {
   // After the header and element migrations: a header element minted above
   // must exist, and a dropped element must be gone, before links are judged.
   pruneDanglingLinks(cmp);
+}
+
+/** A wizard-shaped form listed all its steps first and every field after
+ *  them, all on show under the first step. Steps now own the fields that
+ *  follow them, which would leave every field under the last step and the
+ *  first one empty; so when the steps run together ahead of the fields, the
+ *  later steps move after the fields. The first step then holds what the
+ *  form showed, and the others start empty. */
+function gatherLegacySteps(cmp: ComponentNode): void {
+  const sorted = byPos(cmp.elements ?? []);
+  const flow = sorted.filter((e) => e.type !== "header" && e.type !== "button");
+  const firstStep = flow.findIndex((e) => e.type === "step");
+  if (firstStep < 0) return;
+  let end = firstStep;
+  while (end < flow.length && flow[end].type === "step") end += 1;
+  const later = flow.slice(firstStep + 1, end);
+  const stepsAfterFields = flow.slice(end).some((e) => e.type === "step");
+  if (!later.length || end === flow.length || stepsAfterFields) return;
+  const moved = new Set(later);
+  const lastField = flow[flow.length - 1];
+  const ordered: ElementNode[] = [];
+  for (const el of sorted) {
+    if (moved.has(el)) continue;
+    ordered.push(el);
+    if (el === lastField) ordered.push(...later);
+  }
+  reposition(ordered);
+  cmp.elements = ordered;
 }
 
 function migrateShapeless(cmp: ComponentNode): void {

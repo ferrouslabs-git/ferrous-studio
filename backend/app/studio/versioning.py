@@ -20,6 +20,7 @@ rows describe requests that already happened.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -33,6 +34,7 @@ from .models import (
     Dataset,
     Persona,
     Project,
+    ProjectDesign,
     ProjectDiagram,
     ProjectDocument,
     ProjectPage,
@@ -63,6 +65,7 @@ COPIED_TABLES = frozenset(
         "wireframe_annotations",
         "project_diagrams",
         "project_documents",
+        "project_designs",
     }
 )
 
@@ -139,13 +142,12 @@ async def copy_project(
     key: str,
     label: str | None,
     lock_source: bool,
-) -> tuple[Project, list[tuple[str, str]]]:
+) -> tuple[Project, "PendingCopies"]:
     """Deep-copy ``source`` into a new version. Flushes, but does not commit.
 
-    Returns the new project and the S3 copies its documents still need, as
-    ``(source_key, destination_key)`` pairs. Those run after the caller commits:
-    they are blocking network calls, and holding a write transaction open across
-    them would be a long-lived lock for no benefit.
+    Returns the new project and the S3 copies its documents still need. Those run after the caller commits
+    (``finish_copies``): they are blocking network calls, and holding a write
+    transaction open across them would be a long-lived lock for no benefit.
     """
     account_id = source.account_id
     copy = Project(
@@ -268,7 +270,9 @@ async def copy_project(
     await _copy_joins(db, source, copy, wireframe_map, persona_map, actor_map)
     page_map = await _copy_pages(db, source, copy, wireframe_map, dataset_map, pairs)
     await _copy_annotations(db, source, copy, wireframe_map, page_map)
-    pending_copies = await _copy_documents(db, source, copy)
+    document_copies, document_map = await _copy_documents(db, source, copy)
+    await _copy_designs(db, source, copy, wireframe_map, document_map)
+    pending_copies = PendingCopies(documents=document_copies)
 
     if lock_source:
         source.locked_at = utc_now()
@@ -432,8 +436,18 @@ async def _copy_annotations(
         )
 
 
-async def _copy_documents(db: AsyncSession, source: Project, copy: Project) -> list[tuple[str, str]]:
-    """Rows for the copied documents, plus the S3 work they still need.
+@dataclass(frozen=True)
+class PendingCopies:
+    """The S3 work a new version is still owed once its rows are committed."""
+
+    documents: list[tuple[str, str]]
+
+
+async def _copy_documents(
+    db: AsyncSession, source: Project, copy: Project
+) -> tuple[list[tuple[str, str]], dict[UUID, UUID]]:
+    """Rows for the copied documents, plus the S3 work they still need and
+    the old-to-new id map (a design's brief names its reference images).
 
     Rows land as ``pending`` -- the same state a browser upload sits in before
     its object is confirmed -- and are flipped to ``uploaded`` once the bytes
@@ -442,10 +456,12 @@ async def _copy_documents(db: AsyncSession, source: Project, copy: Project) -> l
     download of an object nobody ever wrote.
     """
     work: list[tuple[str, str]] = []
+    document_map: dict[UUID, UUID] = {}
     for row in await _rows(db, ProjectDocument, source, ProjectDocument.created_at.asc()):
         if row.status != "uploaded":
             continue  # an upload that never completed has nothing to copy
         new_id = uuid4()
+        document_map[row.id] = new_id
         new_key = s3_key_for(copy.account_id, copy.id, new_id, row.filename)
         db.add(
             ProjectDocument(
@@ -462,7 +478,55 @@ async def _copy_documents(db: AsyncSession, source: Project, copy: Project) -> l
             )
         )
         work.append((row.s3_key, new_key))
-    return work
+    return work, document_map
+
+
+async def _copy_designs(
+    db: AsyncSession,
+    source: Project,
+    copy: Project,
+    wireframe_map: dict[UUID, UUID],
+    document_map: dict[UUID, UUID],
+) -> None:
+    """High-fidelity designs.
+
+    ``figma_url`` and ``published_url`` travel: the new version shows the same
+    Make file and its site. The source is normally locked by versioning, and a
+    locked project refuses every design write.
+
+    ``wireframe_ids`` has no foreign key, so an id is remapped or dropped --
+    keeping one would point the copy back into the source version. A design
+    that picked wireframes and has none left that travelled is dropped, like
+    an annotation whose page did not. "All wireframes" needs no mapping.
+    """
+    for row in await _rows(db, ProjectDesign, source, ProjectDesign.pos.asc()):
+        mapped = [_mapped(wireframe_id, wireframe_map) for wireframe_id in row.wireframe_ids or []]
+        wireframe_ids = [str(wireframe_id) for wireframe_id in mapped if wireframe_id is not None]
+        if not row.all_wireframes and not wireframe_ids:
+            continue
+        references = [_mapped(doc_id, document_map) for doc_id in row.reference_document_ids or []]
+        db.add(
+            ProjectDesign(
+                id=uuid4(),
+                project_id=copy.id,
+                account_id=copy.account_id,
+                all_wireframes=row.all_wireframes,
+                wireframe_ids=wireframe_ids,
+                name=row.name,
+                brief=row.brief,
+                reference_document_ids=[str(doc_id) for doc_id in references if doc_id is not None],
+                figma_url=row.figma_url,
+                published_url=row.published_url,
+                status=row.status,
+                pos=row.pos,
+                created_by=row.created_by,
+            )
+        )
+
+
+async def finish_copies(db: AsyncSession, copy: Project, pending: PendingCopies) -> None:
+    """Everything a new version is owed from S3, after its rows are committed."""
+    await finish_document_copies(db, copy, pending.documents)
 
 
 async def finish_document_copies(db: AsyncSession, copy: Project, work: list[tuple[str, str]]) -> int:

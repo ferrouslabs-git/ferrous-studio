@@ -103,6 +103,9 @@ export interface ProjectPageSummary extends PageSummary {
   wireframe_id: string;
   wireframe_name: string;
   wireframe_status: string;
+  /** The page's regions in reading order: a link may open one of them
+   *  instead of the whole page. */
+  regions?: { id: string; label: string }[];
 }
 
 /** A page of another wireframe that links to the page (or wireframe) asked about. */

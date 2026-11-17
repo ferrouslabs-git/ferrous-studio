@@ -38,7 +38,7 @@ describe("the element scheme", () => {
       if (meta.type === "canvas") continue;
       for (const el of meta.elements) {
         // Later asks: forms offer Date/time, and lists offer every input.
-        if ((meta.type === "form" && el.type === "date-time") || meta.type === "list") continue;
+        if (((meta.type === "form" || meta.type === "wizard") && el.type === "date-time") || meta.type === "list") continue;
         expect(newShapes, `${meta.type}/${el.type}`).not.toContain(el.type);
       }
     }
@@ -90,7 +90,11 @@ describe("remapElement: old type/shape → new type + shape + variant", () => {
 
   it("leaves the same shapes alone in the components that still have them", () => {
     expect(remap("column", { kind: "text" }, "list")).toEqual({ type: "column", data: { kind: "text" } });
-    expect(remap("step", undefined, "form")).toEqual({ type: "step", data: undefined });
+    expect(remap("step", undefined, "wizard")).toEqual({ type: "step", data: undefined });
+  });
+
+  it("drops a stray step from a form: steps belong to the wizard (FS-REQ-89)", () => {
+    expect(remap("step", undefined, "form")).toBeNull();
   });
 
   it("turns a list's filter chips into its input dropdowns, keeping their values", () => {

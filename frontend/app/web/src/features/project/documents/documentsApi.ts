@@ -1,15 +1,16 @@
 // Client for a project's documents (backend app/studio/documents.py). The
 // file itself goes browser -> S3; uploadDocument below is the whole flow.
 //
-// Two lists share this one client and one upload path: the project's own
-// documents, and the example data captured beside the use case model. They
-// are told apart by `purpose`, so the hardened bits -- the allow-list, the
-// magic-byte check, the presigned PUT -- exist once.
+// Three lists share this one client and one upload path: the project's own
+// documents, the example data captured beside the use case model, and the
+// reference images of a high-fidelity design brief. They are told apart by
+// `purpose`, so the hardened bits -- the allow-list, the magic-byte check, the
+// presigned PUT -- exist once.
 import { apiDelete, apiGet, apiPost } from "../../../core/api";
 import { putToPresignedUrl } from "../../../core/upload";
 
 /** Which list a file belongs to; must agree with DocumentPurpose on the server. */
-export type DocumentPurpose = "document" | "example_data";
+export type DocumentPurpose = "document" | "example_data" | "design_reference";
 
 export interface ProjectDocument {
   id: string;
@@ -37,6 +38,9 @@ export const ACCEPTED_EXTENSIONS = ".txt,.md,.pdf,.docx,.png,.jpg,.jpeg";
 
 /** Example data is nearly always tabular, so it takes three more (EXTRA_TYPES). */
 export const EXAMPLE_DATA_EXTENSIONS = `${ACCEPTED_EXTENSIONS},.csv,.json,.xlsx`;
+
+/** A design brief's reference images are images and nothing else (ONLY_TYPES). */
+export const DESIGN_REFERENCE_EXTENSIONS = ".png,.jpg,.jpeg";
 
 const base = (projectId: string) => `/studio/projects/${projectId}/documents`;
 

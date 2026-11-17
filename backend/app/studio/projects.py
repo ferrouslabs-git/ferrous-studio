@@ -36,7 +36,7 @@ from .schemas import (
     ProjectVersionCreate,
     SectionCounts,
 )
-from .versioning import copy_project, finish_document_copies, version_for_key
+from .versioning import copy_project, finish_copies, version_for_key
 from .wireframes import (
     assemble_wireframe_export,
     dataset_export_payload,
@@ -74,7 +74,15 @@ async def _detail(db: AsyncSession, project: Project) -> ProjectDetail:
             personas=await _count(db, Persona, project),
             diagrams=await _count(db, ProjectDiagram, project),
             wireframes=await _count(db, Wireframe, project),
-            documents=await _count(db, ProjectDocument, project, ProjectDocument.status == "uploaded"),
+            documents=await _count(
+                db,
+                ProjectDocument,
+                project,
+                ProjectDocument.status == "uploaded",
+                # A brief's reference images belong to its design, not to the
+                # project's documents.
+                ProjectDocument.purpose != "design_reference",
+            ),
         ),
     )
 
@@ -282,7 +290,7 @@ async def create_project_version(
     if replay is not None:
         return await _detail(db, replay)
 
-    copy, document_copies = await copy_project(
+    copy, pending_copies = await copy_project(
         db,
         source,
         user_id=ctx.user_id,
@@ -293,7 +301,7 @@ async def create_project_version(
     await db.commit()
     # The bytes are copied outside the transaction: these are blocking network
     # calls, and the rows they complete are already safely on disk as "pending".
-    await finish_document_copies(db, copy, document_copies)
+    await finish_copies(db, copy, pending_copies)
     await db.refresh(copy)
     return await _detail(db, copy)
 
