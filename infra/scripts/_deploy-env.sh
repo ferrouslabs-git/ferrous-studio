@@ -96,7 +96,8 @@ SERVICE_NAME="$PRODUCT-$ENV_NAME"
 EXISTING=$(aws ecs describe-services --region "$REGION" --cluster "$ECS_CLUSTER" --services "$SERVICE_NAME" --query "services[?status=='ACTIVE'] | [0]" --output json)
 if [ "$EXISTING" != "null" ]; then
   aws ecs update-service --region "$REGION" --cluster "$ECS_CLUSTER" --service "$SERVICE_NAME" \
-    --task-definition "$PRODUCT-$ENV_NAME" --force-new-deployment >/dev/null
+    --task-definition "$PRODUCT-$ENV_NAME" --force-new-deployment \
+    --propagate-tags SERVICE --enable-ecs-managed-tags >/dev/null
   echo "  updated existing service (forced new deployment)"
 else
   aws ecs create-service --region "$REGION" --cluster "$ECS_CLUSTER" \
@@ -104,7 +105,9 @@ else
     --desired-count 1 --launch-type FARGATE \
     --network-configuration "$NET_CONFIG" \
     --load-balancers "targetGroupArn=$TG_ARN,containerName=$PRODUCT,containerPort=$CONTAINER_PORT" \
-    --health-check-grace-period-seconds 60 >/dev/null
+    --health-check-grace-period-seconds 60 \
+    --propagate-tags SERVICE --enable-ecs-managed-tags \
+    --tags "key=Product,value=$PRODUCT" "key=Environment,value=$ENV_NAME" "key=ManagedBy,value=deploy-script" >/dev/null
   echo "  created new service"
 fi
 

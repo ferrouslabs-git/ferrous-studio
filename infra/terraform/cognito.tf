@@ -4,6 +4,7 @@
 resource "aws_cognito_user_pool" "this" {
   for_each = toset(local.envs)
   name     = "${local.product_name}-${each.key}"
+  tags     = { Environment = each.key }
 
   auto_verified_attributes = ["email"]
   username_attributes      = ["email"]

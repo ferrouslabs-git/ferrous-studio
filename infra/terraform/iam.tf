@@ -40,6 +40,7 @@ resource "aws_iam_role_policy" "create_log_group" {
 # emails and Cognito admin actions below; add S3 etc. here as needed).
 resource "aws_iam_role" "task" {
   name = "${local.product_name}-task-role"
+  tags = { Environment = "shared" }
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

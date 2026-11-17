@@ -5,6 +5,7 @@
 resource "aws_s3_bucket" "documents" {
   for_each = toset(local.envs)
   bucket   = "${local.product_name}-documents-${each.key}"
+  tags     = { Environment = each.key }
   # Lets `terraform destroy` remove the bucket even with objects in it.
   force_destroy = true
 }
