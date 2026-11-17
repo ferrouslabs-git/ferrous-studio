@@ -46,6 +46,36 @@ def _iso(d: date) -> str:
     return d.isoformat()
 
 
+#: How many months back the picker offers, counting this month. Cost Explorer keeps 12 months by default.
+HISTORY_MONTHS = 12
+
+
+def parse_month(text: str | None, today: date) -> date:
+    """"2026-10" -> the first of that month. None means this month. Anything in the future, older than
+    the history Cost Explorer keeps, or not a YYYY-MM month raises ValueError (the route turns it into a 422)."""
+    this = month_start(today)
+    if not text:
+        return this
+    try:
+        year, month = text.split("-")
+        picked = date(int(year), int(month), 1)
+    except (ValueError, TypeError):
+        raise ValueError("month must look like 2026-10") from None
+    oldest = this
+    for _ in range(HISTORY_MONTHS - 1):
+        oldest = previous_month_start(oldest)
+    if picked > this:
+        raise ValueError("that month has not started yet")
+    if picked < oldest:
+        raise ValueError(f"AWS only keeps the last {HISTORY_MONTHS} months")
+    return picked
+
+
+def as_of_for(month: date, today: date) -> date:
+    """The day the report is 'as of': today for this month, the month's last day for a past month."""
+    return today if month == month_start(today) else next_month_start(month) - timedelta(days=1)
+
+
 # ---------------------------------------------------------------- fetching
 def fetch_raw(ce: Any, today: date) -> dict[str, Any]:
     """Ask Cost Explorer for everything the report needs. ``ce`` is a boto3 'ce' client.
@@ -164,18 +194,20 @@ def pace(daily: list[dict], mtd_usage: float, today: date, window: int = 7) -> d
     return {"per_day": money(per_day), "days": len(done), "month_usage": money(mtd_usage + per_day * days_left)}
 
 
-def build_report(raw: dict[str, Any], today: date, now: datetime | None = None) -> dict[str, Any]:
+def build_report(raw: dict[str, Any], today: date, now: datetime | None = None, complete: bool = False) -> dict[str, Any]:
+    """``today`` is the report's as-of day. ``complete`` marks a past month: all of it is in, so there is
+    nothing to forecast and no pace to project."""
     mtd = totals(by_record_type(raw["mtd_records"]))
     last = totals(by_record_type(raw["last_records"]))
     notes = list(raw.get("notes", []))
 
     daily = daily_totals(raw["mtd_daily_service"])
     forecast = None
-    if raw.get("forecast") is not None:
+    if raw.get("forecast") is not None and not complete:
         remaining = money(float(raw["forecast"]))
         forecast = {"remaining": remaining, "month_usage": money(mtd["usage"] + remaining),
                     "basis": "usage before credits and VAT"}
-    at_pace = pace(daily, mtd["usage"], today)
+    at_pace = None if complete else pace(daily, mtd["usage"], today)
     if at_pace:
         forecast = {**(forecast or {"remaining": None, "month_usage": None, "basis": "usage before credits and VAT"}),
                     "at_current_pace": at_pace}
@@ -191,7 +223,7 @@ def build_report(raw: dict[str, Any], today: date, now: datetime | None = None) 
     return {
         "generated_at": (now or datetime.now(timezone.utc)).isoformat(),
         "period": {"month_start": _iso(month_start(today)), "through": _iso(today),
-                   "last_month_start": _iso(previous_month_start(today))},
+                   "last_month_start": _iso(previous_month_start(today)), "complete": complete},
         "month_to_date": mtd,
         "last_month": last,
         "forecast": forecast,

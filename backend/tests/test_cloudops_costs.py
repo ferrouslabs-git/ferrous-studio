@@ -210,16 +210,17 @@ class Admin:
 
 @pytest.fixture
 def wired(monkeypatch):
-    calls = {"admin": [], "report": 0}
+    calls = {"admin": [], "report": 0, "months": []}
 
     async def ensure(user, action, db, permission="accounts:manage"):
         calls["admin"].append(permission)
 
-    def run_report():
+    def run_report(month=None):
         calls["report"] += 1
+        calls["months"].append(month)
         return {"month_to_date": {"usage": 1.0}, "notes": []}
 
-    async def no_snapshot(db):
+    async def no_snapshot(db, month=None):
         return None
 
     class S:
@@ -271,7 +272,7 @@ async def test_a_refresh_fetches_saves_prunes_and_credits_the_person(wired):
 async def test_a_second_click_within_a_minute_costs_nothing(wired, monkeypatch):
     fresh = cloudops.CostSnapshotRead(id=__import__("uuid").uuid4(), created_at=utc_now() - timedelta(seconds=10), report={})
 
-    async def latest(db):
+    async def latest(db, month=None):
         return fresh
 
     monkeypatch.setattr(cloudops, "_latest", latest)
@@ -282,7 +283,7 @@ async def test_a_second_click_within_a_minute_costs_nothing(wired, monkeypatch):
 async def test_an_old_report_does_not_block_a_refresh(wired, monkeypatch):
     old = cloudops.CostSnapshotRead(id=__import__("uuid").uuid4(), created_at=utc_now() - timedelta(minutes=5), report={})
 
-    async def latest(db):
+    async def latest(db, month=None):
         return old
 
     monkeypatch.setattr(cloudops, "_latest", latest)
@@ -294,7 +295,7 @@ async def test_missing_aws_permission_is_explained_not_a_bare_500(wired, monkeyp
     class AccessDeniedException(Exception):
         pass
 
-    def boom():
+    def boom(month=None):
         raise AccessDeniedException("User is not authorized to perform: ce:GetCostAndUsage")
 
     monkeypatch.setattr(cloudops, "_run_report", boom)
@@ -320,3 +321,68 @@ def test_every_cloudops_route_checks_for_a_platform_admin_first():
         src = inspect.getsource(route.endpoint)
         # the very first thing the route awaits is the platform-admin check: nothing else happens before it
         assert src[src.index("await "):].startswith("await ensure_platform_admin("), path
+
+
+# ----------------------------------------------------------------- picking another month
+NOV17 = date(2026, 11, 17)
+
+
+def test_no_month_means_this_month_and_a_picked_month_is_its_first_day():
+    assert rep.parse_month(None, NOV17) == date(2026, 11, 1)
+    assert rep.parse_month("", NOV17) == date(2026, 11, 1)
+    assert rep.parse_month("2026-10", NOV17) == date(2026, 10, 1)
+    assert rep.parse_month("2025-12", NOV17) == date(2025, 12, 1)       # 12 months including this one
+
+
+@pytest.mark.parametrize("bad", ["2026-12", "2025-11", "October", "2026-13", "2026-1-1", "20261"])
+def test_a_future_month_one_too_old_or_garbage_is_refused(bad):
+    with pytest.raises(ValueError):
+        rep.parse_month(bad, NOV17)
+
+
+def test_a_past_month_is_reported_as_of_its_last_day_and_this_month_as_of_today():
+    assert rep.as_of_for(date(2026, 10, 1), NOV17) == date(2026, 10, 31)
+    assert rep.as_of_for(date(2026, 2, 1), NOV17) == date(2026, 2, 28)
+    assert rep.as_of_for(date(2026, 11, 1), NOV17) == NOV17
+
+
+def test_a_past_month_asks_cost_explorer_for_exactly_that_month_and_the_one_before():
+    ce = FakeCE()
+    as_of = rep.as_of_for(date(2026, 10, 1), NOV17)
+    rep.fetch_raw(ce, as_of)
+    usage = [c["TimePeriod"] for c in ce.calls if "Granularity" in c and "Metric" not in c]
+    assert {"Start": "2026-10-01", "End": "2026-11-01"} in usage         # the whole of October, not cut short
+    assert {"Start": "2026-09-01", "End": "2026-10-01"} in usage         # and September for comparison
+    assert not any("Metric" in c for c in ce.calls)                      # nothing left to forecast
+
+
+def test_a_finished_month_has_no_forecast_and_no_pace_and_says_so():
+    r = rep.build_report(raw(), date(2026, 10, 31), complete=True)
+    assert r["forecast"] is None and r["period"]["complete"] is True
+    live = rep.build_report(raw(), TODAY)
+    assert live["period"]["complete"] is False and live["forecast"]["at_current_pace"]
+
+
+async def test_the_month_picked_reaches_both_the_lookup_and_the_aws_call(wired, monkeypatch):
+    seen = []
+
+    async def latest(db, month=None):
+        seen.append(month)
+
+    monkeypatch.setattr(cloudops, "_latest", latest)
+    await cloudops.get_costs(month="2026-10", current_user=Admin(), db=FakeDB())
+    await cloudops.refresh_costs(month="2026-10", current_user=Admin(), db=FakeDB())
+    assert seen == [date(2026, 10, 1)] * 2 and wired["months"] == [date(2026, 10, 1)]
+
+
+async def test_a_bad_month_is_a_422_before_aws_is_asked(wired):
+    for fn in (cloudops.get_costs, cloudops.refresh_costs):
+        with pytest.raises(HTTPException) as e:
+            await fn(month="2030-01", current_user=Admin(), db=FakeDB())
+        assert e.value.status_code == 422
+    assert wired["report"] == 0
+
+
+def test_reports_are_found_and_pruned_per_month_so_an_old_month_is_never_pushed_out():
+    src = inspect.getsource(cloudops.refresh_costs)
+    assert "_in_month(picked)" in src and src.count("_in_month(picked)") >= 2

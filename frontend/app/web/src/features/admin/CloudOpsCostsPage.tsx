@@ -6,7 +6,7 @@ import { errorMessage } from "../../core/api";
 import { formatDateTime } from "../../core/format";
 import { useLoad } from "../../core/useLoad";
 import { CostReport, CostSnapshot, CostsResponse, DailyAmount, NamedAmount, Totals, getCosts, refreshCosts } from "./cloudopsApi";
-import { barHeights, dayLabel, peak, share, usd } from "./cloudopsFormat";
+import { barHeights, dayLabel, monthName, monthOptions, peak, share, usd } from "./cloudopsFormat";
 
 function Card({ title, totals, children }: { title: string; totals?: Totals; children?: ReactNode }) {
   return (
@@ -66,11 +66,11 @@ function Breakdown({ title, rows, note }: { title: string; rows: NamedAmount[] |
 }
 
 /** A plain SVG bar chart of daily spend, this month in colour and last month beneath it, both on one scale. */
-function Daily({ current, previous }: { current: DailyAmount[]; previous: DailyAmount[] }) {
+function Daily({ current, previous, labels }: { current: DailyAmount[]; previous: DailyAmount[]; labels: [string, string] }) {
   const max = peak(current, previous);
   const rows: [string, DailyAmount[]][] = [
-    ["This month", current],
-    ["Last month", previous],
+    [labels[0], current],
+    [labels[1], previous],
   ];
   return (
     <section className="cloudops-section" aria-label="Daily cost">
@@ -89,7 +89,7 @@ function Daily({ current, previous }: { current: DailyAmount[]; previous: DailyA
                 {series.map((d, i) => (
                   <rect
                     key={d.date}
-                    className={label === "This month" ? "bar current" : "bar previous"}
+                    className={label === labels[0] ? "bar current" : "bar previous"}
                     x={i * 10 + 1}
                     width={8}
                     y={60 - heights[i] * 58}
@@ -109,11 +109,14 @@ function Daily({ current, previous }: { current: DailyAmount[]; previous: DailyA
 
 function Report({ report }: { report: CostReport }) {
   const f = report.forecast;
+  const past = report.period.complete === true; // a finished month: nothing left to forecast
+  const thisName = past ? monthName(report.period.month_start) : "This month";
+  const beforeName = past ? monthName(report.period.last_month_start) : "Last month";
   return (
     <>
       <div className="cloudops-cards">
-        <Card title="This month so far" totals={report.month_to_date} />
-        <Card title="Expected by the end of the month">
+        <Card title={past ? thisName : "This month so far"} totals={report.month_to_date} />
+        {!past && <Card title="Expected by the end of the month">
           {f ? (
             <dl className="cloudops-lines">
               {f.at_current_pace && (
@@ -139,8 +142,8 @@ function Report({ report }: { report: CostReport }) {
           ) : (
             <p className="muted">No forecast available (AWS needs more history, or it is the last day of the month).</p>
           )}
-        </Card>
-        <Card title="Last month" totals={report.last_month} />
+        </Card>}
+        <Card title={beforeName} totals={report.last_month} />
       </div>
 
       <Breakdown
@@ -150,7 +153,7 @@ function Report({ report }: { report: CostReport }) {
       />
       <Breakdown title="Cost by environment (staging, prod…)" rows={report.by_environment} />
       <Breakdown title="Cost by AWS service (what kind of thing we pay for)" rows={report.by_service} note="AWS charges before credits and VAT." />
-      <Daily current={report.daily} previous={report.daily_previous} />
+      <Daily current={report.daily} previous={report.daily_previous} labels={[thisName, beforeName]} />
 
       {report.notes.length > 0 && (
         <ul className="muted cloudops-notes">
@@ -170,12 +173,19 @@ export function CostsView({
   refreshing,
   error,
   onRefresh,
+  month = "",
+  onMonth,
+  months = monthOptions(),
 }: {
   data: CostsResponse | null;
   loading: boolean;
   refreshing: boolean;
   error: string | null;
   onRefresh: () => void;
+  /** "" is this month, otherwise "YYYY-MM". */
+  month?: string;
+  onMonth?: (month: string) => void;
+  months?: { value: string; label: string }[];
 }) {
   const snapshot: CostSnapshot | null = data?.snapshot ?? null;
   const enabled = data?.enabled ?? true;
@@ -184,6 +194,15 @@ export function CostsView({
       <div className="page-head">
         <h1>Costs</h1>
         <span className="shell-spacer" />
+        {enabled && onMonth && (
+          <select aria-label="Month" value={month} onChange={(e) => onMonth(e.target.value)} disabled={refreshing}>
+            {months.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        )}
         <button className="btn primary" onClick={onRefresh} disabled={loading || refreshing || !enabled}>
           {refreshing ? "Refreshing…" : "Refresh report"}
         </button>
@@ -197,7 +216,7 @@ export function CostsView({
           {snapshot.created_by ? ` by ${snapshot.created_by}` : ""}. Opening this page does not call AWS; refreshing costs a few cents.
         </p>
       ) : (
-        enabled && data && <p className="muted">Not refreshed yet.</p>
+        enabled && data && !loading && <p className="muted">Not refreshed yet.</p>
       )}
 
       {error && <div className="status-banner warn">{error}</div>}
@@ -206,7 +225,7 @@ export function CostsView({
       )}
       {enabled && data && !snapshot && (
         <div className="empty">
-          <p>No report yet.</p>
+          <p>{month ? `No report for ${months.find((m) => m.value === month)?.label ?? month} yet.` : "No report yet."}</p>
           <p className="empty-hint">Press “Refresh report” to fetch the AWS bill. It costs a few cents and is saved for next time.</p>
         </div>
       )}
@@ -216,8 +235,9 @@ export function CostsView({
 }
 
 export function CloudOpsCostsPage() {
-  const costs = useLoad(getCosts, []);
-  const [fresh, setFresh] = useState<CostsResponse | null>(null);
+  const [month, setMonth] = useState(""); // "" is this month
+  const costs = useLoad(() => getCosts(month || undefined), [month]);
+  const [fresh, setFresh] = useState<{ month: string; data: CostsResponse } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -225,7 +245,7 @@ export function CloudOpsCostsPage() {
     setRefreshing(true);
     setError(null);
     try {
-      setFresh(await refreshCosts());
+      setFresh({ month, data: await refreshCosts(month || undefined) });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -235,11 +255,16 @@ export function CloudOpsCostsPage() {
 
   return (
     <CostsView
-      data={fresh ?? costs.data}
+      data={fresh && fresh.month === month ? fresh.data : costs.loading ? null : costs.data} // never show the last month picked while the next loads
       loading={costs.loading}
       refreshing={refreshing}
       error={error ?? costs.error}
       onRefresh={onRefresh}
+      month={month}
+      onMonth={(m) => {
+        setError(null);
+        setMonth(m);
+      }}
     />
   );
 }

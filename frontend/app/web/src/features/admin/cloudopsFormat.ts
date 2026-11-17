@@ -31,6 +31,31 @@ export function dayLabel(iso: string): string {
   return `${d} ${names[m - 1]}`;
 }
 
+/** "2026-10-01" -> "October 2026". */
+export function monthName(iso: string): string {
+  const [y, m] = iso.split("-").map(Number);
+  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return `${names[m - 1]} ${y}`;
+}
+
+/** The months the picker offers, newest first: this month and the 11 before it (Cost Explorer keeps 12).
+ *  The value is "YYYY-MM"; this month's value is "" so the server's own idea of "now" decides. */
+export function monthOptions(now: Date = new Date()): { value: string; label: string }[] {
+  const out: { value: string; label: string }[] = [];
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth() + 1;
+  for (let i = 0; i < 12; i++) {
+    const key = `${y}-${String(m).padStart(2, "0")}`;
+    out.push({ value: i === 0 ? "" : key, label: i === 0 ? `${monthName(`${key}-01`)} (this month)` : monthName(`${key}-01`) });
+    m -= 1;
+    if (m === 0) {
+      m = 12;
+      y -= 1;
+    }
+  }
+  return out;
+}
+
 // ── Resources ───────────────────────────────────────────────────────────────
 
 

@@ -23,7 +23,7 @@ export interface DailyAmount {
 
 export interface CostReport {
   generated_at: string;
-  period: { month_start: string; through: string; last_month_start: string };
+  period: { month_start: string; through: string; last_month_start: string; complete?: boolean }; // complete: a past month, all of it is in
   month_to_date: Totals;
   last_month: Totals;
   forecast: {
@@ -54,8 +54,10 @@ export interface CostsResponse {
 
 const BASE = "/studio/admin/cloudops/costs";
 
-export const getCosts = () => apiGet<CostsResponse>(BASE, { scope: null });
-export const refreshCosts = () => apiPost<CostsResponse>(`${BASE}/refresh`, {}, { scope: null });
+// `month` is "YYYY-MM"; left out, the server means this month.
+const withMonth = (path: string, month?: string) => (month ? `${path}?month=${encodeURIComponent(month)}` : path);
+export const getCosts = (month?: string) => apiGet<CostsResponse>(withMonth(BASE, month), { scope: null });
+export const refreshCosts = (month?: string) => apiPost<CostsResponse>(withMonth(`${BASE}/refresh`, month), {}, { scope: null });
 
 // ── Resources (phase 2, read-only) ──────────────────────────────────────────
 
