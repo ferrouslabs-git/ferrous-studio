@@ -134,6 +134,32 @@ describe("migrateComponent: graph and form families", () => {
     expect(c.elements![1]).toMatchObject({ type: "stat", label: "Churn", data: { value: "1.4%", delta: "−0.2%" } });
   });
 
+  it("turns a wizard-shaped form into a wizard, keeping its steps (FS-REQ-89)", () => {
+    const w = {
+      id: "w", type: "form", label: "Sign up", pos: "a0", shape: "wizard", layout: "two-column",
+      elements: [
+        { id: "s1", type: "step", label: "Account", pos: "a0" },
+        { id: "f1", type: "text-input", label: "Name", pos: "a1" },
+        { id: "s2", type: "step", label: "Review", pos: "a2" },
+      ],
+    } as ComponentNode;
+    migrateComponent(w);
+    expect([w.type, w.shape, w.layout, w.props?.columns]).toEqual(["wizard", "steps", "one-column", "2"]);
+    expect(w.elements!.filter((e) => e.type !== "header").map((e) => e.id)).toEqual(["s1", "f1", "s2"]);
+  });
+
+  it("keeps a legacy wizard's fields under its first step, where they showed", () => {
+    const el = (id: string, type: string, pos: string) => ({ id, type, label: id, pos });
+    const w = {
+      id: "w", type: "form", label: "Book", pos: "a0", shape: "wizard", layout: "one-column",
+      elements: [el("h", "header", "a0"), el("s1", "step", "a1"), el("s2", "step", "a2"), el("s3", "step", "a3"),
+        el("f1", "select", "a4"), el("f2", "text-input", "a5"), el("b", "button", "a6")],
+    } as ComponentNode;
+    migrateComponent(w);
+    const order = [...w.elements!].sort((a, b) => (a.pos < b.pos ? -1 : 1)).map((e) => e.id);
+    expect(order).toEqual(["h", "s1", "f1", "f2", "s2", "s3", "b"]);
+  });
+
   it("form fields keep their kind heuristics; stepper and actions fold in", () => {
     const f = cmp("form", { items: ["Name", "Email", "Role"], cancelText: "Cancel", submitText: "Save" });
     migrateComponent(f);
@@ -141,7 +167,7 @@ describe("migrateComponent: graph and form families", () => {
     expect(f.elements![1].data!.kind).toBe("email");
     const st = cmp("stepper", { items: ["Account", "Review"] });
     migrateComponent(st);
-    expect([st.type, st.shape, types(st)[0]]).toEqual(["form", "wizard", "step"]);
+    expect([st.type, st.shape, types(st)[0]]).toEqual(["wizard", "steps", "step"]);
     const a = cmp("actions", { items: ["Cancel", "Save changes"] });
     migrateComponent(a);
     expect([a.type, a.shape]).toEqual(["form", "inline"]);

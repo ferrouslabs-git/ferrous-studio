@@ -399,6 +399,21 @@ def remap_page_ids(
     always survives.
     """
 
+    def remap_into(link: dict[str, Any]) -> dict[str, Any]:
+        # "Opens in" names a page too (the one whose region hosts the
+        # target). Left behind, the link simply opens where its target is
+        # placed, so only the override is dropped, never the link.
+        into = link.get("into")
+        if into is None:
+            return link
+        host = into.get("pageId") if isinstance(into, dict) else None
+        new_host = mapping.get(str(host))
+        if new_host is not None:
+            return {**link, "into": {**into, "pageId": new_host}}
+        if isinstance(into, dict) and str(host) in keep:
+            return link
+        return {k: v for k, v in link.items() if k != "into"}
+
     def remap_link(link: Any) -> Any:
         if not isinstance(link, dict):
             return None
@@ -407,8 +422,8 @@ def remap_page_ids(
             return dict(link)
         new_id = mapping.get(str(page_id))
         if new_id is None:
-            return dict(link) if str(page_id) in keep else None
-        return {**link, "pageId": new_id}
+            return remap_into(dict(link)) if str(page_id) in keep else None
+        return remap_into({**link, "pageId": new_id})
 
     def remap_links(props: dict[str, Any]) -> None:
         links = props.get("links")

@@ -189,6 +189,36 @@ def _remap_element(element: dict[str, Any], host: str, catalog: Catalog) -> bool
     return True
 
 
+def gather_legacy_steps(elements: list[Any]) -> list[Any]:
+    """A wizard-shaped form listed every step first and every field after
+    them; steps now own the fields that follow them (FS-REQ-89). When the
+    steps run together ahead of the fields, the later steps move after the
+    last field, so the first step keeps what the form showed. Mirrors
+    gatherLegacySteps in the frontend's model/migrate.ts."""
+    def kind(e: Any) -> str:
+        return e.get("type", "") if isinstance(e, dict) else ""
+
+    flow = [e for e in elements if kind(e) not in ("header", "button")]
+    first = next((i for i, e in enumerate(flow) if kind(e) == "step"), -1)
+    if first < 0:
+        return elements
+    end = first
+    while end < len(flow) and kind(flow[end]) == "step":
+        end += 1
+    later = flow[first + 1:end]
+    if not later or end == len(flow) or any(kind(e) == "step" for e in flow[end:]):
+        return elements
+    last_field = flow[-1]
+    ordered: list[Any] = []
+    for e in elements:
+        if any(e is m for m in later):
+            continue
+        ordered.append(e)
+        if e is last_field:
+            ordered.extend(later)
+    return ordered
+
+
 def normalise_legacy_elements(pages: Any, catalog: Catalog) -> None:
     """Carry export-shaped pages written before FS-REQ-84 across to today's
     element scheme, in place -- so a wireframe exported earlier (or read back
@@ -204,7 +234,22 @@ def normalise_legacy_elements(pages: Any, catalog: Catalog) -> None:
         for child in node.get("children") or []:
             walk(child)
         for component in node.get("components") or []:
-            if not isinstance(component, dict) or not isinstance(component.get("elements"), list):
+            if not isinstance(component, dict):
+                continue
+            # A wizard was a form shape until it became its own component
+            # (FS-REQ-89); the steps, fields and buttons carry straight over.
+            if component.get("type") == "form" and component.get("shape") == "wizard":
+                component["type"] = "wizard"
+                component["shape"] = "steps"
+                if component.get("layout") == "two-column":
+                    props = component.setdefault("props", {})
+                    if isinstance(props, dict):
+                        props.setdefault("columns", "2")
+                if component.get("layout") != "horizontal":
+                    component["layout"] = "one-column"
+                if isinstance(component.get("elements"), list):
+                    component["elements"] = gather_legacy_steps(component["elements"])
+            if not isinstance(component.get("elements"), list):
                 continue
             host = component.get("type")
             if not isinstance(host, str) or catalog.component(host) is None:
@@ -258,7 +303,8 @@ def get_catalog() -> Catalog:
 COMPONENT_HINTS = {
     "navbar": "primary nav, a sidebar, a top tab strip, a breadcrumb trail",
     "list": "a data table, card grid, settings list, activity feed -- shape: table + column elements is the default for tabular data",
-    "form": "a create/edit form, settings page, login form, multi-step wizard (shape: wizard + step elements)",
+    "form": "a create/edit form, settings page, login form -- one page of fields",
+    "wizard": "a multi-step form: each step element owns the fields after it, up to the next step; buttons sit under every step",
     "graph": "any chart, or KPI tiles (shape: stats + one stat element per tile)",
     "calendar": "a scheduler or booking calendar -- rare; most date-oriented needs are actually a list with a date column",
     "canvas": "anything else: a hero, a detail panel of labelled values (label+text pairs), a dashboard's free-form section, prose -- when nothing else fits, it's a canvas",
@@ -292,7 +338,7 @@ def catalogue_reference() -> str:
     catalogue rather than hand-copied into the prompt -- this can never
     drift out of sync with what create_bundle_content actually accepts."""
     catalog = get_catalog()
-    lines = ["Only six component types exist in a page's layout -- nothing else is valid:"]
+    lines = ["Only seven component types exist in a page's layout -- nothing else is valid:"]
     for name, hint in COMPONENT_HINTS.items():
         component = catalog.component(name)
         if component is None:
@@ -386,7 +432,7 @@ BUNDLE_FORMAT_GUIDE = (
     '-- including the outermost/root one -- needs its own "size": {"kind": "region", "id", '
     '"size" ({"fr": 1}, a positive integer, or "auto"), "components": [...]} or {"kind": '
     '"split", "dir": "row"/"col", "size", "children": [<region or split>, ...]}. A component: '
-    "{id, type (one of the six below), shape, layout, elements}. An element: {id, type, "
+    "{id, type (one of the seven below), shape, layout, elements}. An element: {id, type, "
     '"label" (a plain string, directly on the element -- see the common mistakes below), '
     '"data" (optional, only the specific fields that element type actually takes -- e.g. '
     '"kind"/"samples"/"placeholder"/"value", never invented ones), "props": {"links": '

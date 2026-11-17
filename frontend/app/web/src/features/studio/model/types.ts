@@ -77,9 +77,15 @@ export interface PageDocument {
  *  target is always a page; a page with a `placement` renders inside that
  *  region of its parent, so "region links" are links to placed pages.
  *  `BACK_PAGE_ID` is the one non-page target: return to the previously
- *  visited page, the way a form's Cancel or Save button behaves. */
+ *  visited page, the way a form's Cancel or Save button behaves.
+ *  With `regionId` the link opens just that region of the page — an existing
+ *  region reused where it is linked from (see model/regionFocus.ts).
+ *  With `into` the target opens in that region of the composition the link
+ *  sits in, rather than where the page is placed (see model/linkHost.ts). */
 export interface LinkTarget {
   pageId: string;
+  regionId?: string;
+  into?: { pageId: string; regionId: string };
 }
 
 /** Sentinel `pageId`: follow the visit history backwards instead of going to

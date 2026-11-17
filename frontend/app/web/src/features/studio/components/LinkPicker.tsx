@@ -8,6 +8,10 @@
 // inspector body scrolls, so an absolutely positioned dropdown would be
 // clipped by its overflow.
 //
+// Region also lists the project's EXISTING regions (any page with more than
+// one): linking to one opens just that region of its page, reused rather
+// than copied (see model/regionFocus.ts).
+//
 // Page also lists the pages of the project's other wireframes, grouped under
 // each wireframe's name: linking to one shares it (it opens inside this
 // wireframe's shell, and edits to it show everywhere it is used).
@@ -15,6 +19,7 @@ import { Fragment, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import type { ProjectPageSummary } from "../../project/wireframes/wireframesApi";
 import type { PageSummary } from "../../projects/projectsApi";
 import { ComposedRegions } from "../model/linkRegions";
+import { RegionChoice, regionLinkChoices, regionLinkName } from "../model/regionFocus";
 import { sharedLinkGroups, sharedPageName } from "../model/sharedPages";
 import { BACK_PAGE_ID, LinkTarget, PagePresentation, PRESENTATION_LABELS } from "../model/types";
 import { pageDisplayName } from "./PageSelect";
@@ -82,11 +87,14 @@ export function LinkPicker({
   const isBack = link?.pageId === BACK_PAGE_ID;
   const targetPage = link && !isBack ? pages.find((p) => p.id === link.pageId) ?? null : null;
   const sharedTarget = link && !isBack && !targetPage ? projectPages.find((p) => p.id === link.pageId) ?? null : null;
+  const regionName = link?.regionId ? regionLinkName({ pageId: link.pageId, regionId: link.regionId }, projectPages, wireframeId) : null;
   const summary = !link
     ? "None"
     : isBack
       ? "‹ Back (previous page)"
-      : targetPage
+      : link.regionId && (targetPage || sharedTarget)
+        ? regionName ?? "Missing region"
+        : targetPage
         ? pageDisplayName(targetPage, pages)
         : sharedTarget
           ? sharedPageName(sharedTarget, projectPages)
@@ -119,6 +127,23 @@ export function LinkPicker({
     }
     return out;
   }, [choices, query]);
+
+  // Existing regions a link may open, filtered by the same search box idea
+  // as pages; a wireframe heading belongs to whichever rows survive.
+  const regionChoices = useMemo(() => regionLinkChoices(projectPages, wireframeId), [projectPages, wireframeId]);
+  const filteredRegions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return regionChoices;
+    const out: RegionChoice[] = [];
+    let lastWireframe: string | undefined;
+    for (const c of regionChoices) {
+      const { wireframe } = c;
+      if (!c.label.toLowerCase().includes(q) && !(wireframe && wireframe.toLowerCase().includes(q))) continue;
+      out.push({ ...c, group: wireframe && wireframe !== lastWireframe ? wireframe : undefined });
+      lastWireframe = wireframe;
+    }
+    return out;
+  }, [regionChoices, query]);
 
   const hover = (regionId: string | null) => onHoverRegion?.(regionId);
   // The picker can unmount mid-hover (selection change, page switch): never
@@ -190,6 +215,31 @@ export function LinkPicker({
               {o.id === own ? <span className="link-note">this region</span> : o.note && <span className="link-note">{o.note}</span>}
             </div>
           ))}
+          {regionChoices.length > 0 && (
+            <>
+              <div className="link-group">Existing region</div>
+              <input
+                className="link-search"
+                placeholder="Search regions…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <div className="link-pages" onMouseEnter={() => hover(null)}>
+                {filteredRegions.map((c) => (
+                  <Fragment key={`${c.page.id}:${c.regionId}`}>
+                    {c.group && <div className="link-group">{c.group}</div>}
+                    <div
+                      className={`link-opt${c.page.id === link?.pageId && c.regionId === link.regionId ? " active" : ""}`}
+                      onClick={() => pick({ pageId: c.page.id, regionId: c.regionId })}
+                    >
+                      <span className="name">{c.label}</span>
+                    </div>
+                  </Fragment>
+                ))}
+                {filteredRegions.length === 0 && <div className="link-empty">No regions match “{query}”</div>}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -219,7 +269,7 @@ export function LinkPicker({
               <Fragment key={p.id}>
                 {group && <div className="link-group">{group}</div>}
                 <div
-                  className={`link-opt${p.id === link?.pageId ? " active" : ""}${i === highlight ? " highlight" : ""}`}
+                  className={`link-opt${p.id === link?.pageId && !link.regionId ? " active" : ""}${i === highlight ? " highlight" : ""}`}
                   onMouseEnter={() => setHighlight(i)}
                   onClick={() => pick({ pageId: p.id })}
                 >
@@ -230,6 +280,66 @@ export function LinkPicker({
             ))}
             {filtered.length === 0 && <div className="link-empty">No pages match “{query}”</div>}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "Opens in": the region of the visible composition a link's target renders
+ *  in. A menu rather than a native select, so hovering a row can outline its
+ *  region on the canvas (a select's options report no hover). */
+export function OpensInPicker({
+  options, into, unlistedName, disabled, onPick, onHoverRegion,
+}: {
+  /** The composition's regions the target may open in, in visual order. */
+  options: ComposedRegions["options"];
+  into: NonNullable<LinkTarget["into"]> | null;
+  /** Name for an `into` that is not among `options` (set from another view,
+   *  or since removed); null when it is listed or there is none. */
+  unlistedName: string | null;
+  disabled: boolean;
+  onPick(into: NonNullable<LinkTarget["into"]> | null): void;
+  onHoverRegion?(regionId: string | null): void;
+}) {
+  const [open, setOpen] = useState(false);
+  // The menu can unmount mid-hover: never leave a stale outline behind.
+  useEffect(() => () => onHoverRegion?.(null), [onHoverRegion]);
+
+  const close = () => {
+    setOpen(false);
+    onHoverRegion?.(null);
+  };
+  const pick = (next: NonNullable<LinkTarget["into"]> | null) => {
+    onPick(next);
+    close();
+  };
+  const name = (o: ComposedRegions["options"][number]) => (o.note ? `${o.label} · ${o.note}` : o.label);
+  const current = into ? options.find((o) => o.pageId === into.pageId && o.id === into.regionId) : null;
+  const summary = !into ? "Default" : current ? name(current) : unlistedName ?? "Missing region";
+
+  return (
+    <div className="link-picker" onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
+      <button type="button" className="link-trigger" disabled={disabled} onClick={() => (open ? close() : setOpen(true))}>
+        <span className="name">{summary}</span>
+        <span className="caret">▾</span>
+      </button>
+      {open && (
+        <div className="link-menu" onMouseLeave={() => onHoverRegion?.(null)}>
+          <div className={`link-opt${!into ? " active" : ""}`} onMouseEnter={() => onHoverRegion?.(null)} onClick={() => pick(null)}>
+            Default
+          </div>
+          {options.map((o) => (
+            <div
+              key={`${o.pageId}:${o.id}`}
+              className={`link-opt${o === current ? " active" : ""}`}
+              onMouseEnter={() => onHoverRegion?.(o.id)}
+              onClick={() => pick({ pageId: o.pageId, regionId: o.id })}
+            >
+              <span className="name">{o.label}</span>
+              {o.note && <span className="link-note">{o.note}</span>}
+            </div>
+          ))}
         </div>
       )}
     </div>

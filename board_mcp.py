@@ -1,7 +1,8 @@
 """Ferrous Studio MCP server -- lets an AI coding agent read and update one
 project's board (releases, epics, features, sprints, requirements, docs,
-comments, attachments) AND its wireframes, diagrams and use case diagram, over the
-real REST API, authenticated as a board token rather than a human login.
+comments, attachments) AND its wireframes, diagrams, use case diagram and
+high-fidelity designs, over the real REST API, authenticated as a board token
+rather than a human login.
 
 Runs over stdio; add it to a project's .mcp.json. Deliberately isolated
 from the main app's dependencies -- `mcp` is not a backend/requirements.txt
@@ -836,6 +837,70 @@ def update_use_case(
     fields are left as they are."""
     return _studio_call(
         "PATCH", f"/use-cases/{use_case_id}", _patch_of(name=name, description=description, actor_ids=actor_ids)
+    )
+
+
+# ── High-fidelity designs ───────────────────────────────────────────────────
+#
+# Studio authors a design's brief and frames the site published from its
+# Figma Make file; the design itself lives in that file and is put there by
+# the agent holding this token (docs/high-fidelity-design.md, and the
+# studio-design skill that drives these three tools). So: read the brief and
+# record where the Make file and its published site are. There is no tool to
+# create, rename, archive or delete a design -- that is filing, and stays with
+# a person in the app.
+
+@mcp.tool()
+def list_designs() -> dict:
+    """Every high-fidelity design in this project -- id, name, which
+    wireframes it is for (all_wireframes, else wireframe_ids), status
+    (active | archived), figma_url (null until it has been generated) and
+    published_url (the site Studio frames; null until published). Start here
+    to find the real id of the design meant; never invent one."""
+    return {"designs": _studio_call("GET", "/designs")}
+
+
+@mcp.tool()
+def get_design_brief(design_id: str, download_images: bool = True) -> dict:
+    """Everything needed to build one design's prototype -- design_id from
+    list_designs(), never invented:
+
+    - brief: the aesthetics text a person wrote. It is the instruction.
+    - wireframes: one or more wireframes, each in its export shape
+      (wireframeId, wireframeName, interfaceType, pages, landingPageId,
+      datasets, customComponents) -- what to build, as ONE prototype. Page
+      ids are unique across them, so a link into another wireframe's page
+      resolves.
+    - missingWireframeIds: picked wireframes since deleted; build the rest.
+    - catalogueReference: the component and element vocabulary that shape
+      uses.
+    - referenceImages: images to take the look from. With download_images
+      each is saved to a local temp folder and gets a saved_to path you can
+      open; their url is short-lived either way.
+    - design: where it stands -- figma_url, published_url."""
+    brief = _studio_call("GET", f"/designs/{design_id}/brief")
+    if download_images:
+        for image in brief.get("referenceImages") or []:
+            with urllib.request.urlopen(image["url"], timeout=60) as r:
+                data = r.read()
+            safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in image["filename"]) or "reference"
+            path = os.path.join(_attachment_dir(), f"{image['id'][:8]}-{safe_name}")
+            with open(path, "wb") as f:
+                f.write(data)
+            image["saved_to"] = path
+    return brief
+
+
+@mcp.tool()
+def set_design_figma_url(design_id: str, figma_url: str | None = None, published_url: str | None = None) -> dict:
+    """Record where a design lives in Figma -- design_id from list_designs().
+    figma_url: the Figma Make file, as returned when the project was sent to
+    Figma. published_url: the site published from it (https://<name>.figma.site),
+    which is what Studio's design page frames. Both must be https links on
+    figma.com or figma.site; an omitted one is left as it is. This records an
+    address only -- it changes nothing in Figma."""
+    return _studio_call(
+        "PUT", f"/designs/{design_id}/figma", _patch_of(figma_url=figma_url, published_url=published_url)
     )
 
 

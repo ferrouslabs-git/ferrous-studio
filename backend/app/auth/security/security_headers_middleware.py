@@ -24,6 +24,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # a blob). A blob: URL is low risk there; it must never be added to
         # script-src, worker-src or object-src, where it would let any
         # in-page string run as code.
+        #
+        # frame-src also names https://*.figma.site: a high-fidelity design is
+        # shown by framing the site published from its Figma Make file. It is
+        # another origin, so it cannot read this page, its storage or its
+        # cookies; the frame's sandbox adds the rest -- see
+        # docs/high-fidelity-design.md.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "base-uri 'self'; "
@@ -35,7 +41,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self' https://js.stripe.com; "
-            "frame-src blob: https://js.stripe.com https://hooks.stripe.com;"
+            "frame-src blob: https://js.stripe.com https://hooks.stripe.com https://*.figma.site;"
         )
 
         return response

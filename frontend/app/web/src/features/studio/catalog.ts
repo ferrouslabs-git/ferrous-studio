@@ -111,8 +111,15 @@ export function navAlign(el: { type: string; data?: Record<string, string> }): N
  *  Inspector). Rendered as `el-variant-*` classes. Stored as `data.shape`
  *  before "shape" came to name what an element is (RENAMED_ELEMENT_DATA). */
 export const EL_VARIANT_OPTIONS = ["square", "rounded", "pill"] as const;
-/** A basic shape's orientation in degrees (`data.rotate`), clockwise. */
+/** A canvas element's orientation in degrees (`data.rotate`), clockwise.
+ *  The Inspector offers these steps; the canvas's rotate handle sets any
+ *  whole degree (FS-REQ-90). */
 export const EL_ROTATION_OPTIONS = ["0", "45", "90", "135", "180", "225", "270", "315"] as const;
+/** An element's rotation as 0-359 whole degrees. */
+export function rotationOf(el: { data?: Record<string, string> }): number {
+  const n = Math.round(Number(el.data?.rotate ?? 0));
+  return Number.isFinite(n) ? ((n % 360) + 360) % 360 : 0;
+}
 
 /** Fill treatments a fillable element offers (stored as `data.fill`; unset
  *  keeps the widget's own default). Rendered as `el-fill-*` classes. */
@@ -331,6 +338,9 @@ export const FORM_SPAN_OPTIONS = [
 /** Form elements that sit in the field grid (and so take a width). */
 export const isFormFieldType = (type: string): boolean =>
   type !== "header" && type !== "button" && type !== "step";
+/** Components whose fields sit on the twelve-track grid and so offer the
+ *  Columns control and per-field widths: forms, and wizards' steps. */
+export const isFieldGridHost = (type: string | undefined): boolean => type === "form" || type === "wizard";
 /** Column counts a form, or one of its rows, can take (all divide twelve). */
 export const FORM_COLUMN_OPTIONS = [1, 2, 3, 4] as const;
 const asColumns = (v: unknown): number | null => {
@@ -404,6 +414,14 @@ export const INPUT_TYPES = [
   "radio-group", "checkbox", "toggle", "read-only", "file-upload", "slider",
 ] as const;
 export const isInputType = (type: string): boolean => (INPUT_TYPES as readonly string[]).includes(type);
+/** What a list column's cells can show (`data.input`): every input shape,
+ *  plus a button (FS-REQ-88) whose label is the cell's own value, so each row
+ *  can read differently. Not an input anywhere else: a list's own button
+ *  element is a control, not a column. */
+export const COLUMN_CELL_TYPES = [...INPUT_TYPES, "button"] as const;
+export const isColumnCellType = (type: string): boolean => (COLUMN_CELL_TYPES as readonly string[]).includes(type);
+/** A button column's label in a row with no value of its own and no samples. */
+export const COLUMN_BUTTON_LABEL = "View";
 export const LIST_ALIGNABLE = new Set<string>(["search", "button", ...FILTER_TYPES, ...INPUT_TYPES]);
 /** An element's side of its list line. Unset keeps the look lists have
  *  always had: controls trail an inline title and lead otherwise; buttons
@@ -576,8 +594,33 @@ const CAL_LEGEND = el({
 /** Element lists shared between hosts (the canvas hosts everything). */
 export const FORM_ELEMENTS: ElementTypeMeta[] = [
   TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, RADIO_GROUP, CHECKBOX, TOGGLE, DATE_PICKER, DATE_TIME,
-  READ_ONLY, FILE_UPLOAD, SECTION_HEADING, STEP, HELP_TEXT, BUTTON,
+  READ_ONLY, FILE_UPLOAD, SECTION_HEADING, HELP_TEXT, BUTTON,
 ];
+/** A wizard's vocabulary (FS-REQ-89): its steps, and the form's fields and
+ *  buttons. Steps belong to the wizard alone; no other component has them. */
+export const WIZARD_ELEMENTS: ElementTypeMeta[] = [STEP, ...FORM_ELEMENTS];
+
+/** One step of a wizard and the fields it owns. */
+export interface WizardStep<T> {
+  /** The step element; null for a wizard that has no steps yet. */
+  step: T | null;
+  fields: T[];
+}
+/** A wizard's flow (its elements in pos order, without header and buttons)
+ *  split into steps: each step owns the fields after it, up to the next
+ *  step. Fields before the first step belong to the first step. */
+export function wizardSteps<T extends { type: string }>(flow: readonly T[]): WizardStep<T>[] {
+  const steps: WizardStep<T>[] = [];
+  const lead: T[] = [];
+  for (const el of flow) {
+    if (el.type === "step") steps.push({ step: el, fields: [] });
+    else if (steps.length) steps[steps.length - 1].fields.push(el);
+    else lead.push(el);
+  }
+  if (!steps.length) return [{ step: null, fields: lead }];
+  steps[0].fields.unshift(...lead);
+  return steps;
+}
 // A list's controls are any input (they replaced the three filter chips,
 // which RETIRED_ELEMENTS.list converts).
 export const LIST_ELEMENTS: ElementTypeMeta[] = [
@@ -714,7 +757,7 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
     shapes: [
       { id: "simple", label: "Simple", desc: "Flat list of fields" },
       { id: "sections", label: "Sections", desc: "Fields grouped under headings" },
-      { id: "wizard", label: "Wizard", desc: "Multi-step with progress" },
+      // "wizard" became its own component (FS-REQ-89; see migrate.ts).
       { id: "inline", label: "Inline", desc: "One row of inputs" },
     ],
     defaultShape: "simple",
@@ -734,6 +777,33 @@ export const COMPONENTS: Record<string, ComponentMeta> = {
       { type: "select", label: "Team", data: { options: "Design, Engineering, Sales" } },
       { type: "button", label: "Cancel", data: { style: "secondary" } },
       { type: "button", label: "Save", data: { style: "primary" } },
+    ],
+  },
+  wizard: {
+    type: "wizard", label: "Wizard", desc: "Steps, each with its own fields", icon: "WIZ",
+    shapes: [
+      { id: "steps", label: "Steps", desc: "Numbered steps across the top" },
+      { id: "side", label: "Side steps", desc: "Steps listed down the left" },
+      { id: "progress", label: "Progress bar", desc: "A bar and the step's name" },
+    ],
+    defaultShape: "steps",
+    layouts: [
+      { id: "one-column", label: "Labels above" },
+      { id: "horizontal", label: "Labels beside" },
+    ],
+    defaultLayout: "one-column",
+    elements: [HEADER, ...WIZARD_ELEMENTS],
+    defaultElements: [
+      { type: "header" },
+      { type: "step", label: "Details" },
+      { type: "text-input", label: "Name" },
+      { type: "text-input", label: "Email", data: { kind: "email" } },
+      { type: "step", label: "Preferences" },
+      { type: "select", label: "Plan", data: { options: "Free, Team, Enterprise" } },
+      { type: "step", label: "Confirm" },
+      { type: "checkbox", label: "I agree to the terms" },
+      { type: "button", label: "Back", data: { style: "secondary" } },
+      { type: "button", label: "Next", data: { style: "primary" } },
     ],
   },
   graph: {
@@ -867,6 +937,11 @@ export const RETIRED_ELEMENTS: Record<string, Record<string, ElementRemap | null
   // A list's filter chips became its inputs: a dropdown keeps the chip's
   // look in the controls row (label, value, chevron), with its options,
   // dataset and selection.
+  // Steps moved to the wizard component (FS-REQ-89). A wizard-shaped form
+  // becomes a wizard before this runs, so only stray steps are dropped.
+  form: {
+    step: null,
+  },
   list: {
     filter: { type: "select" },
     "filter-multi": { type: "multi-select" },
@@ -896,6 +971,7 @@ export const DEFAULT_LABELS: Record<string, string> = {
   navbar: "App",
   list: "List",
   form: "Form",
+  wizard: "Wizard",
   graph: "Chart",
   canvas: "Canvas",
   calendar: "Calendar",

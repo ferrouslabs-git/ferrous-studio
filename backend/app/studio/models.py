@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -622,3 +623,46 @@ class ProjectDocument(Base):
         Index("ix_project_documents_account_project", "account_id", "project_id", "created_at"),
         Index("ix_project_documents_purpose", "account_id", "project_id", "purpose", "created_at"),
     )
+
+
+# ── High-fidelity designs ───────────────────────────────────────────────────
+
+
+class ProjectDesign(Base):
+    """A brief for a high-fidelity prototype, and where its result lives.
+
+    Studio authors only the brief: which wireframes, a name, the aesthetics
+    text and the reference images. The prototype itself lives in a Figma Make
+    file (``figma_url``), which is the single source of truth. Studio shows
+    the site published from it (``published_url``) in a frame, so what is on
+    show is always what Make last published. See docs/high-fidelity-design.md.
+
+    Which wireframes: ``all_wireframes`` means every active wireframe of the
+    project, resolved whenever the brief is read; otherwise
+    ``wireframe_ids``, in the order picked. The ids are soft references like
+    ``Wireframe.landing_page_id`` (no FK): deleting a wireframe must not take
+    the design with it.
+    """
+
+    __tablename__ = "project_designs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    all_wireframes = Column(Boolean, nullable=False, default=False)
+    # Wireframe ids as strings; empty when all_wireframes.
+    wireframe_ids = Column(JSONB, nullable=False, default=list)
+    name = Column(String(255), nullable=False)
+    brief = Column(Text, nullable=False, default="")
+    # ids of project_documents rows with purpose "design_reference".
+    reference_document_ids = Column(JSONB, nullable=False, default=list)
+    figma_url = Column(String(2048), nullable=True)
+    # The site published from the Make file: what the design page frames.
+    published_url = Column(String(2048), nullable=True)
+    status = Column(String(20), nullable=False, default="active")  # active | archived
+    pos = Column(String(64), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (Index("ix_project_designs_account_project", "account_id", "project_id"),)
