@@ -120,7 +120,18 @@ class Settings:
     # Best-effort only -- a notification posted on Blocked/Done never gates
     # anything. Empty = notifications are silently skipped.
     slack_webhook_url: str
+    # CloudOps admin pages (INT-REQ-14). The task role is shared by staging and prod, so the pages are
+    # on in prod only unless CLOUDOPS_ENABLED says otherwise.
+    cloudops_enabled: bool = False
 
+
+
+def _cloudops_enabled() -> bool:
+    """CloudOps admin pages: CLOUDOPS_ENABLED wins when set; otherwise on in prod only."""
+    raw = os.getenv("CLOUDOPS_ENABLED", "").strip().lower()
+    if raw:
+        return raw in ("true", "1", "yes")
+    return os.getenv("APP_ENV", "local") == "prod"
 
 
 def _int(name: str, default: int) -> int:
@@ -181,4 +192,5 @@ def get_settings() -> Settings:
         slack_signing_secret=os.getenv("SLACK_SIGNING_SECRET", "").strip(),
         slack_token_key=os.getenv("SLACK_TOKEN_KEY", "").strip(),
         slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL", "").strip(),
+        cloudops_enabled=_cloudops_enabled(),
     )
