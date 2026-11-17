@@ -163,6 +163,58 @@ aws elbv2 create-rule --region eu-west-1 \
 > validation records to be created out-of-band, which doesn't fit a single
 > `terraform apply`. If you want it automated, that's the natural next step.
 
+## Tag everything you create (INT-REQ-15, INT-REQ-17)
+
+Every AWS resource carries three tags, so the bill can be split per app and per environment. Without them
+the Costs page in Studio shows the spend as "untagged". The full rules and the allowed `Product` values are
+in `infra/cloudops/TAGGING.md` in the `functionalAI` repo. **Do not invent a new `Product` value: add it to that
+page first.**
+
+| Tag | Value for a new product `<product>` |
+|---|---|
+| `Product` | `<product>` (lowercase, for example `ferrous-studio`) |
+| `Environment` | `prod`, `staging`, `uat`, `dev` or `shared` |
+| `ManagedBy` | `terraform`, `cloudformation`, `deploy-script`, `serverless` or `manual` |
+
+Copy-paste for each way of creating things (replace `<product>` and `<env>`):
+
+```hcl
+# Terraform: once, in the provider block. Every resource it creates inherits the tags.
+provider "aws" {
+  default_tags {
+    tags = { Product = "<product>", Environment = "<env>", ManagedBy = "terraform" }
+  }
+}
+```
+
+```bash
+T='Product=<product>,Environment=<env>,ManagedBy=deploy-script'
+
+# ECS service: tags, and pass them to the running tasks (the Fargate cost is billed per task)
+aws ecs create-service ... --propagate-tags SERVICE --enable-ecs-managed-tags \
+  --tags key=Product,value=<product> key=Environment,value=<env> key=ManagedBy,value=deploy-script
+
+# Task definition
+aws ecs register-task-definition ... \
+  --tags key=Product,value=<product> key=Environment,value=<env> key=ManagedBy,value=deploy-script
+
+# Parameter Store secret (we do not use Secrets Manager for new secrets: it costs $0.40 a month each)
+aws ssm put-parameter --name /<product>/<env>/<NAME> --type SecureString --value ... \
+  --tags Key=Product,Value=<product> Key=Environment,Value=<env> Key=ManagedBy,Value=deploy-script
+
+# CloudFormation: stack tags are copied to the resources
+aws cloudformation deploy ... --tags Product=<product> Environment=<env> ManagedBy=cloudformation
+```
+
+Check your work with the audit (read-only, about 30 seconds), from the `functionalAI` repo:
+
+```bash
+python infra/cloudops/tagging/audit-tags.py --profile fnai
+```
+
+It lists every resource with a missing or wrong tag and how to fix it. Never put a secret, personal data or a
+customer name in a tag value.
+
 ## Instance-level housekeeping (as products accumulate)
 
 - **Connections** — the per-role `CONNECTION LIMIT 20` set by
