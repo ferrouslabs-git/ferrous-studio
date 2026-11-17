@@ -17,6 +17,7 @@ import type { PageSummary } from "../projects/projectsApi";
 import { deviceMinWidth } from "./components/Canvas";
 import { PreviewCanvas } from "./components/PreviewCanvas";
 import { CustomDef } from "./model/actions";
+import { hostOverrideFor } from "./model/linkHost";
 import { focusView } from "./model/regionFocus";
 import { BACK_PAGE_ID, LinkTarget } from "./model/types";
 import { DESKTOP_DESIGN_W, DESKTOP_FLEX_FLOOR, Stage, useDesktopFit, useStageFit } from "./stage";
@@ -96,7 +97,11 @@ export function PreviewShell({
 
   // Ancestor shells for a child page: walk placements upwards. The preview
   // only reads the rendered levels; the records exist for the editor.
-  const host = useHostChain(fetchPage, page, doc.cache, shells).levels;
+  // A link's "opens in" applies to the page it was followed to: mid-switch
+  // the outgoing page keeps the one it was drawn with.
+  const shownHost = useRef(nav.host);
+  if (page && page.id === activePageId) shownHost.current = nav.host;
+  const host = useHostChain(fetchPage, page, doc.cache, shells, shownHost.current).levels;
   // A link to one region of a page narrows that page to the region.
   const view = useMemo(
     () => (page ? focusView(nav.focus, page, host) : null),
@@ -115,15 +120,16 @@ export function PreviewShell({
         else toast("No previous page to go back to");
       } else if (!allPages.some((p) => p.id === target.pageId)) {
         toast("The linked page no longer exists");
-      } else if (target.regionId) {
-        // One region of the page: open the page itself (no descent to a
-        // default child), narrowed to that region.
-        nav.visit(target.pageId, { pageId: target.pageId, regionId: target.regionId });
       } else {
-        go(target.pageId);
+        // A link with "opens in" sets where its target renders; one without
+        // keeps whatever the view it is followed from already has.
+        const opensIn = hostOverrideFor(target, allPages, (id) => pages.some((p) => p.id === id)) ?? undefined;
+        // One region of the page: the page narrowed to it, on whatever is
+        // placed in that region. A whole page: its nav-driven default child.
+        go(target.pageId, target.regionId ? { pageId: target.pageId, regionId: target.regionId } : undefined, opensIn);
       }
     },
-    [allPages, toast, go, nav.back, nav.canBack, nav.visit], // eslint-disable-line react-hooks/exhaustive-deps
+    [allPages, pages, toast, go, nav.back, nav.canBack], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const activePageIds = useMemo(

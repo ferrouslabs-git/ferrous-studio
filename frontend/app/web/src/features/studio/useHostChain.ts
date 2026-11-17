@@ -27,9 +27,10 @@
 // which keeps the shell chrome from flickering on navigation.
 import { MutableRefObject, useCallback, useEffect, useMemo, useState } from "react";
 import { HostLevel } from "./components/Canvas";
+import { HostOverride, overrides } from "./model/linkHost";
 import { normalizePage } from "./model/positions";
 import { fallbackRegionId, matchingRegionId, regionIds } from "./model/tree";
-import { PageRecord } from "./model/types";
+import { PagePlacement, PageRecord } from "./model/types";
 import { PageFetcher } from "./usePageDocument";
 
 interface StoredLevel {
@@ -61,6 +62,10 @@ export function useHostChain(
   page: PageRecord | null,
   cache?: MutableRefObject<Map<string, PageRecord>>,
   shells?: ShellContext,
+  /** A followed link's "opens in" (model/linkHost.ts): the page it names
+   *  renders in that region instead of where it is placed. Applied once, at
+   *  the first level it matches. */
+  override?: HostOverride | null,
 ): HostChain {
   const [stored, setStored] = useState<StoredLevel[]>([]);
 
@@ -69,7 +74,19 @@ export function useHostChain(
     // stay too: only a RESOLVED page decides — a top-level one drops them,
     // a child page keeps the previous chain until its own has resolved.
     if (!page) return;
-    if (!page.placement) {
+    let pending = override ?? null;
+    /** Where the page `id` renders: the override's region the first time it
+     *  applies, else the page's own placement. */
+    const placedAt = (id: string, own: PagePlacement | null) => {
+      if (pending && overrides(pending, id, own)) {
+        const to = pending.to;
+        pending = null;
+        return { placement: to, overridden: true };
+      }
+      return { placement: own, overridden: false };
+    };
+    let step = placedAt(page.id, page.placement);
+    if (!step.placement) {
       setStored([]);
       return;
     }
@@ -85,13 +102,13 @@ export function useHostChain(
     const load = async () => {
       const levels: StoredLevel[] = [];
       const seen = new Set<string>([page.id]);
-      let placement = page.placement;
-      while (placement && !seen.has(placement.page_id) && levels.length < 6) {
+      while (step.placement && !seen.has(step.placement.page_id) && levels.length < 6) {
         try {
-          let parent = await get(placement.page_id);
-          let regionId = placement.region_id;
+          let parent = await get(step.placement.page_id);
+          let regionId = step.placement.region_id;
           const home = parent.wireframe_id;
-          const ownShell = shells && home && home !== shells.wireframeId && shells.shellOf(home) === parent.id
+          // An overridden step names its host outright: nothing to swap.
+          const ownShell = !step.overridden && shells && home && home !== shells.wireframeId && shells.shellOf(home) === parent.id
             ? shells.shellOf(shells.wireframeId)
             : null;
           if (ownShell && !seen.has(ownShell)) {
@@ -101,7 +118,7 @@ export function useHostChain(
           }
           levels.unshift({ record: parent, placementRegionId: regionId });
           seen.add(parent.id);
-          placement = parent.placement;
+          step = placedAt(parent.id, parent.placement);
         } catch {
           break;
         }
@@ -110,7 +127,7 @@ export function useHostChain(
     };
     void load();
     return () => controller.abort();
-  }, [page?.id, page?.placement, fetchPage, shells]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page?.id, page?.placement, fetchPage, shells, override]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = useCallback(
     (pageId: string, next: (prev: PageRecord) => PageRecord) => {

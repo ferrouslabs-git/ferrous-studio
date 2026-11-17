@@ -18,7 +18,7 @@ resource "aws_security_group" "ecs" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Product = local.product_name }
+  tags = { Environment = "shared" }
 }
 
 # Authorise this product's tasks on the shared RDS security group. This is a
@@ -31,5 +31,5 @@ resource "aws_security_group_rule" "task_to_rds" {
   protocol                 = "tcp"
   security_group_id        = local.shared.rds_sg
   source_security_group_id = aws_security_group.ecs.id
-  description               = "${local.product_name} tasks to RDS"
+  description              = "${local.product_name} tasks to RDS"
 }

@@ -285,3 +285,63 @@ export function LinkPicker({
     </div>
   );
 }
+
+/** "Opens in": the region of the visible composition a link's target renders
+ *  in. A menu rather than a native select, so hovering a row can outline its
+ *  region on the canvas (a select's options report no hover). */
+export function OpensInPicker({
+  options, into, unlistedName, disabled, onPick, onHoverRegion,
+}: {
+  /** The composition's regions the target may open in, in visual order. */
+  options: ComposedRegions["options"];
+  into: NonNullable<LinkTarget["into"]> | null;
+  /** Name for an `into` that is not among `options` (set from another view,
+   *  or since removed); null when it is listed or there is none. */
+  unlistedName: string | null;
+  disabled: boolean;
+  onPick(into: NonNullable<LinkTarget["into"]> | null): void;
+  onHoverRegion?(regionId: string | null): void;
+}) {
+  const [open, setOpen] = useState(false);
+  // The menu can unmount mid-hover: never leave a stale outline behind.
+  useEffect(() => () => onHoverRegion?.(null), [onHoverRegion]);
+
+  const close = () => {
+    setOpen(false);
+    onHoverRegion?.(null);
+  };
+  const pick = (next: NonNullable<LinkTarget["into"]> | null) => {
+    onPick(next);
+    close();
+  };
+  const name = (o: ComposedRegions["options"][number]) => (o.note ? `${o.label} · ${o.note}` : o.label);
+  const current = into ? options.find((o) => o.pageId === into.pageId && o.id === into.regionId) : null;
+  const summary = !into ? "Default" : current ? name(current) : unlistedName ?? "Missing region";
+
+  return (
+    <div className="link-picker" onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
+      <button type="button" className="link-trigger" disabled={disabled} onClick={() => (open ? close() : setOpen(true))}>
+        <span className="name">{summary}</span>
+        <span className="caret">▾</span>
+      </button>
+      {open && (
+        <div className="link-menu" onMouseLeave={() => onHoverRegion?.(null)}>
+          <div className={`link-opt${!into ? " active" : ""}`} onMouseEnter={() => onHoverRegion?.(null)} onClick={() => pick(null)}>
+            Default
+          </div>
+          {options.map((o) => (
+            <div
+              key={`${o.pageId}:${o.id}`}
+              className={`link-opt${o === current ? " active" : ""}`}
+              onMouseEnter={() => onHoverRegion?.(o.id)}
+              onClick={() => pick({ pageId: o.pageId, regionId: o.id })}
+            >
+              <span className="name">{o.label}</span>
+              {o.note && <span className="link-note">{o.note}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

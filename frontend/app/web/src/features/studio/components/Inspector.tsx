@@ -15,11 +15,12 @@ import { elementLink, elementTypeOptions, elementValue, EL_PREFIX, elKey, findEl
 import { ComposedRegions } from "../model/linkRegions";
 import { byPos } from "../model/positions";
 import { cmpSize, findNode, SplitSide } from "../model/tree";
+import { regionLinkName } from "../model/regionFocus";
 import { BACK_PAGE_ID, ComponentNode, LinkTarget, PageDocument, PagePresentation, PageRecord, Size } from "../model/types";
 import { NAV_ICON_MARKS, navIconGlyph } from "./icons";
 import { isSvgFile, readImageFile } from "./imageFile";
 import type { ProjectPageSummary } from "../../project/wireframes/wireframesApi";
-import { LinkPicker } from "./LinkPicker";
+import { LinkPicker, OpensInPicker } from "./LinkPicker";
 import { ElementSel, Selection } from "./selection";
 
 interface Props {
@@ -71,6 +72,8 @@ interface Props {
   onMoveElement(sel: ElementSel, delta: -1 | 1 | "front" | "back"): void;
   onRemoveElement(sel: ElementSel): void;
   onSetLink(sel: ElementSel, target: LinkTarget | null): void;
+  /** The same link with the region it opens in changed ("Opens in"). */
+  onSetLinkOpensIn(sel: ElementSel, target: LinkTarget): void;
   onCreateLinkedPage(sel: ElementSel, regionId: string | null, presentation?: PagePresentation): void;
   /** The link menu's Region list is hovering a region: the canvas outlines it. */
   onHoverLinkRegion(regionId: string | null): void;
@@ -567,6 +570,13 @@ export function Inspector(props: Props) {
   // (not missing) until the project listing, which carries regions, loads.
   const linkRegions = link?.regionId ? props.projectPages?.find((p) => p.id === link.pageId)?.regions : undefined;
   const linkRegionMissing = !!link?.regionId && !!linkRegions && !linkRegions.some((r) => r.id === link.regionId);
+  // "Opens in": the region of the visible composition the link's target
+  // renders in. One set from another view may not be on the canvas now.
+  const opensInListed = !!link?.into
+    && props.linkRegions.options.some((o) => o.pageId === link.into?.pageId && o.id === link.into.regionId && o.pageId !== link.pageId);
+  const opensInName = link?.into
+    ? regionLinkName(link.into, props.projectPages ?? [], props.wireframeId ?? "")
+    : null;
   const cmpMeta = selectedCmp ? COMPONENTS[selectedCmp.type] ?? null : null;
   // A selected element node (as opposed to a scalar prop token).
   const elementNode =
@@ -1014,6 +1024,23 @@ export function Inspector(props: Props) {
                 onHoverRegion={props.onHoverLinkRegion}
               />
             </div>
+            {link && linkTargetPage && !linkTargetPage.presentation && (
+              <div className="field">
+                <label>Opens in</label>
+                <OpensInPicker
+                  key={`${elementSel.cmpId}:${elementSel.key}:${elementSel.index ?? ""}`}
+                  options={props.linkRegions.options.filter((o) => o.pageId !== link.pageId)}
+                  into={link.into ?? null}
+                  unlistedName={link.into && !opensInListed ? opensInName ?? "Missing region" : null}
+                  disabled={ro}
+                  onPick={(into) => {
+                    const { into: _dropped, ...plain } = link;
+                    props.onSetLinkOpensIn(elementSel, into ? { ...plain, into } : plain);
+                  }}
+                  onHoverRegion={props.onHoverLinkRegion}
+                />
+              </div>
+            )}
             {link && !isBackLink && !linkTargetPage && <div className="insp-hint">The target page no longer exists.</div>}
             {linkRegionMissing && <div className="insp-hint">The target region no longer exists.</div>}
             {elementNode && !ro && (

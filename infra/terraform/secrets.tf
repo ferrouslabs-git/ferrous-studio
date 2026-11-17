@@ -1,66 +1,23 @@
+# Secrets and config for the app live in AWS Systems Manager Parameter Store
+# (SecureString), NOT in Secrets Manager (INT-REQ-11: every Secrets Manager secret costs
+# $0.40 a month, Parameter Store costs nothing). The values are set once by hand
+# and are deliberately not in Terraform, so they never land in Terraform state:
+#
+#   printf '%s' '<value>' > /tmp/v.txt
+#   aws ssm put-parameter --name /ferrous-studio/<env>/<KEY> --type SecureString \
+#     --tier Standard --value file:///tmp/v.txt --no-overwrite
+#
+# Keys per environment (staging and prod): DATABASE_URL, GITHUB_APP_ID, GITHUB_APP_SLUG,
+# GITHUB_APP_PRIVATE_KEY, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, SLACK_CLIENT_ID,
+# SLACK_CLIENT_SECRET, SLACK_SIGNING_SECRET, SLACK_TOKEN_KEY. The task definition
+# (infra/ecs/taskdef.template.json) names them, and the execution role may read them
+# (read_parameters in iam.tf). Leaving an environment's GitHub or Slack values as a
+# placeholder is valid: the backend then reports configured: false.
+
+# Still needed: rds.tf uses these as the passwords it sets on the per-environment
+# database roles. The same values were copied into the DATABASE_URL parameters.
 resource "random_password" "db" {
   for_each = toset(local.envs)
   length   = 40
   special  = false # keep it URL-safe for a postgresql:// connection string
-}
-
-resource "aws_secretsmanager_secret" "database_url" {
-  for_each = toset(local.envs)
-  name     = "${local.product_name}/${each.key}/DATABASE_URL"
-}
-
-resource "aws_secretsmanager_secret_version" "database_url" {
-  for_each      = toset(local.envs)
-  secret_id     = aws_secretsmanager_secret.database_url[each.key].id
-  secret_string = "postgresql+psycopg://${local.product_name}_${each.key}_app:${random_password.db[each.key].result}@${local.shared.rds_endpoint}:5432/${local.product_name}_${each.key}"
-}
-
-# The Claude API key for requirements extraction. Deliberately no
-# aws_secretsmanager_secret_version: the value is set once by hand so the key
-# never lands in Terraform state --
-#   aws secretsmanager put-secret-value \
-#     --secret-id ferrous-studio/<env>/ANTHROPIC_API_KEY --secret-string sk-ant-...
-# The execution role's read_secrets policy (iam.tf) already covers it.
-resource "aws_secretsmanager_secret" "anthropic_api_key" {
-  for_each = toset(local.envs)
-  name     = "${local.product_name}/${each.key}/ANTHROPIC_API_KEY"
-}
-
-# The GitHub App's credentials. GITHUB_APP_ID and GITHUB_APP_SLUG are not
-# secret, but keeping all five together means one mechanism and one runbook
-# entry (infra/docs/onboarding-runbook.md). Deliberately no
-# aws_secretsmanager_secret_version, same reasoning as anthropic_api_key
-# above: each App is created by hand per environment (its Setup URL must
-# match that environment's own domain), so the values are set once by hand --
-#   aws secretsmanager put-secret-value \
-#     --secret-id ferrous-studio/<env>/GITHUB_APP_PRIVATE_KEY --secret-string "$(base64 -w0 <key>.pem)"
-# Leaving an environment's values empty is a valid choice: the backend
-# reports configured: false and the Repository/GitHub pages say so.
-locals {
-  github_secrets = ["GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]
-}
-
-resource "aws_secretsmanager_secret" "github" {
-  for_each = { for pair in setproduct(local.envs, local.github_secrets) : "${pair[0]}/${pair[1]}" => pair }
-  name     = "${local.product_name}/${each.value[0]}/${each.value[1]}"
-}
-
-# The Slack app's credentials (one Slack app per environment, because its
-# Redirect URL is fixed to that environment's domain -- see
-# infra/docs/slack-app-setup.md). SLACK_TOKEN_KEY is not issued by Slack: it is
-# a Fernet key we generate, which encrypts each organisation's bot token at
-# rest. Same reasoning as github_secrets above: no aws_secretsmanager_secret_version,
-# the values are set once by hand --
-#   aws secretsmanager put-secret-value #     --secret-id ferrous-studio/<env>/SLACK_CLIENT_SECRET --secret-string <value>
-# Passed to the task by infra/ecs/taskdef.template.json, so every environment
-# needs a value in each (an ECS task cannot start while a secret it names has no
-# value). An environment with no Slack app holds a single space: the backend
-# strips it to empty and reports Slack as not configured. Staging is that today.
-locals {
-  slack_secrets = ["SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET", "SLACK_TOKEN_KEY"]
-}
-
-resource "aws_secretsmanager_secret" "slack" {
-  for_each = { for pair in setproduct(local.envs, local.slack_secrets) : "${pair[0]}/${pair[1]}" => pair }
-  name     = "${local.product_name}/${each.value[0]}/${each.value[1]}"
 }

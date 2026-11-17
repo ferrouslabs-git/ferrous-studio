@@ -96,3 +96,15 @@ def test_a_region_link_keeps_its_region_through_a_copy():
     copied = remap_page_ids(pages, {OLD_SHELL: NEW_SHELL})
     assert links_of(copied[0])["el:a"] == {"pageId": NEW_SHELL, "regionId": "r1"}
 
+
+
+def test_opens_in_follows_its_host_page_through_a_copy():
+    link = {"pageId": SHARED, "into": {"pageId": OLD_SHELL, "regionId": "r1"}}
+    copied = remap_page_ids(shell({"el:a": link}), {OLD_SHELL: NEW_SHELL}, keep={SHARED})
+    assert links_of(copied[0])["el:a"] == {"pageId": SHARED, "into": {"pageId": NEW_SHELL, "regionId": "r1"}}
+
+
+def test_opens_in_is_dropped_when_its_host_page_did_not_travel():
+    link = {"pageId": OLD_SHELL, "into": {"pageId": STALE, "regionId": "r9"}}
+    copied = remap_page_ids(shell({"el:a": link}), {OLD_SHELL: NEW_SHELL})
+    assert links_of(copied[0])["el:a"] == {"pageId": NEW_SHELL}

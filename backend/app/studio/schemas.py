@@ -630,9 +630,10 @@ class DiagramRead(DiagramSummary):
 
 
 # Which list a file belongs to: the project's own documents, or the example
-# data captured beside the use case model. One table and one upload path
-# serve both (see documents.py).
-DocumentPurpose = Literal["document", "example_data"]
+# data captured beside the use case model, or the reference images of a
+# high-fidelity design brief. One table and one upload path serve all three
+# (see documents.py).
+DocumentPurpose = Literal["document", "example_data", "design_reference"]
 
 
 class DocumentCreate(BaseModel):
@@ -823,3 +824,65 @@ class ProjectAgentStatus(BaseModel):
     the platform's own key powers every organisation's chat for now."""
 
     configured: bool
+
+
+# ── High-fidelity designs ─────────────────────────────────────────────────
+
+
+#: A brief may carry this many reference images.
+ReferenceDocumentIds = Annotated[list[UUID], Field(max_length=12)]
+
+#: The wireframes a design is for, in the order picked.
+DesignWireframeIds = Annotated[list[UUID], Field(max_length=200)]
+
+
+class DesignCreate(BaseModel):
+    #: True sends every active wireframe of the project, including ones added
+    #: later; otherwise ``wireframe_ids`` names one or more.
+    all_wireframes: bool = False
+    wireframe_ids: DesignWireframeIds = []
+    name: str = Field(min_length=1, max_length=255)
+    brief: str = Field("", max_length=20000)
+    reference_document_ids: ReferenceDocumentIds = []
+    pos: str | None = Field(None, min_length=1, max_length=64)
+
+
+class DesignUpdate(BaseModel):
+    """Everything a person may change: the brief, and how the design is filed.
+    Nothing here reaches the design's content -- that lives in Figma Make
+    (see designs.py)."""
+
+    name: str | None = Field(None, min_length=1, max_length=255)
+    brief: str | None = Field(None, max_length=20000)
+    reference_document_ids: ReferenceDocumentIds | None = None
+    #: Sent together: the pair is checked as one choice.
+    all_wireframes: bool | None = None
+    wireframe_ids: DesignWireframeIds | None = None
+    status: Literal["active", "archived"] | None = None
+    pos: str | None = Field(None, min_length=1, max_length=64)
+
+
+class DesignRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    project_id: UUID
+    all_wireframes: bool
+    wireframe_ids: list[UUID]
+    name: str
+    brief: str
+    reference_document_ids: list[UUID]
+    figma_url: str | None
+    published_url: str | None
+    status: str
+    pos: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class DesignFigmaUpdate(BaseModel):
+    """Where the design lives in Figma. Absent leaves a field alone; an
+    explicit null clears it."""
+
+    figma_url: str | None = Field(None, max_length=2048)
+    published_url: str | None = Field(None, max_length=2048)

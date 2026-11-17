@@ -49,7 +49,10 @@ describe("focusView", () => {
   it("narrows an ancestor only while the page below sits in that region", () => {
     const edit = { id: "edit", document: doc(region("e", "Edit")) };
     const inList = [shell, { pageId: "users", doc: users, regionId: "list" }];
-    expect(focusView({ pageId: "users", regionId: "list" }, edit, inList).host[1].doc.root.id).toBe("list");
+    const view = focusView({ pageId: "users", regionId: "list" }, edit, inList);
+    expect(view.host[1].doc.root.id).toBe("list");
+    // The page placed in the region is still drawn whole.
+    expect(view.doc).toBe(edit.document);
     const inFilters = [shell, { pageId: "users", doc: users, regionId: "filters" }];
     expect(focusView({ pageId: "users", regionId: "list" }, edit, inFilters).host).toBe(inFilters);
   });

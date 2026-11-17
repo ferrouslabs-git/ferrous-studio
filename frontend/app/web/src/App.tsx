@@ -33,6 +33,7 @@ import { SprintBoardPage } from "./features/project/roadmap/SprintBoardPage";
 import { UseCaseDiagramPage } from "./features/project/usecases/UseCaseDiagramPage";
 import { AuditLogPage } from "./features/project/wireframes/AuditLogPage";
 import { WireframesPage } from "./features/project/wireframes/WireframesPage";
+import { DesignPage } from "./features/project/design/DesignPage";
 import { HighFidelityDesignPage } from "./features/project/design/HighFidelityDesignPage";
 import { ProjectsPage } from "./features/projects/ProjectsPage";
 import { PreviewPage } from "./features/studio/PreviewPage";
@@ -110,6 +111,7 @@ export function App() {
               <Route path="wireframes/:wireframeId/snapshots/:versionId/preview" element={<SnapshotPreviewPage />} />
               <Route path="wireframes/:wireframeId/audit" element={<AuditLogPage />} />
               <Route path="high-fidelity-design" element={<HighFidelityDesignPage />} />
+              <Route path="high-fidelity-design/:designId" element={<DesignPage />} />
               <Route path="documents" element={<DocumentsPage />} />
               {/* The delivery board: two tabs (Roadmap, Epics); the release
                   page, the sprint board and the epic page are drilled into

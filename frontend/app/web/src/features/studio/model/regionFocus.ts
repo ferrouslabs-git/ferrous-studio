@@ -58,8 +58,9 @@ export function focusView<L extends Level>(
   }
   const at = host.findIndex((h) => h.pageId === focus.pageId);
   if (at < 0 || host[at].regionId !== focus.regionId) return same;
-  const doc = narrowDocument(host[at].doc, focus.regionId);
-  return doc ? { doc, host: host.map((h, i) => (i === at ? { ...h, doc } : h)) } : same;
+  // Only the ancestor narrows: the open page below it is drawn whole.
+  const narrowed = narrowDocument(host[at].doc, focus.regionId);
+  return narrowed ? { doc: page.document, host: host.map((h, i) => (i === at ? { ...h, doc: narrowed } : h)) } : same;
 }
 
 /** Whether a plain visit to `pageId` keeps the current focus: only a page
