@@ -14,18 +14,16 @@ function Card({ title, totals, children }: { title: string; totals?: Totals; chi
       <h2>{title}</h2>
       {totals && (
         <dl className="cloudops-lines">
-          <dt>Usage, before credits</dt>
+          <dt>AWS charges</dt>
           <dd>{usd(totals.usage)}</dd>
-          <dt>Credits</dt>
+          <dt>Free credits used</dt>
           <dd>{usd(totals.credits)}</dd>
-          <dt className="strong">Before VAT</dt>
+          <dt className="strong">We pay</dt>
           <dd className="strong">{usd(totals.before_vat)}</dd>
-          <dt>VAT</dt>
-          <dd>{usd(totals.vat)}</dd>
-          <dt>With VAT</dt>
-          <dd>{usd(totals.with_vat)}</dd>
-          <dt>Effective, VAT reclaimed</dt>
-          <dd>{usd(totals.effective)}</dd>
+          <dt className="muted">VAT on top (reclaimed later)</dt>
+          <dd className="muted">{usd(totals.vat)}</dd>
+          <dt className="muted">Card is charged</dt>
+          <dd className="muted">{usd(totals.with_vat)}</dd>
         </dl>
       )}
       {children}
@@ -76,7 +74,7 @@ function Daily({ current, previous }: { current: DailyAmount[]; previous: DailyA
   ];
   return (
     <section className="cloudops-section" aria-label="Daily cost">
-      <h2>Daily cost</h2>
+      <h2>Cost per day</h2>
       {max === 0 ? (
         <p className="muted">No daily spend to chart yet.</p>
       ) : (
@@ -114,28 +112,28 @@ function Report({ report }: { report: CostReport }) {
   return (
     <>
       <div className="cloudops-cards">
-        <Card title="Month to date" totals={report.month_to_date} />
-        <Card title="Forecast for the month">
+        <Card title="This month so far" totals={report.month_to_date} />
+        <Card title="Expected by the end of the month">
           {f ? (
             <dl className="cloudops-lines">
               {f.at_current_pace && (
                 <>
-                  <dt className="strong">At the last {f.at_current_pace.days} days’ pace</dt>
+                  <dt className="strong">If spending stays like the last {f.at_current_pace.days} days</dt>
                   <dd className="strong">{usd(f.at_current_pace.month_usage)}</dd>
-                  <dt className="muted">That pace</dt>
+                  <dt className="muted">That is about</dt>
                   <dd className="muted">{usd(f.at_current_pace.per_day)} a day</dd>
                 </>
               )}
               {f.month_usage !== null && f.remaining !== null && (
                 <>
-                  <dt>AWS’s own forecast</dt>
+                  <dt>AWS’s own guess</dt>
                   <dd>{usd(f.month_usage)}</dd>
-                  <dt className="muted">Still to come, per AWS</dt>
+                  <dt className="muted">Still to come, by AWS’s guess</dt>
                   <dd className="muted">{usd(f.remaining)}</dd>
                 </>
               )}
               <dt className="muted" style={{ gridColumn: "1 / -1" }}>
-                Month-end usage, {f.basis}. AWS’s model can run well above what is actually being spent.
+                These are AWS charges before credits and VAT. AWS’s own guess is often too high, so trust the first line.
               </dt>
             </dl>
           ) : (
@@ -146,12 +144,12 @@ function Report({ report }: { report: CostReport }) {
       </div>
 
       <Breakdown
-        title="By app (from the Product tag)"
+        title="Cost by app"
         rows={report.by_app}
-        note="Spend before the tag was activated, and anything without a tag, appears as “untagged”."
+        note="“untagged” is spend AWS could not match to an app. Tags only count from the day they were switched on, so most of this month is untagged for now. It shrinks each day."
       />
-      <Breakdown title="By environment (from the Environment tag)" rows={report.by_environment} />
-      <Breakdown title="By AWS service" rows={report.by_service} note="Usage before credits and VAT." />
+      <Breakdown title="Cost by environment (staging, prod…)" rows={report.by_environment} />
+      <Breakdown title="Cost by AWS service (what kind of thing we pay for)" rows={report.by_service} note="AWS charges before credits and VAT." />
       <Daily current={report.daily} previous={report.daily_previous} />
 
       {report.notes.length > 0 && (
@@ -190,6 +188,8 @@ export function CostsView({
           {refreshing ? "Refreshing…" : "Refresh report"}
         </button>
       </div>
+
+      <p className="muted">What AWS is charging us for Ferrous and its apps. Free credits reduce what we actually pay.</p>
 
       {snapshot ? (
         <p className="muted" data-testid="last-refreshed">

@@ -36,13 +36,13 @@ const view = (d: CostsResponse | null, extra: { loading?: boolean; refreshing?: 
 describe("CostsView", () => {
   it("shows the three headline figures with VAT and credits kept apart", () => {
     const html = view(data());
-    expect(html).toContain("Month to date");
-    expect(html).toContain("Forecast for the month");
+    expect(html).toContain("This month so far");
+    expect(html).toContain("Expected by the end of the month");
     expect(html).toContain("Last month");
     expect(html).toContain("-$33.29"); // credits visible, so a covered month never looks free
     expect(html).toContain("$244.75"); // last month's usage, even though credits covered it
     expect(html).toContain("$225.50");
-    expect(html).toContain("At the last 7 days’ pace");
+    expect(html).toContain("If spending stays like the last 7 days");
     expect(html).toContain("$180.00");
   });
 
@@ -62,7 +62,7 @@ describe("CostsView", () => {
     const html = view(data({ snapshot: null }));
     expect(html).toContain("No report yet.");
     expect(html).toContain("Refresh report");
-    expect(html).not.toContain("Month to date");
+    expect(html).not.toContain("This month so far");
   });
 
   it("is switched off, with the button disabled, where CloudOps is not enabled", () => {
@@ -79,6 +79,6 @@ describe("CostsView", () => {
   it("shows an error from the server without hiding the old report", () => {
     const html = view(data(), { error: "Cost Explorer refused the request" });
     expect(html).toContain("Cost Explorer refused the request");
-    expect(html).toContain("Month to date");
+    expect(html).toContain("This month so far");
   });
 });
