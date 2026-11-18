@@ -1,9 +1,10 @@
 // Super admin: every ECS service with its state, size, estimated cost, web addresses and auto-wake settings, and
 // (INT-REQ-14, phase 3) the controls to start or stop a non-production service and tune its auto-wake.
 //
-// Production is never changed from here: a production row has no buttons and says where to go instead. Every change
-// is sent to the guarded control function, refused again on the server if it is production, and written to the audit
-// log shown beneath the table. The state is read live from AWS each time the page opens.
+// One compact row per service (name, environment, state, instances, start/stop switch); everything else about a
+// service is in its Details panel. Production is never changed from here: its row shows "Protected" instead of a
+// switch. Every change is confirmed first, sent to the guarded control function, refused again on the server if it is
+// production, and written to the audit log beneath the list. The state is read live from AWS each time the page opens.
 import { FormEvent, useState } from "react";
 import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
@@ -33,10 +34,126 @@ export interface RowActions {
 function StatePill({ row }: { row: ServiceRow }) {
   return (
     <span className={`cloudops-state ${row.state}`} title={row.state_detail}>
+      <i aria-hidden="true" />
       {STATE_LABEL[row.state]}
     </span>
   );
 }
+
+/** The environment as a short tag; production stands out. */
+function EnvTag({ row }: { row: ServiceRow }) {
+  return <span className={row.production ? "cloudops-env prod" : "cloudops-env"}>{row.production ? "production" : row.environment}</span>;
+}
+
+/**
+ * Start/stop as one slide switch: on for a service that is up (or coming up), off for one that is asleep or stopped.
+ * It only asks the page to start or stop; the page's confirmation does the rest, so nothing changes on a click alone.
+ */
+function PowerSwitch({ row, actions }: { row: ServiceRow; actions: RowActions }) {
+  if (row.production) {
+    return (
+      <span className="cloudops-lock" title="Production: change it in the AWS console.">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="5" y="11" width="14" height="9" rx="2" />
+          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+        </svg>
+        Protected
+      </span>
+    );
+  }
+  const on = canStop(row.state);
+  const label = row.state === "asleep" ? "Asleep" : row.state === "stopped" ? "Off" : STATE_LABEL[row.state];
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={`${on ? "Stop" : "Start"} ${row.service}`}
+      className={`cloudops-switch ${row.state}`}
+      disabled={!on && !canStart(row.state)}
+      onClick={() => (on ? actions.onStop(row) : actions.onStart(row))}
+    >
+      <span className="cloudops-switch-label">{label}</span>
+      <span className="cloudops-switch-thumb" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 4v7" />
+          <path d="M7 7.5a7 7 0 1 0 10 0" />
+        </svg>
+      </span>
+    </button>
+  );
+}
+
+/** Everything about one service that does not need to be in its row. */
+export function DetailsDrawer({ row, onClose, actions }: { row: ServiceRow | null; onClose: () => void; actions?: RowActions }) {
+  return (
+    <Drawer
+      open={row !== null}
+      title={row?.service ?? ""}
+      onClose={onClose}
+      footer={
+        row && actions && !row.production ? (
+          <>
+            <button type="button" className="btn ghost" onClick={onClose}>
+              Close
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={Boolean(row.autowake.follows)}
+              title={row.autowake.follows ? `Follows ${row.autowake.follows}` : undefined}
+              onClick={() => {
+                onClose();
+                actions.onAutoWake(row);
+              }}
+            >
+              Auto-wake…
+            </button>
+          </>
+        ) : undefined
+      }
+    >
+      {row && (
+        <dl className="cloudops-details">
+          <dt>App / environment</dt>
+          <dd>
+            {row.app} / {row.environment}
+            {row.app_source === "name" && <span className="muted"> (from the name, not tagged)</span>}
+          </dd>
+          <dt>State</dt>
+          <dd>
+            <StatePill row={row} />
+            <div className="muted cloudops-note">{row.state_detail}</div>
+          </dd>
+          <dt>Instances</dt>
+          <dd>
+            {row.running} running of {row.desired}
+          </dd>
+          <dt>Size</dt>
+          <dd>{sizeLabel(row.vcpu, row.memory_gb)} each</dd>
+          <dt>≈ Cost now</dt>
+          <dd>{perMonth(row.cost.now)}</dd>
+          <dt>≈ If running</dt>
+          <dd>{perMonth(row.cost.when_running)}</dd>
+          <dt>Web address</dt>
+          <dd>
+            <Addresses row={row} />
+          </dd>
+          <dt>Auto-wake</dt>
+          <dd>{autowakeText(row.autowake)}</dd>
+          {row.production && (
+            <>
+              <dt>Changes</dt>
+              <dd>Production: change it in the AWS console.</dd>
+            </>
+          )}
+        </dl>
+      )}
+    </Drawer>
+  );
+}
+
+type Filter = "all" | "prod" | "non";
 
 function Addresses({ row }: { row: ServiceRow }) {
   if (row.urls.length === 0 && row.reached_via.length === 0) return <span className="muted">None (no web address)</span>;
@@ -58,62 +175,29 @@ function Addresses({ row }: { row: ServiceRow }) {
   );
 }
 
-function Controls({ row, actions }: { row: ServiceRow; actions: RowActions }) {
-  if (row.production) return <span className="muted">Production: change it in the AWS console.</span>;
-  return (
-    <div className="cloudops-controls">
-      {canStart(row.state) && (
-        <button className="btn" onClick={() => actions.onStart(row)}>
-          Start
-        </button>
-      )}
-      {canStop(row.state) && (
-        <button className="btn" onClick={() => actions.onStop(row)}>
-          Stop
-        </button>
-      )}
-      <button className="btn ghost" onClick={() => actions.onAutoWake(row)} disabled={Boolean(row.autowake.follows)} title={row.autowake.follows ? `Follows ${row.autowake.follows}` : undefined}>
-        Auto-wake…
-      </button>
-    </div>
-  );
-}
-
 /** The recent actions, newest first: who did what to which service, and whether it worked, was refused or failed. */
 export function ActionsLog({ rows }: { rows: ActionRow[] | null }) {
   return (
-    <section className="cloudops-section" aria-label="Recent actions">
+    <section className="cloudops-log" aria-label="Recent actions">
       <h2>Recent actions</h2>
       {rows === null ? (
         <p className="muted">Not loaded.</p>
       ) : rows.length === 0 ? (
         <p className="muted">Nothing has been changed from this panel yet.</p>
       ) : (
-        <table className="data-table list-table">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Who</th>
-              <th>Action</th>
-              <th>Service</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td>{formatDateTime(r.created_at)}</td>
-                <td>{r.user_email}</td>
-                <td>{ACTION_LABEL[r.action] ?? r.action}</td>
-                <td>{r.service}</td>
-                <td>
-                  <span className={`cloudops-result ${r.status}`}>{r.status === "ok" ? "Done" : r.status === "refused" ? "Refused" : "Failed"}</span>
-                  {r.message && <div className="muted cloudops-note">{r.message}</div>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ol>
+          {rows.map((r) => (
+            <li key={r.id}>
+              <time>{formatDateTime(r.created_at)}</time>
+              <span className="cloudops-log-what">
+                <b>{r.service}</b> {(ACTION_LABEL[r.action] ?? r.action).toLowerCase()}{" "}
+                <span className={`cloudops-result ${r.status}`}>{r.status === "ok" ? "Done" : r.status === "refused" ? "Refused" : "Failed"}</span>
+                {r.message && <span className="muted cloudops-note"> {r.message}</span>}
+              </span>
+              <span className="cloudops-log-who">{r.user_email}</span>
+            </li>
+          ))}
+        </ol>
       )}
     </section>
   );
@@ -139,20 +223,52 @@ export function ResourcesView({
 }) {
   const report = data?.resources ?? null;
   const counts = report ? countStates(report.services) : null;
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
+  const [details, setDetails] = useState<ServiceRow | null>(null);
+  const q = query.trim().toLowerCase();
+  const rows = (report?.services ?? []).filter(
+    (r) => (filter === "all" || (filter === "prod") === r.production) && (!q || r.service.toLowerCase().includes(q)),
+  );
+  const totalsTitle = report
+    ? `${report.pricing_note} If every service were on: ${usd(report.totals.when_all_running)} a month.`
+    : undefined;
+
   return (
-    <div className="page stack">
-      <div className="page-head">
+    <div className="page stack cloudops-resources">
+      <div className="cloudops-head">
         <h1>Resources</h1>
+        {report && counts && (
+          <div className="cloudops-chips" data-testid="state-counts">
+            <span className="cloudops-chip">{report.services.length} services</span>
+            <span className="cloudops-chip running">
+              <i aria-hidden="true" />
+              {counts.running} running
+            </span>
+            <span className="cloudops-chip off">
+              <i aria-hidden="true" />
+              {counts.asleep + counts.stopped} off
+            </span>
+            <span className="cloudops-chip starting">
+              <i aria-hidden="true" />
+              {counts.starting} starting
+            </span>
+            <span className="cloudops-chip unhealthy">
+              <i aria-hidden="true" />
+              {counts.unhealthy} unhealthy
+            </span>
+          </div>
+        )}
         <span className="shell-spacer" />
+        {report && (
+          <strong className="cloudops-spend" title={totalsTitle}>
+            {perMonth(report.totals.now)}
+          </strong>
+        )}
         <button className="btn" onClick={onReload} disabled={loading}>
           {loading ? "Loading…" : "Reload"}
         </button>
       </div>
-      <p className="muted">
-        {actions
-          ? "Start or stop a non-production service and tune its auto-wake. Production services cannot be changed here. Every change is recorded below."
-          : "Read-only. This reads the live state of the ECS services each time the page opens; it cannot start, stop or change anything."}
-      </p>
 
       {error && <div className="status-banner warn">{error}</div>}
       {notice && <div className="status-banner">{notice}</div>}
@@ -160,73 +276,78 @@ export function ResourcesView({
         <div className="status-banner warn">CloudOps is switched off in this environment. It runs in production only.</div>
       )}
 
-      {report && counts && (
+      {report && (
         <>
-          <p className="muted" data-testid="state-counts">
-            {report.services.length} services: {counts.running} running, {counts.asleep + counts.stopped} off, {counts.starting} starting,{" "}
-            {counts.unhealthy} unhealthy.
-          </p>
-          <div className="cloudops-section">
-            <table className="data-table list-table">
-              <thead>
-                <tr>
-                  <th>Service</th>
-                  <th>App / environment</th>
-                  <th>State</th>
-                  <th>Size</th>
-                  <th className="num">≈ Cost now</th>
-                  <th className="num">≈ If running</th>
-                  <th>Web address</th>
-                  <th>Auto-wake</th>
-                  {actions && <th>Actions</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {report.services.map((r) => (
-                  <tr key={r.service}>
-                    <td>
-                      {r.service}
-                      {r.production && <span className="cloudops-badge"> production</span>}
-                    </td>
-                    <td>
-                      {r.app} / {r.environment}
-                      {r.app_source === "name" && <span className="muted"> (from the name, not tagged)</span>}
-                    </td>
-                    <td>
-                      <StatePill row={r} />
-                      <div className="muted cloudops-note">{r.state_detail}</div>
-                    </td>
-                    <td>{sizeLabel(r.vcpu, r.memory_gb)}</td>
-                    <td className="num">{perMonth(r.cost.now)}</td>
-                    <td className="num">{perMonth(r.cost.when_running)}</td>
-                    <td>
-                      <Addresses row={r} />
-                    </td>
-                    <td>{autowakeText(r.autowake)}</td>
-                    {actions && (
-                      <td>
-                        <Controls row={r} actions={actions} />
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <th colSpan={4}>Total, estimated</th>
-                  <th className="num">{perMonth(report.totals.now)}</th>
-                  <th className="num">{perMonth(report.totals.when_all_running)}</th>
-                  <th colSpan={actions ? 3 : 2} />
-                </tr>
-              </tfoot>
-            </table>
-            <p className="muted cloudops-note">
-              {report.pricing_note} Running now: {usd(report.totals.now)} a month; if every service were on: {usd(report.totals.when_all_running)}.
-            </p>
+          <div className="cloudops-tools">
+            <div className="cloudops-seg" role="group" aria-label="Filter">
+              {(
+                [
+                  ["all", "All"],
+                  ["prod", "Production"],
+                  ["non", "Non-production"],
+                ] as const
+              ).map(([value, label]) => (
+                <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <input
+              className="input cloudops-search"
+              type="search"
+              placeholder="Search services"
+              aria-label="Search services"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+
+          <div className={actions ? "cloudops-list" : "cloudops-list readonly"} role="table" aria-label="Services">
+            <div className="cloudops-row cloudops-row-head" role="row">
+              <span role="columnheader">Service</span>
+              <span role="columnheader" className="cloudops-col-env">
+                Env
+              </span>
+              <span role="columnheader">State</span>
+              <span role="columnheader">Inst.</span>
+              {actions && <span role="columnheader">Action</span>}
+              <span role="columnheader" aria-label="Details" />
+            </div>
+            {rows.map((r) => (
+              <div key={r.service} className="cloudops-row" role="row">
+                <span role="cell" className="cloudops-name">
+                  {r.service}
+                </span>
+                <span role="cell" className="cloudops-col-env">
+                  <EnvTag row={r} />
+                </span>
+                <span role="cell">
+                  <StatePill row={r} />
+                </span>
+                <span role="cell" className="cloudops-inst">
+                  <b>{r.running}</b> / {r.desired}
+                </span>
+                {actions && (
+                  <span role="cell">
+                    <PowerSwitch row={r} actions={actions} />
+                  </span>
+                )}
+                <span role="cell">
+                  <button type="button" className="cloudops-details-btn" aria-label={`Details for ${r.service}`} onClick={() => setDetails(r)}>
+                    Details
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M9 6l6 6-6 6" />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+            ))}
+            {rows.length === 0 && <p className="muted cloudops-empty">No services match.</p>}
           </div>
         </>
       )}
       {actions && log !== undefined && <ActionsLog rows={log} />}
+      <DetailsDrawer row={details} onClose={() => setDetails(null)} actions={actions} />
     </div>
   );
 }

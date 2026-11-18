@@ -15,19 +15,92 @@
 .cloudops-chart .bar.current { fill: var(--accent); }
 .cloudops-chart .bar.previous { fill: var(--text-mute); }
 
-/* Resources: the state of a service, as a small pill. */
-.cloudops-state { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
-.cloudops-state.running { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-.cloudops-state.asleep, .cloudops-state.stopped { color: var(--text-dim); background: var(--panel-2); }
-.cloudops-state.starting { color: var(--text); }
-.cloudops-state.unhealthy { color: var(--warn); border-color: var(--warn-border); background: var(--warn-soft); }
-.cloudops-badge { font-size: 11px; color: var(--warn); }
-.cloudops-section tfoot th { text-align: left; font-weight: 600; border-top: 1px solid var(--border); }
-.cloudops-section tfoot th.num { text-align: right; }
+/* Resources: one compact row per service; the rest lives in the Details panel. */
+.cloudops-resources { max-width: 920px; }
+.cloudops-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.cloudops-head h1 { margin: 0; }
+.cloudops-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cloudops-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--text-dim); font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cloudops-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-mute); }
+.cloudops-chip.running i { background: var(--good); }
+.cloudops-chip.starting i { background: var(--warn); }
+.cloudops-chip.unhealthy i { background: var(--bad, var(--warn)); }
+.cloudops-spend { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
-/* Actions: the row controls and the audit log's result words. */
-.cloudops-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.cloudops-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.cloudops-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.cloudops-seg button { background: transparent; border: 0; padding: 6px 12px; font: inherit; font-size: 13px; color: var(--text-dim); cursor: pointer; }
+.cloudops-seg button[aria-pressed="true"] { background: var(--mute-soft); color: var(--text); }
+.cloudops-search { flex: 1 1 200px; max-width: 280px; }
+
+.cloudops-list { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+.cloudops-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 104px 48px 132px auto; align-items: center; column-gap: 10px; padding: 8px 12px; border-top: 1px solid var(--border); }
+.cloudops-list.readonly .cloudops-row { grid-template-columns: minmax(0, 1fr) auto 104px 48px auto; }
+.cloudops-row:first-child { border-top: 0; }
+.cloudops-row:not(.cloudops-row-head):hover { background: var(--mute-soft); }
+.cloudops-row-head { font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-mute); padding-block: 7px; }
+.cloudops-name { font-weight: 500; overflow-wrap: anywhere; }
+.cloudops-col-env { justify-self: end; }
+.cloudops-env { font-family: var(--mono); font-size: 10.5px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--text-mute); }
+.cloudops-env.prod { color: var(--orange-ink, var(--accent)); border-color: var(--accent-soft); background: var(--accent-soft); }
+.cloudops-inst { font-family: var(--mono); font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cloudops-inst b { color: var(--text); font-weight: 500; }
+.cloudops-empty { padding: 12px; margin: 0; }
+
+/* The state of a service: a dot and a word. */
+.cloudops-state { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
+.cloudops-state i { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--text-mute); }
+.cloudops-state.running i { background: var(--good); box-shadow: 0 0 0 3px var(--good-soft); }
+.cloudops-state.asleep, .cloudops-state.stopped { color: var(--text-dim); }
+.cloudops-state.starting i { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); animation: cloudops-pulse 1.1s ease-in-out infinite; }
+.cloudops-state.unhealthy { color: var(--warn); }
+.cloudops-state.unhealthy i { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+@keyframes cloudops-pulse { 50% { opacity: .35; } }
+
+/* Start/stop: a slide switch. Production gets a lock instead. */
+.cloudops-switch { position: relative; display: block; width: 132px; height: 30px; padding: 0; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--mute-soft); cursor: pointer; font: inherit; }
+.cloudops-switch-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-mute); pointer-events: none; }
+.cloudops-switch-thumb { position: absolute; top: 3px; left: 3px; width: 24px; height: 22px; border-radius: 999px; background: var(--text-mute); display: grid; place-items: center; transition: left .25s cubic-bezier(.22, 1, .36, 1), background .2s; }
+.cloudops-switch-thumb svg { width: 12px; height: 12px; fill: none; stroke: var(--panel); stroke-width: 3; stroke-linecap: round; }
+.cloudops-switch[aria-checked="true"] { background: var(--good-soft); border-color: var(--good); }
+.cloudops-switch[aria-checked="true"] .cloudops-switch-label { justify-content: flex-start; color: var(--good); }
+.cloudops-switch[aria-checked="true"] .cloudops-switch-thumb { left: calc(100% - 27px); background: var(--good); }
+.cloudops-switch.unhealthy[aria-checked="true"] { background: var(--warn-soft); border-color: var(--warn); }
+.cloudops-switch.unhealthy .cloudops-switch-label { color: var(--warn); }
+.cloudops-switch.unhealthy .cloudops-switch-thumb { background: var(--warn); }
+.cloudops-switch:disabled { cursor: not-allowed; opacity: .55; }
+.cloudops-lock { width: 132px; height: 30px; border-radius: 999px; border: 1px dashed var(--border-strong); display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-mute); }
+.cloudops-lock svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+.cloudops-details-btn { height: 28px; padding: 0 9px; border-radius: var(--radius); border: 1px solid var(--border); background: transparent; color: var(--text-dim); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.cloudops-details-btn:hover { border-color: var(--accent); color: var(--orange-ink, var(--accent)); }
+.cloudops-details-btn svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The Details panel's contents. */
+.cloudops-details { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px 12px; margin: 0; }
+.cloudops-details dt { color: var(--text-mute); font-family: var(--mono); font-size: 11.5px; padding-top: 2px; }
+.cloudops-details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+/* The audit log: one line per action. */
+.cloudops-log h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.cloudops-log ol { list-style: none; margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+.cloudops-log li { display: grid; grid-template-columns: 140px minmax(0, 1fr) auto; gap: 12px; padding: 7px 12px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-dim); }
+.cloudops-log li:first-child { border-top: 0; }
+.cloudops-log time, .cloudops-log-who { font-family: var(--mono); font-size: 12px; color: var(--text-mute); }
+.cloudops-log-what b { color: var(--text); font-weight: 500; }
 .cloudops-result { font-size: 12px; font-weight: 600; }
-.cloudops-result.ok { color: var(--accent); }
+.cloudops-result.ok { color: var(--good); }
 .cloudops-result.refused { color: var(--warn); }
 .cloudops-result.error { color: var(--warn); }
+
+@media (max-width: 760px) {
+  .cloudops-row-head { display: none; }
+  .cloudops-row, .cloudops-list.readonly .cloudops-row { grid-template-columns: minmax(0, 1fr) auto auto; row-gap: 8px; }
+  .cloudops-name { grid-column: 1 / -1; }
+  .cloudops-col-env { justify-self: start; }
+  .cloudops-log li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cloudops-switch-thumb { transition: none; }
+  .cloudops-state.starting i { animation: none; }
+}
