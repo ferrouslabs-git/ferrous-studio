@@ -21,6 +21,7 @@
       "environment": [
         { "name": "APP_ENV", "value": "{{ENV}}" },
         { "name": "APP_NAME", "value": "{{PRODUCT_NAME}}-api" },
+        { "name": "ECS_SERVICE_NAME", "value": "{{PRODUCT_NAME}}-{{ENV}}" },
         { "name": "AWS_REGION", "value": "{{AWS_REGION}}" },
 
         { "name": "COGNITO_REGION", "value": "{{AWS_REGION}}" },

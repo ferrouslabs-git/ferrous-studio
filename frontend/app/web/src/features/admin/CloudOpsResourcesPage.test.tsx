@@ -105,10 +105,15 @@ describe("DetailsDrawer", () => {
     expect(follower).toMatch(/<button[^>]*disabled[^>]*title="Follows fnai-uat"[^>]*>Auto-wake…/);
   });
 
-  it("offers nothing to change on a production service and says where to go", () => {
+  it("offers no auto-wake on a production service", () => {
     const html = details(row({ service: "ferrous-hub-prod", production: true }), actions);
     expect(html).not.toContain("Auto-wake…");
-    expect(html).toContain("Production: change it in the AWS console.");
+    expect(html).not.toContain("AWS console");
+  });
+
+  it("says where to go for the service Studio itself runs as", () => {
+    const html = details(row({ service: "ferrous-studio-prod", production: true, protected: true }), actions);
+    expect(html).toContain("Runs Studio itself: change it in the AWS console.");
   });
 });
 
@@ -125,8 +130,14 @@ describe("ResourcesView with controls", () => {
     expect(html).toMatch(/role="switch" aria-checked="false" aria-label="Start x-uat"/);
   });
 
-  it("gives a production service a lock instead of a switch", () => {
+  it("gives a production service a switch like any other", () => {
     const html = withActions([row({ service: "ferrous-hub-prod", production: true })]);
+    expect(html).toMatch(/role="switch" aria-checked="true" aria-label="Stop ferrous-hub-prod"/);
+    expect(html).not.toContain("Protected");
+  });
+
+  it("gives the service Studio itself runs as a lock instead of a switch", () => {
+    const html = withActions([row({ service: "ferrous-studio-prod", production: true, protected: true })]);
     expect(html).not.toContain('role="switch"');
     expect(html).toContain("Protected");
   });

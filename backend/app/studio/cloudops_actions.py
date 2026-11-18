@@ -1,12 +1,17 @@
-"""CloudOps actions API (INT-REQ-14, phase 3): start, stop and tune auto-wake for non-production services.
+"""CloudOps actions API (INT-REQ-14, phase 3): start and stop services, and tune auto-wake for non-production ones.
 
 Studio itself has NO permission to change a service. Every change goes through the ``cloudops-control``
-function, which AWS stops from touching production (an explicit IAM deny) and which only this app's task role
-may invoke. Layers, so a bug in one cannot take production down:
+function, which only this app's task role may invoke.
 
-  1. this module refuses a production service before calling anything, and writes the refusal to the audit log
-  2. the control function refuses it again
-  3. AWS denies it regardless of what either of them does
+Production services may be started and stopped (decision of 2026-11-18), except the service this app runs as
+(``own_service()``): stopping it would switch this panel off. That one is refused in layers, so a bug in one cannot
+do it:
+
+  1. this module refuses it before calling anything, and writes the refusal to the audit log
+  2. the control function refuses it again (PROTECTED_SERVICES)
+  3. AWS denies it regardless of what either of them does (an explicit IAM deny on that service)
+
+Auto-wake and keep-awake stay non-production only, refused here and in the control function.
 
 Every attempt, including refusals and failures, is written to ``cloudops_actions`` with who, what, which service
 and the state before and after. Platform administrators only; on only where ``CLOUDOPS_ENABLED`` is.
@@ -30,13 +35,15 @@ from app.auth.security import get_current_user
 from app.config import get_settings
 
 from .cloudops import _aws_error
+from .cloudops_resources import own_service
 from .models import CloudopsAction
 
 router = APIRouter()
 
 SERVICE_RE = re.compile(r"^[A-Za-z0-9_-]{1,255}$")
-NEVER_TOUCH = ("-prod",)
-PRODUCTION_MESSAGE = "Production services cannot be changed from the CloudOps panel. Use the AWS console."
+OWN_SERVICE_MESSAGE = "This service runs Studio itself, so it cannot be changed from here. Use the AWS console."
+AUTOWAKE_PRODUCTION_MESSAGE = "Auto-wake is for non-production services only. Start or stop production by hand."
+SLEEP_ACTIONS = ("set_autowake", "set_keep_awake")
 
 
 class AutoWakeBody(BaseModel):
@@ -92,9 +99,12 @@ async def _record(db: AsyncSession, user: User, action: str, service: str, param
 async def _act(db: AsyncSession, user: User, action: str, service: str, params: dict[str, Any]) -> ActionResult:
     if not get_settings().cloudops_enabled:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "CloudOps is not enabled in this environment")
-    if not SERVICE_RE.match(service) or any(s in service for s in NEVER_TOUCH):
-        await _record(db, user, action, service, params, "refused", PRODUCTION_MESSAGE)
-        raise HTTPException(status.HTTP_403_FORBIDDEN, PRODUCTION_MESSAGE)
+    if not SERVICE_RE.match(service) or service == own_service():
+        await _record(db, user, action, service, params, "refused", OWN_SERVICE_MESSAGE)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, OWN_SERVICE_MESSAGE)
+    if action in SLEEP_ACTIONS and "-prod" in service:
+        await _record(db, user, action, service, params, "refused", AUTOWAKE_PRODUCTION_MESSAGE)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, AUTOWAKE_PRODUCTION_MESSAGE)
 
     payload = {"action": action, "service": service, **params, "requested_by": user.email}
     try:

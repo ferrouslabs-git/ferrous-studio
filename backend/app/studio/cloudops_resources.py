@@ -13,6 +13,7 @@ Where the app and environment come from: the ``Product`` and ``Environment`` tag
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -162,8 +163,20 @@ def autowake_of(svc: dict) -> dict[str, Any]:
             "keep_awake_until": t.get(TAG_KEEP) or None, "follows": t.get(TAG_FOLLOWS) or None}
 
 
+def own_service() -> str:
+    """The ECS service this app itself runs as. It is never changed from its own panel: stopping it would switch the
+    panel off with no way back except the AWS console. ECS_SERVICE_NAME is set by the deploy scripts' task definition;
+    the fallback rebuilds the same name from APP_NAME ("<product>-api") and APP_ENV."""
+    explicit = os.getenv("ECS_SERVICE_NAME", "").strip()
+    if explicit:
+        return explicit
+    product = os.getenv("APP_NAME", "").strip().removesuffix("-api")
+    return f"{product}-{os.getenv('APP_ENV', 'local').strip()}" if product else ""
+
+
 def build_rows(raw: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
+    own = own_service()
     for svc in raw["services"]:
         tg = next((lb["targetGroupArn"] for lb in svc.get("loadBalancers", []) if lb.get("targetGroupArn")), None)
         aw = autowake_of(svc)
@@ -184,6 +197,7 @@ def build_rows(raw: dict[str, Any]) -> list[dict[str, Any]]:
             "reached_via": reached_via(svc, raw["rules"]),
             "autowake": aw,
             "production": "-prod" in svc["serviceName"],
+            "protected": bool(own) and svc["serviceName"] == own,
         })
     order = {"prod": 0, "uat": 1, "staging": 2, "dev": 3}
     return sorted(rows, key=lambda r: (order.get(r["environment"], 9), r["app"], r["service"]))

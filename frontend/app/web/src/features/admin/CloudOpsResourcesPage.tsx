@@ -2,9 +2,10 @@
 // (INT-REQ-14, phase 3) the controls to start or stop a non-production service and tune its auto-wake.
 //
 // One compact row per service (name, environment, state, instances, start/stop switch); everything else about a
-// service is in its Details panel. Production is never changed from here: its row shows "Protected" instead of a
-// switch. Every change is confirmed first, sent to the guarded control function, refused again on the server if it is
-// production, and written to the audit log beneath the list. The state is read live from AWS each time the page opens.
+// service is in its Details panel. Production can be started and stopped too (stopping it needs its name typed), except
+// the service Studio itself runs as: its row shows "Protected", since stopping it would switch this page off. Every
+// change is confirmed first, sent to the guarded control function, refused again on the server for Studio's own
+// service, and written to the audit log beneath the list. The state is read live from AWS each time the page opens.
 import { FormEvent, useState } from "react";
 import { Confirmation, ConfirmationDrawer } from "../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../components/Drawer";
@@ -40,6 +41,8 @@ function StatePill({ row }: { row: ServiceRow }) {
   );
 }
 
+const PROTECTED_TEXT = "Runs Studio itself: change it in the AWS console.";
+
 /** The environment as a short tag; production stands out. */
 function EnvTag({ row }: { row: ServiceRow }) {
   return <span className={row.production ? "cloudops-env prod" : "cloudops-env"}>{row.production ? "production" : row.environment}</span>;
@@ -50,9 +53,9 @@ function EnvTag({ row }: { row: ServiceRow }) {
  * It only asks the page to start or stop; the page's confirmation does the rest, so nothing changes on a click alone.
  */
 function PowerSwitch({ row, actions }: { row: ServiceRow; actions: RowActions }) {
-  if (row.production) {
+  if (row.protected) {
     return (
-      <span className="cloudops-lock" title="Production: change it in the AWS console.">
+      <span className="cloudops-lock" title={PROTECTED_TEXT}>
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <rect x="5" y="11" width="14" height="9" rx="2" />
           <path d="M8 11V8a4 4 0 0 1 8 0v3" />
@@ -141,10 +144,10 @@ export function DetailsDrawer({ row, onClose, actions }: { row: ServiceRow | nul
           </dd>
           <dt>Auto-wake</dt>
           <dd>{autowakeText(row.autowake)}</dd>
-          {row.production && (
+          {row.protected && (
             <>
               <dt>Changes</dt>
-              <dd>Production: change it in the AWS console.</dd>
+              <dd>{PROTECTED_TEXT}</dd>
             </>
           )}
         </dl>
@@ -446,12 +449,24 @@ export function CloudOpsResourcesPage() {
         confirmLabel: "Stop",
         danger: true,
         body: (
-          <p>
-            Stop <b>{row.service}</b>? Its web address will stop working until it is started again
-            {row.autowake.enabled ? ", or until someone visits it and it wakes by itself" : ""}.
-          </p>
+          <>
+            <p>
+              Stop <b>{row.service}</b>? Its web address will stop working until it is started again
+              {row.autowake.enabled ? ", or until someone visits it and it wakes by itself" : ""}.
+            </p>
+            {row.production && (
+              <Field label={`Type ${row.service} to stop this production service`}>
+                <input id="cloudops-confirm-name" className="input" autoComplete="off" spellCheck={false} />
+              </Field>
+            )}
+          </>
         ),
         run: async () => {
+          // A production service only stops once its name has been typed: a stray click must not take a live app down.
+          if (row.production) {
+            const typed = (document.getElementById("cloudops-confirm-name") as HTMLInputElement | null)?.value.trim();
+            if (typed !== row.service) throw new Error(`Type ${row.service} exactly to stop it.`);
+          }
           await stopService(row.service);
           await refresh(`Stop requested for ${row.service}.`);
         },

@@ -95,8 +95,9 @@ async def test_where_cloudops_is_off_nothing_is_called_or_recorded(wired):
 
 
 # ----------------------------------------------------------------- production
-@pytest.mark.parametrize("service", ["ferrous-studio-prod", "ferrous-hub-prod", "processmapper-prod", "x-prod-2"])
-async def test_production_is_refused_before_anything_is_called_and_the_attempt_is_on_the_record(wired, service):
+async def test_the_service_studio_runs_as_is_refused_before_anything_is_called_and_the_attempt_is_on_the_record(wired, monkeypatch):
+    monkeypatch.setenv("ECS_SERVICE_NAME", "ferrous-studio-prod")
+    service = "ferrous-studio-prod"
     for coro_factory in (
         lambda d: act.start_service(service, current_user=Admin(), db=d),
         lambda d: act.stop_service(service, current_user=Admin(), db=d),
@@ -108,6 +109,36 @@ async def test_production_is_refused_before_anything_is_called_and_the_attempt_i
             await coro_factory(db)
         assert e.value.status_code == 403 and "AWS console" in e.value.detail
         assert db.commits == 1 and db.added[0].status == "refused" and db.added[0].service == service
+    assert wired["invoked"] == []
+
+
+def test_own_service_falls_back_to_app_name_and_env(monkeypatch):
+    monkeypatch.delenv("ECS_SERVICE_NAME", raising=False)
+    monkeypatch.setenv("APP_NAME", "ferrous-studio-api")
+    monkeypatch.setenv("APP_ENV", "prod")
+    assert act.own_service() == "ferrous-studio-prod"
+
+
+@pytest.mark.parametrize("service", ["ferrous-hub-prod", "processmapper-prod"])
+async def test_other_production_services_can_be_started_and_stopped(wired, monkeypatch, service):
+    monkeypatch.setenv("ECS_SERVICE_NAME", "ferrous-studio-prod")
+    await act.stop_service(service, current_user=Admin(), db=FakeDB())
+    await act.start_service(service, current_user=Admin(), db=FakeDB())
+    assert [p["action"] for p in wired["invoked"]] == ["stop", "start"]
+
+
+@pytest.mark.parametrize("service", ["ferrous-hub-prod", "processmapper-prod"])
+async def test_auto_wake_is_refused_on_production_and_the_attempt_is_on_the_record(wired, monkeypatch, service):
+    monkeypatch.setenv("ECS_SERVICE_NAME", "ferrous-studio-prod")
+    for coro_factory in (
+        lambda d: act.set_autowake(service, act.AutoWakeBody(enabled=True), current_user=Admin(), db=d),
+        lambda d: act.set_keep_awake(service, act.KeepAwakeBody(until=None), current_user=Admin(), db=d),
+    ):
+        db = FakeDB()
+        with pytest.raises(HTTPException) as e:
+            await coro_factory(db)
+        assert e.value.status_code == 403 and "non-production services only" in e.value.detail
+        assert db.added[0].status == "refused"
     assert wired["invoked"] == []
 
 

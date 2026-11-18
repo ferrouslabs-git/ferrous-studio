@@ -87,6 +87,8 @@ export interface ServiceRow {
   reached_via: string[];
   autowake: AutoWake;
   production: boolean;
+  /** The service Studio itself runs as: never changed from here, or Studio would switch itself off. */
+  protected?: boolean;
 }
 
 export interface ResourcesReport {
