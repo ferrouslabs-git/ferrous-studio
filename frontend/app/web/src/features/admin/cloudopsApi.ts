@@ -37,6 +37,13 @@ export interface CostReport {
   by_environment: NamedAmount[] | null;
   daily: DailyAmount[];
   daily_previous: DailyAmount[];
+  // Added for the compact page (2026-11-19). Optional: reports saved before then do not have them.
+  daily_credits?: DailyAmount[] | null; // how much of each day credits covered (positive)
+  credits_ended?: string | null; // the last day credits covered anything, once later days were charged without
+  last_by_service?: Record<string, number> | null;
+  history?: (Totals & { month_start: string })[]; // this month, last month, and the one before when known
+  free_services?: string[]; // on the bill at $0 (inside AWS's free allowance)
+  lambda?: { requests: number; gb_seconds: number } | null;
   notes: string[];
 }
 

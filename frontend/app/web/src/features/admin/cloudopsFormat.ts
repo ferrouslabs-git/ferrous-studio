@@ -1,5 +1,5 @@
 // Small, pure helpers for the CloudOps costs page, kept out of the component so they can be tested alone.
-import { AutoWake, DailyAmount, ServiceRow, ServiceState } from "./cloudopsApi";
+import { AutoWake, CostReport, DailyAmount, ServiceRow, ServiceState } from "./cloudopsApi";
 
 /** 1234.5 -> "$1,234.50"; negatives read "-$33.29" so credits are unmistakable. */
 export function usd(n: number): string {
@@ -55,6 +55,40 @@ export function monthOptions(now: Date = new Date()): { value: string; label: st
   }
   return out;
 }
+
+/** Plain names for the AWS services we use most; anything else keeps AWS's own name. */
+const SERVICE_NAMES: Record<string, string> = {
+  "Amazon Elastic Container Service": "Containers (ECS)",
+  "Amazon Virtual Private Cloud": "Network & public IPs (VPC)",
+  "Amazon Elastic Load Balancing": "Load balancers",
+  "Amazon Relational Database Service": "Database (RDS)",
+  "Amazon EC2 Container Registry (ECR)": "Container images (ECR)",
+  "Amazon Route 53": "DNS (Route 53)",
+  "Amazon Simple Email Service": "Email (SES)",
+  "Amazon Simple Storage Service": "File storage (S3)",
+  "AWS Lambda": "Lambda",
+};
+export const serviceName = (aws: string): string => SERVICE_NAMES[aws] ?? aws;
+
+/** What we expect to pay this month (before VAT) if the recent pace holds and no more credits arrive. */
+export function expectedPay(report: CostReport): number | null {
+  const pace = report.forecast?.at_current_pace;
+  return pace ? Math.max(0, pace.month_usage + report.month_to_date.credits) : null;
+}
+
+/** The latest complete day's spend, against the day a week before it when there is one. */
+export function dailyNow(report: CostReport): { now: DailyAmount; then: DailyAmount | null; change: number | null } | null {
+  // Today is still being billed, so this month counts only the days before it.
+  const done = report.daily.filter((d) => (report.period.complete || d.date < report.period.through) && d.amount > 0);
+  const now = done[done.length - 1];
+  if (!now) return null;
+  const then = done.length > 6 ? done[done.length - 7] : null;
+  const change = then && then.amount > 0 ? (now.amount - then.amount) / then.amount : null;
+  return { now, then, change };
+}
+
+/** 3584 -> "3,584". */
+export const count = (n: number): string => Math.round(n).toLocaleString("en-GB");
 
 // ── Resources ───────────────────────────────────────────────────────────────
 

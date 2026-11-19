@@ -96,7 +96,7 @@ def test_per_app_uses_the_product_tag_and_untagged_is_named_honestly():
     rr = rep.build_report(raw(), TODAY)
     assert rr["by_app"] == [{"name": "fnai", "amount": 60.0}, {"name": "shared", "amount": 30.0}, {"name": "untagged", "amount": 10.0}]
     assert rr["by_environment"][0] == {"name": "untagged", "amount": 60.0}
-    assert any("only records from the day it was activated" in n for n in rr["notes"])
+    assert rr["notes"] == []                     # the page shows the untagged share itself; no explanatory note
 
 
 def test_no_tagged_spend_yet_says_so_instead_of_showing_a_confident_split():
@@ -160,12 +160,14 @@ class FakeCE:
 def test_a_refresh_makes_a_handful_of_calls_and_only_ever_reads():
     ce = FakeCE()
     out = rep.fetch_raw(ce, TODAY)
-    assert len(ce.calls) == 7                                  # about a cent each
+    assert len(ce.calls) == 11                                 # about a cent each
     assert out["forecast"] == "50"
     first = ce.calls[0]
     assert first["TimePeriod"] == {"Start": "2026-11-01", "End": "2026-11-17"}   # End is exclusive: through today
-    usage_calls = [c for c in ce.calls if "Filter" in c]
+    usage_calls = [c for c in ce.calls if "Filter" in c and "Not" in c["Filter"]]
     assert usage_calls and all(c["Filter"]["Not"]["Dimensions"]["Values"] == ["Tax", "Credit", "Refund"] for c in usage_calls)
+    lam = [c for c in ce.calls if c.get("Filter", {}).get("Dimensions", {}).get("Key") == "SERVICE"]
+    assert len(lam) == 1 and lam[0]["Filter"]["Dimensions"]["Values"] == ["AWS Lambda"] and lam[0]["Metrics"] == ["UsageQuantity"]
 
 
 def test_the_forecast_covers_usage_only_so_its_label_is_true():
@@ -180,6 +182,18 @@ def test_an_inactive_tag_or_no_forecast_is_a_note_and_the_refresh_still_works():
     assert out["mtd_by_product"] is None and out["forecast"] is None
     assert len(out["notes"]) == 3
     rep.build_report(out, TODAY)                               # and the report still builds
+
+
+def test_a_failed_extra_is_a_note_and_the_report_still_builds():
+    class Flaky(FakeCE):
+        def get_cost_and_usage(self, **kw):
+            if kw.get("Metrics") == ["UsageQuantity"]:
+                raise RuntimeError("no lambda data")
+            return super().get_cost_and_usage(**kw)
+
+    out = rep.fetch_raw(Flaky(), TODAY)
+    assert out["lambda_usage"] is None and any("Lambda usage unavailable" in n for n in out["notes"])
+    assert rep.build_report(out, TODAY)["lambda"] is None
 
 
 def test_no_forecast_is_requested_on_the_last_day_of_the_month():
@@ -386,3 +400,58 @@ async def test_a_bad_month_is_a_422_before_aws_is_asked(wired):
 def test_reports_are_found_and_pruned_per_month_so_an_old_month_is_never_pushed_out():
     src = inspect.getsource(cloudops.refresh_costs)
     assert "_in_month(picked)" in src and src.count("_in_month(picked)") >= 2
+
+
+# ----------------------------------------------------------------- the headline figures
+def records_day(d, credit, usage):
+    groups = [group("Usage", usage)] + ([group("Credit", -credit)] if credit else [])
+    return day(d, *groups)
+
+
+def test_credits_per_day_are_positive_and_the_day_they_ran_out_is_found():
+    r = raw(mtd_daily_records=[records_day("2026-11-01", 2.19, 6.0), records_day("2026-11-02", 0.71, 5.0)],
+            mtd_daily_service=[day("2026-11-01", group("ECS", 6.0)), day("2026-11-02", group("ECS", 5.0)),
+                               day("2026-11-03", group("ECS", 4.28))])
+    rr = rep.build_report(r, TODAY)
+    assert rr["daily_credits"] == [{"date": "2026-11-01", "amount": 2.19}, {"date": "2026-11-02", "amount": 0.71}]
+    assert rr["credits_ended"] == "2026-11-02"
+
+
+def test_credits_still_running_or_never_used_have_no_end_date():
+    still = [{"date": "2026-11-01", "amount": 2.0}, {"date": "2026-11-02", "amount": 2.0}]
+    daily = [{"date": "2026-11-01", "amount": 6.0}, {"date": "2026-11-02", "amount": 6.0}]
+    assert rep.credits_ended(still, daily) is None
+    assert rep.credits_ended([{"date": "2026-11-01", "amount": 0.0}], daily) is None
+    assert rep.credits_ended(None, daily) is None
+
+
+def test_free_services_are_the_ones_on_the_bill_at_no_cost():
+    r = raw(mtd_daily_service=[day("2026-11-01", group("ECS", 3.0), group("AWS Lambda", 0.0), group("Amazon Cognito", 0.0))])
+    assert rep.build_report(r, TODAY)["free_services"] == ["AWS Lambda", "Amazon Cognito"]
+
+
+def test_lambda_runs_and_compute_come_from_its_usage_types():
+    lam = [{"TimePeriod": {"Start": "2026-11-01"}, "Groups": [
+        {"Keys": ["EU-Request"], "Metrics": {"UsageQuantity": {"Amount": "3584"}}},
+        {"Keys": ["EU-Lambda-GB-Second"], "Metrics": {"UsageQuantity": {"Amount": "521.66"}}},
+        {"Keys": ["EU-DataTransfer-Out-Bytes"], "Metrics": {"UsageQuantity": {"Amount": "0.01"}}},
+    ]}]
+    assert rep.build_report(raw(lambda_usage=lam), TODAY)["lambda"] == {"requests": 3584, "gb_seconds": 521.7}
+
+
+def test_history_has_this_month_last_month_and_the_one_before_when_known():
+    rr = rep.build_report(raw(older_records=month(group("Usage", 245.10), group("Credit", -245.10))), TODAY)
+    assert [h["month_start"] for h in rr["history"]] == ["2026-11-01", "2026-10-01", "2026-09-01"]
+    assert rr["history"][2]["usage"] == 245.1 and rr["history"][2]["before_vat"] == 0.0
+    assert len(rep.build_report(raw(), TODAY)["history"]) == 2
+
+
+def test_last_month_per_service_is_a_lookup_by_name():
+    r = raw(last_by_service=month(group("ECS", 76.70), group("VPC", 52.31)))
+    assert rep.build_report(r, TODAY)["last_by_service"] == {"ECS": 76.7, "VPC": 52.31}
+    assert rep.build_report(raw(), TODAY)["last_by_service"] is None
+
+
+def test_an_old_saved_raw_without_the_extras_still_builds():
+    rr = rep.build_report(raw(), TODAY)
+    assert rr["daily_credits"] is None and rr["credits_ended"] is None and rr["lambda"] is None

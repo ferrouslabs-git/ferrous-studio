@@ -27,6 +27,7 @@ from typing import Any
 NOT_USAGE = ("Tax", "Credit", "Refund")
 TOP_SERVICES = 15
 UNTAGGED = "untagged"
+LAMBDA = "AWS Lambda"
 
 
 # ---------------------------------------------------------------- dates
@@ -114,6 +115,23 @@ def fetch_raw(ce: Any, today: date) -> dict[str, Any]:
         except Exception as e:  # tag not active yet, or no data
             raw[key] = None
             raw["notes"].append(f"{tag} tag breakdown unavailable: {type(e).__name__}")
+    # Optional extras for the page's headline figures (credits per day, last month per service, the month
+    # before last, and Lambda's free usage). Each is one more call; a failure is a note, not a failed refresh.
+    extras = {
+        "mtd_daily_records": lambda: usage(this_start, tomorrow, "DAILY", by_record),
+        "last_by_service": lambda: usage(last_start, this_start, "MONTHLY", [{"Type": "DIMENSION", "Key": "SERVICE"}], gross),
+        "older_records": lambda: usage(previous_month_start(last_start), last_start, "MONTHLY", by_record),
+        "lambda_usage": lambda: ce.get_cost_and_usage(
+            TimePeriod={"Start": _iso(this_start), "End": _iso(tomorrow)}, Granularity="MONTHLY",
+            Metrics=["UsageQuantity"], GroupBy=[{"Type": "DIMENSION", "Key": "USAGE_TYPE"}],
+            Filter={"Dimensions": {"Key": "SERVICE", "Values": [LAMBDA]}})["ResultsByTime"],
+    }
+    for key, call in extras.items():
+        try:
+            raw[key] = call()
+        except Exception as e:
+            raw[key] = None
+            raw["notes"].append(f"{key.replace('_', ' ').capitalize()} unavailable: {type(e).__name__}")
     raw["forecast"] = None
     if tomorrow < next_month_start(today):          # nothing left to forecast on the last day
         try:
@@ -194,6 +212,53 @@ def pace(daily: list[dict], mtd_usage: float, today: date, window: int = 7) -> d
     return {"per_day": money(per_day), "days": len(done), "month_usage": money(mtd_usage + per_day * days_left)}
 
 
+def daily_credits(results: list[dict] | None) -> list[dict] | None:
+    """Credits (and refunds) per day, as positive amounts: how much of each day the credits covered."""
+    if results is None:
+        return None
+    out = []
+    for r in results:
+        covered = -sum(_amount(g["Metrics"]) for g in r.get("Groups", []) if g["Keys"][0] in ("Credit", "Refund"))
+        out.append({"date": r["TimePeriod"]["Start"], "amount": money(covered)})
+    return out
+
+
+def credits_ended(credits: list[dict] | None, daily: list[dict]) -> str | None:
+    """The last day credits covered anything, when later days were charged with none: the day credits ran out.
+    None while credits are still being applied, or when there were none this month."""
+    if not credits:
+        return None
+    covered = [c["date"] for c in credits if c["amount"] > 0]
+    charged = [d["date"] for d in daily if d["amount"] > 0]
+    if not covered or not charged or covered[-1] >= charged[-1]:
+        return None
+    return covered[-1]
+
+
+def free_services(results: list[dict]) -> list[str]:
+    """Services that appear on this month's bill at no cost (inside AWS's free allowance)."""
+    acc: dict[str, float] = defaultdict(float)
+    for r in results:
+        for g in r.get("Groups", []):
+            acc[g["Keys"][0]] += _amount(g["Metrics"])
+    return sorted(n for n, v in acc.items() if abs(v) < 0.005)
+
+
+def lambda_usage(results: list[dict] | None) -> dict[str, float] | None:
+    """Lambda's runs and compute (GB-seconds) this month, from its usage types (e.g. EU-Request, EU-Lambda-GB-Second)."""
+    if results is None:
+        return None
+    requests = gb_seconds = 0.0
+    for r in results:
+        for g in r.get("Groups", []):
+            kind, qty = g["Keys"][0], float(g["Metrics"]["UsageQuantity"]["Amount"])
+            if kind.endswith("Request") or kind.endswith("Requests"):
+                requests += qty
+            elif "Lambda-GB-Second" in kind:
+                gb_seconds += qty
+    return {"requests": int(round(requests)), "gb_seconds": round(gb_seconds, 1)}
+
+
 def build_report(raw: dict[str, Any], today: date, now: datetime | None = None, complete: bool = False) -> dict[str, Any]:
     """``today`` is the report's as-of day. ``complete`` marks a past month: all of it is in, so there is
     nothing to forecast and no pace to project."""
@@ -214,11 +279,14 @@ def build_report(raw: dict[str, Any], today: date, now: datetime | None = None, 
 
     by_app = grouped(raw["mtd_by_product"], strip_tag=True) if raw.get("mtd_by_product") is not None else None
     by_env = grouped(raw["mtd_by_environment"], strip_tag=True) if raw.get("mtd_by_environment") is not None else None
-    if by_app is not None:
-        tagged = sum(r["amount"] for r in by_app if r["name"] != UNTAGGED)
-        notes.append("Per-app figures use the Product tag, which AWS only records from the day it was "
-                     "activated, so earlier spend shows as untagged." if tagged else
-                     "No tagged spend yet: the Product tag was activated recently and AWS needs up to a day to show it.")
+    if by_app is not None and not sum(r["amount"] for r in by_app if r["name"] != UNTAGGED):
+        notes.append("No tagged spend yet: the Product tag was activated recently and AWS needs up to a day to show it.")
+
+    credits = daily_credits(raw.get("mtd_daily_records"))
+    history = [{"month_start": _iso(month_start(today)), **mtd}, {"month_start": _iso(previous_month_start(today)), **last}]
+    if raw.get("older_records") is not None:
+        older = previous_month_start(previous_month_start(today))
+        history.append({"month_start": _iso(older), **totals(by_record_type(raw["older_records"]))})
 
     return {
         "generated_at": (now or datetime.now(timezone.utc)).isoformat(),
@@ -232,5 +300,12 @@ def build_report(raw: dict[str, Any], today: date, now: datetime | None = None, 
         "by_environment": by_env,
         "daily": daily,
         "daily_previous": daily_totals(raw["last_daily"]),
+        "daily_credits": credits,
+        "credits_ended": credits_ended(credits, daily),
+        "last_by_service": ({r["name"]: r["amount"] for r in grouped(raw["last_by_service"])}
+                            if raw.get("last_by_service") is not None else None),
+        "history": history,
+        "free_services": free_services(raw["mtd_daily_service"]),
+        "lambda": lambda_usage(raw.get("lambda_usage")),
         "notes": notes,
     }

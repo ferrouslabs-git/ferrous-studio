@@ -104,3 +104,64 @@
   .cloudops-switch-thumb { transition: none; }
   .cloudops-state.starting i { animation: none; }
 }
+
+/* Costs (redesigned 2026-11-19): one-line header, alert, key figures, daily chart, where it goes, recent months. */
+.cloudops-costs { max-width: 980px; }
+.cloudops-stamp { font-family: var(--mono); font-size: 12px; color: var(--text-mute); }
+.cloudops-month { width: auto; }
+.cloudops-alert { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--warn-border); background: var(--warn-soft); }
+.cloudops-alert svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--warn); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cloudops-alert b { font-weight: 600; }
+
+.cloudops-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.cloudops-kpi { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cloudops-kpi.lead { border-color: var(--accent); box-shadow: inset 0 2px 0 var(--accent); }
+.cloudops-kpi-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-mute); }
+.cloudops-kpi-value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.cloudops-kpi-sub { font-size: 12.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cloudops-down { color: var(--good); }
+.cloudops-up { color: var(--warn); }
+
+.cloudops-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 10px; }
+.cloudops-card-head h2 { margin: 0; }
+.cloudops-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--text-dim); }
+.cloudops-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cloudops-sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.cloudops-sw.pay { background: var(--cloudops-pay); }
+.cloudops-sw.credit { background: var(--cloudops-credit); }
+.cloudops-sw.ref { width: 14px; height: 0; border-top: 2px dashed var(--text-mute); border-radius: 0; }
+.cloudops-toggle { background: transparent; border: 1px solid var(--border); border-radius: var(--radius); padding: 3px 8px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); cursor: pointer; }
+
+/* Chart colours: validated pair (dataviz validator) for each theme. */
+:root, [data-theme="dark"], .theme-dark { --cloudops-pay: #EE5418; --cloudops-credit: #8B6CFF; }
+.theme-light, [data-theme="light"] { --cloudops-pay: #D44210; --cloudops-credit: #6A4CE0; }
+.cloudops-plot { position: relative; }
+.cloudops-plot svg { display: block; width: 100%; height: auto; }
+.cloudops-plot text { fill: var(--text-mute); font-family: var(--mono); font-size: 10.5px; }
+.cloudops-plot .grid { stroke: var(--border); stroke-opacity: .6; }
+.cloudops-plot .pay { fill: var(--cloudops-pay); }
+.cloudops-plot .credit { fill: var(--cloudops-credit); }
+.cloudops-plot .ref { stroke: var(--text-mute); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.cloudops-plot .ref-label { fill: var(--text-dim); }
+.cloudops-plot .hit { fill: transparent; }
+.cloudops-plot .day.dim { opacity: .35; }
+.cloudops-tip { position: absolute; top: 8px; pointer-events: none; background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 8px 10px; font-size: 12px; min-width: 150px; box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.25)); }
+.cloudops-tip .t { font-weight: 600; margin-bottom: 4px; }
+.cloudops-tip .r { display: flex; justify-content: space-between; gap: 14px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cloudops-tip .r b { color: var(--text); font-weight: 500; }
+
+.cloudops-split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.cloudops-scroll { overflow-x: auto; }
+.cloudops-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.cloudops-table th { text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-mute); font-weight: 400; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.cloudops-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.cloudops-table tr:last-child td { border-bottom: 0; }
+.cloudops-table .num { text-align: right; white-space: nowrap; }
+.cloudops-share { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-mute); }
+.cloudops-share-track { flex: 1; min-width: 40px; }
+.cloudops-share-bar { height: 6px; border-radius: 3px; background: var(--cloudops-pay); min-width: 2px; }
+.cloudops-chip-warn { font-family: var(--mono); font-size: 11px; color: var(--warn); border: 1px solid var(--warn-border); background: var(--warn-soft); padding: 2px 7px; border-radius: 999px; }
+.cloudops-free { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-dim); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.cloudops-free-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--good); }
+
+@media (max-width: 860px) { .cloudops-split { grid-template-columns: minmax(0, 1fr); } }
