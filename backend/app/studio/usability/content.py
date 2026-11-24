@@ -1,0 +1,171 @@
+"""What a study contains, and the pure rules about it.
+
+A study's ``content`` is one JSON document (see ``StudyContent`` in schemas.py):
+research questions, the protocol and consent form a participant reads, the
+tasks, the moderator's script and the word-choice list. Keeping it in one
+document is what makes a study cheap to clone and to export.
+
+Everything here is a plain function with no database, so the rules a mistake
+would be costly in -- what a participant is allowed to see, how the averages
+are worked out -- can be tested directly.
+"""
+from __future__ import annotations
+
+import math
+import secrets
+from typing import Any
+
+#: How many of their ticked words a participant picks as most descriptive.
+TOP_WORDS = 5
+
+#: The word list from the desirability exercise the participant sheet uses.
+WORDS = [
+    "Accessible", "Advanced", "Ambiguous", "Annoying", "Appealing", "Approachable", "Attractive",
+    "Awkward", "Boring", "Bright", "Business-like", "Busy", "Clean", "Clear", "Cluttered",
+    "Compelling", "Complex", "Comprehensive", "Confusing", "Consistent", "Contradictory",
+    "Controllable", "Convenient", "Counter-intuitive", "Creative", "Credible", "Cutting edge",
+    "Dated", "Desirable", "Difficult", "Distracting", "Dull", "Easy to use", "Effective",
+    "Efficient", "Effortless", "Empowering", "Energetic", "Engaging", "Entertaining", "Exciting",
+    "Expected", "Familiar", "Fast", "Faulty", "Flexible", "Fresh", "Friendly", "Frustrating",
+    "Fun", "Hard to use", "High quality", "Illogical", "Impressive", "Inadequate",
+    "Incomprehensible", "Inconsistent", "Ineffective", "Innovative", "Insecure", "Intimidating",
+    "Intuitive", "Irrelevant", "Meaningful", "Misleading", "Motivating", "New", "Non-standard",
+    "Obscure", "Old", "Ordinary", "Organised", "Overwhelming", "Patronising", "Poor quality",
+    "Powerful", "Predictable", "Professional", "Relevant", "Reliable", "Responsive", "Rigid",
+    "Satisfying", "Secure", "Simple", "Simplistic", "Slow", "Sophisticated", "Stable",
+    "Stimulating", "Straightforward", "Stressful", "System-oriented", "Time-consuming",
+    "Time-saving", "Too technical", "Trustworthy", "Unattractive", "Unconventional",
+    "Understandable", "Unpredictable", "Unrefined", "Usable", "Useful", "Vague",
+]
+
+#: Task fields a participant may see. Everything else on a task (success,
+#: path, watch, probes) is the moderator's and must never reach them.
+PARTICIPANT_TASK_KEYS = ("id", "title", "scenario", "notes", "files", "answer_prompt")
+
+SUCCESS_VALUES = ("complete", "help", "fail")
+
+
+def new_task_id() -> str:
+    """A short stable id. Results are keyed on it, so reordering or renaming
+    a task never detaches what was captured for it."""
+    return secrets.token_hex(4)
+
+
+def default_content(organisation: str) -> dict[str, Any]:
+    """What a new study starts with: a protocol, a consent form naming the
+    organisation running the study, and a moderator's script. All editable."""
+    return {
+        "research_questions": [],
+        "protocol": [
+            "Thank you for agreeing to take part in this usability study. The intention is to evaluate "
+            "the system you will be using, not your performance.",
+            "The study has two parts: a set of tasks to complete, then a short word choice exercise.",
+            "Before you begin each task, read it carefully and ask the moderator any questions you have. "
+            "Tell the moderator when you are ready to begin and when you believe you have finished.",
+            "While you work, please say out loud what you are thinking. This helps us find problems with "
+            "the system. There are no wrong answers.",
+        ],
+        "consent_title": "Consent and recording release",
+        "consent_text": [
+            f"I agree to take part in this usability study, conducted and recorded by {organisation}.",
+            f"I understand that the video session, including my screen and my voice, will be recorded, and "
+            f"I consent to {organisation} using the recording. I understand that the recording, and the "
+            f"notes, ratings and answers captured during the session, are for research purposes only and "
+            f"that my name and image will not be used for any other purpose. I relinquish any rights to the "
+            f"recording and understand it may be copied and used by {organisation} without further permission.",
+            "I understand that taking part in this study is voluntary, and I agree to raise any concerns or "
+            "areas of discomfort immediately with the study moderator.",
+            "By typing my name below I confirm that I have read and understood this form, and that any "
+            "questions I had about the session have been answered.",
+        ],
+        "tasks": [],
+        "script": {
+            "before": [
+                "Check this participant's sign-in details are filled in and the test account works.",
+                "Send the participant their link at the start of the call, not before.",
+                "Have the video call's recording ready, but do not start it yet.",
+            ],
+            "welcome": [
+                "Thank you for giving us your time today. My name is ___ and I will be running this session.",
+                "We are testing the system, not you. There are no wrong answers, and anything that is hard "
+                "to do is our problem to fix.",
+                "Please open the link I have just sent you. It explains the study and asks for your consent.",
+                "With your agreement I am going to record this call, including your screen and what you say. "
+                "Is that all right? I am starting the recording now.",
+                "While you work, say out loud what you are thinking: what you are looking for, what you "
+                "expect to happen, anything that surprises you.",
+                "You can ask me questions, but sometimes I will not answer, because I want to see what "
+                "happens when nobody is there to help.",
+                "Do you have any questions before we start?",
+            ],
+            "per_task": [
+                "Start the timer when they say they are starting. Stop it when they say they are done or give up.",
+                "Count an error each time they take a wrong action they then have to undo or recover from.",
+                "If they are stuck, give the smallest hint you can and record the task as complete with help.",
+                "When they finish, ask them to give the ease rating on their page.",
+            ],
+            "wrap_up": [
+                "Please finish with the word choice exercise on your page.",
+                "Which part of what you did today was hardest? Why?",
+                "If you could change one thing about what you used today, what would it be?",
+                "Thank you. That is everything. I am stopping the recording now.",
+            ],
+            "after": [
+                "Stop the recording and save it where the team keeps study recordings.",
+                "Finish your notes for each task while the session is fresh.",
+                "Add anything you saw to Study insights and mark this participant against it.",
+            ],
+        },
+        "words": list(WORDS),
+        "top_words": TOP_WORDS,
+    }
+
+
+def participant_content(content: dict[str, Any]) -> dict[str, Any]:
+    """The part of a study a consenting participant may see: the protocol and
+    each task without the moderator's notes."""
+    return {
+        "protocol": list(content.get("protocol", [])),
+        "tasks": [{key: task.get(key) for key in PARTICIPANT_TASK_KEYS} for task in content.get("tasks", [])],
+    }
+
+
+def task_ids(content: dict[str, Any]) -> list[str]:
+    return [task["id"] for task in content.get("tasks", [])]
+
+
+def listed_files(content: dict[str, Any]) -> set[str]:
+    """The file names any task hands to the participant. Only these are ever
+    served to one, so a file added to the study but not to a task stays private."""
+    return {name for task in content.get("tasks", []) for name in task.get("files", [])}
+
+
+def clean_words(words: list[str], top_words: list[str], content: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Keep the words this study offers, once each, in the order given; the
+    top words are those of them the participant also ticked."""
+    offered = set(content.get("words", []))
+    kept = [w for w in dict.fromkeys(words) if w in offered]
+    top = [w for w in dict.fromkeys(top_words) if w in kept]
+    return kept, top
+
+
+def stats(values: list[float]) -> dict[str, float | int | None]:
+    """Mean, count, standard deviation and 95% confidence, as the rainbow
+    spreadsheet's Metrics sheet works them out: the sample deviation, and a
+    confidence interval of 1.96 standard errors either side of the mean."""
+    n = len(values)
+    if n == 0:
+        return {"count": 0, "mean": None, "sd": None, "ci95": None}
+    mean = sum(values) / n
+    if n == 1:
+        return {"count": 1, "mean": mean, "sd": None, "ci95": None}
+    sd = math.sqrt(sum((v - mean) ** 2 for v in values) / (n - 1))
+    return {"count": n, "mean": mean, "sd": sd, "ci95": 1.96 * sd / math.sqrt(n)}
+
+
+def success_score(success: str | None) -> float | None:
+    """Success as the spreadsheet scores it: 1 for completing unaided, 0 for
+    completing with help or failing, nothing when it was not recorded."""
+    if not success:
+        return None
+    return 1.0 if success == "complete" else 0.0

@@ -28,6 +28,7 @@ A **project** opens in its own browser tab with its own menu, in two groups:
 | Delivery | Roadmap | Releases and their epics on a time axis, with the sprint lane beneath | `board_releases`, `board_sprints` |
 | Delivery | Epics | Epic list and detail — features, requirements, comments, attachments, and docs with Mermaid | `board_epics`, `board_features`, … |
 | Delivery | Feedback | Reports raised against a deployed environment | `board_feedback`, `board_environments` |
+| Delivery | Usability testing | Studies: what is tested, participants, observation capture and insights. Participants use a public link | `usability_studies`, `usability_participants`, … |
 
 ## Documentation
 
@@ -37,6 +38,7 @@ A **project** opens in its own browser tab with its own menu, in two groups:
 | [`requirements.md`](requirements.md) | Component and feature requirements (PRD) |
 | [`docs/auth-flow-and-roles.md`](docs/auth-flow-and-roles.md) | How login, users and roles work, end to end |
 | [`docs/github-repository.md`](docs/github-repository.md) | Connecting an organisation and a project to GitHub |
+| [`docs/usability-testing.md`](docs/usability-testing.md) | Usability studies: how a round runs, and the rules behind it |
 | [`docs/go-live-and-merge-boards.md`](docs/go-live-and-merge-boards.md) | Status of the go-live and board merge, and what remains |
 | [`docs/live-session.md`](docs/live-session.md) | Running against the live environment |
 | [`docs/ecs-deploy.md`](docs/ecs-deploy.md) | ECS Fargate deploy runbook |

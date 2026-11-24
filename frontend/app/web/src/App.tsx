@@ -32,6 +32,9 @@ import { ProjectDetailsPage } from "./features/project/ProjectDetailsPage";
 import { ReleasePage } from "./features/project/roadmap/ReleasePage";
 import { RoadmapPage } from "./features/project/roadmap/RoadmapPage";
 import { SprintBoardPage } from "./features/project/roadmap/SprintBoardPage";
+import { ParticipantPage } from "./features/project/usability/ParticipantPage";
+import { StudyPage } from "./features/project/usability/StudyPage";
+import { UsabilityPage } from "./features/project/usability/UsabilityPage";
 import { UseCaseDiagramPage } from "./features/project/usecases/UseCaseDiagramPage";
 import { AuditLogPage } from "./features/project/wireframes/AuditLogPage";
 import { WireframesPage } from "./features/project/wireframes/WireframesPage";
@@ -59,6 +62,8 @@ export function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/invite/:token" element={<InvitePage />} />
+        {/* A usability study participant has no account: the link is the proof. */}
+        <Route path="/study/:token" element={<ParticipantPage />} />
 
         {/* Signed in, no chrome */}
         <Route element={<ProtectedRoute />}>
@@ -115,6 +120,11 @@ export function App() {
               <Route path="high-fidelity-design" element={<HighFidelityDesignPage />} />
               <Route path="high-fidelity-design/:designId" element={<DesignPage />} />
               <Route path="documents" element={<DocumentsPage />} />
+              {/* A study and its sub-sections: participants, capture/<participant>, insights. */}
+              <Route path="usability" element={<UsabilityPage />} />
+              <Route path="usability/:studyId" element={<StudyPage />} />
+              <Route path="usability/:studyId/:section" element={<StudyPage />} />
+              <Route path="usability/:studyId/:section/:participantId" element={<StudyPage />} />
               {/* The delivery board: two tabs (Roadmap, Epics); the release
                   page, the sprint board and the epic page are drilled into
                   from them, sharing one loaded board (BoardProvider). */}

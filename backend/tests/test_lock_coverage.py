@@ -69,6 +69,14 @@ EXEMPT = {
     "request_attachment_upload", "confirm_attachment_upload", "delete_attachment",
     "create_board_token", "revoke_board_token_route", "queue_agent_run_route",
     "create_agent_route", "update_agent_route", "delete_agent_route",
+    # A usability study is a round of testing against the live product: lineage
+    # state like the board, reached through the project only to find its
+    # lineage. Freezing a design version must not stop a session in progress.
+    "create_usability_study", "update_usability_study", "delete_usability_study", "clone_usability_study",
+    "upload_usability_file", "delete_usability_file",
+    "add_usability_participant", "update_usability_participant", "remove_usability_participant",
+    "capture_usability_task",
+    "add_usability_observation", "update_usability_observation", "delete_usability_observation",
 }
 
 
