@@ -33,6 +33,11 @@ export function useFillViewport<T extends HTMLElement>(minWidth: number): (el: T
     // so that one pass settles it rather than feeding the observer.
     if (el.style.height !== height) el.style.height = height;
     el.classList.add("fills-viewport");
+    // board.css locks the window while the layout fills it, so the columns
+    // are the only scrollers -- but a lock keeps whatever offset the window
+    // already had (left over from the previous page, or from content that
+    // briefly overflowed), which would leave the page shifted and cut off.
+    if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
   }, [minWidth]);
 
   useEffect(() => () => cleanup.current?.(), []);
@@ -45,10 +50,14 @@ export function useFillViewport<T extends HTMLElement>(minWidth: number): (el: T
       if (!el) return;
       measure();
       // Anything above the layout changing height (a banner appearing, the
-      // heading wrapping) moves its top, so watch the page it sits in.
+      // heading wrapping) moves its top. That can happen at any level of the
+      // shell, not only in the page itself, so watch every ancestor and
+      // everything before each of them.
       const ro = new ResizeObserver(measure);
-      if (el.parentElement) ro.observe(el.parentElement);
-      for (let sib = el.previousElementSibling; sib; sib = sib.previousElementSibling) ro.observe(sib);
+      for (let at: Element | null = el; at && at !== document.body; at = at.parentElement) {
+        if (at !== el) ro.observe(at);
+        for (let sib = at.previousElementSibling; sib; sib = sib.previousElementSibling) ro.observe(sib);
+      }
       window.addEventListener("resize", measure);
       cleanup.current = () => {
         ro.disconnect();

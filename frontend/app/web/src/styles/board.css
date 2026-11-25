@@ -564,6 +564,10 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
    and each column scrolls on its own: the epic stays put while a long
    requirement scrolls, and the other way round. Stacked, the page scrolls. */
 .board-page .epg-layout.fills-viewport { grid-template-rows: minmax(0, 1fr); }
+/* The columns are the only scrollers then: the window never scrolls, so a
+   stray overflow elsewhere (a widened textarea, a late banner) cannot carry
+   the panes off with the page. useFillViewport resets any offset it had. */
+html:has(.board-page .epg-layout.fills-viewport) { overflow: hidden; }
 .board-page .epg-layout.fills-viewport > .epg-body, .board-page .epg-layout.fills-viewport > .rqp-pane {
   align-self: start; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
 }
