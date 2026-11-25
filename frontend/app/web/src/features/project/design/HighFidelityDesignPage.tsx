@@ -1,8 +1,9 @@
 // High fidelity design: the project's designs. A design is a brief -- one,
 // several or all of the project's wireframes, a name, aesthetics text and
 // reference images -- that a Claude
-// Code skill turns into a prototype in Figma Make. This page files designs
-// and edits their briefs; it never edits a design (docs/high-fidelity-design.md).
+// Code skill turns into a prototype in Figma Make or Claude Design (picked when
+// the design is created). This page files designs and edits their briefs; it
+// never edits a design (docs/high-fidelity-design.md).
 import { FormEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
@@ -21,7 +22,17 @@ import {
 } from "../documents/documentsApi";
 import { useProject } from "../ProjectLayout";
 import { listWireframes, Wireframe } from "../wireframes/wireframesApi";
-import { createDesign, deleteDesign, Design, listDesigns, updateDesign, wireframeSummary } from "./designsApi";
+import {
+  createDesign,
+  deleteDesign,
+  Design,
+  DESIGN_PROVIDERS,
+  DesignProvider,
+  listDesigns,
+  providerLabel,
+  updateDesign,
+  wireframeSummary,
+} from "./designsApi";
 import { DesignStatusBadge } from "./DesignStatusBadge";
 import { useRefetchOnFocus } from "./useRefetchOnFocus";
 
@@ -50,6 +61,7 @@ function DesignDrawer({
   onSaved: () => Promise<unknown>;
   onClose: () => void;
 }) {
+  const [provider, setProvider] = useState<DesignProvider>(design?.provider ?? "figma");
   const [allWireframes, setAllWireframes] = useState(design?.all_wireframes ?? true);
   const [picked, setPicked] = useState<string[]>(() => design?.wireframe_ids ?? []);
   // Archived wireframes stay listed while picked, so editing a brief never
@@ -103,6 +115,7 @@ function DesignDrawer({
       } else {
         await createDesign(projectId, {
           ...choice,
+          provider,
           name: name.trim(),
           brief,
           reference_document_ids: referenceIds,
@@ -137,6 +150,21 @@ function DesignDrawer({
         </>
       }
     >
+      {/* Fixed once created: the design then lives in that tool. */}
+      <Field label="Design tool">
+        <select
+          className="select"
+          value={provider}
+          disabled={!!design}
+          onChange={(e) => setProvider(e.target.value as DesignProvider)}
+        >
+          {DESIGN_PROVIDERS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </Field>
       <Field label="Wireframes">
         <select
           className="select"
@@ -331,7 +359,7 @@ export function HighFidelityDesignPage() {
             header: "Design",
             className: "primary",
             render: (d) => (
-              <NameCell to={`${base}/${d.id}`} sub={wireframeSummary(d, wireframes)}>
+              <NameCell to={`${base}/${d.id}`} sub={`${providerLabel(d.provider)} · ${wireframeSummary(d, wireframes)}`}>
                 {d.name}
               </NameCell>
             ),
@@ -399,8 +427,10 @@ export function HighFidelityDesignPage() {
         }}
       >
         <p>
-          Permanently delete <b>{deleting?.name}</b>? Its brief and reference images are deleted with it. The Figma Make
-          file and its published site are not touched. This cannot be undone.
+          Permanently delete <b>{deleting?.name}</b>? Its brief and reference images are deleted with it.{" "}
+          {deleting?.provider === "claude"
+            ? "The Claude Design artifact and its share link are not touched."
+            : "The Figma Make file and its published site are not touched."} This cannot be undone.
         </p>
       </ConfirmDrawer>
 

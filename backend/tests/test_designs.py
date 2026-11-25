@@ -19,6 +19,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.routing import Mount
 
@@ -27,7 +28,7 @@ from app.auth.services.auth_config_loader import get_auth_config
 from app.main import app
 from app.studio import common, designs, documents
 from app.studio.models import Project, ProjectDesign, Wireframe
-from app.studio.schemas import DesignFigmaUpdate, DesignUpdate
+from app.studio.schemas import DesignCreate, DesignFigmaUpdate, DesignUpdate
 from app.studio.versioning import COPIED_TABLES
 
 NOW = datetime(2026, 11, 13, 12, 0, 0)
@@ -115,7 +116,7 @@ def _design(project, **over) -> ProjectDesign:
     fields = dict(
         id=uuid4(), project_id=project.id, account_id=project.account_id,
         all_wireframes=False, wireframe_ids=[str(uuid4())],
-        name="Checkout", brief="Calm, generous spacing", reference_document_ids=[], figma_url=None,
+        name="Checkout", brief="Calm, generous spacing", reference_document_ids=[], provider="figma", figma_url=None,
         published_url=None, status="active", pos="a0",
         created_at=NOW, updated_at=NOW,
     )
@@ -315,7 +316,7 @@ def test_a_token_without_data_write_cannot_submit(monkeypatch):
     "https://checkout-demo.figma.site/",
 ])
 def test_figma_links_are_accepted(url):
-    assert designs.figma_url_or_422(url, "figma_url") == url
+    assert designs.design_url_or_422(url, "figma_url") == url
 
 
 @pytest.mark.parametrize("url", [
@@ -327,8 +328,49 @@ def test_figma_links_are_accepted(url):
 ])
 def test_anything_else_is_refused(url):
     with pytest.raises(HTTPException) as exc:
-        designs.figma_url_or_422(url, "figma_url")
+        designs.design_url_or_422(url, "figma_url")
     assert exc.value.status_code == 422
+
+
+# ── The Claude Design link ───────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("url", [
+    "https://claude.ai/artifact/Y455qzzAW17AJh1gTQw3zg?sk=F3JgaB_cmAWDy1SV1E4nAg#artboard-4d77c3f4c64f",
+    "https://claude.ai/code/artifact/0b6769cf-ec8e-4470-9938-4a257ba249b3",
+])
+def test_claude_links_are_accepted_for_a_claude_design(url):
+    assert designs.design_url_or_422(url, "published_url", "claude") == url
+
+
+@pytest.mark.parametrize("url,provider", [
+    # Each tool's links only: a Figma design cannot point at Claude, nor the reverse.
+    ("https://claude.ai/artifact/Y455qzzAW17AJh1gTQw3zg", "figma"),
+    ("https://checkout-demo.figma.site/", "claude"),
+    ("https://claude.ai.evil.example/artifact/x", "claude"),
+    ("http://claude.ai/artifact/x", "claude"),
+])
+def test_a_link_must_be_on_its_designs_own_tool(url, provider):
+    with pytest.raises(HTTPException) as exc:
+        designs.design_url_or_422(url, "published_url", provider)
+    assert exc.value.status_code == 422
+
+
+def test_a_claude_design_records_its_share_link(monkeypatch):
+    project = _project()
+    design = _design(project, provider="claude")
+    _stub_lookups(monkeypatch, project, design)
+    share = "https://claude.ai/artifact/Y455qzzAW17AJh1gTQw3zg?sk=F3JgaB_cmAWDy1SV1E4nAg"
+    _call(designs.set_design_figma, _ctx(), _Db(), payload=DesignFigmaUpdate(published_url=share))
+    assert design.published_url == share
+
+
+def test_the_tool_is_chosen_at_creation_only():
+    assert DesignCreate(name="x", all_wireframes=True).provider == "figma"
+    assert DesignCreate(name="x", all_wireframes=True, provider="claude").provider == "claude"
+    with pytest.raises(ValidationError):
+        DesignCreate(name="x", all_wireframes=True, provider="sketch")
+    assert "provider" not in DesignUpdate.model_fields
 
 
 def test_an_absent_field_is_left_alone_and_a_null_clears(monkeypatch):
@@ -359,8 +401,8 @@ def test_only_figmas_hosts_can_be_recorded_for_the_frame():
     """The page frames published_url, so it is held to the same hosts the CSP
     allows."""
     with pytest.raises(HTTPException):
-        designs.figma_url_or_422("https://example.com/", "published_url")
-    assert designs.figma_url_or_422("https://memory-drums-1.figma.site", "published_url")
+        designs.design_url_or_422("https://example.com/", "published_url")
+    assert designs.design_url_or_422("https://memory-drums-1.figma.site", "published_url")
 
 
 def test_reference_images_are_images_only():

@@ -1034,9 +1034,12 @@ def add_study_file(study_id: str, file_path: str) -> dict:
 def list_designs() -> dict:
     """Every high-fidelity design in this project -- id, name, which
     wireframes it is for (all_wireframes, else wireframe_ids), status
-    (active | archived), figma_url (null until it has been generated) and
-    published_url (the site Studio frames; null until published). Start here
-    to find the real id of the design meant; never invent one."""
+    (active | archived), provider (figma | claude: the tool it is made in,
+    fixed at creation), figma_url (where it is edited -- the Figma Make file
+    or the Claude Design artifact; null until generated) and published_url
+    (what Studio shows -- the figma.site page it frames, or the Claude
+    Design public share link it links to; null until published or shared).
+    Start here to find the real id of the design meant; never invent one."""
     return {"designs": _studio_call("GET", "/designs")}
 
 
@@ -1057,7 +1060,8 @@ def get_design_brief(design_id: str, download_images: bool = True) -> dict:
     - referenceImages: images to take the look from. With download_images
       each is saved to a local temp folder and gets a saved_to path you can
       open; their url is short-lived either way.
-    - design: where it stands -- figma_url, published_url."""
+    - design: where it stands -- provider (figma | claude), figma_url,
+      published_url."""
     brief = _studio_call("GET", f"/designs/{design_id}/brief")
     if download_images:
         for image in brief.get("referenceImages") or []:
@@ -1073,12 +1077,20 @@ def get_design_brief(design_id: str, download_images: bool = True) -> dict:
 
 @mcp.tool()
 def set_design_figma_url(design_id: str, figma_url: str | None = None, published_url: str | None = None) -> dict:
-    """Record where a design lives in Figma -- design_id from list_designs().
-    figma_url: the Figma Make file, as returned when the project was sent to
-    Figma. published_url: the site published from it (https://<name>.figma.site),
-    which is what Studio's design page frames. Both must be https links on
-    figma.com or figma.site; an omitted one is left as it is. This records an
-    address only -- it changes nothing in Figma."""
+    """Record where a design lives, in the tool it is made in (its
+    provider) -- design_id from list_designs(). An omitted one is left as it
+    is. This records an address only -- it changes nothing in the tool.
+
+    provider figma: figma_url is the Figma Make file, as returned when the
+    project was sent to Figma; published_url the site published from it
+    (https://<name>.figma.site), which Studio frames. Both on figma.com or
+    figma.site.
+
+    provider claude: figma_url is the Claude Design artifact's address (as
+    the Artifact tool returned it); published_url its PUBLIC share link
+    (https://claude.ai/artifact/<id>?sk=...), which Studio links to --
+    claude.ai cannot be framed. Both on claude.ai. Only a person can make
+    the share link: ask for it, never guess one."""
     return _studio_call(
         "PUT", f"/designs/{design_id}/figma", _patch_of(figma_url=figma_url, published_url=published_url)
     )

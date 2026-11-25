@@ -2,14 +2,17 @@
 
 Studio authors one thing here -- the brief: which wireframes (one, several or
 all of the project's), a name, the aesthetics text and the reference images. It never edits a design. The
-prototype lives in a Figma Make file, which is the single source of truth, and
-is put there by a Claude Code skill on the user's own machine. There is no LLM
-call in this module, and no queue or worker behind it.
+prototype lives in the tool picked when the design was created
+(``provider``) -- a Figma Make file or a Claude Design artifact -- which is the
+single source of truth, and is put there by a Claude Code skill on the user's
+own machine. There is no LLM call in this module, and no queue or worker
+behind it.
 
-Studio shows the result by framing the site published from the Make file
+Studio shows a Figma design by framing the site published from the Make file
 (``published_url``), so what is on show is always what Make last published.
-Nothing is built or uploaded to Studio; the skill keeps the prototype's source
-in a repository, for coding agents to read.
+claude.ai cannot be framed by another site, so a Claude design is shown as its
+public share link instead. Nothing is built or uploaded to Studio; the skill
+keeps the prototype's source in a repository, for coding agents to read.
 
 Two groups of routes:
 
@@ -51,27 +54,34 @@ router = APIRouter()
 
 REFERENCE_PURPOSE = "design_reference"
 
-#: Where a design may claim to live. The published site is framed on the
-#: design page (the CSP's frame-src allows https://*.figma.site), so the URLs
-#: are held to Figma's own hosts.
-FIGMA_HOSTS = ("figma.com", "figma.site")
+#: Where a design may claim to live, by the tool it is made in. A Figma
+#: design's published site is framed on the design page (the CSP's frame-src
+#: allows https://*.figma.site), so its URLs are held to Figma's own hosts. A
+#: Claude design is only ever linked to, on claude.ai.
+PROVIDER_HOSTS = {
+    "figma": ("figma.com", "figma.site"),
+    "claude": ("claude.ai",),
+}
+PROVIDER_LABEL = {"figma": "figma.com or figma.site", "claude": "claude.ai"}
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def figma_url_or_422(raw: str | None, field: str) -> str | None:
-    """``raw`` as an https URL on one of Figma's hosts, or None when blank."""
+def design_url_or_422(raw: str | None, field: str, provider: str = "figma") -> str | None:
+    """``raw`` as an https URL on one of the design tool's hosts, or None when
+    blank."""
     value = (raw or "").strip()
     if not value:
         return None
     parts = urlsplit(value)
     host = (parts.hostname or "").lower()
-    on_figma = any(host == allowed or host.endswith(f".{allowed}") for allowed in FIGMA_HOSTS)
-    if parts.scheme != "https" or not on_figma or parts.username or parts.password:
+    hosts = PROVIDER_HOSTS.get(provider, PROVIDER_HOSTS["figma"])
+    allowed = any(host == h or host.endswith(f".{h}") for h in hosts)
+    if parts.scheme != "https" or not allowed or parts.username or parts.password:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"{field} must be an https link to figma.com or figma.site",
+            detail=f"{field} must be an https link to {PROVIDER_LABEL.get(provider, PROVIDER_LABEL['figma'])}",
         )
     return value
 
@@ -215,6 +225,7 @@ async def create_design(
     design = ProjectDesign(
         project_id=project.id,
         account_id=project.account_id,
+        provider=payload.provider,
         all_wireframes=payload.all_wireframes,
         wireframe_ids=await _checked_wireframe_ids(db, project, payload.all_wireframes, payload.wireframe_ids),
         name=payload.name,
@@ -381,15 +392,17 @@ async def set_design_figma(
     ctx: ScopeContext = Depends(require_studio_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectDesign:
-    """Record where the design lives in Figma: the Make file, and the site
-    published from it, which the design page frames. Not its content -- only
-    addresses."""
+    """Record where the design lives, in its own tool: where it is edited
+    (the Make file, or the Claude Design artifact) and what Studio shows (the
+    site published from Make, framed; or the artifact's public share link).
+    Not its content -- only addresses. The route keeps its /figma path, which
+    the deployed board MCP calls, for Claude designs too."""
     project = await get_writable_project(db, project_id, ctx)
     design = await _design(db, project, design_id)
     if "figma_url" in payload.model_fields_set:
-        design.figma_url = figma_url_or_422(payload.figma_url, "figma_url")
+        design.figma_url = design_url_or_422(payload.figma_url, "figma_url", design.provider)
     if "published_url" in payload.model_fields_set:
-        design.published_url = figma_url_or_422(payload.published_url, "published_url")
+        design.published_url = design_url_or_422(payload.published_url, "published_url", design.provider)
     project.updated_at = utc_now()
     await db.commit()
     await db.refresh(design)

@@ -47,6 +47,18 @@ describe("DesignStatusBadge", () => {
     expect(html).toContain("Published");
     expect(html).toContain("badge good");
   });
+  it("reads Shared for a Claude design with a share link", () => {
+    const html = renderToString(
+      <DesignStatusBadge
+        design={{
+          provider: "claude",
+          figma_url: "https://claude.ai/artifact/AbC",
+          published_url: "https://claude.ai/artifact/AbC?sk=x",
+        }}
+      />,
+    );
+    expect(html).toContain("Shared");
+  });
 });
 
 describe("designsApi", () => {

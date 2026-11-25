@@ -2355,6 +2355,8 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
    edge. */
 .design-back { display: block; font-size: 13px; text-decoration: none; }
 .design-back:hover { text-decoration: underline; }
+/* A Claude design cannot be framed (claude.ai refuses other sites): its share link instead. */
+.design-share { display: flex; flex-direction: column; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .design-mat:fullscreen { border: 0; border-radius: 0; padding: 0; }
 .design-mat.framed:fullscreen { padding: 16px; }
 .design-mat {

@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 import type { Wireframe } from "../wireframes/wireframesApi";
 import {
+  claudeHref,
   designState,
+  designStateLabel,
   designWireframes,
   figmaHref,
   freshSiteUrl,
@@ -16,13 +18,37 @@ import {
 describe("designState", () => {
   it("moves from not generated, to in Figma, to published", () => {
     expect(designState({ figma_url: null, published_url: null })).toBe("not_generated");
-    expect(designState({ figma_url: "https://www.figma.com/make/AbC", published_url: null })).toBe("in_figma");
+    expect(designState({ figma_url: "https://www.figma.com/make/AbC", published_url: null })).toBe("in_tool");
     expect(designState({ figma_url: "https://www.figma.com/make/AbC", published_url: "https://a.figma.site" })).toBe(
       "published",
     );
   });
   it("does not call a site published that cannot be framed", () => {
     expect(designState({ figma_url: null, published_url: "https://www.figma.com/make/AbC" })).toBe("not_generated");
+  });
+  it("calls a Claude design shown once it has a claude.ai share link", () => {
+    const artifact = "https://claude.ai/artifact/Y455qzzAW17AJh1gTQw3zg";
+    expect(designState({ provider: "claude", figma_url: artifact, published_url: null })).toBe("in_tool");
+    expect(designState({ provider: "claude", figma_url: artifact, published_url: `${artifact}?sk=abc` })).toBe("published");
+    // A figma.site page is no share link for a Claude design.
+    expect(designState({ provider: "claude", figma_url: artifact, published_url: "https://a.figma.site" })).toBe("in_tool");
+  });
+  it("names each state in its tool's words", () => {
+    expect(designStateLabel("in_tool", "figma")).toBe("In Figma");
+    expect(designStateLabel("published", "figma")).toBe("Published");
+    expect(designStateLabel("in_tool", "claude")).toBe("In Claude");
+    expect(designStateLabel("published", "claude")).toBe("Shared");
+    expect(designStateLabel("not_generated", "claude")).toBe("Not generated");
+  });
+});
+
+describe("claudeHref", () => {
+  it("links to claude.ai over https only", () => {
+    const share = "https://claude.ai/artifact/Y455qzzAW17AJh1gTQw3zg?sk=F3Jg#artboard-4d77";
+    expect(claudeHref(share)).toBe(share);
+    expect(claudeHref("http://claude.ai/artifact/x")).toBeNull();
+    expect(claudeHref("https://claude.ai.evil.example/artifact/x")).toBeNull();
+    expect(claudeHref("https://checkout.figma.site/")).toBeNull();
   });
 });
 

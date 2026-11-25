@@ -632,10 +632,18 @@ class ProjectDesign(Base):
     """A brief for a high-fidelity prototype, and where its result lives.
 
     Studio authors only the brief: which wireframes, a name, the aesthetics
-    text and the reference images. The prototype itself lives in a Figma Make
-    file (``figma_url``), which is the single source of truth. Studio shows
-    the site published from it (``published_url``) in a frame, so what is on
-    show is always what Make last published. See docs/high-fidelity-design.md.
+    text and the reference images. The prototype itself lives in the tool
+    chosen when the design was created (``provider``), which is the single
+    source of truth:
+
+    * ``figma``: a Figma Make file (``figma_url``). Studio frames the site
+      published from it (``published_url``, on figma.site), so what is on show
+      is always what Make last published.
+    * ``claude``: a Claude Design artifact (``figma_url`` holds its address).
+      claude.ai refuses to be framed by other sites, so Studio shows its public
+      share link (``published_url``) to open instead.
+
+    See docs/high-fidelity-design.md.
 
     Which wireframes: ``all_wireframes`` means every active wireframe of the
     project, resolved whenever the brief is read; otherwise
@@ -656,8 +664,12 @@ class ProjectDesign(Base):
     brief = Column(Text, nullable=False, default="")
     # ids of project_documents rows with purpose "design_reference".
     reference_document_ids = Column(JSONB, nullable=False, default=list)
+    # figma | claude; fixed when the design is created (e1b6c4d8f273).
+    provider = Column(String(20), nullable=False, default="figma", server_default="figma")
+    # Where the design is edited: the Make file, or the Claude Design artifact.
     figma_url = Column(String(2048), nullable=True)
-    # The site published from the Make file: what the design page frames.
+    # What Studio shows: the site published from the Make file (framed), or
+    # the artifact's public share link (linked to).
     published_url = Column(String(2048), nullable=True)
     status = Column(String(20), nullable=False, default="active")  # active | archived
     pos = Column(String(64), nullable=False)

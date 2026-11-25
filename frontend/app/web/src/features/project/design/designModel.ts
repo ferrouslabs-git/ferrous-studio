@@ -1,8 +1,18 @@
 // What the design pages say about a design, derived from what the API returns:
-// the status badge, what may be framed, what may link out to Figma. Pure, and
+// the status badge, what may be framed, what may link out to Figma or Claude. Pure, and
 // kept apart from designsApi.ts (which reaches the network) so it can be
 // tested on its own.
 import type { InterfaceType, Wireframe } from "../wireframes/wireframesApi";
+
+/** The tool a design is made in, chosen when it is created. */
+export type DesignProvider = "figma" | "claude";
+
+export const DESIGN_PROVIDERS: { value: DesignProvider; label: string }[] = [
+  { value: "figma", label: "Figma" },
+  { value: "claude", label: "Claude Design" },
+];
+
+export const providerLabel = (p: DesignProvider): string => DESIGN_PROVIDERS.find((x) => x.value === p)?.label ?? "Figma";
 
 export interface Design {
   id: string;
@@ -14,9 +24,12 @@ export interface Design {
   name: string;
   brief: string;
   reference_document_ids: string[];
-  /** The Figma Make file: the design itself. */
+  /** Where the design lives: Figma Make, or Claude Design. */
+  provider: DesignProvider;
+  /** Where the design is edited: the Make file, or the Claude Design artifact. */
   figma_url: string | null;
-  /** The site published from the Make file: what the design page frames. */
+  /** What Studio shows: the site published from Make (framed), or the
+   *  artifact's public share link (claude.ai cannot be framed, so linked to). */
   published_url: string | null;
   status: "active" | "archived";
   pos: string;
@@ -25,6 +38,8 @@ export interface Design {
 }
 
 export interface DesignInput {
+  /** Only when creating: a design stays in the tool it was made in. */
+  provider?: DesignProvider;
   all_wireframes: boolean;
   wireframe_ids: string[];
   name: string;
@@ -71,17 +86,23 @@ export function interfaceTypesOf(wireframes: Pick<Wireframe, "interface_type">[]
   return [...new Set(wireframes.map((w) => w.interface_type))];
 }
 
-/** Where a design has got to: nothing yet, a Make file, or a published site. */
-export type DesignState = "not_generated" | "in_figma" | "published";
+/** Where a design has got to: nothing yet, in its tool, or on show
+ *  (a published Make site, or a Claude Design share link). */
+export type DesignState = "not_generated" | "in_tool" | "published";
 
-export const designState = (design: Pick<Design, "figma_url" | "published_url">): DesignState =>
-  publishedSite(design.published_url) ? "published" : design.figma_url ? "in_figma" : "not_generated";
+type StateInput = Pick<Design, "figma_url" | "published_url"> & { provider?: DesignProvider };
 
-export const DESIGN_STATE_LABEL: Record<DesignState, string> = {
-  not_generated: "Not generated",
-  in_figma: "In Figma",
-  published: "Published",
+export const designState = (design: StateInput): DesignState => {
+  const claude = design.provider === "claude";
+  const shown = claude ? claudeHref(design.published_url) : publishedSite(design.published_url);
+  return shown ? "published" : design.figma_url ? "in_tool" : "not_generated";
 };
+
+export function designStateLabel(state: DesignState, provider: DesignProvider = "figma"): string {
+  if (state === "not_generated") return "Not generated";
+  if (provider === "claude") return state === "published" ? "Shared" : "In Claude";
+  return state === "published" ? "Published" : "In Figma";
+}
 
 const onHost = (url: string | null, hosts: string[]): string | null => {
   if (!url) return null;
@@ -101,6 +122,9 @@ const onHost = (url: string | null, hosts: string[]): string | null => {
  * from a value the page has not looked at.
  */
 export const figmaHref = (url: string | null): string | null => onHost(url, ["figma.com", "figma.site"]);
+
+/** The same rule for a Claude design: claude.ai only. It is linked to, never framed. */
+export const claudeHref = (url: string | null): string | null => onHost(url, ["claude.ai"]);
 
 /**
  * The published site to frame: a subdomain of figma.site only, the one host
