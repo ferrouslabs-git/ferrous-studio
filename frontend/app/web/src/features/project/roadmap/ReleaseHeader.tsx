@@ -91,7 +91,7 @@ export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, on
   const addEpic = async () => {
     const free = index.epics.filter((e) => !e.release_id);
     if (!free.length) {
-      toast("Every epic is already in a release — make a new one on the Epics page");
+      toast("Every epic is already in a release — make a new one on Unplanned work");
       return;
     }
     const ids = await dialogs.pickMany({
@@ -202,7 +202,7 @@ export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, on
           ))}
           {!epics.length && (
             <div className="hempty">
-              No epics yet — “＋ Add epics” files unassigned ones here, or pick {release.human_id} in an epic's release menu on the Epics page.
+              No epics yet — “＋ Add epics” files unassigned ones here, or pick {release.human_id} in an epic's release menu on Unplanned work.
             </div>
           )}
         </div>

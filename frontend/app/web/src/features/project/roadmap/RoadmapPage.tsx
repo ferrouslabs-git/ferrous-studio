@@ -1,6 +1,7 @@
-// The Roadmap tab -- the board's landing view. One card per release on a
+// The Roadmap tab of Planned work (PlannedWorkPage, which hands in the page
+// head and its tabs) -- the board's landing view. One card per release on a
 // time axis: its head is the release bar, then one row per sprint filed
-// under it (sized by committed-vs-capacity, its agents as chips), then one
+// under it (filled by progress, its agents as chips), then one
 // row per epic in it (a bar if its work is in a dated sprint, "no sprint
 // yet" otherwise). An EPIC IS PUT INTO A RELEASE here: drag its row onto
 // another card, or ⇄ on the row. Every row drills in: release → its page,
@@ -8,15 +9,15 @@
 //
 // A last, dashed card shows up only when something has fallen outside the
 // structure -- a sprint under no release, a requirement under no epic. It
-// used to list the epics in no release as well; that moved to the Epics
-// tab's release filter on 2026-09-18.
+// used to list the epics in no release as well; that moved to the
+// release filter on Unplanned work on 2026-09-18.
 //
 // Two rules keep this honest, and both are deliberate (see
 // timeline/timelineMath.ts): every date comes from a sprint, and hours
 // never position anything. A fabricated bar is worse than a visible gap.
 // Ported from the reference app's static/js/timeline.js and the
 // #timelineView block of static/index.html.
-import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { BoardData, useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
@@ -33,16 +34,21 @@ import { UnassignedCard } from "./timeline/UnassignedCard";
 
 const FOLD_KINDS: FoldKind[] = ["sprints", "epics"];
 
-export function RoadmapPage() {
+export function RoadmapPage({ head }: { head?: ReactNode }) {
   const { projectId, data, error } = useBoard();
   if (!data) {
-    return <div className="page board-page muted">{error ? <div className="status-banner warn">{error}</div> : "Loading…"}</div>;
+    return (
+      <div className="page board-page">
+        {head}
+        <div className="muted">{error ? <div className="status-banner warn">{error}</div> : "Loading…"}</div>
+      </div>
+    );
   }
   // Keyed by project so the stored fold preferences are re-read on a switch.
-  return <Roadmap key={projectId} data={data} />;
+  return <Roadmap key={projectId} data={data} head={head} />;
 }
 
-function Roadmap({ data }: { data: BoardData }) {
+function Roadmap({ data, head }: { data: BoardData; head?: ReactNode }) {
   const { projectId, index, paths, canWrite, error } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
@@ -140,6 +146,7 @@ function Roadmap({ data }: { data: BoardData }) {
   return (
     <div className={`page board-page${w ? " tl-weeks" : ""}`} style={weekGrid}>
       {error && <div className="status-banner warn">{error}</div>}
+      {head}
       <div className="viewbar">
         {canWrite && (
           <button type="button" className="btn" onClick={() => void newRelease()}>

@@ -251,8 +251,8 @@ function ProjectNav({
         <NavItem to={`${base}/documents`} icon="file" label="Documents" />
       </NavGroup>
       <NavGroup title="Delivery">
-        <NavItem to={`${base}/roadmap`} icon="roadmap" label="Roadmap" />
-        <NavItem to={`${base}/epics`} icon="epic" label="Epics" />
+        <NavItem to={`${base}/roadmap`} icon="roadmap" label="Planned work" />
+        <NavItem to={`${base}/epics`} icon="epic" label="Unplanned work" />
         <NavItem to={`${base}/feedback`} icon="feedback" label="Feedback" />
         <NavItem to={`${base}/usability`} icon="users" label="Usability testing" />
       </NavGroup>

@@ -122,7 +122,7 @@ export function ReleaseBacklog({ release, sprints, onOpen }: ReleaseBacklogProps
           <div className="hempty">
             {all.length
               ? `${all.length} requirement(s) here, none matching the filter.`
-              : `Everything in ${release.human_id} is in a sprint — or nothing is in ${release.human_id} yet. Add epics to it with “＋ Add epics” above, or from the Epics page.`}
+              : `Everything in ${release.human_id} is in a sprint — or nothing is in ${release.human_id} yet. Add epics to it with “＋ Add epics” above, or from Unplanned work.`}
           </div>
         )}
         {shown > 0 && shown < all.length && <div className="sp-bl-count">{shown} of {all.length} shown</div>}

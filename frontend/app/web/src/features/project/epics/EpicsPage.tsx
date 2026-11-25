@@ -1,4 +1,6 @@
-// The Epics tab: every epic, one card each, in id order. The card head is the
+// Unplanned work (FS-REQ-103, formerly Epics): every epic, one card each, in
+// id order. The same list, narrowed to epics filed in a release and with the
+// head handed in, is the Epics tab of Planned work (PlannedWorkPage). The card head is the
 // epic itself and ▾ folds open its features; which release an epic is in is
 // decided on the Roadmap and only shown here. Cards start folded -- the page
 // is a list first, and the features are one click away when you want them.
@@ -12,7 +14,7 @@
 // so a tab can be linked to: Epics, and Archived -- every archived
 // requirement in the project, the only place one with no epic can be found.
 // New epic lives in the page head and is hidden on Archived.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLoad } from "../../../core/useLoad";
 import { useBoard } from "../board/boardData";
@@ -76,7 +78,14 @@ function useRememberedQuery(projectId: string): [string, (q: string) => void] {
   return [query, setQuery];
 }
 
-export function EpicsPage() {
+interface EpicsPageProps {
+  /** Planned work's Epics tab: only epics filed in a release, no New epic, no Archived tab. */
+  planned?: boolean;
+  /** The page head and tabs, when another page owns them. */
+  head?: ReactNode;
+}
+
+export function EpicsPage({ planned = false, head }: EpicsPageProps = {}) {
   const { projectId, data, error, index, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
@@ -86,19 +95,22 @@ export function EpicsPage() {
   const fold = useFoldMap(boardStorageKey(projectId, "epicFold"), foldedByDefault);
   const [params, setParams] = useSearchParams();
   const rawTab = params.get("tab");
-  const tab: Tab = TABS.some((t) => t.id === rawTab) ? (rawTab as Tab) : "epics";
+  const tab: Tab = !planned && TABS.some((t) => t.id === rawTab) ? (rawTab as Tab) : "epics";
   const selectTab = (t: Tab) => setParams(t === "epics" ? {} : { tab: t }, { replace: true });
   // Fetched on both tabs, so the Archived tab's count shows from the start.
-  const archived = useLoad(() => listRequirements(projectId, { archived: "only" }), [projectId]);
+  const archived = useLoad(
+    () => (planned ? Promise.resolve([]) : listRequirements(projectId, { archived: "only" })),
+    [projectId, planned],
+  );
 
   // An epic filed under a release that has since been deleted is treated as
   // unfiled, the same way the roadmap and EpicCard already treat it.
   const releaseOptions = useMemo(
     () => [
       ...index.releases.map((r) => ({ value: r.id, label: `${r.human_id} · ${r.title}` })),
-      { value: NO_RELEASE, label: "Not in a release" },
+      ...(planned ? [] : [{ value: NO_RELEASE, label: "Not in a release" }]),
     ],
-    [index.releases],
+    [index.releases, planned],
   );
   const inReleaseFilter = useCallback(
     (e: Epic) => {
@@ -135,11 +147,15 @@ export function EpicsPage() {
 
   if (!data) {
     return (
-      <div className="page board-page muted">{error ? <div className="status-banner warn">{error}</div> : "Loading…"}</div>
+      <div className="page board-page">
+        {head}
+        <div className="muted">{error ? <div className="status-banner warn">{error}</div> : "Loading…"}</div>
+      </div>
     );
   }
 
-  const all = index.epics;
+  // An epic filed under a release since deleted counts as unfiled here too.
+  const all = planned ? index.epics.filter((e) => !!e.release_id && index.releaseById.has(e.release_id)) : index.epics;
   const q = query.trim().toLowerCase();
   const shown = all.filter((e) => inReleaseFilter(e) && epicMatches(e, index.featuresOf(e.id), q));
   const narrowed = shown.length !== all.length;
@@ -147,34 +163,38 @@ export function EpicsPage() {
   return (
     <div className="page board-page">
       {error && <div className="status-banner warn">{error}</div>}
-      <div className="page-head">
-        <h1>Epics</h1>
-        <span className="shell-spacer" />
-        {canWrite && tab === "epics" && (
-          <div className="page-head-actions">
-            <button type="button" className="btn primary" onClick={() => void newEpic()}>
-              New epic
-            </button>
+      {head ?? (
+        <>
+          <div className="page-head">
+            <h1>Unplanned work</h1>
+            <span className="shell-spacer" />
+            {canWrite && tab === "epics" && (
+              <div className="page-head-actions">
+                <button type="button" className="btn primary" onClick={() => void newEpic()}>
+                  New epic
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="page-subtabs" role="tablist" aria-label="Epics">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`page-subtab${tab === t.id ? " active" : ""}`}
-            onClick={() => selectTab(t.id)}
-          >
-            {t.label}
-            {t.id === "epics" && <span className="page-subtab-count">{all.length}</span>}
-            {t.id === "archived" && archived.data && <span className="page-subtab-count">{archived.data.length}</span>}
-          </button>
-        ))}
-      </div>
+          <div className="page-subtabs" role="tablist" aria-label="Unplanned work">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`page-subtab${tab === t.id ? " active" : ""}`}
+                onClick={() => selectTab(t.id)}
+              >
+                {t.label}
+                {t.id === "epics" && <span className="page-subtab-count">{all.length}</span>}
+                {t.id === "archived" && archived.data && <span className="page-subtab-count">{archived.data.length}</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {tab === "archived" ? (
         <div className="stack">
@@ -199,7 +219,9 @@ export function EpicsPage() {
             </span>
           </div>
 
-          {all.length === 0 ? (
+          {all.length === 0 && planned ? (
+            <div className="hempty">No epic is in a release yet. Put one in a release on the Roadmap tab.</div>
+          ) : all.length === 0 ? (
             <div className="hempty centred">
               <div>
                 An epic is a chunk of the product worth planning as one: its features, its requirements, its docs. Make one, then put it in a

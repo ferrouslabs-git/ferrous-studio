@@ -30,7 +30,7 @@ import { PersonasPage } from "./features/project/personas/PersonasPage";
 import { LegacyProjectRedirect, ProjectLayout } from "./features/project/ProjectLayout";
 import { ProjectDetailsPage } from "./features/project/ProjectDetailsPage";
 import { ReleasePage } from "./features/project/roadmap/ReleasePage";
-import { RoadmapPage } from "./features/project/roadmap/RoadmapPage";
+import { PlannedWorkPage } from "./features/project/roadmap/PlannedWorkPage";
 import { SprintBoardPage } from "./features/project/roadmap/SprintBoardPage";
 import { ParticipantPage } from "./features/project/usability/ParticipantPage";
 import { StudyPage } from "./features/project/usability/StudyPage";
@@ -129,7 +129,7 @@ export function App() {
                   page, the sprint board and the epic page are drilled into
                   from them, sharing one loaded board (BoardProvider). */}
               <Route element={<BoardProvider />}>
-                <Route path="roadmap" element={<RoadmapPage />} />
+                <Route path="roadmap" element={<PlannedWorkPage />} />
                 <Route path="roadmap/sprints/:sprintId" element={<SprintBoardPage />} />
                 <Route path="roadmap/unscheduled" element={<UnscheduledRedirect />} />
                 <Route path="roadmap/unscheduled/plan" element={<UnscheduledRedirect />} />
