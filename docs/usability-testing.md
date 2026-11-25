@@ -104,7 +104,7 @@ a project's product really does. Ask it, in the product's repository, to
 | `study_task_guide` | How to write tasks: the fields, which half the participant sees, what makes a good set. Read first |
 | `list_studies`, `get_study` | What exists: details, research questions, tasks, file names |
 | `create_study` | A new study with the default protocol, consent form and script, and no tasks |
-| `add_study_file` | Upload a file a task hands out (at most 2 MB) |
+| `add_study_file` | Upload a file a task hands out: at most 2 MB, a data or text file from inside the project, never a hidden file or folder |
 | `add_study_tasks` | Append tasks in order. All or nothing, with the precise errors |
 | `update_study_task` | Correct one task by id |
 

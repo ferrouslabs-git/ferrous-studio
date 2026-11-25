@@ -339,3 +339,35 @@ def test_create_comment_checks_files_before_posting(board_mcp, tmp_path):
 
 def test_the_board_tool_has_no_delete_for_attachments(board_mcp):
     assert not [n for n in dir(board_mcp) if n.startswith("delete")]
+
+
+# ── a study file (a participant downloads it) ───────────────────────────────
+
+
+def test_add_study_file_uploads_a_data_file_from_inside_the_project(board_mcp, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    sent = []
+    board_mcp._studio_call = lambda method, path, body=None: sent.append((method, path, body)) or {"name": body["name"]}
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "tickets.csv").write_bytes(b"id,text\n")
+    assert board_mcp.add_study_file("s1", "data/tickets.csv") == {"name": "tickets.csv"}
+    assert sent == [("POST", "/usability/agent/studies/s1/files",
+                     {"name": "tickets.csv", "content_type": "text/csv", "data_base64": "aWQsdGV4dAo="})]
+
+
+def test_add_study_file_refuses_secrets_and_anything_outside_the_project(board_mcp, tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    (project / ".aws").mkdir(parents=True)
+    monkeypatch.chdir(project)
+    sent = []
+    board_mcp._studio_call = lambda *a, **k: sent.append(a)
+    for name, body in ((".env", b"KEY=1"), (".aws/credentials.txt", b"x"), ("id_rsa", b"x"), ("key.pem", b"x"),
+                       ("big.csv", b"x" * (2 * 1024 * 1024 + 1)), ("../outside.csv", b"x")):
+        (project / name).resolve().write_bytes(body)
+        with pytest.raises(ValueError):
+            board_mcp.add_study_file("s1", name)
+    with pytest.raises(ValueError, match="outside"):
+        board_mcp.add_study_file("s1", str(tmp_path / "outside.csv"))
+    with pytest.raises(ValueError, match="No file"):
+        board_mcp.add_study_file("s1", "missing.csv")
+    assert sent == []

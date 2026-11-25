@@ -950,6 +950,41 @@ def update_study_task(
 
 
 _STUDY_FILE_MAX_BYTES = 2 * 1024 * 1024
+# What a task hands a participant is data or text. The list is closed because
+# a file listed on a task is served to anyone holding a participant's link.
+_STUDY_FILE_TYPES = {
+    "csv": "text/csv", "tsv": "text/tab-separated-values", "json": "application/json",
+    "jsonl": "application/x-ndjson", "txt": "text/plain", "md": "text/markdown",
+    "yaml": "application/yaml", "yml": "application/yaml", "xml": "application/xml",
+}
+
+
+def _check_study_file(file_path: str) -> tuple[str, str, str]:
+    """(path, filename, content type) for a file add_study_file may upload,
+    or a ValueError saying why not -- before anything is read or sent. The
+    file must sit inside the directory the server runs in (the project's
+    repository), under no dot-directory, and be of a listed type."""
+    path = os.path.realpath(os.path.expanduser(file_path))
+    root = os.path.realpath(os.getcwd())
+    try:
+        inside = os.path.commonpath([root, path]) == root
+    except ValueError:                      # another drive
+        inside = False
+    if not inside:
+        raise ValueError(f"{file_path} is outside {root}; a study file must be inside the project")
+    if any(part.startswith(".") for part in os.path.relpath(path, root).split(os.sep)):
+        raise ValueError(f"{file_path} is hidden or inside a hidden folder; it cannot be a study file")
+    if not os.path.isfile(path):
+        raise ValueError(f"No file at {file_path}")
+    filename = os.path.basename(path)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_type = _STUDY_FILE_TYPES.get(ext)
+    if content_type is None:
+        raise ValueError(f"Cannot add .{ext or '(none)'} files; allowed: {', '.join('.' + e for e in _STUDY_FILE_TYPES)}")
+    size = os.path.getsize(path)
+    if size > _STUDY_FILE_MAX_BYTES:
+        raise ValueError(f"{filename} is {size / (1024 * 1024):.1f} MB; the limit is 2 MB")
+    return path, filename, content_type
 
 
 @mcp.tool()
@@ -957,24 +992,20 @@ def add_study_file(study_id: str, file_path: str) -> dict:
     """Upload a local file a task hands to the participant -- a dataset to
     upload, a definition to import, text to paste -- so the study tests how
     they use the product and not whether they can produce the material. At
-    most 2 MB. A file with the same name already on the study is replaced.
-    List the returned name in a task's `files` to hand it out; a file listed
-    on no task is not shown to participants. Use made-up data only: never
-    real customer data, credentials or secrets."""
+    most 2 MB; .csv .tsv .json .jsonl .txt .md .yaml .yml .xml only, from
+    inside the project, never a hidden file or folder. A file with the same
+    name already on the study is replaced. List the returned name in a task's
+    `files` to hand it out; a file listed on no task is not shown to
+    participants. Use made-up data only: never real customer data,
+    credentials or secrets -- participants download these files."""
     import base64
-    import mimetypes
 
-    path = os.path.expanduser(file_path)
-    if not os.path.isfile(path):
-        raise ValueError(f"No file at {file_path}")
-    size = os.path.getsize(path)
-    if size > _STUDY_FILE_MAX_BYTES:
-        raise ValueError(f"{os.path.basename(path)} is {size / (1024 * 1024):.1f} MB; the limit is 2 MB")
+    path, filename, content_type = _check_study_file(file_path)
     with open(path, "rb") as f:
         data = f.read()
     return _studio_call("POST", f"/usability/agent/studies/{study_id}/files", {
-        "name": os.path.basename(path),
-        "content_type": mimetypes.guess_type(path)[0] or "application/octet-stream",
+        "name": filename,
+        "content_type": content_type,
         "data_base64": base64.b64encode(data).decode("ascii"),
     })
 
