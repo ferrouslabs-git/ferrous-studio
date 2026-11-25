@@ -195,15 +195,16 @@ describe("actual hours", () => {
     expect(w.estimate_hours).toBe(2);
   });
 
-  it("charges each raised requirement its actual else its estimate", () => {
+  it("charges a report the summed estimates of its raised requirements, not its own hours", () => {
     const [w] = chargedWork(
       [{ id: "a", resolved_at: "2026-10-01", estimate_hours: 9, actual_hours: 9 }],
       [
-        { feedback_id: "a", estimate_hours: 2, actual_hours: 1 },
-        { feedback_id: "a", estimate_hours: 3, actual_hours: null },
+        { feedback_id: "a", estimate_hours: 2 },
+        { feedback_id: "a", estimate_hours: 3 },
+        { feedback_id: "a", estimate_hours: null },
       ],
     );
-    expect(w.estimate_hours).toBe(4);
+    expect(w.estimate_hours).toBe(5);
   });
 
   it("keeps the figure awaiting confirmation on estimates", () => {

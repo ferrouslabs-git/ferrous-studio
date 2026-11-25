@@ -63,10 +63,10 @@ export interface ChargeableReport {
   estimate_hours: number | null;
   actual_hours?: number | null;
 }
+/** A requirement is charged its estimate; only the report records actual time (FS-REQ-106). */
 export interface RaisedRequirement {
   feedback_id: string | null;
   estimate_hours: number | null;
-  actual_hours?: number | null;
 }
 
 /** Actual hours when recorded, else the estimate; null when neither is. */
@@ -74,7 +74,7 @@ const chargeOf = (w: { estimate_hours: number | null; actual_hours?: number | nu
   w.actual_hours ?? w.estimate_hours;
 
 /**
- * Each report with the hours it is charged at: the summed charges of the
+ * Each report with the hours it is charged at: the summed estimates of the
  * requirements raised from it once it has any, else its own (chargeOf). Null
  * when there is nothing to charge -- no requirement carries a figure, or
  * (with none raised) the report has none.
@@ -84,7 +84,7 @@ export function chargedWork(reports: ChargeableReport[], requirements: RaisedReq
   for (const r of requirements) {
     if (!r.feedback_id) continue;
     const list = raised.get(r.feedback_id) ?? [];
-    list.push(chargeOf(r));
+    list.push(r.estimate_hours);
     raised.set(r.feedback_id, list);
   }
   return reports.map((report) => {
@@ -190,10 +190,7 @@ export function awaitingConfirmation(
   const waiting = reports
     .filter((r) => r.status === "EstimatedToConfirm")
     .map((r) => ({ ...r, actual_hours: null }));
-  const charged = chargedWork(
-    waiting,
-    requirements.map((r) => ({ ...r, actual_hours: null })),
-  );
+  const charged = chargedWork(waiting, requirements);
   let hours = 0;
   let unestimated = 0;
   for (const w of charged) {

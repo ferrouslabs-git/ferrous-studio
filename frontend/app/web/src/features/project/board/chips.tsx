@@ -6,7 +6,7 @@ import type { MouseEvent } from "react";
 import type { Agent } from "./agentsApi";
 import type { DueStatus } from "./boardModel";
 import { DELIVERY_STATUS_LABEL, ST_LABEL } from "./constants";
-import { effortSummary, type Rollup } from "./effort";
+import type { Rollup } from "./effort";
 import { Icon } from "./icons";
 import type { RequirementStatus } from "./requirementsApi";
 import { DELIVERY_STATUSES, type DeliveryStatus } from "./sprintsApi";
@@ -136,14 +136,6 @@ export function DueChip({ due }: { due: DueStatus }) {
       {due.label}
     </span>
   );
-}
-
-// One span, so every effort figure looks the same wherever it lands. Renders
-// nothing when there is nothing to sum.
-export function EffortFigure({ rollup: p }: { rollup: Rollup }) {
-  const s = effortSummary(p);
-  if (!s.text) return null;
-  return <span className={`est-sum${s.partial ? " est-partial" : ""}`}>{s.text}</span>;
 }
 
 export const ProgressFigure = ({ rollup: p }: { rollup: Rollup }) => (

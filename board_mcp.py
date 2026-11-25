@@ -106,9 +106,23 @@ def _project_id() -> str:
     return _PROJECT_ID
 
 
+#: Fields the board API still returns but agents must not plan by
+#: (FS-REQ-106): requirement estimates exist only for feedback billing, and
+#: sprint capacity was only ever measured against them.
+_HIDDEN_FIELDS = frozenset({"estimate_hours", "actual_hours", "capacity_hours"})
+
+
+def _without_hours(value):
+    if isinstance(value, dict):
+        return {k: _without_hours(v) for k, v in value.items() if k not in _HIDDEN_FIELDS}
+    if isinstance(value, list):
+        return [_without_hours(v) for v in value]
+    return value
+
+
 def _call(method: str, path: str, body: dict | None = None):
     """A board endpoint: .../projects/{project_id}/board<path>."""
-    return _request(method, f"{BASE}/api/studio/projects/{_project_id()}/board{path}", body)
+    return _without_hours(_request(method, f"{BASE}/api/studio/projects/{_project_id()}/board{path}", body))
 
 
 def _studio_call(method: str, path: str, body: dict | None = None):
@@ -138,11 +152,9 @@ def whoami() -> dict:
 @mcp.tool()
 def board_summary() -> dict:
     """Every epic with its lifecycle status and requirement progress
-    (total/done/doing/review/pct, plus hours/hours_done summed from the
-    estimates that exist and estimated/unestimated/coverage saying how
-    complete those are -- including requirements organised under one of
-    its features, not just directly-attached ones), plus requirement counts
-    by status across the whole board. Start here."""
+    (total/done/doing/review/pct -- including requirements organised under
+    one of its features, not just directly-attached ones), plus requirement
+    counts by status across the whole board. Start here."""
     return _call("GET", "/summary")
 
 
@@ -165,9 +177,7 @@ def list_releases() -> dict:
     """Every release, with its derived date (the end of its latest sprint,
     not something anyone sets directly), its delivery status, and progress
     over every requirement whose effective release is this one -- total/
-    done/in_progress/to_test/pct, hours/hours_done from the estimates that
-    exist, and estimated/unestimated/coverage saying how complete those
-    are."""
+    done/in_progress/to_test/pct."""
     return {"releases": _call("GET", "/releases")}
 
 
@@ -1024,9 +1034,12 @@ def add_study_file(study_id: str, file_path: str) -> dict:
 def list_designs() -> dict:
     """Every high-fidelity design in this project -- id, name, which
     wireframes it is for (all_wireframes, else wireframe_ids), status
-    (active | archived), figma_url (null until it has been generated) and
-    published_url (the site Studio frames; null until published). Start here
-    to find the real id of the design meant; never invent one."""
+    (active | archived), provider (figma | claude: the tool it is made in,
+    fixed at creation), figma_url (where it is edited -- the Figma Make file
+    or the Claude Design artifact; null until generated) and published_url
+    (what Studio shows -- the figma.site page it frames, or the Claude
+    Design public share link it links to; null until published or shared).
+    Start here to find the real id of the design meant; never invent one."""
     return {"designs": _studio_call("GET", "/designs")}
 
 
@@ -1047,7 +1060,8 @@ def get_design_brief(design_id: str, download_images: bool = True) -> dict:
     - referenceImages: images to take the look from. With download_images
       each is saved to a local temp folder and gets a saved_to path you can
       open; their url is short-lived either way.
-    - design: where it stands -- figma_url, published_url."""
+    - design: where it stands -- provider (figma | claude), figma_url,
+      published_url."""
     brief = _studio_call("GET", f"/designs/{design_id}/brief")
     if download_images:
         for image in brief.get("referenceImages") or []:
@@ -1063,12 +1077,20 @@ def get_design_brief(design_id: str, download_images: bool = True) -> dict:
 
 @mcp.tool()
 def set_design_figma_url(design_id: str, figma_url: str | None = None, published_url: str | None = None) -> dict:
-    """Record where a design lives in Figma -- design_id from list_designs().
-    figma_url: the Figma Make file, as returned when the project was sent to
-    Figma. published_url: the site published from it (https://<name>.figma.site),
-    which is what Studio's design page frames. Both must be https links on
-    figma.com or figma.site; an omitted one is left as it is. This records an
-    address only -- it changes nothing in Figma."""
+    """Record where a design lives, in the tool it is made in (its
+    provider) -- design_id from list_designs(). An omitted one is left as it
+    is. This records an address only -- it changes nothing in the tool.
+
+    provider figma: figma_url is the Figma Make file, as returned when the
+    project was sent to Figma; published_url the site published from it
+    (https://<name>.figma.site), which Studio frames. Both on figma.com or
+    figma.site.
+
+    provider claude: figma_url is the Claude Design artifact's address (as
+    the Artifact tool returned it); published_url its PUBLIC share link
+    (https://claude.ai/artifact/<id>?sk=...), which Studio links to --
+    claude.ai cannot be framed. Both on claude.ai. Only a person can make
+    the share link: ask for it, never guess one."""
     return _studio_call(
         "PUT", f"/designs/{design_id}/figma", _patch_of(figma_url=figma_url, published_url=published_url)
     )

@@ -11,7 +11,6 @@ import { useRef } from "react";
 import { useBoard } from "../../board/boardData";
 import { SB_STAGES, ST_LABEL } from "../../board/constants";
 import { useDraggable } from "../../board/dnd";
-import { fmtEffort } from "../../board/effort";
 import type { Requirement, RequirementPatch } from "../../board/requirementsApi";
 import { IdChip } from "../../board/chips";
 
@@ -52,7 +51,6 @@ export function RequirementCard({ requirement: r, canMove, onMove, onOpen }: Req
           {r.human_id}
         </IdChip>{" "}
         · <span className={`pri-${r.priority}`}>{r.priority}</span>
-        {r.estimate_hours != null ? ` · ${fmtEffort(r.estimate_hours)}` : ""}
       </div>
       <div className="sb-ttl">{r.title}</div>
       <div className="sb-scope">

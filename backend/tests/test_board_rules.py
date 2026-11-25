@@ -44,31 +44,22 @@ def test_rollup_weights_match_effort_js():
     assert out["pct"] == round(100 * 2.25 / 5)
 
 
-def test_rollup_hours_sum_only_existing_estimates():
-    """``hours_done`` credits every estimate by its status weight -- the
-    same arithmetic as effort.ts's rollup(), so a ToTest or InProgress
-    requirement counts for part of its estimate rather than nothing."""
-    rows = [_req("Done", 4.0), _req("ToTest", 2.5), _req("InProgress", 2.0), _req("Blocked", 1.0), _req("NotStarted", None)]
-    out = service.progress_rollup(rows)
-    assert out["hours"] == 9.5
-    assert out["hours_done"] == pytest.approx(4.0 + 2.5 * 0.75 + 2.0 * 0.5)
-    assert out["estimated"] == 4
-    assert out["unestimated"] == 1
-    assert out["coverage"] == pytest.approx(4 / 5)
+def test_rollup_ignores_estimates():
+    """FS-REQ-106: progress is counted in requirements; an estimate (kept
+    only for feedback billing) changes nothing."""
+    rows = [_req("Done", 40.0), _req("NotStarted", None)]
+    assert service.progress_rollup(rows) == {"total": 2, "done": 1, "in_progress": 0, "to_test": 0, "pct": 50}
 
 
-def test_rollup_of_nothing_has_full_coverage():
+def test_rollup_of_nothing_is_zero():
     out = service.progress_rollup([])
-    assert out["total"] == 0 and out["pct"] == 0 and out["hours"] == 0
-    assert out["coverage"] == 1.0
+    assert out["total"] == 0 and out["pct"] == 0
 
 
 def test_rollup_is_the_epic_progress_shape():
     rows = [_req("Done", 1.0), _req("InProgress")]
     progress = EpicProgress(**service.progress_rollup(rows))
-    assert set(progress.model_dump()) == {
-        "total", "done", "in_progress", "to_test", "pct", "hours", "hours_done", "estimated", "unestimated", "coverage",
-    }
+    assert set(progress.model_dump()) == {"total", "done", "in_progress", "to_test", "pct"}
 
 
 def test_routes_empty_progress_is_the_service_rollup_of_nothing():
@@ -131,38 +122,29 @@ def test_burndown_series_reconstructs_scope_and_remaining():
         r2: [(d0, None), (d0 + dt.timedelta(days=2), sprint)],  # added on day 3
     }
     status = {r1: [(d0 + dt.timedelta(days=3), "Done")]}  # done on day 4
-    estimates = {r1: 4.0, r2: None}
 
-    out = service.burndown_series(sprint, days, [r1, r2], membership, status, estimates, today)
+    out = service.burndown_series(sprint, days, [r1, r2], membership, status, today)
 
     assert out["sprint_id"] == sprint and out["note"] is None
     assert out["dates"] == days
-    assert out["total"] == 1 and out["total_hours"] == 4.0
+    assert out["total"] == 1
     assert out["scope"] == [1, 1, 2, 2, None]
     assert out["remaining"] == [1, 1, 2, 1, None]
-    assert out["scope_hours"] == [4.0, 4.0, 4.0, 4.0, None]
-    assert out["remaining_hours"] == [4.0, 4.0, 4.0, 0.0, None]
     assert out["ideal"] == [round(1 * (1 - i / 4), 1) for i in range(5)]
     assert out["ideal"][0] == 1.0 and out["ideal"][-1] == 0.0
-    assert out["ideal_hours"] == [4.0, 3.0, 2.0, 1.0, 0.0]
-    # Coverage is over CURRENT membership (both, on today), not the start.
-    assert out["estimated_count"] == 1 and out["unestimated_count"] == 1
 
 
 def test_one_day_sprint_ideal_is_flat_zero():
     sprint = uuid4()
     r1 = uuid4()
     day = dt.date(2026, 9, 1)
-    out = service.burndown_series(sprint, [day], [r1], {r1: [(day, sprint)]}, {}, {r1: 2.0}, day)
-    assert out["ideal"] == [0.0] and out["ideal_hours"] == [0.0]
+    out = service.burndown_series(sprint, [day], [r1], {r1: [(day, sprint)]}, {}, day)
+    assert out["ideal"] == [0.0]
     assert out["total"] == 1 and out["remaining"] == [1]
 
 
 def test_empty_burndown_carries_every_key():
-    assert set(service._EMPTY_BURNDOWN) == {
-        "dates", "remaining", "ideal", "total", "remaining_hours", "ideal_hours", "total_hours",
-        "scope", "scope_hours", "estimated_count", "unestimated_count",
-    }
+    assert set(service._EMPTY_BURNDOWN) == {"dates", "remaining", "ideal", "total", "scope"}
 
 
 # ── Schema rules ─────────────────────────────────────────────────────────

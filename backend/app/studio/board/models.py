@@ -322,15 +322,12 @@ class Requirement(Base):
     # numeric to decimal.Decimal, which is not JSON-serialisable and would
     # break every response that carries a requirement.
     #
-    # Carried over from software-management, whose effort rollups and
-    # capacity-vs-committed sprint lane are built on it. Nothing in this app
-    # surfaces it yet -- it exists so estimates survive the import rather than
-    # being silently dropped.
+    # The board never shows it (FS-REQ-106: work is sized by planning
+    # features into sprints, not by requirement estimates). Only a requirement
+    # raised from feedback carries one -- set on the report's page -- and the
+    # maintenance log charges the report their sum. The requirement's own
+    # actual time was dropped with FS-REQ-106 (d9e5a3b7c142).
     estimate_hours = Column(Float, nullable=True)
-    # Hours the work actually took (d4b8e1f6a352). NULL is "not recorded",
-    # never zero. Once recorded it is what a report raised into this
-    # requirement is charged against its maintenance contract.
-    actual_hours = Column(Float, nullable=True)
     # Work order within the requirement's sprint -- what an agent picks
     # work by, and the sprint board's row order. NULL = not ordered (sorts
     # last). Scoped to a sprint, so it is cleared whenever the requirement

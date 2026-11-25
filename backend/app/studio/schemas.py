@@ -836,7 +836,14 @@ ReferenceDocumentIds = Annotated[list[UUID], Field(max_length=12)]
 DesignWireframeIds = Annotated[list[UUID], Field(max_length=200)]
 
 
+#: The tool a design is made in; fixed once the design exists.
+DesignProvider = Literal["figma", "claude"]
+
+
 class DesignCreate(BaseModel):
+    #: Figma Make or Claude Design. Not on DesignUpdate: the design lives in
+    #: that tool, so switching would orphan it.
+    provider: DesignProvider = "figma"
     #: True sends every active wireframe of the project, including ones added
     #: later; otherwise ``wireframe_ids`` names one or more.
     all_wireframes: bool = False
@@ -872,6 +879,7 @@ class DesignRead(BaseModel):
     name: str
     brief: str
     reference_document_ids: list[UUID]
+    provider: str
     figma_url: str | None
     published_url: str | None
     status: str
@@ -881,7 +889,9 @@ class DesignRead(BaseModel):
 
 
 class DesignFigmaUpdate(BaseModel):
-    """Where the design lives in Figma. Absent leaves a field alone; an
+    """Where the design lives: ``figma_url`` where it is edited (the Make file
+    or the Claude Design artifact), ``published_url`` what Studio shows. Each
+    must be on the design's own tool's hosts. Absent leaves a field alone; an
     explicit null clears it."""
 
     figma_url: str | None = Field(None, max_length=2048)

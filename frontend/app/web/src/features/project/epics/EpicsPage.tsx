@@ -1,18 +1,21 @@
-// The Epics tab: every epic, one card each, in id order. The card head is the
-// epic itself and ▾ folds open its features; which release an epic is in is
-// decided on the Roadmap and only shown here. Cards start folded -- the page
-// is a list first, and the features are one click away when you want them.
-// Ported from the reference app's renderEpicsPage (static/js/roadmap.js).
+// Unplanned work (FS-REQ-103, formerly Epics): the epics in no release, one
+// card each, in id order. The same list of the epics that ARE in a release,
+// with the head handed in, is the Epics tab of Planned work (PlannedWorkPage):
+// every epic is on exactly one of the two, and putting one in a release moves
+// it across. The card head is the epic itself and ▾ folds open its features;
+// which release an epic is in is decided on the Roadmap and only shown here.
+// Cards start folded -- the page is a list first, and the features are one
+// click away when you want them. Ported from the reference app's
+// renderEpicsPage (static/js/roadmap.js).
 //
-// The release filter takes several releases at once, and "Not in a release"
-// is one of the things it can be set to: this page is where the epics in no
-// release are found, since the Roadmap stopped listing them (2026-09-18).
+// The release filter (Planned work only: on Unplanned work every epic is in no
+// release) takes several releases at once.
 //
 // Two sub-tabs under the title, as on the use case page and driven by ?tab=
 // so a tab can be linked to: Epics, and Archived -- every archived
 // requirement in the project, the only place one with no epic can be found.
 // New epic lives in the page head and is hidden on Archived.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLoad } from "../../../core/useLoad";
 import { useBoard } from "../board/boardData";
@@ -76,7 +79,14 @@ function useRememberedQuery(projectId: string): [string, (q: string) => void] {
   return [query, setQuery];
 }
 
-export function EpicsPage() {
+interface EpicsPageProps {
+  /** Planned work's Epics tab: only epics filed in a release, no New epic, no Archived tab. */
+  planned?: boolean;
+  /** The page head and tabs, when another page owns them. */
+  head?: ReactNode;
+}
+
+export function EpicsPage({ planned = false, head }: EpicsPageProps = {}) {
   const { projectId, data, error, index, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
@@ -86,17 +96,19 @@ export function EpicsPage() {
   const fold = useFoldMap(boardStorageKey(projectId, "epicFold"), foldedByDefault);
   const [params, setParams] = useSearchParams();
   const rawTab = params.get("tab");
-  const tab: Tab = TABS.some((t) => t.id === rawTab) ? (rawTab as Tab) : "epics";
+  const tab: Tab = !planned && TABS.some((t) => t.id === rawTab) ? (rawTab as Tab) : "epics";
   const selectTab = (t: Tab) => setParams(t === "epics" ? {} : { tab: t }, { replace: true });
   // Fetched on both tabs, so the Archived tab's count shows from the start.
-  const archived = useLoad(() => listRequirements(projectId, { archived: "only" }), [projectId]);
+  const archived = useLoad(
+    () => (planned ? Promise.resolve([]) : listRequirements(projectId, { archived: "only" })),
+    [projectId, planned],
+  );
 
   // An epic filed under a release that has since been deleted is treated as
   // unfiled, the same way the roadmap and EpicCard already treat it.
   const releaseOptions = useMemo(
     () => [
       ...index.releases.map((r) => ({ value: r.id, label: `${r.human_id} · ${r.title}` })),
-      { value: NO_RELEASE, label: "Not in a release" },
     ],
     [index.releases],
   );
@@ -120,7 +132,10 @@ export function EpicsPage() {
           key: "release",
           label: "Release",
           type: "select",
-          placeholder: "— unassigned —",
+          // On Planned work an epic is made in a release, or it would land on
+          // Unplanned work instead of the tab it was made from.
+          required: planned,
+          placeholder: planned ? "— pick a release —" : "— unassigned —",
           options: index.releases.map((m) => ({ value: m.id, label: `${m.human_id} · ${m.title}` })),
         },
       ],
@@ -135,11 +150,17 @@ export function EpicsPage() {
 
   if (!data) {
     return (
-      <div className="page board-page muted">{error ? <div className="status-banner warn">{error}</div> : "Loading…"}</div>
+      <div className="page board-page">
+        {head}
+        <div className="muted">{error ? <div className="status-banner warn">{error}</div> : "Loading…"}</div>
+      </div>
     );
   }
 
-  const all = index.epics;
+  // Planned = filed in a live release; Unplanned = everything else (an epic
+  // whose release was deleted counts as unplanned). Each epic is on one tab.
+  const inRelease = (e: Epic) => !!e.release_id && index.releaseById.has(e.release_id);
+  const all = index.epics.filter((e) => (planned ? inRelease(e) : !inRelease(e)));
   const q = query.trim().toLowerCase();
   const shown = all.filter((e) => inReleaseFilter(e) && epicMatches(e, index.featuresOf(e.id), q));
   const narrowed = shown.length !== all.length;
@@ -147,34 +168,38 @@ export function EpicsPage() {
   return (
     <div className="page board-page">
       {error && <div className="status-banner warn">{error}</div>}
-      <div className="page-head">
-        <h1>Epics</h1>
-        <span className="shell-spacer" />
-        {canWrite && tab === "epics" && (
-          <div className="page-head-actions">
-            <button type="button" className="btn primary" onClick={() => void newEpic()}>
-              New epic
-            </button>
+      {head ?? (
+        <>
+          <div className="page-head">
+            <h1>Unplanned work</h1>
+            <span className="shell-spacer" />
+            {canWrite && tab === "epics" && (
+              <div className="page-head-actions">
+                <button type="button" className="btn primary" onClick={() => void newEpic()}>
+                  New epic
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="page-subtabs" role="tablist" aria-label="Epics">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`page-subtab${tab === t.id ? " active" : ""}`}
-            onClick={() => selectTab(t.id)}
-          >
-            {t.label}
-            {t.id === "epics" && <span className="page-subtab-count">{all.length}</span>}
-            {t.id === "archived" && archived.data && <span className="page-subtab-count">{archived.data.length}</span>}
-          </button>
-        ))}
-      </div>
+          <div className="page-subtabs" role="tablist" aria-label="Unplanned work">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`page-subtab${tab === t.id ? " active" : ""}`}
+                onClick={() => selectTab(t.id)}
+              >
+                {t.label}
+                {t.id === "epics" && <span className="page-subtab-count">{all.length}</span>}
+                {t.id === "archived" && archived.data && <span className="page-subtab-count">{archived.data.length}</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {tab === "archived" ? (
         <div className="stack">
@@ -184,22 +209,33 @@ export function EpicsPage() {
         <>
           <div className="viewbar">
             <input className="q2" placeholder="search epics…" aria-label="search epics" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <MultiSelect
-              allLabel="All releases"
-              countLabel="releases"
-              ariaLabel="filter epics by release"
-              options={releaseOptions}
-              selected={releaseFilter}
-              onChange={setReleaseFilter}
-            />
+            {planned && (
+              <MultiSelect
+                allLabel="All releases"
+                countLabel="releases"
+                ariaLabel="filter epics by release"
+                options={releaseOptions}
+                selected={releaseFilter}
+                onChange={setReleaseFilter}
+              />
+            )}
             <span className="tk-right">
+              {planned && canWrite && index.releases.length > 0 && (
+                <button type="button" className="btn primary" onClick={() => void newEpic()}>
+                  New epic
+                </button>
+              )}
               <span className="viewbar-count">
                 {narrowed ? `${shown.length} of ${all.length} epics` : `${all.length} epic${all.length === 1 ? "" : "s"}`}
               </span>
             </span>
           </div>
 
-          {all.length === 0 ? (
+          {all.length === 0 && planned ? (
+            <div className="hempty">No epic is in a release yet. Put one in a release on the Roadmap tab.</div>
+          ) : all.length === 0 && index.epics.length > 0 ? (
+            <div className="hempty">Every epic is in a release: they are on Planned work.</div>
+          ) : all.length === 0 ? (
             <div className="hempty centred">
               <div>
                 An epic is a chunk of the product worth planning as one: its features, its requirements, its docs. Make one, then put it in a

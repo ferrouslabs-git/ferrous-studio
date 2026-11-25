@@ -1,8 +1,10 @@
-// One high-fidelity design: the site published from its Figma Make file,
-// framed on a stage the size of its wireframes' device (with a choice when
-// they differ). Sync reloads the site, so whatever was last published in Make
-// is what is on show. There is nothing here that changes the design --
-// changes are made in Figma Make (docs/high-fidelity-design.md).
+// One high-fidelity design. A Figma design is the site published from its
+// Make file, framed on a stage the size of its wireframes' device (with a
+// choice when they differ); Sync reloads the site, so whatever was last
+// published in Make is what is on show. A Claude design cannot be framed
+// (claude.ai refuses other sites), so its public share link is shown to open
+// instead. There is nothing here that changes the design -- changes are made
+// in its tool (docs/high-fidelity-design.md).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useLoad } from "../../../core/useLoad";
@@ -10,7 +12,15 @@ import { Stage, useStageFit } from "../../studio/stage";
 import { useFillViewport } from "../epics/useFillViewport";
 import { useProject } from "../ProjectLayout";
 import { deviceClass, INTERFACE_TYPES, InterfaceType, listWireframes } from "../wireframes/wireframesApi";
-import { designWireframes, figmaHref, freshSiteUrl, getDesign, interfaceTypesOf, publishedSite } from "./designsApi";
+import {
+  claudeHref,
+  designWireframes,
+  figmaHref,
+  freshSiteUrl,
+  getDesign,
+  interfaceTypesOf,
+  publishedSite,
+} from "./designsApi";
 import { DesignStatusBadge } from "./DesignStatusBadge";
 import { PrototypeFrame } from "./PrototypeFrame";
 import { useRefetchOnFocus } from "./useRefetchOnFocus";
@@ -54,8 +64,12 @@ export function DesignPage() {
   const devices = interfaceTypesOf(resolved.wireframes);
   const interfaceType: InterfaceType =
     pickedDevice && devices.includes(pickedDevice) ? pickedDevice : devices[0] ?? "desktop";
-  const site = publishedSite(design?.published_url ?? null);
-  const figma = figmaHref(design?.figma_url ?? null);
+  const claude = design?.provider === "claude";
+  // A Claude design is never framed: only a figma.site page can be.
+  const site = claude ? null : publishedSite(design?.published_url ?? null);
+  const figma = claude ? null : figmaHref(design?.figma_url ?? null);
+  const shareLink = claude ? claudeHref(design?.published_url ?? null) : null;
+  const claudeEdit = claude ? claudeHref(design?.figma_url ?? null) : null;
 
   const mat = useRef<HTMLDivElement | null>(null);
   const fill = useFillViewport<HTMLDivElement>(0);
@@ -129,6 +143,11 @@ export function DesignPage() {
             Open in Figma
           </a>
         )}
+        {claude && (shareLink ?? claudeEdit) && (
+          <a className="btn primary" href={(shareLink ?? claudeEdit)!} target="_blank" rel="noopener noreferrer">
+            Open in Claude Design
+          </a>
+        )}
       </div>
 
       {data.data && resolved.wireframes.length === 0 && (
@@ -146,7 +165,30 @@ export function DesignPage() {
         </div>
       )}
 
-      {!site ? (
+      {claude ? (
+        <section className="section">
+          {shareLink ? (
+            <div className="design-share">
+              <span className="muted">Public link</span>
+              <a href={shareLink} target="_blank" rel="noopener noreferrer">
+                {shareLink}
+              </a>
+            </div>
+          ) : (
+            <div className="empty">
+              {claudeEdit ? (
+                <>
+                  <b>Not shared yet.</b> Share it publicly in Claude Design and record the link.
+                </>
+              ) : (
+                <>
+                  <b>Not generated yet.</b> Run <code>/studio-design generate "{design.name}"</code> in Claude Code.
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      ) : !site ? (
         // No mat without a sheet to lie on it: an empty state reads as one.
         <section className="section">
           <div className="empty">

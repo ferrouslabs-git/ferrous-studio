@@ -1,6 +1,6 @@
 ---
 name: studio-design
-description: Generate a high-fidelity interactive prototype for a Ferrous Studio design in Figma Make, record its published site for Studio to show, and keep its source in the repository for coding agents. Use when asked to generate, sync or edit a Studio "High fidelity design", to send one, several or all wireframes and their aesthetics brief to Figma Make, or to pull a design's current code out of Make. Commands - generate <design>, sync [design], edit <design>.
+description: Generate a high-fidelity interactive prototype for a Ferrous Studio design in Figma Make or Claude Design (whichever the design was created for), record where Studio shows it, and keep its source in the repository for coding agents. Use when asked to generate, sync or edit a Studio "High fidelity design", to send one, several or all wireframes and their aesthetics brief to Figma Make or Claude Design, or to pull a design's current code back out. Commands - generate <design>, sync [design], edit <design>.
 ---
 
 # Studio design: brief → Figma Make → published site in Studio
@@ -11,7 +11,15 @@ many wireframes it has, it becomes **one** prototype in **one** Make file.
 You turn that brief into an interactive prototype and put it in a **Figma
 Make** file. Studio shows it by framing the site published from that file.
 
-Four rules decide everything else:
+**Which tool:** each design records it (`provider` in `list_designs` and in
+the brief's `design`), chosen by a person when the design was created.
+`figma` follows this file as written. **`claude` follows
+`references/claude-design.md`** wherever it differs (the artifact replaces the
+Make file, a public share link replaces the published site, and `edit`
+works). Never move a design from one tool to the other.
+
+Four rules decide everything else (for Claude Design, read "the artifact" for
+"the Figma Make file" and "its share link" for "the published site"):
 
 1. **The Figma Make file is the single source of truth.** Studio never edits
    a design and holds no copy of it.
@@ -35,7 +43,8 @@ Check both connections. If one is missing, stop and say which.
 | Needed | How to tell | If missing |
 |---|---|---|
 | Studio board MCP with design tools | `list_designs`, `get_design_brief`, `set_design_figma_url` are available | The connection runs the *deployed* `board_mcp.py`; the tools appear after a deploy and a session restart |
-| Figma connector | `send_code_to_figma` and `get_design_context` are available | Ask the user to connect Figma in Claude Code |
+| Figma connector (Figma designs only) | `send_code_to_figma` and `get_design_context` are available | Ask the user to connect Figma in Claude Code |
+| Artifact tool (Claude designs only) | `Artifact` is available | Say a Claude design cannot be generated in this session |
 
 For everything Figma-side, follow the `figma:figma-code-workflows` skill. It
 owns the mechanics (how a project is packaged and sent, how a Make file's
@@ -53,6 +62,9 @@ the prototype's source and nothing else: no `node_modules/`, no `dist/`
 folder outside the repository and are deleted when the command finishes.
 
 ## `generate <design>`
+
+For a Claude design, steps 1-4 are the same and then
+`references/claude-design.md` takes over from step 5.
 
 For a design that has no Make file yet (`figma_url` is null). If it already
 has one, stop and offer `sync` or `edit` instead: generating again would
@@ -89,6 +101,8 @@ create a second Make file and split the source of truth.
    `set_design_figma_url(design_id, published_url=...)`.
 
 ## `sync [design]`
+
+(Claude designs: see "sync" in `references/claude-design.md`.)
 
 Pulls the Make file's current code into the design's folder. With no design
 named, sync every active design that has a `figma_url`.
@@ -130,6 +144,9 @@ lists a wireframe the prototype does not have.
 
 ## `edit <design>` (conditional)
 
+Claude designs: supported now -- see "edit" in `references/claude-design.md`.
+The condition below is about Figma Make only.
+
 > **Only if `send_code_to_figma` can replace the code of an existing Make
 > file.** That is unverified (spike 2 in `references/figma-make.md`). Until
 > it is confirmed, do not run this command: tell the user that changes are
@@ -163,5 +180,7 @@ allow-same-origin"` on `figma.site`, another origin from Studio's:
   export to the template.
 - `references/figma-make.md` — what is needed from the Figma connector:
   handing over, reading the code back, and the open spikes.
+- `references/claude-design.md` — the Claude Design path: the Design
+  Artifact type, the share link Studio links to, sync and edit.
 - `scripts/check_build.mjs` — checks a build is one self-contained file; no
   longer required, useful when a prototype must work offline.

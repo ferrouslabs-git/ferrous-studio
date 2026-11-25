@@ -1,31 +1,15 @@
 // A sprint's burndown, loaded when its <details> is first opened. Three
 // series -- remaining (solid), ideal pace (dashed), scope (dotted, stepped:
-// scope changes are discrete events) -- in hours when every requirement is
-// estimated, else in item counts, and the fallback says so out loud. The
-// chart library is fetched on first use; most sessions never open one.
+// scope changes are discrete events) -- counted in requirements (FS-REQ-106:
+// requirements carry no estimate on the board). The chart library is fetched on first use; most sessions never open one.
 // Ported from the reference app's renderBurndown() (static/js/sprints.js).
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../../core/api";
 import { useBoard } from "./boardData";
-import { fmtEffort } from "./effort";
 import { Burndown as BurndownData, getBurndown } from "./sprintsApi";
 import { cssVar, useThemeAttr } from "./useThemeAttr";
 
-type Mode = "hours" | "items";
-
-const canUseHours = (d: BurndownData) => !d.unestimated_count && d.total_hours > 0;
-
-function series(d: BurndownData, mode: Mode) {
-  const hours = mode === "hours";
-  return {
-    hours,
-    remaining: hours ? d.remaining_hours : d.remaining,
-    ideal: hours ? d.ideal_hours : d.ideal,
-    scope: hours ? d.scope_hours : d.scope,
-    total: hours ? d.total_hours : d.total,
-    fmt: hours ? fmtEffort : (v: number) => String(v),
-  };
-}
+const fmt = (v: number) => String(v);
 
 const shortDate = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
@@ -41,7 +25,6 @@ export function BurndownDetails({ sprintId }: { sprintId: string }) {
   const [open, setOpen] = useState(() => bdOpen.has(sprintId));
   const [data, setData] = useState<BurndownData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<Mode | null>(null);
 
   useEffect(() => {
     if (!open || data || error) return;
@@ -50,7 +33,6 @@ export function BurndownDetails({ sprintId }: { sprintId: string }) {
       .then((d) => {
         if (cancelled) return;
         setData(d);
-        setMode(canUseHours(d) ? "hours" : "items");
       })
       .catch((err: unknown) => !cancelled && setError(errorMessage(err)));
     return () => {
@@ -75,24 +57,24 @@ export function BurndownDetails({ sprintId }: { sprintId: string }) {
       <div className="bd-body">
         {!open ? null : error ? (
           <div className="hempty">couldn't load burndown — {error}</div>
-        ) : !data || !mode ? (
+        ) : !data ? (
           <div className="hempty">loading…</div>
         ) : (
-          <BurndownChart data={data} mode={mode} onMode={setMode} />
+          <BurndownChart data={data} />
         )}
       </div>
     </details>
   );
 }
 
-function BurndownChart({ data, mode, onMode }: { data: BurndownData; mode: Mode; onMode: (m: Mode) => void }) {
+function BurndownChart({ data }: { data: BurndownData }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const theme = useThemeAttr();
   const [libError, setLibError] = useState(false);
 
   if (!data.dates.length) return <div className="hempty">{data.note || "no requirements have been in this sprint yet"}</div>;
 
-  const S = series(data, mode);
+  const S = data;
   let lastIdx = -1;
   S.remaining.forEach((v, i) => {
     if (v != null) lastIdx = i;
@@ -124,7 +106,7 @@ function BurndownChart({ data, mode, onMode }: { data: BurndownData; mode: Mode;
       const scope = cssVar("--b-cobalt", root) || "#4a63ff";
       const tipBg = cssVar("--b-card", root) || cssVar("--panel-2");
       const tipInk = cssVar("--b-ink", root) || cssVar("--text");
-      const s = series(data, mode);
+      const s = data;
       chart = new Chart(canvas, {
         type: "line",
         data: {
@@ -153,7 +135,7 @@ function BurndownChart({ data, mode, onMode }: { data: BurndownData; mode: Mode;
               boxWidth: 8,
               boxHeight: 8,
               boxPadding: 4,
-              callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y == null ? "—" : s.fmt(ctx.parsed.y)}` },
+              callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y == null ? "—" : fmt(ctx.parsed.y)}` },
             },
           },
           scales: {
@@ -166,7 +148,7 @@ function BurndownChart({ data, mode, onMode }: { data: BurndownData; mode: Mode;
               beginAtZero: true,
               grid: { color: line },
               border: { display: false },
-              ticks: { color: ink3, font: { family: mono, size: 10 }, maxTicksLimit: 5, precision: s.hours ? 1 : 0, callback: (v) => s.fmt(Number(v)) },
+              ticks: { color: ink3, font: { family: mono, size: 10 }, maxTicksLimit: 5, precision: 0, callback: (v) => fmt(Number(v)) },
             },
           },
         },
@@ -176,7 +158,7 @@ function BurndownChart({ data, mode, onMode }: { data: BurndownData; mode: Mode;
       cancelled = true;
       chart?.destroy();
     };
-  }, [data, mode, theme, behind]);
+  }, [data, theme, behind]);
 
   return (
     <>
@@ -193,23 +175,10 @@ function BurndownChart({ data, mode, onMode }: { data: BurndownData; mode: Mode;
           <i className="bd-sw bd-sw-scope" />
           scope
         </span>
-        <span className="bd-modes">
-          <button type="button" className={`bd-mode${mode === "hours" ? " on" : ""}`} disabled={!data.total_hours} onClick={() => onMode("hours")}>
-            hours
-          </button>
-          <button type="button" className={`bd-mode${mode === "items" ? " on" : ""}`} onClick={() => onMode("items")}>
-            items
-          </button>
-        </span>
       </div>
-      {mode === "items" && data.unestimated_count > 0 && (
-        <div className="bd-note">
-          showing item counts — {data.unestimated_count} of {data.unestimated_count + data.estimated_count} requirement(s) have no estimate
-        </div>
-      )}
       {added && (
         <div className="bd-note bd-note-scope">
-          scope grew during the sprint: started at {S.fmt(S.total)}, now {S.fmt(S.scope[lastIdx] ?? 0)}
+          scope grew during the sprint: started at {S.total}, now {S.scope[lastIdx] ?? 0}
         </div>
       )}
       <div className="bd-chart">{libError ? <div className="hempty">chart library didn't load — reload to try again</div> : <canvas ref={canvasRef} />}</div>

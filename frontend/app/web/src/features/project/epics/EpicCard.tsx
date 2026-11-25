@@ -10,7 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { AssigneeChip } from "../board/AssigneeSelect";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
-import { CommentButton, EffortFigure, IdChip, ProgressFigure, RolledUpStatusChip, SegBar } from "../board/chips";
+import { CommentButton, IdChip, ProgressFigure, RolledUpStatusChip, SegBar } from "../board/chips";
 import type { RequirementStatus } from "../board/requirementsApi";
 import type { CommentsTarget } from "../board/CommentsPanel";
 import { useDialogs } from "../board/dialogs";
@@ -93,7 +93,6 @@ export function EpicCard({ epic, folded, onToggleFold, onComments }: EpicCardPro
         <AssigneeChip userId={epic.assignee_id} what={epic.human_id} />
         <SegBar done={p.done} partial={p.in_progress + p.to_test} total={p.total} />
         <ProgressFigure rollup={p} />
-        <EffortFigure rollup={p} />
         <span className="spacer" />
         <CommentButton
           count={index.commentCount(epic.id)}
@@ -167,7 +166,6 @@ function FeatureRow({
       <span className="t">{title}</span>
       <SegBar done={p.done} partial={p.in_progress + p.to_test} total={p.total} width={90} />
       <ProgressFigure rollup={p} />
-      <EffortFigure rollup={p} />
     </div>
   );
 }

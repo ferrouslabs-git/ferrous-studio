@@ -7,7 +7,7 @@
 import { AssigneeSelect } from "../board/AssigneeSelect";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
-import { CommentButton, EffortFigure, IdChip, RolledUpStatusChip } from "../board/chips";
+import { CommentButton, IdChip, RolledUpStatusChip } from "../board/chips";
 import type { CommentsTarget } from "../board/CommentsPanel";
 import { useDialogs } from "../board/dialogs";
 import { rollup } from "../board/effort";
@@ -133,7 +133,6 @@ export function EpicColumn({
       <div className="epg-section">
         <div className="section-row">
           <h3>Requirements ({p.total})</h3>
-          <EffortFigure rollup={p} />
           <span className="spacer" />
           <button type="button" className="btn mini-x" aria-pressed={archived !== null} onClick={onToggleArchived}>
             {archived === null ? "Show archived" : "Hide archived"}

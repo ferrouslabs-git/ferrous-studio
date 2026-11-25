@@ -10,6 +10,7 @@ from fastapi import APIRouter
 
 from .annotations import router as annotations_router
 from .audit import router as audit_router
+from .board.admin_kanban import router as board_admin_kanban_router
 from .board.agent_routes import router as board_agent_router
 from .board.routes import router as board_router
 from .usability.agent_routes import router as usability_agent_router
@@ -49,6 +50,7 @@ router.include_router(slack_router)
 router.include_router(github_project_router)
 router.include_router(board_router)
 router.include_router(board_agent_router)
+router.include_router(board_admin_kanban_router)
 router.include_router(usability_router)
 router.include_router(usability_agent_router)
 router.include_router(usability_public_router)

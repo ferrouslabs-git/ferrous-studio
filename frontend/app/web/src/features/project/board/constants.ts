@@ -43,5 +43,3 @@ export const DELIVERY_STATUS_LABEL: Record<DeliveryStatus, string> = {
   DeployedToLive: "Deployed to Live",
 };
 
-// The reference's default sprint capacity, in hours (ten working days).
-export const DEFAULT_CAPACITY_HOURS = 80;

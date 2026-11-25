@@ -221,10 +221,6 @@
 
 /* Figures */
 .board-page .r, .board-drawer .r { flex: none; font-family: var(--b-mono); font-size: 10px; color: var(--b-ink3); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.board-page .est-sum, .board-drawer .est-sum {
-  font-family: var(--b-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--b-accent-text); white-space: nowrap; flex: none;
-}
-.board-page .est-partial, .board-drawer .est-partial { color: var(--b-ink3); font-style: italic; text-transform: none; letter-spacing: .02em; }
 
 /* Progress and segmented bars */
 .board-page .prog, .board-drawer .prog { height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--b-ink3) 25%, transparent); overflow: hidden; margin-top: 10px; }
@@ -340,7 +336,6 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .board-page .sp-bl-grouphead .k { color: var(--b-accent-text); font-weight: 600; }
-.board-page .sp-bl-row .est-sum { margin-left: auto; padding-right: 6px; }
 .board-page .sp-bl-row .sp-pull { opacity: 0; transition: opacity var(--b-transition); }
 .board-page .sp-bl-row:hover .sp-pull, .board-page .sp-bl-row:focus-within .sp-pull { opacity: .75; }
 /* Sprint cards */
@@ -352,22 +347,11 @@
 .board-page .sp-meta .prog { flex: 1; min-width: 120px; margin: 0; }
 .board-page .sp-meta .sp-fig { font-size: 11px; color: var(--b-ink3); white-space: nowrap; }
 .board-page .sp-relsel select.mini { max-width: 180px; }
-.board-page .sp-cap { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--b-ink3); }
-.board-page .sp-cap-lbl { font-family: var(--b-mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--b-ink4); }
-.board-page .sp-cap .cap-bar { flex: 1; min-width: 100px; margin: 0; }
-.board-page .sp-cap-fig { font-family: var(--b-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--b-ink2); white-space: nowrap; }
-.board-page .sp-cap-fig.over { color: var(--b-serious); font-weight: 600; }
-.board-page .sp-cap-in { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
-.board-page .sp-cap-in input { width: 64px; }
-.board-page .sp-vel, .board-page .sp-unest { font-family: var(--b-mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
-.board-page .sp-vel { color: var(--b-ink4); }
-.board-page .sp-unest { color: var(--b-warn); }
 .board-page .sp-items-head {
   font-family: var(--b-mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--b-ink3); margin-top: 10px; padding-top: 8px;
   border-top: 1px solid var(--b-line-faint); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
 }
 .board-page .sp-row .sp-pos { min-width: 18px; text-align: right; color: var(--b-accent-text); font-variant-numeric: tabular-nums; width: auto; }
-.board-page .sp-row .est-sum { margin-left: auto; padding-right: 8px; }
 .board-page .sp-row .sp-up, .board-page .sp-row .sp-down { padding: 0 5px; }
 .board-page .sp-row button:disabled { opacity: .35; cursor: default; }
 .board-page .sp-row .sp-out { opacity: 0; transition: opacity var(--b-transition); }
@@ -393,14 +377,6 @@ body.board-dragging-requirement .board-page .spcard:not(.sp-dim), body.board-dra
 .board-page .bd-sw-dash { background: none; border-top: 2px dashed var(--b-ink3); }
 .board-page .bd-sw-scope { background: var(--b-cobalt); }
 .board-page .bd-chart { position: relative; height: 200px; width: 100%; margin-top: 4px; }
-.board-page .bd-modes { margin-left: auto; display: inline-flex; gap: 3px; }
-.board-page .bd-mode {
-  border: 1px solid var(--b-line); background: var(--b-card); color: var(--b-ink3); border-radius: var(--b-radius); padding: 1px 6px; cursor: pointer;
-  font-family: var(--b-mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
-}
-.board-page .bd-mode:hover:not(:disabled) { border-color: var(--b-accent-border); color: var(--b-ink); }
-.board-page .bd-mode.on { background: var(--b-glow-soft); color: var(--b-accent-text); border-color: var(--b-accent-border); }
-.board-page .bd-mode:disabled { opacity: .4; cursor: not-allowed; }
 .board-page .bd-note { font-size: 10.5px; color: var(--b-ink3); margin: 2px 0 4px; }
 .board-page .bd-note-scope { color: var(--b-warn); }
 
@@ -473,7 +449,6 @@ body.board-dragging-epic .board-page .tl-card:not(.tl-card-loose) { border-style
   top: 5px; height: 12px;
 }
 .board-page .tl-bar-sprint { background: color-mix(in srgb, var(--b-good) 14%, transparent); border-color: color-mix(in srgb, var(--b-good) 38%, transparent); color: var(--b-good); }
-.board-page .tl-bar-sprint.tl-over { background: color-mix(in srgb, var(--b-serious) 16%, transparent); border-color: color-mix(in srgb, var(--b-serious) 45%, transparent); color: var(--b-serious); }
 .board-page .tl-bar.tl-overrun { border-color: var(--b-serious); box-shadow: 0 0 0 1px color-mix(in srgb, var(--b-serious) 35%, transparent); }
 .board-page .tl-target { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--b-accent-solid); opacity: .9; }
 .board-page .tl-target::after { content: "◆"; position: absolute; top: -3px; left: -5px; font-size: 9px; color: var(--b-accent-solid); }
@@ -557,6 +532,13 @@ body.board-dragging-epic .board-page .tl-card:not(.tl-card-loose) { border-style
 .board-page .pri-Low { color: var(--b-ink3); }
 body.board-dragging-card .board-page .sb-col { border-style: dashed; border-color: var(--b-line-strong); }
 .board-page .sb-col.is-over { border-style: solid; border-color: var(--b-accent-solid); background: color-mix(in srgb, var(--b-accent) 9%, var(--b-card)); }
+/* Platform Kanban (AdminKanbanPage): the sprint board's lanes across every project. */
+.board-page .akb-week { font-family: var(--b-display); font-size: 13px; font-weight: 600; color: var(--b-ink); margin-left: 4px; }
+.board-page .btn.mini-x:disabled { opacity: .5; cursor: default; }
+.board-page .reqcard .akb-id { color: inherit; font-weight: 600; text-decoration: none; }
+.board-page .reqcard .akb-id:hover { text-decoration: underline; }
+.board-page .reqcard .sb-scope .akb-assignee { flex: none; max-width: 50%; }
+.board-page .reqcard .sb-scope .akb-assignee.is-none { border-style: dashed; font-style: italic; }
 /* ── Epic page: the epic and the detail pane split the width 50/50 ── */
 .board-page .epg-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; align-items: start; }
 .board-page .epg-body { min-width: 0; }
@@ -564,6 +546,10 @@ body.board-dragging-card .board-page .sb-col { border-style: dashed; border-colo
    and each column scrolls on its own: the epic stays put while a long
    requirement scrolls, and the other way round. Stacked, the page scrolls. */
 .board-page .epg-layout.fills-viewport { grid-template-rows: minmax(0, 1fr); }
+/* The columns are the only scrollers then: the window never scrolls, so a
+   stray overflow elsewhere (a widened textarea, a late banner) cannot carry
+   the panes off with the page. useFillViewport resets any offset it had. */
+html:has(.board-page .epg-layout.fills-viewport) { overflow: hidden; }
 .board-page .epg-layout.fills-viewport > .epg-body, .board-page .epg-layout.fills-viewport > .rqp-pane {
   align-self: start; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
 }
@@ -763,6 +749,10 @@ body.board-cpanel-open .shell-main { padding-right: 340px; }
 }
 .board-drawer .dlg-item:last-child { border-bottom: none; }
 .board-drawer .dlg-item:hover, .board-drawer .dlg-item:focus { background: color-mix(in srgb, var(--b-accent) 8%, transparent); outline: none; }
+.board-drawer .dlg-check { align-items: center; }
+.board-drawer .dlg-check input { margin: 0; accent-color: var(--b-accent-solid); }
+.board-drawer .dlg-check input:focus, .board-drawer .dlg-check input:focus-visible { outline: none; box-shadow: none; }
+.board-drawer .dlg-check.on { background: color-mix(in srgb, var(--b-accent) 12%, transparent); }
 .board-drawer .dlg-hint { margin-left: auto; font-size: 10px; color: var(--b-ink3); white-space: nowrap; }
 .board-dialog-message { white-space: pre-wrap; }
 

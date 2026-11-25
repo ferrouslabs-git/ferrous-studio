@@ -8,7 +8,7 @@ import { AssigneeSelect } from "../board/AssigneeSelect";
 import { AttachmentsSection } from "../board/AttachmentsSection";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
-import { CommentButton, EffortFigure, IdChip, RolledUpStatusChip, StatusChip } from "../board/chips";
+import { CommentButton, IdChip, RolledUpStatusChip, StatusChip } from "../board/chips";
 import type { CommentsTarget } from "../board/CommentsPanel";
 import { useDialogs } from "../board/dialogs";
 import { rollup } from "../board/effort";
@@ -41,11 +41,14 @@ export function FeatureGroupCard({ epic, feature: f, rows, selectedReq, onSelect
 
   const remove = async () => {
     if (!f) return;
-    const ok = await dialogs.confirm({
-      title: "Delete feature",
-      ok: "Delete feature",
-      message: `Delete ${f.human_id} "${f.title}"?\nIts ${rows.length} requirement(s) will be untagged (not deleted), and its comments removed.`,
-    });
+    // Nothing under it: nothing to lose, so no confirmation.
+    const ok =
+      rows.length === 0 ||
+      (await dialogs.confirm({
+        title: "Delete feature",
+        ok: "Delete feature",
+        message: `Delete ${f.human_id} "${f.title}" and its ${rows.length} requirement(s), with any archived ones and all their comments? This cannot be undone.`,
+      }));
     if (!ok) return;
     await mutations.deleteFeature(f).catch(() => undefined);
   };
@@ -67,7 +70,6 @@ export function FeatureGroupCard({ epic, feature: f, rows, selectedReq, onSelect
             Unassigned
           </span>
         )}
-        <EffortFigure rollup={p} />
         {f && (
           <AssigneeSelect
             className="select mini epg-asg"

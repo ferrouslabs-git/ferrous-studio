@@ -18,6 +18,23 @@ skill), and Studio frames the site published from the Make file. **The Figma
 Make file is the single source of truth.** The prototype's source is kept in
 this repository under `designs/<design-slug>/`, for coding agents to read.
 
+### Figma or Claude Design (2026-11-25)
+
+When a design is created, the person picks its **design tool**
+(`project_designs.provider`, migration `e1b6c4d8f273`; fixed afterwards):
+
+- **Figma** (the default, and every design before this date): everything in
+  this document as written.
+- **Claude Design**: the prototype is a Claude Design artifact (the Design
+  Artifact type), which is the single source of truth instead of a Make file.
+  `figma_url` holds the artifact's address and `published_url` its **public
+  share link**. claude.ai sends `frame-ancestors 'self'` (and its content host
+  only admits claude.ai), so Studio cannot frame it: the design page shows the
+  share link and an "Open in Claude Design" button instead. Studio holds each
+  design's links to its own tool's hosts (claude.ai, or figma.com/figma.site).
+  The skill's Claude path is `.claude/skills/studio-design/references/claude-design.md`;
+  `edit` works there, because an artifact is updated in place.
+
 ## 2. Constraints that shaped it
 
 - Figma Make and Claude Design have no API a backend can call. Figma's MCP

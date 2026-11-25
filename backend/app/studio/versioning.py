@@ -490,8 +490,8 @@ async def _copy_designs(
 ) -> None:
     """High-fidelity designs.
 
-    ``figma_url`` and ``published_url`` travel: the new version shows the same
-    Make file and its site. The source is normally locked by versioning, and a
+    ``provider``, ``figma_url`` and ``published_url`` travel: the new version
+    shows the same Make file and its site, or the same Claude Design. The source is normally locked by versioning, and a
     locked project refuses every design write.
 
     ``wireframe_ids`` has no foreign key, so an id is remapped or dropped --
@@ -515,6 +515,7 @@ async def _copy_designs(
                 name=row.name,
                 brief=row.brief,
                 reference_document_ids=[str(doc_id) for doc_id in references if doc_id is not None],
+                provider=row.provider,
                 figma_url=row.figma_url,
                 published_url=row.published_url,
                 status=row.status,

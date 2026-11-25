@@ -242,41 +242,29 @@ async def work_status_maps(db: AsyncSession, board_id: UUID) -> tuple[dict[UUID,
 # else 0 -- the exact weights of the reference's effort.js rollup(), which the
 # front-end (features/project/board/effort.ts) ports verbatim, so the
 # server-computed figure on a release card and the client-computed one on a
-# sprint card never disagree. The same weights apply to hours: ``hours_done``
-# is every existing estimate multiplied by its status weight, not the Done
-# estimates alone. SMA used to reimplement the older two-weight formula in
-# five places (roadmap.js, features.js, sprints.js, milestones.js,
-# sma_mcp.py); effort.js consolidated those client-side, and this is the one
-# server-side twin.
+# sprint card never disagree. Progress is counted in requirements only
+# (FS-REQ-106): requirements carry no estimate on the board, and work is
+# sized by planning features into sprints and sprints into releases. SMA
+# used to reimplement the older two-weight formula in five places
+# (roadmap.js, features.js, sprints.js, milestones.js, sma_mcp.py);
+# effort.js consolidated those client-side, and this is the one server-side
+# twin.
 
 
 def progress_rollup(requirements: list[Requirement]) -> dict:
-    """The full EpicProgress shape (schemas.py). ``hours`` sums only the
-    estimates that exist -- an unestimated requirement adds nothing, which
-    is only honest alongside ``unestimated``/``coverage``, so all three
-    ship together. ``hours_done`` is those same estimates weighted by
-    status_weight (a 4 h requirement in ToTest contributes 3 h), exactly as
-    effort.ts's rollup() credits them. ``coverage`` is 1.0 for an empty
-    set: nothing is missing an estimate."""
+    """The full EpicProgress shape (schemas.py): plain counts by status, and
+    ``pct`` weighted by status_weight exactly as effort.ts's rollup()."""
     total = len(requirements)
     done = sum(1 for r in requirements if r.status == "Done")
     in_progress = sum(1 for r in requirements if r.status == "InProgress")
     to_test = sum(1 for r in requirements if r.status == "ToTest")
     score = sum(status_weight(r.status) for r in requirements)
-    estimated = [r for r in requirements if r.estimate_hours is not None]
-    hours = sum(r.estimate_hours for r in estimated)
-    hours_done = sum(r.estimate_hours * status_weight(r.status) for r in estimated)
     return {
         "total": total,
         "done": done,
         "in_progress": in_progress,
         "to_test": to_test,
         "pct": round(100 * score / total) if total else 0,
-        "hours": hours,
-        "hours_done": hours_done,
-        "estimated": len(estimated),
-        "unestimated": total - len(estimated),
-        "coverage": len(estimated) / total if total else 1.0,
     }
 
 
@@ -638,18 +626,11 @@ async def claim_requirement(
 # sprints assumes constant membership since
 # creation -- real historical membership can't be recovered, and "fixing"
 # this silently would misrepresent old sprints as more precisely tracked
-# than they are. One more honest caveat from the reference: estimates are
-# CURRENT-state values while the rest is history, so editing an estimate
-# mid-sprint retroactively rewrites every earlier day of the hours series.
+# than they are. The series count requirements, never hours (FS-REQ-106).
 
 #: Every early return spreads this, so the client reads every key
 #: unconditionally instead of guarding each one.
-_EMPTY_BURNDOWN = {
-    "dates": [], "remaining": [], "ideal": [], "total": 0,
-    "remaining_hours": [], "ideal_hours": [], "total_hours": 0.0,
-    "scope": [], "scope_hours": [],
-    "estimated_count": 0, "unestimated_count": 0,
-}
+_EMPTY_BURNDOWN = {"dates": [], "remaining": [], "ideal": [], "total": 0, "scope": []}
 
 
 def burndown_series(
@@ -658,7 +639,6 @@ def burndown_series(
     requirement_ids: list[UUID],
     membership_by_req: dict[UUID, list[tuple[dt.date, UUID | None]]],
     status_by_req: dict[UUID, list[tuple[dt.date, str]]],
-    estimates: dict[UUID, float | None],
     today: dt.date,
 ) -> dict:
     """The arithmetic, separated from the queries so it can be tested
@@ -666,15 +646,10 @@ def burndown_series(
     per requirement, ``status_by_req`` (day, status) rows; on any day the
     latest row dated on or before it applies.
 
-    Returns BOTH series: ``remaining``/``total`` count requirements,
-    ``remaining_hours``/``total_hours`` sum estimates. ``scope``/
-    ``scope_hours`` are the sprint's whole membership on each day, done or
-    not -- a rising scope line is work added after the sprint started.
-    Actual series stop at ``today`` (None after it); the ideal lines run
-    the whole sprint. ``estimated_count``/``unestimated_count`` are over
-    the sprint's CURRENT membership -- the set a reader is looking at --
-    not everything that ever passed through, so the client can fall back
-    from hours to counts when coverage is incomplete."""
+    ``remaining``/``total`` count the sprint's open requirements; ``scope``
+    is its whole membership on each day, done or not -- a rising scope
+    line is work added after the sprint started. Actual series stop at
+    ``today`` (None after it); the ideal line runs the whole sprint."""
 
     def membership_on(rid: UUID, day: dt.date) -> UUID | None:
         applicable = [sid for d, sid in membership_by_req.get(rid, []) if d <= day]
@@ -684,42 +659,22 @@ def burndown_series(
         applicable = [s for d, s in status_by_req.get(rid, []) if d <= day]
         return bool(applicable) and applicable[-1] == "Done"
 
-    # An unestimated requirement contributes 0 to the hours series -- only
-    # honest alongside unestimated_count, which is why both ship.
-    def hours(rid: UUID) -> float:
-        return estimates.get(rid) or 0.0
-
-    start, end = days[0], days[-1]
-    n = len(days)
-    in_at_start = [rid for rid in requirement_ids if membership_on(rid, start) == sprint_id]
-    total = len(in_at_start)
-    total_hours = sum(hours(rid) for rid in in_at_start)
-
-    current = [rid for rid in requirement_ids if membership_on(rid, min(today, end)) == sprint_id]
-    estimated_count = sum(1 for rid in current if estimates.get(rid) is not None)
+    start, n = days[0], len(days)
+    total = sum(1 for rid in requirement_ids if membership_on(rid, start) == sprint_id)
 
     remaining: list[int | None] = []
-    remaining_hours: list[float | None] = []
     scope: list[int | None] = []
-    scope_hours: list[float | None] = []
     ideal: list[float] = []
-    ideal_hours: list[float] = []
     for i, day in enumerate(days):
         if day > today:
             remaining.append(None)
-            remaining_hours.append(None)
             scope.append(None)
-            scope_hours.append(None)
         else:
             members = [rid for rid in requirement_ids if membership_on(rid, day) == sprint_id]
-            open_ = [rid for rid in members if not done_on(rid, day)]
-            remaining.append(len(open_))
-            remaining_hours.append(round(sum(hours(rid) for rid in open_), 2))
+            remaining.append(sum(1 for rid in members if not done_on(rid, day)))
             scope.append(len(members))
-            scope_hours.append(round(sum(hours(rid) for rid in members), 2))
         f = (1 - i / (n - 1)) if n > 1 else 0
         ideal.append(round(total * f, 1))
-        ideal_hours.append(round(total_hours * f, 1))
 
     return {
         "sprint_id": sprint_id,
@@ -728,13 +683,7 @@ def burndown_series(
         "remaining": remaining,
         "ideal": ideal,
         "total": total,
-        "remaining_hours": remaining_hours,
-        "ideal_hours": ideal_hours,
-        "total_hours": round(total_hours, 2),
         "scope": scope,
-        "scope_hours": scope_hours,
-        "estimated_count": estimated_count,
-        "unestimated_count": len(current) - estimated_count,
     }
 
 
@@ -770,10 +719,7 @@ async def sprint_burndown(db: AsyncSession, board: Board, sprint: Sprint) -> dic
             "dates": days,
             "remaining": [0] * n,
             "ideal": [0.0] * n,
-            "remaining_hours": [0.0] * n,
-            "ideal_hours": [0.0] * n,
             "scope": [0] * n,
-            "scope_hours": [0.0] * n,
         }
 
     membership_rows = (
@@ -801,12 +747,6 @@ async def sprint_burndown(db: AsyncSession, board: Board, sprint: Sprint) -> dic
         )
     ).all()
 
-    estimate_rows = (
-        await db.execute(
-            select(Requirement.id, Requirement.estimate_hours).where(Requirement.id.in_(requirement_ids))
-        )
-    ).all()
-
     membership_by_req: dict[UUID, list[tuple[dt.date, UUID | None]]] = {}
     for rid, sid, started_at in membership_rows:
         membership_by_req.setdefault(rid, []).append((started_at.date(), sid))
@@ -818,11 +758,7 @@ async def sprint_burndown(db: AsyncSession, board: Board, sprint: Sprint) -> dic
             continue
         status_by_req.setdefault(rid, []).append((created_at.date(), status_change.get("to")))
 
-    estimates = {rid: estimate for rid, estimate in estimate_rows}
-
-    return burndown_series(
-        sprint.id, days, requirement_ids, membership_by_req, status_by_req, estimates, utc_now().date()
-    )
+    return burndown_series(sprint.id, days, requirement_ids, membership_by_req, status_by_req, utc_now().date())
 
 
 # ── Sprint activity (the sprint board's poll) ────────────────────────────

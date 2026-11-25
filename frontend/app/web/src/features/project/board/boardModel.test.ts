@@ -9,7 +9,6 @@ import {
   effectiveReleaseId,
   nextSprintDefaults,
   numSuffix,
-  recentVelocity,
   releaseDue,
   releaseSchedule,
   reorderPatches,
@@ -46,7 +45,6 @@ const req = (o: Partial<Requirement> & { id: string; human_id: string }): Requir
   release_id: null,
   sprint_id: null,
   estimate_hours: null,
-  actual_hours: null,
   queue_position: null,
   effective_epic_id: null,
   effective_release_id: null,
@@ -60,7 +58,7 @@ const release = (o: Partial<Release> & { id: string; human_id: string }): Releas
   description: "",
   status: "NotStarted",
   shipped_at: null,
-  progress: { total: 0, done: 0, in_progress: 0, to_test: 0, pct: 0, hours: 0, hours_done: 0, estimated: 0, unestimated: 0, coverage: 1 },
+  progress: { total: 0, done: 0, in_progress: 0, to_test: 0, pct: 0 },
   created_at: "",
   updated_at: "",
   ...o,
@@ -174,21 +172,6 @@ describe("sprints", () => {
       { id: "d", queue_position: 2 },
       { id: "a", queue_position: 3 },
     ]);
-  });
-  it("averages delivered hours over the last finished sprints, skipping empty ones", () => {
-    const ss = [
-      sprint({ id: "s1", human_id: "S1", closed_at: "2026-09-01T00:00:00" }),
-      sprint({ id: "s2", human_id: "S2", closed_at: "2026-09-02T00:00:00" }),
-      sprint({ id: "s3", human_id: "S3", closed_at: "2026-09-03T00:00:00" }),
-      sprint({ id: "s4", human_id: "S4", closed_at: "2026-09-04T00:00:00" }),
-    ];
-    const rs = [
-      req({ id: "a", human_id: "REQ-1", sprint_id: "s4", status: "Done", estimate_hours: 8 }),
-      req({ id: "b", human_id: "REQ-2", sprint_id: "s3", status: "Done", estimate_hours: 16 }),
-      req({ id: "c", human_id: "REQ-3", sprint_id: "s1", status: "Done", estimate_hours: 100 }),
-    ];
-    expect(recentVelocity(ss, rs)).toEqual({ hours: 12, n: 2 });
-    expect(recentVelocity(ss, [])).toBeNull();
   });
   it("defaults a new sprint to the day after the last one ends, two weeks long", () => {
     const today = new Date("2026-09-11T09:00:00");

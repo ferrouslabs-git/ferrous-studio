@@ -11,7 +11,7 @@ import { releaseDate, releaseDue } from "../../board/boardModel";
 import { useBoardMutations } from "../../board/boardMutations";
 import { useDialogs } from "../../board/dialogs";
 import { useDraggable } from "../../board/dnd";
-import { effortSummary, rollup } from "../../board/effort";
+import { rollup } from "../../board/effort";
 import type { Epic } from "../../board/epicsApi";
 import { Icon } from "../../board/icons";
 import type { Release } from "../../board/releasesApi";
@@ -85,8 +85,7 @@ export function EpicRow({ epic, release, w }: EpicRowProps) {
       }}
       meta={
         <>
-          {/* The meta column is narrow: progress only, effort in its tooltip. */}
-          <span className="tl-fig" title={effortSummary(ep).text || undefined}>
+          <span className="tl-fig">
             {ep.done}/{ep.total} · {ep.pct}%
           </span>
           {moveButton}

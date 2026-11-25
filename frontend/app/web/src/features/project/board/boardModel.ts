@@ -184,24 +184,6 @@ export function reorderPatches(
   return changes;
 }
 
-// Measured velocity: the mean effort completed over the last few closed
-// sprints. Closing a sprint returns everything that is not Done to the
-// backlog, so the requirements still tagged to a closed sprint are exactly
-// the ones it delivered. Sprints with no estimated work are skipped.
-export const VELOCITY_SAMPLE = 3;
-
-export function recentVelocity(sprints: Sprint[], requirements: Requirement[]): { hours: number; n: number } | null {
-  const finished = sprints
-    .filter((s) => !!s.closed_at)
-    .sort((a, b) => numSuffix(b.human_id) - numSuffix(a.human_id))
-    .slice(0, VELOCITY_SAMPLE)
-    .map((s) => rollup(requirements.filter((r) => r.sprint_id === s.id)).hours_done)
-    .filter((h) => h > 0);
-  return finished.length
-    ? { hours: finished.reduce((a, b) => a + b, 0) / finished.length, n: finished.length }
-    : null;
-}
-
 // The sprint's one lifecycle control: ✓ Close / ↺ Reopen. Separate from the
 // sprint's status, which is a free label with no side effects -- this is the
 // button that returns unfinished work to the backlog and locks the board.

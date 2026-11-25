@@ -12,7 +12,7 @@ import { useBoard } from "../../board/boardData";
 import { releaseDate, releaseDue, sprintsOf } from "../../board/boardModel";
 import { useBoardMutations } from "../../board/boardMutations";
 import { useDropTarget } from "../../board/dnd";
-import { effortSummary, rollup } from "../../board/effort";
+import { rollup } from "../../board/effort";
 import type { Release } from "../../board/releasesApi";
 import { EpicRow } from "./EpicRow";
 import { FoldBar, type TimelineFolds } from "./FoldBar";
@@ -63,7 +63,7 @@ export function ReleaseCard({ release, w, folds }: { release: Release; w: TimeWi
             <span className={`due ${due.cls}`} title={due.label}>
               {release.shipped_at ? "shipped" : due.label}
             </span>
-            <span className="tl-fig" title={effortSummary(p).text || undefined}>
+            <span className="tl-fig">
               {p.done}/{p.total} · {p.pct}%
             </span>
           </>
