@@ -161,6 +161,7 @@ export function AppShell() {
 
           {isAdmin && !inProjectScope && (
             <NavGroup title="Administration">
+              <NavItem to="/admin/kanban" icon="kanban" label="Kanban" />
               <NavItem to="/admin/projects" icon="folder" label="Projects" />
               <NavItem to="/admin/orgs" icon="grid" label="Organisations" />
               <NavItem to="/admin/users" icon="users" label="Users" />
@@ -361,9 +362,17 @@ type IconName =
   | "audit"
   | "agent"
   | "chart"
+  | "kanban"
   | "arrowLeft";
 
 const PATHS: Record<IconName, ReactNode> = {
+  kanban: (
+    <>
+      <rect x="3" y="4" width="5" height="16" rx="1" />
+      <rect x="10" y="4" width="5" height="10" rx="1" />
+      <rect x="17" y="4" width="4" height="13" rx="1" />
+    </>
+  ),
   chart: (
     <>
       <path d="M4 20V11" />

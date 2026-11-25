@@ -1,5 +1,5 @@
 // Client for a project's board requirements (backend app/studio/board/routes.py).
-import { apiDelete, apiGet, apiPatch, apiPost } from "../../../core/api";
+import { apiDelete, apiGet, apiPatch, apiPost, RequestOptions } from "../../../core/api";
 
 // The board's work vocabulary. A requirement is the only thing that carries
 // one directly -- features and epics roll theirs up from the requirements
@@ -92,8 +92,13 @@ export const getRequirement = (projectId: string, requirementId: string) =>
   apiGet<Requirement>(`${base(projectId)}/${requirementId}`);
 export const createRequirement = (projectId: string, input: RequirementInput) =>
   apiPost<Requirement>(base(projectId), input);
-export const updateRequirement = (projectId: string, requirementId: string, patch: RequirementPatch) =>
-  apiPatch<Requirement>(`${base(projectId)}/${requirementId}`, patch);
+/** `opts` names the owning organisation when it is not the active one (the platform Kanban). */
+export const updateRequirement = (
+  projectId: string,
+  requirementId: string,
+  patch: RequirementPatch,
+  opts?: RequestOptions,
+) => apiPatch<Requirement>(`${base(projectId)}/${requirementId}`, patch, opts);
 /** Only an archived requirement can be deleted (409 otherwise). */
 export const deleteRequirement = (projectId: string, requirementId: string) =>
   apiDelete(`${base(projectId)}/${requirementId}`);

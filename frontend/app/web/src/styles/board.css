@@ -557,6 +557,13 @@ body.board-dragging-epic .board-page .tl-card:not(.tl-card-loose) { border-style
 .board-page .pri-Low { color: var(--b-ink3); }
 body.board-dragging-card .board-page .sb-col { border-style: dashed; border-color: var(--b-line-strong); }
 .board-page .sb-col.is-over { border-style: solid; border-color: var(--b-accent-solid); background: color-mix(in srgb, var(--b-accent) 9%, var(--b-card)); }
+/* Platform Kanban (AdminKanbanPage): the sprint board's lanes across every project. */
+.board-page .akb-week { font-family: var(--b-display); font-size: 13px; font-weight: 600; color: var(--b-ink); margin-left: 4px; }
+.board-page .btn.mini-x:disabled { opacity: .5; cursor: default; }
+.board-page .reqcard .akb-id { color: inherit; font-weight: 600; text-decoration: none; }
+.board-page .reqcard .akb-id:hover { text-decoration: underline; }
+.board-page .reqcard .sb-scope .akb-assignee { flex: none; max-width: 50%; }
+.board-page .reqcard .sb-scope .akb-assignee.is-none { border-style: dashed; font-style: italic; }
 /* ── Epic page: the epic and the detail pane split the width 50/50 ── */
 .board-page .epg-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; align-items: start; }
 .board-page .epg-body { min-width: 0; }
