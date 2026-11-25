@@ -21,6 +21,7 @@ import {
   sessionFileUrl,
   SessionTask,
 } from "./usabilityApi";
+import { webAddress } from "./usabilityModel";
 
 interface Step {
   id: string;
@@ -318,12 +319,12 @@ function AccountStep({ account, onNext }: { account: NonNullable<Session["accoun
         <div className="section-body">
           <div className="ustudy-kv">
             <span className="ustudy-k">Address</span>
-            {account.app_url ? (
-              <a className="ustudy-v mono" href={account.app_url} target="_blank" rel="noreferrer">
+            {webAddress(account.app_url) ? (
+              <a className="ustudy-v mono" href={webAddress(account.app_url) ?? undefined} target="_blank" rel="noopener noreferrer">
                 {account.app_url}
               </a>
             ) : (
-              <span className="ustudy-v mono">—</span>
+              <span className="ustudy-v mono">{account.app_url || "—"}</span>
             )}
           </div>
           <Copyable label="Email" value={account.email} />

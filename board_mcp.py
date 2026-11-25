@@ -1,8 +1,8 @@
 """Ferrous Studio MCP server -- lets an AI coding agent read and update one
 project's board (releases, epics, features, sprints, requirements, docs,
 comments, attachments) AND its wireframes, diagrams, use case diagram and
-high-fidelity designs, over the real REST API, authenticated as a board token
-rather than a human login.
+high-fidelity designs, and the tasks of its usability studies, over the real
+REST API, authenticated as a board token rather than a human login.
 
 Runs over stdio; add it to a project's .mcp.json. Deliberately isolated
 from the main app's dependencies -- `mcp` is not a backend/requirements.txt
@@ -838,6 +838,145 @@ def update_use_case(
     return _studio_call(
         "PATCH", f"/use-cases/{use_case_id}", _patch_of(name=name, description=description, actor_ids=actor_ids)
     )
+
+
+# ── Usability studies ───────────────────────────────────────────────────────
+#
+# A study is one round of remote, moderated usability testing on this project
+# (docs/usability-testing.md). The point of these tools is for an agent that
+# can read a project's repository to write the study's tasks from what the
+# product really does. They reach what is tested -- details, research
+# questions, tasks and the files tasks hand out -- and nothing else: the
+# protocol, consent form and moderator's script are written by a person, and
+# participants and everything captured in a session are never returned here.
+# No delete, and no "replace all": tasks are added, or one is corrected by id.
+
+
+@mcp.tool()
+def study_task_guide() -> str:
+    """How to write a usability study's tasks -- what a task's fields mean,
+    which half the participant sees, what makes a good set, and the order to
+    work in. Call this once before create_study / add_study_tasks; do not
+    guess a task's shape from parameter names alone."""
+    return _studio_call("GET", "/usability/agent/task-guide")["guide"]
+
+
+@mcp.tool()
+def list_studies() -> dict:
+    """Every usability study on this project -- id, name, status (open |
+    closed), persona, duration, app_url, task_count. Start here: add to a
+    study that already exists rather than making a second one for the same
+    thing, and never invent a study id."""
+    return {"studies": _studio_call("GET", "/usability/agent/studies")}
+
+
+@mcp.tool()
+def get_study(study_id: str) -> dict:
+    """One study as it stands: its details, research_questions, every task
+    (with its id and both the participant's and the moderator's halves) and
+    the files it holds (name, size). Read it before adding tasks, so new ones
+    follow on from what is there, and to find a task's real id for
+    update_study_task."""
+    return _studio_call("GET", f"/usability/agent/studies/{study_id}")
+
+
+@mcp.tool()
+def create_study(
+    name: str,
+    persona: str | None = None,
+    duration: str | None = None,
+    app_url: str | None = None,
+    research_questions: list[str] | None = None,
+) -> dict:
+    """A new study with no tasks yet. It starts with Studio's default
+    protocol, consent form and moderator's script, which a person edits.
+
+    name: what is being tested and with whom, e.g. "Developer: create,
+    evaluate and monitor a function". persona: who the participants are, by
+    name. duration: as a participant reads it, e.g. "about 60 minutes".
+    app_url: where participants use the product; must start with http:// or
+    https://. research_questions: what the team wants to learn, three to
+    five. Returns the study with its id."""
+    return _studio_call("POST", "/usability/agent/studies", _patch_of(
+        name=name, persona=persona, duration=duration, app_url=app_url, research_questions=research_questions,
+    ))
+
+
+@mcp.tool()
+def add_study_tasks(study_id: str, tasks: list[dict], research_questions: list[str] | None = None) -> dict:
+    """Add tasks to a study, in the order given, after any already there.
+    See study_task_guide() for how to write them. Each task:
+
+      title (required), scenario (required), notes: [str], files: [str],
+      answer_prompt: str, success, path, watch, probes: [str]
+
+    Do not pass an id: the server gives each task one. Every name in `files`
+    must be a file already on the study (add_study_file first). All or
+    nothing -- an unknown field, a missing title or an unknown file fails the
+    whole call with the precise errors, and nothing is added.
+
+    research_questions: optional; REPLACES the study's research questions.
+    Omit to leave them as they are. Fails with 409 on a closed study.
+    Returns the whole study, so the new tasks' ids are in the result."""
+    body: dict = {"tasks": tasks}
+    if research_questions is not None:
+        body["research_questions"] = research_questions
+    return _studio_call("POST", f"/usability/agent/studies/{study_id}/tasks", body)
+
+
+@mcp.tool()
+def update_study_task(
+    study_id: str,
+    task_id: str,
+    title: str | None = None,
+    scenario: str | None = None,
+    notes: list[str] | None = None,
+    files: list[str] | None = None,
+    answer_prompt: str | None = None,
+    success: str | None = None,
+    path: str | None = None,
+    watch: str | None = None,
+    probes: list[str] | None = None,
+) -> dict:
+    """Correct one task -- task_id from get_study(), never invented. Omitted
+    fields are left as they are; a list given REPLACES that list. Pass
+    answer_prompt="" to take the question away. The task keeps its id and its
+    place in the order, and anything already captured against it. There is no
+    tool to delete or reorder tasks: a person does that in Studio."""
+    return _studio_call("PATCH", f"/usability/agent/studies/{study_id}/tasks/{task_id}", _patch_of(
+        title=title, scenario=scenario, notes=notes, files=files, answer_prompt=answer_prompt,
+        success=success, path=path, watch=watch, probes=probes,
+    ))
+
+
+_STUDY_FILE_MAX_BYTES = 2 * 1024 * 1024
+
+
+@mcp.tool()
+def add_study_file(study_id: str, file_path: str) -> dict:
+    """Upload a local file a task hands to the participant -- a dataset to
+    upload, a definition to import, text to paste -- so the study tests how
+    they use the product and not whether they can produce the material. At
+    most 2 MB. A file with the same name already on the study is replaced.
+    List the returned name in a task's `files` to hand it out; a file listed
+    on no task is not shown to participants. Use made-up data only: never
+    real customer data, credentials or secrets."""
+    import base64
+    import mimetypes
+
+    path = os.path.expanduser(file_path)
+    if not os.path.isfile(path):
+        raise ValueError(f"No file at {file_path}")
+    size = os.path.getsize(path)
+    if size > _STUDY_FILE_MAX_BYTES:
+        raise ValueError(f"{os.path.basename(path)} is {size / (1024 * 1024):.1f} MB; the limit is 2 MB")
+    with open(path, "rb") as f:
+        data = f.read()
+    return _studio_call("POST", f"/usability/agent/studies/{study_id}/files", {
+        "name": os.path.basename(path),
+        "content_type": mimetypes.guess_type(path)[0] or "application/octet-stream",
+        "data_base64": base64.b64encode(data).decode("ascii"),
+    })
 
 
 # ── High-fidelity designs ───────────────────────────────────────────────────

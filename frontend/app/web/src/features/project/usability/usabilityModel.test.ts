@@ -16,6 +16,7 @@ import {
   slug,
   successMark,
   toCsv,
+  webAddress,
 } from "./usabilityModel";
 
 describe("times", () => {
@@ -48,6 +49,16 @@ describe("a participant's progress", () => {
 describe("the participant link", () => {
   it("is the public study page on this site", () => {
     expect(participantLink("abc_123", "https://studio.example")).toBe("https://studio.example/study/abc_123");
+  });
+});
+
+describe("the application address", () => {
+  it("is linked only when it is a web address", () => {
+    expect(webAddress(" https://app.example.com/x ")).toBe("https://app.example.com/x");
+    expect(webAddress("HTTP://localhost:5173")).toBe("HTTP://localhost:5173");
+    for (const bad of ["javascript:alert(1)", " JavaScript:alert(1)", "java\tscript:alert(1)", "data:text/html,x", "app.example.com", "", null]) {
+      expect(webAddress(bad)).toBeNull();
+    }
   });
 });
 

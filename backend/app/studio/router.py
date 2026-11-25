@@ -12,6 +12,7 @@ from .annotations import router as annotations_router
 from .audit import router as audit_router
 from .board.agent_routes import router as board_agent_router
 from .board.routes import router as board_router
+from .usability.agent_routes import router as usability_agent_router
 from .usability.routes import public_router as usability_public_router, router as usability_router
 from .cloudops import router as cloudops_router
 from .cloudops_actions import router as cloudops_actions_router
@@ -49,6 +50,7 @@ router.include_router(github_project_router)
 router.include_router(board_router)
 router.include_router(board_agent_router)
 router.include_router(usability_router)
+router.include_router(usability_agent_router)
 router.include_router(usability_public_router)
 router.include_router(cloudops_router)
 router.include_router(cloudops_actions_router)

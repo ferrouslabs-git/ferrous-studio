@@ -169,3 +169,72 @@ def success_score(success: str | None) -> float | None:
     if not success:
         return None
     return 1.0 if success == "complete" else 0.0
+
+
+#: What an agent reads before writing a study's tasks (served by the agent
+#: routes, shown by the MCP server's study_task_guide tool). Kept here, beside
+#: the rules it describes, so the two cannot drift apart.
+TASK_GUIDE = """\
+WRITING USABILITY STUDY TASKS
+
+A study is one round of remote, moderated usability testing. A participant
+works through its tasks in the real product while a moderator watches. You
+write the tasks from what the product actually does: read the repository's
+routes, pages and features first, and write a task only for something you
+found there. Never invent a feature.
+
+WHAT IS BEING TESTED
+How people use the application, not whether they can produce the material.
+So everything a task needs is handed to the participant: the text to paste,
+the dataset to upload, the definition to import. If a task needs a file,
+upload it to the study first (add_study_file) and list its name in the
+task's `files`. A file is at most 2 MB.
+
+A TASK
+Each task has a participant's half, which the participant reads, and a
+moderator's half, which they never see.
+
+Participant's half:
+  title          Short name of the goal. "Create the function".
+  scenario       The situation and the goal, in the participant's words, as
+                 one short paragraph. Say what to achieve, never how: no
+                 menu names, button labels or page names from the product,
+                 because finding the way is what is being observed.
+  notes          Things they need to know to do it, one per line: which file
+                 to use, a value to enter. Not hints about where to click.
+  files          Names of files already uploaded to this study.
+  answer_prompt  Only when the task ends in something to find out. The
+                 question they answer, e.g. "Which ticket scored lowest?".
+                 Leave it out otherwise.
+
+Moderator's half:
+  success        What done looks like, observable from the screen.
+  path           The shortest expected route through the product, with the
+                 real names of the pages and controls.
+  watch          What to look out for: where people are likely to hesitate.
+  probes         Questions to ask afterwards, one per line. Open questions,
+                 not leading ones.
+
+A GOOD SET OF TASKS
+- One outcome per task. If the scenario contains "and then", split it.
+- In the order a real person would meet them, each building on the last.
+- Five to ten tasks for a 60 minute session.
+- Start with an easy one.
+- Cover what the study's research questions ask. Write three to five
+  research questions if the study has none: what the team wants to learn,
+  each answerable by watching people do the tasks.
+- British English. Plain words. No internal names a customer would not know.
+
+WHAT YOU CANNOT CHANGE
+The protocol, the consent form and the moderator's script are written by a
+person in Studio, as are participants and everything captured in a session.
+You cannot delete a task or a study; say so if one should go.
+
+ORDER OF WORK
+1. list_studies, then get_study if one exists, so you add to it and do not
+   repeat what is there. Otherwise create_study.
+2. add_study_file for each file a task will hand out.
+3. add_study_tasks with all the tasks in order. It is all or nothing: any
+   error names the task and the field, and nothing is added until it passes.
+4. update_study_task to correct one task afterwards.
+"""

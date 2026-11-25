@@ -15,10 +15,15 @@ from starlette.routing import Mount
 
 from app.main import app
 from app.studio.usability import content as rules
-from app.studio.usability import routes
+from app.studio.usability import agent_routes, routes
 from app.studio.usability.schemas import (
+    AgentStudyCreate,
+    AgentTask,
+    AgentTaskPatch,
+    AgentTasksIn,
     CaptureWrite,
     ConsentIn,
+    ParticipantWrite,
     StudyContent,
     StudyCreate,
     StudyFileIn,
@@ -113,6 +118,17 @@ def test_a_study_needs_a_name_and_a_known_status():
     assert StudyUpdate(status="closed").model_fields_set == {"status"}
 
 
+@pytest.mark.parametrize("schema", [StudyCreate, StudyUpdate, ParticipantWrite], ids=lambda s: s.__name__)
+def test_the_application_address_is_a_web_address_because_a_participant_is_given_it_as_a_link(schema):
+    base = {"name": "Pilot"} if schema is StudyCreate else {}
+    for bad in ("javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,x", "app.example.com", "https://a b"):
+        with pytest.raises(ValidationError):
+            schema(**base, app_url=bad)
+    assert schema(**base, app_url="  HTTPS://app.example.com/x ").app_url == "HTTPS://app.example.com/x"
+    assert schema(**base, app_url="http://localhost:5173").app_url == "http://localhost:5173"
+    assert schema(**base, app_url="").app_url == ""           # clearing it
+
+
 def test_a_file_is_named_not_pathed_and_capped_in_size():
     with pytest.raises(ValidationError):
         StudyFileIn(name="../secrets.txt", data_base64="")
@@ -197,6 +213,10 @@ def _is_participant_route(route) -> bool:
     return route.path.startswith("/studio/usability/session")
 
 
+def _is_agent_route(route) -> bool:
+    return "/usability/agent/" in route.path
+
+
 def test_there_are_routes_on_both_sides():
     all_routes = list(_usability_routes())
     assert [r for r in all_routes if _is_participant_route(r)]
@@ -211,8 +231,10 @@ def test_the_organisations_side_is_admin_only_reads_included(route):
     needs the permission only an organisation admin holds."""
     source = inspect.getsource(route.endpoint)
     # The literal, not a constant: tests/test_role_permissions.py reads the
-    # permission out of each route's source, and so must a reviewer.
-    assert 'Depends(require_permission("data:write"))' in source, f"{route.endpoint.__name__} is not admin-only"
+    # permission out of each route's source, and so must a reviewer. An agent
+    # route takes the guard a board token passes; the permission is the same.
+    guard = "require_studio_permission" if _is_agent_route(route) else "require_permission"
+    assert f'Depends({guard}("data:write"))' in source, f"{route.endpoint.__name__} is not admin-only"
     assert "await get_project(db, project_id, ctx)" in source, f"{route.endpoint.__name__} skips the project check"
 
 
@@ -241,3 +263,76 @@ def test_the_session_confines_itself_to_one_organisation_before_reading_the_stud
     adopted = source.index("await adopt_account_scope(db, participant.account_id)")
     read_study = source.index("select(Study)")
     assert source.index("await allow_cross_account(db)") < found < adopted < read_study
+
+
+# ── an agent's side ─────────────────────────────────────────────────────────
+
+
+def test_a_board_token_reaches_only_the_agent_routes():
+    """The editor's routes return participants with their links and test
+    account passwords, so none of them may take the guard a token passes."""
+    for route in _usability_routes():
+        source = inspect.getsource(route.endpoint)
+        assert ("require_studio_permission(" in source) == _is_agent_route(route), route.endpoint.__name__
+
+
+def test_an_agent_sees_and_touches_nothing_of_a_participant():
+    code = inspect.getsource(agent_routes).split('"""', 2)[2]     # past the module docstring, which names them
+    for name in ("Participant", "TaskResult", "Observation", "account_password", "token", "_study_detail"):
+        assert name not in code, f"agent_routes mentions {name}"
+    out = inspect.getsource(agent_routes._out).split('"""', 2)[2]
+    for key in ("consent", "protocol", "script", "participant"):
+        assert key not in out
+
+
+def test_an_agent_cannot_delete_or_replace_and_cannot_write_to_a_closed_study():
+    agent = [r for r in _usability_routes() if _is_agent_route(r)]
+    assert agent and not any("DELETE" in r.methods or "PUT" in r.methods for r in agent)
+    for route in agent:
+        if route.methods & {"POST", "PATCH"} and route.endpoint.__name__ != "create_usability_study_for_agent":
+            assert "_open(await _study(" in inspect.getsource(route.endpoint), route.endpoint.__name__
+
+
+def test_an_agents_task_needs_a_title_and_a_scenario_and_no_unknown_fields():
+    ok = AgentTask(title=" Create it ", scenario="Get the function in.", notes=["", "use the file"])
+    assert ok.title == "Create it" and ok.notes == ["use the file"] and "id" not in ok.model_dump()
+    for bad in ({"title": "x"}, {"scenario": "x"}, {"title": " ", "scenario": "x"},
+                {"title": "x", "scenario": "y", "id": "abc"}, {"title": "x", "scenario": "y", "steps": []}):
+        with pytest.raises(ValidationError):
+            AgentTask(**bad)
+    with pytest.raises(ValidationError):
+        AgentTasksIn(tasks=[])
+    with pytest.raises(ValidationError):
+        AgentTasksIn(tasks=[{"title": "x", "scenario": "y"}], protocol=["mine now"])
+    assert AgentTasksIn(tasks=[{"title": "x", "scenario": "y"}]).research_questions is None
+
+
+def test_an_agents_tasks_join_the_study_with_ids_of_their_own():
+    content = {**rules.default_content("Acme Ltd"), "tasks": [TASK]}
+    added = [AgentTask(title="Run it", scenario="Run the evaluation.").model_dump()] * 2
+    merged = StudyContent.model_validate({**content, "tasks": content["tasks"] + added}).model_dump()
+    ids = [t["id"] for t in merged["tasks"]]
+    assert ids[0] == TASK["id"] and len(set(ids)) == 3
+    assert merged["consent_text"] == content["consent_text"]      # the wording is untouched
+
+
+def test_an_agents_correction_changes_only_what_it_sends():
+    assert AgentTaskPatch(watch="Whether they find Import").model_fields_set == {"watch"}
+    assert AgentTaskPatch(answer_prompt="").model_fields_set == {"answer_prompt"}
+    with pytest.raises(ValidationError):
+        AgentTaskPatch(title="  ")
+    with pytest.raises(ValidationError):
+        AgentTaskPatch(id="other")
+
+
+def test_an_agents_study_takes_details_and_research_questions_only():
+    made = AgentStudyCreate(name=" Pilot ", research_questions=["Can they find Import?", " "])
+    assert made.name == "Pilot" and made.research_questions == ["Can they find Import?"]
+    for bad in ({"name": "x", "content": {}}, {"name": "x", "app_url": "javascript:alert(1)"}, {"name": "x", "status": "closed"}):
+        with pytest.raises(ValidationError):
+            AgentStudyCreate(**bad)
+
+
+def test_the_task_guide_names_every_field_an_agent_may_write():
+    for field in AgentTask.model_fields:
+        assert field in rules.TASK_GUIDE, field

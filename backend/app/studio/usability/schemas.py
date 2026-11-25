@@ -6,15 +6,29 @@ participant) that the editor could not have produced.
 """
 from __future__ import annotations
 
+import re
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from .content import SUCCESS_VALUES, TOP_WORDS, WORDS, new_task_id
 
 Line = Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)]
 Short = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
+
+_WEB_ADDRESS = re.compile(r"^https?://\S+$", re.IGNORECASE)
+
+
+def _web_address(value: str) -> str:
+    """The application address is shown to a participant as a link, so it may
+    only be a web address: a ``javascript:`` one would run on their page."""
+    if value and not _WEB_ADDRESS.match(value):
+        raise ValueError("The application address must start with http:// or https://")
+    return value
+
+
+AppUrl = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500), AfterValidator(_web_address)]
 
 #: A study file is a dataset or a definition a participant downloads, not media.
 MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -100,7 +114,7 @@ class StudyCreate(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
     persona: Short | None = None
     duration: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
-    app_url: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+    app_url: AppUrl | None = None
     content: StudyContent | None = None
     files: list[StudyFileIn] = []
 
@@ -110,7 +124,7 @@ class StudyUpdate(BaseModel):
     status: str | None = Field(None, pattern="^(open|closed)$")
     persona: Short | None = None
     duration: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
-    app_url: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+    app_url: AppUrl | None = None
     content: StudyContent | None = None
 
 
@@ -123,7 +137,7 @@ class ParticipantWrite(BaseModel):
     role: Short | None = None
     company: Short | None = None
     characteristics: str | None = None
-    app_url: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+    app_url: AppUrl | None = None
     account_email: Short | None = None
     account_password: Annotated[str, StringConstraints(max_length=255)] | None = None
     account_notes: str | None = None
@@ -180,3 +194,66 @@ class TaskAnswerIn(BaseModel):
 class WordsIn(BaseModel):
     words: list[str]
     top_words: list[str] = []
+
+
+# ── an agent's side (a board token, through the MCP server) ─────────────────
+#
+# Narrower than the editor's on purpose. An agent writes what is tested --
+# research questions, tasks and the files tasks hand out -- and nothing a
+# participant agrees to (the protocol and consent form) or that belongs to a
+# round (participants, captures, observations). Unknown fields are refused
+# rather than dropped, so a misnamed one comes back as an error it can fix.
+
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+MAX_AGENT_TASKS = 30
+
+
+class AgentTask(Lines):
+    """A task as an agent writes it: no id (the server gives it one), and a
+    title and scenario are required."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: Name
+    scenario: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+    notes: list[Line] = []
+    files: list[Short] = []
+    answer_prompt: Line | None = None
+    success: Line = ""
+    path: Line = ""
+    watch: Line = ""
+    probes: list[Line] = []
+
+
+class AgentTaskPatch(Lines):
+    """Only the fields sent are changed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: Name | None = None
+    scenario: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)] | None = None
+    notes: list[Line] | None = None
+    files: list[Short] | None = None
+    answer_prompt: Line | None = None
+    success: Line | None = None
+    path: Line | None = None
+    watch: Line | None = None
+    probes: list[Line] | None = None
+
+
+class AgentStudyCreate(Lines):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Name
+    persona: Short | None = None
+    duration: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
+    app_url: AppUrl | None = None
+    research_questions: list[Line] = []
+
+
+class AgentTasksIn(Lines):
+    model_config = ConfigDict(extra="forbid")
+
+    tasks: list[AgentTask] = Field(min_length=1, max_length=MAX_AGENT_TASKS)
+    #: Replaces the study's research questions when given; left alone when not.
+    research_questions: list[Line] | None = None

@@ -447,6 +447,12 @@ async def upload_usability_file(
     """Add a file, or replace the one of the same name."""
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
+    out = _file_out(await _save_file(db, study, payload))
+    await db.commit()
+    return out
+
+
+async def _save_file(db: AsyncSession, study: Study, payload: StudyFileIn) -> StudyFile:
     data = _decode(payload)
     existing = (
         await db.execute(
@@ -462,9 +468,7 @@ async def upload_usability_file(
     existing.size = len(data)
     existing.data = data
     await db.flush()
-    out = _file_out(existing)
-    await db.commit()
-    return out
+    return existing
 
 
 def _download(f: StudyFile) -> Response:

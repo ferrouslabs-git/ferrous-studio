@@ -29,6 +29,15 @@ export function participantLink(token: string, origin = window.location.origin):
   return `${origin}/study/${token}`;
 }
 
+/** The address if it is a web address, else null. The participant is given it
+ *  as a link, and a `javascript:` address would run on their page. */
+export function webAddress(url: string | null | undefined): string | null {
+  const value = (url ?? "").trim();
+  return /^https?:\/\/\S+$/i.test(value) ? value : null;
+}
+
+export const WEB_ADDRESS_ERROR = "The application address must start with http:// or https://";
+
 /** A new task with an id of its own: results hang off the id, never the position. */
 export function newTask(): StudyTask {
   const id = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, "0")).join("");

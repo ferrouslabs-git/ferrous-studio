@@ -21,7 +21,8 @@ files and no participants. **Export** gives the same as one JSON file, which
 **Import study** takes back (in this project or another).
 
 Only organisation admins can use it (`data:write`), reads included: a
-participant's row holds a test account's password.
+participant's row holds a test account's password. An agent holding a board
+token can write a study's tasks, and nothing else (see below).
 
 ## How a round runs
 
@@ -48,6 +49,8 @@ default consent form covers it.
 | Content rules (what a participant may see, the averages, the defaults) | `backend/app/studio/usability/content.py` |
 | Content schema | `StudyContent` in `backend/app/studio/usability/schemas.py` |
 | Routes | `backend/app/studio/usability/routes.py` |
+| Routes an agent reaches | `backend/app/studio/usability/agent_routes.py` |
+| MCP tools | "Usability studies" section of `board_mcp.py` |
 | Organisation's screens | `frontend/app/web/src/features/project/usability/` (`UsabilityPage`, `StudyPage` and its four sections) |
 | Participant page | `ParticipantPage.tsx` in the same folder, route `/study/:token` |
 | Tests | `backend/tests/test_usability.py`, `usabilityModel.test.ts` |
@@ -90,10 +93,45 @@ each, not in the documents bucket: they are small, a study must clone and
 export whole, and a participant has no session to presign a download for.
 They are always served as a download, never rendered.
 
+## Writing tasks from a repository (the MCP server)
+
+An agent connected through `board_mcp.py` can write a study's tasks from what
+a project's product really does. Ask it, in the product's repository, to
+"write usability study tasks for …"; it reads the code, then uses:
+
+| Tool | What it does |
+|---|---|
+| `study_task_guide` | How to write tasks: the fields, which half the participant sees, what makes a good set. Read first |
+| `list_studies`, `get_study` | What exists: details, research questions, tasks, file names |
+| `create_study` | A new study with the default protocol, consent form and script, and no tasks |
+| `add_study_file` | Upload a file a task hands out (at most 2 MB) |
+| `add_study_tasks` | Append tasks in order. All or nothing, with the precise errors |
+| `update_study_task` | Correct one task by id |
+
+These call their own routes (`backend/app/studio/usability/agent_routes.py`,
+under `…/usability/agent/…`), not the editor's:
+
+- **Nothing about a participant is returned or changed.** The editor's routes
+  stay closed to a board token because they return each participant's link
+  and test account password.
+- **An agent adds and corrects; it does not delete or replace.** Removing or
+  reordering tasks, and deleting a study, stay with a person.
+- **The protocol, consent form and script stay with a person.**
+- **A closed study refuses changes.**
+- A task may only list a file the study holds.
+
+A board token is confined to the project it was minted for, and only an
+organisation admin can mint one. If the editor is open on the same study while
+an agent writes to it, reload the page before editing: the editor saves the
+whole content and would otherwise put back what it loaded.
+
+The guide's text is `TASK_GUIDE` in `content.py`. The reachable routes are
+listed, with the reason, in `tests/test_board_token_routes.py`.
+
 ## Not built
 
 - Raising an observation as a board requirement or feedback item.
-- Board MCP tools for drafting a study or reading its results.
+- MCP tools that read a study's results (participants, captures, insights).
 - Choosing the application address from the project's environments (it is a
   plain field on the study, copied to each new participant).
 - Sending links, recording, and the final report.

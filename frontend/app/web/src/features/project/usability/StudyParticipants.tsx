@@ -8,7 +8,7 @@ import { ListTable, NameCell } from "../../../components/ListTable";
 import { errorMessage } from "../../../core/api";
 import { formatDateTime } from "../../../core/format";
 import { addParticipant, Participant, ParticipantInput, removeParticipant, Study, updateParticipant } from "./usabilityApi";
-import { participantLink, progressLabel } from "./usabilityModel";
+import { participantLink, progressLabel, WEB_ADDRESS_ERROR, webAddress } from "./usabilityModel";
 
 export function StudyParticipants({
   projectId,
@@ -143,6 +143,10 @@ function ParticipantDrawer({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (form.app_url?.trim() && !webAddress(form.app_url)) {
+      setError(WEB_ADDRESS_ERROR);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {

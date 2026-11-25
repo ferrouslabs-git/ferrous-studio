@@ -56,6 +56,21 @@ BOARD_TOKEN_ROUTES = {
     "list_designs",
     "get_design_brief",
     "set_design_figma",
+    # Usability studies (docs/usability-testing.md): an agent reads a project's
+    # repository and writes the study's tasks from what the product really
+    # does. These are a separate, narrower set than the editor's routes, which
+    # stay closed to a token because they return every participant with their
+    # link and test account password. Here an agent sees and writes only what
+    # is tested -- details, research questions, tasks, files -- and can add
+    # and correct but not delete or replace. The protocol, consent form,
+    # script, participants and everything captured stay with a person.
+    "usability_task_guide",
+    "list_usability_studies_for_agent",
+    "get_usability_study_for_agent",
+    "create_usability_study_for_agent",
+    "add_usability_tasks",
+    "update_usability_task",
+    "upload_usability_file_for_agent",
 }
 
 

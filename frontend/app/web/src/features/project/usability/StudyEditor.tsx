@@ -22,7 +22,17 @@ import {
   updateStudy,
   uploadStudyFile,
 } from "./usabilityApi";
-import { downloadText, fileToBase64, formatSize, linesToList, moveItem, newTask, slug } from "./usabilityModel";
+import {
+  downloadText,
+  fileToBase64,
+  formatSize,
+  linesToList,
+  moveItem,
+  newTask,
+  slug,
+  WEB_ADDRESS_ERROR,
+  webAddress,
+} from "./usabilityModel";
 
 interface Form extends StudyDetails {
   content: StudyContent;
@@ -51,7 +61,11 @@ export function StudyEditor({
   const auto = useAutosave<Form>(
     { name: study.name, persona: study.persona, duration: study.duration, app_url: study.app_url, content: study.content },
     {
-      validate: (f) => (f.name.trim() ? null : { name: "A study needs a name." }),
+      validate: (f) => {
+        if (!f.name.trim()) return { name: "A study needs a name." };
+        if (f.app_url.trim() && !webAddress(f.app_url)) return { app_url: WEB_ADDRESS_ERROR };
+        return null;
+      },
       save: async (f) => {
         await updateStudy(projectId, study.id, f);
         await onSaved();
@@ -119,7 +133,7 @@ export function StudyEditor({
               onChange={(e) => auto.set({ duration: e.target.value })}
             />
           </Labelled>
-          <Labelled label="Application address">
+          <Labelled label="Application address" error={auto.fieldErrors.app_url}>
             <input
               className="input"
               value={form.app_url}
