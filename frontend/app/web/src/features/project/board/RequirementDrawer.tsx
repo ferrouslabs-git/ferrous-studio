@@ -361,7 +361,6 @@ function DrawerBody({
               </option>
             ))}
           </select>
-          {epic && <span className="rqp-note">from {epic.human_id}</span>}
         </div>
         <div>
           <label>Sprint</label>

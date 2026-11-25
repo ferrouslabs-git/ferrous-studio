@@ -41,11 +41,14 @@ export function FeatureGroupCard({ epic, feature: f, rows, selectedReq, onSelect
 
   const remove = async () => {
     if (!f) return;
-    const ok = await dialogs.confirm({
-      title: "Delete feature",
-      ok: "Delete feature",
-      message: `Delete ${f.human_id} "${f.title}" and its ${rows.length} requirement(s), with any archived ones and all their comments? This cannot be undone.`,
-    });
+    // Nothing under it: nothing to lose, so no confirmation.
+    const ok =
+      rows.length === 0 ||
+      (await dialogs.confirm({
+        title: "Delete feature",
+        ok: "Delete feature",
+        message: `Delete ${f.human_id} "${f.title}" and its ${rows.length} requirement(s), with any archived ones and all their comments? This cannot be undone.`,
+      }));
     if (!ok) return;
     await mutations.deleteFeature(f).catch(() => undefined);
   };

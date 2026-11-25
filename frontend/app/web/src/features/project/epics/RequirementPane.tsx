@@ -220,7 +220,6 @@ export function RequirementPane({ requirement: r, onClose, onArchiveChange }: Re
                 </option>
               ))}
             </select>
-            {ownEpic && <span className="rqp-note">from {ownEpic.human_id}</span>}
           </div>
           <div>
             <label>Sprint</label>

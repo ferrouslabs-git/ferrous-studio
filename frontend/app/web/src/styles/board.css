@@ -751,6 +751,7 @@ body.board-cpanel-open .shell-main { padding-right: 340px; }
 .board-drawer .dlg-item:hover, .board-drawer .dlg-item:focus { background: color-mix(in srgb, var(--b-accent) 8%, transparent); outline: none; }
 .board-drawer .dlg-check { align-items: center; }
 .board-drawer .dlg-check input { margin: 0; accent-color: var(--b-accent-solid); }
+.board-drawer .dlg-check input:focus, .board-drawer .dlg-check input:focus-visible { outline: none; box-shadow: none; }
 .board-drawer .dlg-check.on { background: color-mix(in srgb, var(--b-accent) 12%, transparent); }
 .board-drawer .dlg-hint { margin-left: auto; font-size: 10px; color: var(--b-ink3); white-space: nowrap; }
 .board-dialog-message { white-space: pre-wrap; }
