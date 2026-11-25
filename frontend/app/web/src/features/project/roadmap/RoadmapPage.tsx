@@ -23,7 +23,9 @@ import { useBoardMutations } from "../board/boardMutations";
 import { useDialogs } from "../board/dialogs";
 import { useDragActive } from "../board/dnd";
 import { boardStorageKey, useStoredJson } from "../board/folds";
+import { MultiSelect } from "../board/MultiSelect";
 import { RequirementDrawer } from "../board/RequirementDrawer";
+import { RELEASE_STATUS_OPTIONS, releaseStatusSelection, releasesWithStatus } from "./releaseStatusFilter";
 import type { FoldKind, FoldMap, TimelineFolds } from "./timeline/FoldBar";
 import { ReleaseCard } from "./timeline/ReleaseCard";
 import { tlPct, tlTicks, tlWeekGrid, tlWeeks, tlWindow, type TimeWindow } from "./timeline/timelineMath";
@@ -70,6 +72,13 @@ function Roadmap({ data }: { data: BoardData }) {
       for (const k of foldKeys) next[k] = { ...(next[k] ?? {}), [kind]: v };
       return next;
     });
+
+  // ── which releases show, by status (FS-REQ-95) ──────────────────────────
+  // Live releases are hidden until the filter says otherwise; the choice is
+  // kept per project.
+  const [statusPref, setStatusPref] = useStoredJson<{ statuses?: string[] }>(boardStorageKey(projectId, "roadmapStatuses"), {});
+  const statusFilter = useMemo(() => releaseStatusSelection(statusPref.statuses), [statusPref.statuses]);
+  const shownReleases = useMemo(() => releasesWithStatus(index.releases, statusFilter), [index.releases, statusFilter]);
 
   // ── the requirement drawer ──────────────────────────────────────────────
   // A requirement in no epic has no page of its own: a feed link to one
@@ -152,6 +161,14 @@ function Roadmap({ data }: { data: BoardData }) {
             </button>
           );
         })}
+        <MultiSelect
+          allLabel="All statuses"
+          countLabel="statuses"
+          ariaLabel="filter releases by status"
+          options={RELEASE_STATUS_OPTIONS}
+          selected={statusFilter}
+          onChange={(next) => setStatusPref({ statuses: [...next] })}
+        />
         <span className="viewbar-count">Bars come from sprint dates only.</span>
       </div>
 
@@ -159,9 +176,12 @@ function Roadmap({ data }: { data: BoardData }) {
         {w ? (
           <>
             <Axis w={w} />
-            {index.releases.map((r) => (
+            {shownReleases.map((r) => (
               <ReleaseCard key={r.id} release={r} w={w} folds={folds} />
             ))}
+            {shownReleases.length === 0 && index.releases.length > 0 && (
+              <div className="hempty centred">No release has a status the filter shows.</div>
+            )}
           </>
         ) : (
           <div className="hempty centred">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formColumns, formRows, formSpan, isFormFieldType, isMultiPick } from "./catalog";
+import { COMPONENTS, LIST_ALIGNABLE, formColumns, formRows, formSpan, isColumnCellType, isFormFieldType, isMultiPick } from "./catalog";
 
 const field = (type: string, data?: Record<string, string>) => (data ? { type, data } : { type });
 
@@ -11,10 +11,19 @@ describe("form field widths (FS-REQ-74)", () => {
     expect(formSpan(field("text-input"), 4)).toBe(3);
   });
 
-  it("wide fields and headings take the whole row unless told otherwise", () => {
-    expect(formSpan(field("text-area"), 2)).toBe(12);
+  it("headings and help text take the whole row unless told otherwise", () => {
     expect(formSpan(field("section-heading"), 3)).toBe(12);
-    expect(formSpan(field("text-area", { span: "half" }), 2)).toBe(6);
+    expect(formSpan(field("help-text"), 2)).toBe(12);
+    expect(formSpan(field("help-text", { span: "half" }), 2)).toBe(6);
+  });
+
+  it("text areas and uploads follow the column count like any input (FS-REQ-91)", () => {
+    expect(formSpan(field("text-area"), 2)).toBe(6);
+    expect(formSpan(field("file-upload"), 3)).toBe(4);
+    expect(formSpan(field("text-area"), 1)).toBe(12);
+    expect(formSpan(field("text-area", { span: "full" }), 2)).toBe(12);
+    const cells = formRows([field("text-input"), field("text-area"), field("file-upload")], 2);
+    expect(cells.map((c) => [c.row, c.span])).toEqual([[0, 6], [0, 6], [1, 6]]);
   });
 
   it("a set width wins over the column count, in twelfths", () => {
@@ -81,5 +90,27 @@ describe("multi-pick types (FS-REQ-76)", () => {
     expect(isMultiPick("filter-multi")).toBe(true);
     expect(isMultiPick("filter-multi-search")).toBe(true);
     expect(isMultiPick("select")).toBe(false);
+  });
+});
+
+describe("blank field (FS-REQ-93)", () => {
+  const has = (cmp: string) => COMPONENTS[cmp]?.elements.some((e) => e.type === "spacer");
+
+  it("is offered in forms, wizards and lists, with the inputs", () => {
+    expect(has("form")).toBe(true);
+    expect(has("wizard")).toBe(true);
+    expect(has("list")).toBe(true);
+    expect(COMPONENTS.list.elements.find((e) => e.type === "spacer")?.group).toBe("input");
+  });
+
+  it("holds one column of a form's row and picks a side of a list's controls", () => {
+    const cells = formRows([field("text-input"), field("spacer"), field("text-input")], 3);
+    expect(cells.map((c) => [c.row, c.span])).toEqual([[0, 4], [0, 4], [0, 4]]);
+    expect(isFormFieldType("spacer")).toBe(true);
+    expect(LIST_ALIGNABLE.has("spacer")).toBe(true);
+  });
+
+  it("is not something a list column can show in its cells", () => {
+    expect(isColumnCellType("spacer")).toBe(false);
   });
 });

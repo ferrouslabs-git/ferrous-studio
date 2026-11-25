@@ -496,6 +496,13 @@
           "variantable": false,
           "fillable": false
         },
+        "spacer": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
+        },
         "pagination": {
           "group": "ui",
           "fields": [
@@ -639,6 +646,13 @@
           "max": null,
           "variantable": true,
           "fillable": true
+        },
+        "spacer": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
         },
         "section-heading": {
           "group": "text",
@@ -793,6 +807,13 @@
           "max": null,
           "variantable": true,
           "fillable": true
+        },
+        "spacer": {
+          "group": "input",
+          "fields": [],
+          "max": null,
+          "variantable": false,
+          "fillable": false
         },
         "section-heading": {
           "group": "text",

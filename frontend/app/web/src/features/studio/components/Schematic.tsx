@@ -1057,6 +1057,11 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
 
   const wideField = (el: ElementNode) => el.type === "text-area" || el.type === "file-upload";
 
+  /** A blank field (FS-REQ-93): an empty slot that keeps its place. Only the
+   *  editor outlines it, so it can be found, selected and removed. */
+  const spacer = (el: ElementNode, extraStyle?: CSSProperties): ReactNode =>
+    elBox(el, `ui-field ui-spacer${edit ? " editing" : ""}`, null, extraStyle);
+
   /** One element as a standalone widget (canvas children, hero, modal…). */
   const widget = (el: ElementNode, context: "flow" | "canvas" = "flow"): ReactNode => {
     switch (el.type) {
@@ -1466,6 +1471,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
   const listControl = (e: ElementNode): ReactNode => {
     if (e.type === "search") return searchBox(e, "sm");
     if (e.type === "button") return <Fragment key={e.id}>{btnTok(e, "sm")}</Fragment>;
+    if (e.type === "spacer") return spacer(e);
     // Dropdowns keep the filter chip's look (label, value, chevron) — the
     // chips they replaced; any other input draws as itself, label beside it.
     if (e.type === "select" || e.type === "multi-select" || isFilterType(e.type)) return <Fragment key={e.id}>{filterChip(e)}</Fragment>;
@@ -1744,7 +1750,9 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
     // "above" ride the title line instead (see the wrap at the end).
     const besideTitle = !!headerInline;
     const controls = els.filter(
-      (e) => e.type === "search" || isFilterType(e.type) || isInputType(e.type) || (e.type === "button" && e.data?.placement !== "above"),
+      (e) =>
+        e.type === "search" || e.type === "spacer" || isFilterType(e.type) || isInputType(e.type) ||
+        (e.type === "button" && e.data?.placement !== "above"),
     );
     const head = headerInline || controls.length > 0 ? (
       <div className="ui-card-head ui-list-head">
@@ -2159,6 +2167,7 @@ export function Schematic({ cmp, defs, datasets = [], edit, chrome }: Props) {
         {flow.map((el, i) => {
           if (el.type === "section-heading") return <div key={el.id} className="ui-field ui-form-section" style={spanStyle(i)}>{elTok(el, "ui-h3")}</div>;
           if (el.type === "help-text") return <div key={el.id} className="ui-field" style={spanStyle(i)}>{widget(el)}</div>;
+          if (el.type === "spacer") return spacer(el, spanStyle(i));
           return elBox(
             el,
             `ui-field${wideField(el) ? " wide" : ""}`,

@@ -153,7 +153,7 @@ export const ELEMENT_GROUP_OF: Record<string, ElementGroupId> = {
   // Input
   "text-input": "input", "text-area": "input", select: "input", "multi-select": "input", "date-picker": "input",
   "date-time": "input", "radio-group": "input", checkbox: "input", toggle: "input",
-  "read-only": "input", "file-upload": "input", slider: "input",
+  "read-only": "input", "file-upload": "input", slider: "input", spacer: "input",
   filter: "input", "filter-multi": "input", "filter-multi-search": "input", "select-column": "input",
   "workspace-switcher": "input", "range-selector": "input", "view-switcher": "input",
   // Action
@@ -354,12 +354,14 @@ export function formColumns(cmp: { layout?: string; props?: Record<string, unkno
 }
 
 type FormFieldLike = { type: string; data?: Record<string, string> };
-const isWideField = (type: string): boolean =>
-  type === "text-area" || type === "file-upload" || type === "section-heading" || type === "help-text";
+/** Headings and help text are not inputs: they run the whole row. Every
+ *  input, text areas and uploads included, follows the column count
+ *  (FS-REQ-91). */
+const isWideField = (type: string): boolean => type === "section-heading" || type === "help-text";
 
 /** A form field's span in twelfths within a row of `columns` columns: its
- *  own width, else one column's share (wide fields and section headings
- *  take the whole row unless told otherwise). */
+ *  own width, else one column's share (section headings and help text take
+ *  the whole row unless told otherwise). */
 export function formSpan(el: FormFieldLike, columns: number): number {
   const own = FORM_SPAN_OPTIONS.find((o) => o.id === el.data?.span);
   if (own) return own.span;
@@ -422,7 +424,7 @@ export const COLUMN_CELL_TYPES = [...INPUT_TYPES, "button"] as const;
 export const isColumnCellType = (type: string): boolean => (COLUMN_CELL_TYPES as readonly string[]).includes(type);
 /** A button column's label in a row with no value of its own and no samples. */
 export const COLUMN_BUTTON_LABEL = "View";
-export const LIST_ALIGNABLE = new Set<string>(["search", "button", ...FILTER_TYPES, ...INPUT_TYPES]);
+export const LIST_ALIGNABLE = new Set<string>(["search", "button", "spacer", ...FILTER_TYPES, ...INPUT_TYPES]);
 /** An element's side of its list line. Unset keeps the look lists have
  *  always had: controls trail an inline title and lead otherwise; buttons
  *  trail (a "+ Client" sits at the far end). */
@@ -499,6 +501,10 @@ const READ_ONLY = el({
   defaultLabel: "Reference", defaultData: { value: "REF-00421" },
 });
 const FILE_UPLOAD = el({ type: "file-upload", label: "Upload", desc: "Drop zone / browse", icon: "FU", dataFields: [], defaultLabel: "Attachment", variantable: true, fillable: true, defaultFill: "outline" });
+/** An empty slot the size of a field (FS-REQ-93): it holds its place in a
+ *  form's grid or a list's controls and draws nothing, to space the fields
+ *  either side of it apart. */
+const SPACER = el({ type: "spacer", label: "Blank field", desc: "An empty slot that spaces fields apart", icon: "▢", dataFields: [], defaultLabel: "" });
 const SECTION_HEADING = el({ type: "section-heading", label: "Section heading", desc: "Groups the fields after it", icon: "SH", dataFields: [], defaultLabel: "Section" });
 const STEP = el({ type: "step", label: "Step", desc: "One step of a wizard", icon: "ST", dataFields: [], defaultLabel: "Step", variantable: true, fillable: true });
 const HELP_TEXT = el({ type: "help-text", label: "Help text", desc: "Guidance under a field", icon: "HT", dataFields: [], defaultLabel: "Explain what to enter here." });
@@ -594,7 +600,7 @@ const CAL_LEGEND = el({
 /** Element lists shared between hosts (the canvas hosts everything). */
 export const FORM_ELEMENTS: ElementTypeMeta[] = [
   TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, RADIO_GROUP, CHECKBOX, TOGGLE, DATE_PICKER, DATE_TIME,
-  READ_ONLY, FILE_UPLOAD, SECTION_HEADING, HELP_TEXT, BUTTON,
+  READ_ONLY, FILE_UPLOAD, SPACER, SECTION_HEADING, HELP_TEXT, BUTTON,
 ];
 /** A wizard's vocabulary (FS-REQ-89): its steps, and the form's fields and
  *  buttons. Steps belong to the wizard alone; no other component has them. */
@@ -626,6 +632,7 @@ export function wizardSteps<T extends { type: string }>(flow: readonly T[]): Wiz
 export const LIST_ELEMENTS: ElementTypeMeta[] = [
   COLUMN, COLUMN_HEADER, ROW_ACTION, SELECT_COLUMN, SEARCH,
   TEXT_INPUT, TEXT_AREA, SELECT, MULTI_SELECT, DATE_PICKER, DATE_TIME, RADIO_GROUP, CHECKBOX, TOGGLE, READ_ONLY, FILE_UPLOAD, SLIDER,
+  SPACER,
   PAGINATION,
 ];
 /** A list's own button (FS-REQ-43) — "+ Client", "Export". Like the header it

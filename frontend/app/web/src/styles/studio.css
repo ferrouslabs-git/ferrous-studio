@@ -1715,6 +1715,11 @@ button.ui-edit:not(.el-sel):hover { box-shadow: 0 0 0 2px var(--edit-accent-line
 .ui-list-head .ui-input { height: 28px; min-width: 120px; width: auto; }
 .ui-list-head .ui-input.tall { height: 28px; padding-top: 0; align-items: center; }
 .ui-list-head .ui-input.file { height: 28px; }
+/* A blank field (FS-REQ-93): an empty slot the size of a field. Only the
+   editor outlines it. */
+.ui-spacer { min-height: 28px; }
+.ui-list-head .ui-spacer { width: 120px; height: 28px; flex-shrink: 0; }
+.ui-spacer.editing { border: 1px dashed var(--border-strong); border-radius: 6px; }
 .ui-feed li, .ui-rowitem, .ui-card-item { position: relative; }
 [data-row-del-hot] { outline: 2px dashed var(--bad); outline-offset: -2px; }
 

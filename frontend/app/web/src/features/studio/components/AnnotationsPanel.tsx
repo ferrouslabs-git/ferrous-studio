@@ -82,7 +82,9 @@ export function AnnotationsPanel(props: Props) {
   const [query, setQuery] = useState("");
   const [userFilter, setUserFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("any");
-  const [thisPage, setThisPage] = useState(false);
+  // The panel opens on the page being looked at (FS-REQ-92); the toggle
+  // widens it to the whole wireframe.
+  const [thisPage, setThisPage] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"open" | "resolved" | "all">("open");
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,7 +108,7 @@ export function AnnotationsPanel(props: Props) {
     const cutoff = days === null ? null : Date.now() - days * 86_400_000;
     return items.filter((a) => {
       if (task && statusFilter !== "all" && (statusFilter === "resolved") !== !!a.resolved_at) return false;
-      if (thisPage && a.page_id !== props.activePageId) return false;
+      if (thisPage && props.activePageId && a.page_id !== props.activePageId) return false;
       if (userFilter && (a.created_by ?? "unknown") !== userFilter) return false;
       if (cutoff !== null && parseUtcDate(a.created_at).getTime() < cutoff) return false;
       if (!q) return true;
@@ -127,13 +129,13 @@ export function AnnotationsPanel(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, task, statusFilter, thisPage, userFilter, dateFilter, query, props.activePageId, pages]);
 
-  const filtered =
-    !!query.trim() || !!userFilter || dateFilter !== "any" || thisPage || (task && statusFilter !== "open");
+  const narrowed = !!query.trim() || !!userFilter || dateFilter !== "any" || (task && statusFilter !== "open");
+  const filtered = narrowed || !thisPage;
   const clearFilters = () => {
     setQuery("");
     setUserFilter("");
     setDateFilter("any");
-    setThisPage(false);
+    setThisPage(true);
     setStatusFilter("open");
   };
 
@@ -242,7 +244,9 @@ export function AnnotationsPanel(props: Props) {
       ) : items.length === 0 ? (
         <div className="note-empty">{task ? "No tasks yet" : "No notes yet"}</div>
       ) : visible.length === 0 ? (
-        <div className="note-empty">No {noun}s match the current search and filters.</div>
+        <div className="note-empty">
+          {thisPage && !narrowed ? `No ${task ? "open " : ""}${noun}s on this page` : `No ${noun}s match the current search and filters.`}
+        </div>
       ) : (
         visible.map((a) => {
           const info = props.describeTarget(a);
