@@ -5,6 +5,7 @@ import { HomeRedirect } from "./app/HomeRedirect";
 import { ProtectedRoute } from "./app/ProtectedRoute";
 import { SessionProvider } from "./app/session";
 import { AdminDatasetsPage } from "./features/admin/AdminDatasetsPage";
+import { AdminKanbanPage } from "./features/admin/AdminKanbanPage";
 import { CloudOpsCostsPage } from "./features/admin/CloudOpsCostsPage";
 import { CloudOpsResourcesPage } from "./features/admin/CloudOpsResourcesPage";
 import { AdminOrgsPage } from "./features/admin/AdminOrgsPage";
@@ -151,6 +152,7 @@ export function App() {
         {/* Platform admins */}
         <Route element={<ProtectedRoute requirePlatformAdmin />}>
           <Route element={<AppShell />}>
+            <Route path="/admin/kanban" element={<AdminKanbanPage />} />
             <Route path="/admin/orgs" element={<AdminOrgsPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/admin/projects" element={<AdminProjectsPage />} />
