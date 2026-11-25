@@ -57,6 +57,7 @@ instead).
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 import urllib.error
@@ -177,7 +178,8 @@ def list_releases() -> dict:
     """Every release, with its derived date (the end of its latest sprint,
     not something anyone sets directly), its delivery status, and progress
     over every requirement whose effective release is this one -- total/
-    done/in_progress/to_test/pct."""
+    done/in_progress/to_test/pct. In Studio, releases are laid out on the
+    Roadmap tab of the "Planned work" page."""
     return {"releases": _call("GET", "/releases")}
 
 
@@ -208,7 +210,12 @@ def update_release(release_id: str, title: str | None = None, description: str |
 def list_epics() -> dict:
     """Every epic -- title, summary, release, and a read-only ``status``
     rolled up from the requirements under it (direct, or via one of its
-    features): NotStarted | InProgress | ToTest | Done | Blocked."""
+    features): NotStarted | InProgress | ToTest | Done | Blocked.
+
+    In Studio, every epic is listed on the "Unplanned work" page (formerly
+    Epics); the "Planned work" page (formerly Roadmap) shows the release
+    roadmap and, on its Epics tab, only the epics filed in a live release.
+    They are still called epics -- only the pages were renamed."""
     return {"epics": _call("GET", "/epics")}
 
 
@@ -268,6 +275,83 @@ def get_sprint(sprint_id: str) -> dict:
 @mcp.tool()
 def get_sprint_burndown(sprint_id: str) -> dict:
     return _call("GET", f"/sprints/{sprint_id}/burndown")
+
+
+# ── This week's work (this project's slice of Studio's Kanban) ───────────
+#
+# The same rules as the platform Kanban (backend/app/studio/board/admin_kanban.py):
+# a sprint counts for a Monday-Sunday week when its [start_date, end_date]
+# overlaps it (one date set = that single day, neither = never), and archived
+# requirements are left out. The columns use Studio's own words.
+
+_COLUMNS = (("NotStarted", "Not started"), ("InProgress", "In progress"), ("ToTest", "To test"),
+            ("Done", "Done"), ("Blocked", "Blocked"))
+_COLUMN_ALIASES = {"todo": "NotStarted", "backlog": "NotStarted", "doing": "InProgress", "review": "ToTest"}
+
+
+def _column_status(name: str) -> str:
+    """'To test', 'to-test', 'ToTest' or 'totest' -> 'ToTest'; a few common words are accepted too ('todo')."""
+    key = "".join(ch for ch in name.lower() if ch.isalnum())
+    for status, label in _COLUMNS:
+        if key in (status.lower(), "".join(ch for ch in label.lower() if ch.isalnum())):
+            return status
+    if key in _COLUMN_ALIASES:
+        return _COLUMN_ALIASES[key]
+    raise ValueError(f"Unknown column {name!r}. Use one of: {', '.join(label for _, label in _COLUMNS)}.")
+
+
+def _week_bounds(day: _dt.date) -> tuple[_dt.date, _dt.date]:
+    start = day - _dt.timedelta(days=day.weekday())
+    return start, start + _dt.timedelta(days=6)
+
+
+def _sprint_in_week(sprint: dict, week_start: _dt.date, week_end: _dt.date) -> bool:
+    start, end = sprint.get("start_date"), sprint.get("end_date")
+    lo, hi = start or end, end or start
+    if not lo or not hi:
+        return False
+    return _dt.date.fromisoformat(lo) <= week_end and _dt.date.fromisoformat(hi) >= week_start
+
+
+@mcp.tool()
+def this_weeks_work(column: str | None = None, week_of: str | None = None) -> dict:
+    """This week's sprint work on this project, in Studio's Kanban columns:
+    Not started | In progress | To test | Done | Blocked. It is this
+    project's slice of Studio's platform Kanban, read from the sprints whose
+    dates fall in the week (Monday to Sunday); archived requirements are
+    left out.
+
+    column: just one column ("To test", "Blocked", ...); omit it for all five.
+    week_of: any date (YYYY-MM-DD) in another week; omit it for this week.
+
+    Read-only. To move a card, change its status with update_requirement --
+    the same thing dragging it on the Kanban does."""
+    wanted = _column_status(column) if column else None
+    day = _dt.date.fromisoformat(week_of) if week_of else _dt.date.today()
+    week_start, week_end = _week_bounds(day)
+    sprints = [s for s in _call("GET", "/sprints") if _sprint_in_week(s, week_start, week_end)]
+
+    items: list[dict] = []
+    for s in sprints:
+        for r in _call("GET", f"/requirements?sprint_id={s['id']}"):
+            items.append({
+                "id": r.get("id"), "human_id": r.get("human_id"), "title": r.get("title"),
+                "status": r.get("status"), "priority": r.get("priority"), "assignee_id": r.get("assignee_id"),
+                "sprint": s.get("human_id"),
+            })
+
+    columns = {}
+    for status, label in _COLUMNS:
+        if wanted and status != wanted:
+            continue
+        cards = [i for i in items if i["status"] == status]
+        columns[label] = {"status": status, "count": len(cards), "requirements": cards}
+    return {
+        "week_start": week_start.isoformat(),
+        "week_end": week_end.isoformat(),
+        "sprints": [{k: s.get(k) for k in ("id", "human_id", "name", "start_date", "end_date")} for s in sprints],
+        "columns": columns,
+    }
 
 
 @mcp.tool()
