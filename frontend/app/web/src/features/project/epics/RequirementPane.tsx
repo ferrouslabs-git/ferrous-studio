@@ -154,15 +154,17 @@ export function RequirementPane({ requirement: r, onClose, onArchiveChange }: Re
           </div>
           <div>
             <label>Epic</label>
-            {/* A feature belongs to exactly one epic, so changing the epic
-                clears the feature in the same PATCH. Moving it off this epic
+            {/* A feature belongs to exactly one epic, so moving to another
+                epic clears the feature in the same PATCH. Moving it off this epic
                 closes the pane on the next render -- its row is gone. */}
             <select
               value={r.epic_id ?? ""}
               disabled={disabled}
               onChange={(e) => {
                 const v = e.target.value;
-                void patch(v ? { epic_id: v, clear_feature: true } : { clear_epic: true, clear_feature: true });
+                // Keep the feature when it already sits under the chosen epic.
+                const keepFeature = !!v && !!r.feature_id && index.featuresOf(v).some((f) => f.id === r.feature_id);
+                void patch(v ? { epic_id: v, ...(keepFeature ? {} : { clear_feature: true }) } : { clear_epic: true, clear_feature: true });
               }}
             >
               <option value="">— none —</option>

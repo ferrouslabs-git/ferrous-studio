@@ -1229,7 +1229,13 @@ async def create_requirement_content(
         release_id=payload.release_id, sprint_id=payload.sprint_id, assignee_id=payload.assignee_id,
     )
     seq = await service._next_seq(db, board, "requirement_seq")
-    requirement = Requirement(board_id=board.id, account_id=board.account_id, seq=seq, **payload.model_dump())
+    fields = payload.model_dump()
+    # A requirement under a feature carries that feature's epic as its own
+    # (already validated to agree if both were sent) -- screens read epic_id
+    # directly, and one left NULL there reads as "no epic".
+    if payload.feature_id is not None:
+        fields["epic_id"] = (await _get_feature(db, board, payload.feature_id)).epic_id
+    requirement = Requirement(board_id=board.id, account_id=board.account_id, seq=seq, **fields)
     db.add(requirement)
     await db.flush()
     # Initial sprint membership, even NULL/backlog -- see service.record_sprint_history.
@@ -1331,6 +1337,13 @@ async def update_requirement(
         if value is None and field in ("epic_id", "feature_id", "assignee_id", "release_id", "sprint_id"):
             continue
         setattr(requirement, field, value)
+
+    # A requirement under a feature carries that feature's epic as its own
+    # (see create_requirement_content). Validation above already refused an
+    # epic that disagrees with the feature, so this only fills a gap --
+    # including one a bare clear_epic just opened.
+    if requirement.feature_id is not None and (epic_or_feature_changing or requirement.epic_id is None):
+        requirement.epic_id = (await _get_feature(db, board, requirement.feature_id)).epic_id
 
     # A queue position is scoped to a sprint: leaving one (or changing
     # sprint) drops it unless the same PATCH ranks the requirement anew.
