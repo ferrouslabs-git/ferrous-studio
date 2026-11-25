@@ -126,10 +126,9 @@ def test_actual_hours_are_triage_only_and_clearable():
     assert "actual_hours" in cleared.model_fields_set and cleared.actual_hours is None
     with pytest.raises(ValidationError):
         FeedbackUpdate(actual_hours=-1)
-    with pytest.raises(ValidationError):
-        RequirementUpdate(actual_hours=True)
-    assert RequirementUpdate(actual_hours=2).actual_hours == 2
-    assert "actual_hours" in routes._REQUIREMENT_EVENT_FIELDS
+    # FS-REQ-106: only the report records actual time; a requirement has none.
+    assert "actual_hours" not in RequirementUpdate.model_fields
+    assert "actual_hours" not in routes._REQUIREMENT_EVENT_FIELDS
 
 
 NOW = dt.datetime(2026, 10, 16, 12, 0)

@@ -106,9 +106,23 @@ def _project_id() -> str:
     return _PROJECT_ID
 
 
+#: Fields the board API still returns but agents must not plan by
+#: (FS-REQ-106): requirement estimates exist only for feedback billing, and
+#: sprint capacity was only ever measured against them.
+_HIDDEN_FIELDS = frozenset({"estimate_hours", "actual_hours", "capacity_hours"})
+
+
+def _without_hours(value):
+    if isinstance(value, dict):
+        return {k: _without_hours(v) for k, v in value.items() if k not in _HIDDEN_FIELDS}
+    if isinstance(value, list):
+        return [_without_hours(v) for v in value]
+    return value
+
+
 def _call(method: str, path: str, body: dict | None = None):
     """A board endpoint: .../projects/{project_id}/board<path>."""
-    return _request(method, f"{BASE}/api/studio/projects/{_project_id()}/board{path}", body)
+    return _without_hours(_request(method, f"{BASE}/api/studio/projects/{_project_id()}/board{path}", body))
 
 
 def _studio_call(method: str, path: str, body: dict | None = None):
@@ -138,11 +152,9 @@ def whoami() -> dict:
 @mcp.tool()
 def board_summary() -> dict:
     """Every epic with its lifecycle status and requirement progress
-    (total/done/doing/review/pct, plus hours/hours_done summed from the
-    estimates that exist and estimated/unestimated/coverage saying how
-    complete those are -- including requirements organised under one of
-    its features, not just directly-attached ones), plus requirement counts
-    by status across the whole board. Start here."""
+    (total/done/doing/review/pct -- including requirements organised under
+    one of its features, not just directly-attached ones), plus requirement
+    counts by status across the whole board. Start here."""
     return _call("GET", "/summary")
 
 
@@ -165,9 +177,7 @@ def list_releases() -> dict:
     """Every release, with its derived date (the end of its latest sprint,
     not something anyone sets directly), its delivery status, and progress
     over every requirement whose effective release is this one -- total/
-    done/in_progress/to_test/pct, hours/hours_done from the estimates that
-    exist, and estimated/unestimated/coverage saying how complete those
-    are."""
+    done/in_progress/to_test/pct."""
     return {"releases": _call("GET", "/releases")}
 
 

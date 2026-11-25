@@ -9,7 +9,6 @@ import { sameRef } from "../board/boardModel";
 import { useBoardMutations } from "../board/boardMutations";
 import { IdChip, StatusChip } from "../board/chips";
 import { useDraggable } from "../board/dnd";
-import { fmtEffort } from "../board/effort";
 import type { Requirement } from "../board/requirementsApi";
 import type { Sprint } from "../board/sprintsApi";
 
@@ -55,7 +54,6 @@ export function SprintRequirementRow({ sprint, requirement: r, queueIndex: i, qu
           {strayId ?? "no release"}
         </span>
       )}
-      <span className={`est-sum${r.estimate_hours == null ? " est-partial" : ""}`}>{fmtEffort(r.estimate_hours)}</span>
       <span className="r">
         <StatusChip status={r.status} />
       </span>

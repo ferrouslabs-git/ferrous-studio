@@ -13,7 +13,6 @@ import { IdChip, StatusChip } from "../board/chips";
 import { CommentsList } from "../board/CommentsList";
 import { ST_ICON, ST_LABEL } from "../board/constants";
 import { useDialogs } from "../board/dialogs";
-import { EstimateField } from "../board/EstimateField";
 import { InlineText } from "../board/InlineText";
 import {
   Requirement,
@@ -204,8 +203,10 @@ export function RequirementPane({ requirement: r, onClose, onArchiveChange }: Re
           </div>
           <div>
             <label>Release</label>
+            {/* Under an epic the release is the epic's, so the locked select
+                shows that one rather than the requirement's own (unused) value. */}
             <select
-              value={r.release_id ?? ""}
+              value={(ownEpic ? inheritedRelease?.id : r.release_id) ?? ""}
               disabled={disabled || !!r.epic_id}
               onChange={(e) => {
                 const v = e.target.value;
@@ -219,11 +220,7 @@ export function RequirementPane({ requirement: r, onClose, onArchiveChange }: Re
                 </option>
               ))}
             </select>
-            {ownEpic && (
-              <span className="rqp-note">
-                inherited from {ownEpic.human_id}: {inheritedRelease ? `${inheritedRelease.human_id} · ${inheritedRelease.title}` : "— none —"}
-              </span>
-            )}
+            {ownEpic && <span className="rqp-note">from {ownEpic.human_id}</span>}
           </div>
           <div>
             <label>Sprint</label>
@@ -243,20 +240,6 @@ export function RequirementPane({ requirement: r, onClose, onArchiveChange }: Re
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <label>Estimate</label>
-            <EstimateField value={r.estimate_hours} disabled={disabled} onChange={(h) => void patch({ estimate_hours: h })} />
-          </div>
-          <div>
-            <label>Actual time</label>
-            <EstimateField
-              value={r.actual_hours}
-              step={0.1}
-              emptyLabel="not recorded"
-              disabled={disabled}
-              onChange={(h) => void patch({ actual_hours: h })}
-            />
           </div>
         </div>
       </div>

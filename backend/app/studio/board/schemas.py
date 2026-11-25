@@ -141,11 +141,8 @@ class EpicProgress(BaseModel):
 
     Counts a requirement wherever it sits on the board: for an epic, every
     requirement whose *effective* epic is this one (its own epic_id, or its
-    feature's), not just those attached directly. ``hours`` sums only the
-    estimates that exist; ``hours_done`` is those same estimates weighted by
-    the status weights above (a 4 h requirement in ToTest contributes 3 h);
-    ``estimated``/``unestimated`` say how many carry one, and ``coverage``
-    is their share of ``total`` -- 1.0 when there is nothing to estimate.
+    feature's), not just those attached directly. Counts only: the board
+    sizes work by planning, not by requirement estimates (FS-REQ-106).
     """
 
     total: int
@@ -153,11 +150,6 @@ class EpicProgress(BaseModel):
     in_progress: int
     to_test: int
     pct: int
-    hours: float
-    hours_done: float
-    estimated: int
-    unestimated: int
-    coverage: float
 
 
 # ── Features ─────────────────────────────────────────────────────────────
@@ -267,14 +259,11 @@ class SprintUpdateResult(BaseModel):
 class BurndownRead(BaseModel):
     """Day-by-day burndown, ported from software-management's
     get_sprint_burndown. Parallel series indexed by ``dates``: ``remaining``/
-    ``total`` count requirements, ``remaining_hours``/``total_hours`` sum
-    estimates, ``scope``/``scope_hours`` are the sprint's whole membership
+    ``total`` count requirements, ``scope`` is the sprint's whole membership
     on each day (a rising scope line is work added mid-sprint). Actual
-    series are ``None`` for days after today; the ideal lines run the full
-    sprint. ``estimated_count``/``unestimated_count`` are over the sprint's
-    current membership, so the client can fall back from hours to counts
-    when coverage is incomplete. Every key is present on every response
-    (``note`` set, series empty, when the sprint has no dates)."""
+    series are ``None`` for days after today; the ideal line runs the full
+    sprint. Every key is present on every response (``note`` set, series
+    empty, when the sprint has no dates)."""
 
     sprint_id: UUID
     note: str | None = None
@@ -282,13 +271,7 @@ class BurndownRead(BaseModel):
     remaining: list[int | None] = []
     ideal: list[float] = []
     total: int = 0
-    remaining_hours: list[float | None] = []
-    ideal_hours: list[float] = []
-    total_hours: float = 0.0
     scope: list[int | None] = []
-    scope_hours: list[float | None] = []
-    estimated_count: int = 0
-    unestimated_count: int = 0
 
 
 # ── Requirements ─────────────────────────────────────────────────────────
@@ -307,7 +290,8 @@ class RequirementCreate(BaseModel):
     assignee_id: UUID | None = None
     release_id: UUID | None = None
     sprint_id: UUID | None = None
-    # No UI surfaces this yet; it is accepted so imported estimates are not lost.
+    # Not shown on the board (FS-REQ-106): only a requirement raised from
+    # feedback carries one, which the maintenance log charges the report.
     estimate_hours: EstimateHours = None
 
 
@@ -327,10 +311,9 @@ class RequirementUpdate(BaseModel):
     sprint_id: UUID | None = None
     clear_sprint: bool = False
     # Sending null clears the estimate back to "not estimated" -- unlike the id
-    # fields above, null is meaningful here, so it needs no clear_ flag.
+    # fields above, null is meaningful here, so it needs no clear_ flag. Set
+    # only from feedback's maintenance charge (FS-REQ-106), never the board.
     estimate_hours: EstimateHours = None
-    # Hours the work took; null clears it back to "not recorded".
-    actual_hours: EstimateHours = None
     # Same rule: null clears the position ("not ordered"), so no clear_ flag.
     # Not on RequirementCreate -- a requirement is ordered once it is in a
     # sprint and someone ranks it, never at creation.
@@ -364,7 +347,6 @@ class RequirementRead(BaseModel):
     release_id: UUID | None
     sprint_id: UUID | None
     estimate_hours: float | None = None
-    actual_hours: float | None = None
     queue_position: int | None = None
     feedback_id: UUID | None = None
     effective_epic_id: UUID | None = None

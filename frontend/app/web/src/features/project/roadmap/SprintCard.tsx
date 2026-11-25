@@ -1,21 +1,20 @@
 // One sprint on the release page: id, state, name and days left; board ↗,
 // the lifecycle control, comments, delete and fold; the goal; dates and
-// release; progress; committed effort against capacity; the requirement
+// release; progress; the requirement
 // list in agent order; and the burndown. The WHOLE card is the drop target,
 // not just the list -- an empty sprint's list is one line tall, which is no
 // target at all. Ported from the reference app's spCard() and spLifecycle()
 // (static/js/sprints.js).
-import { KeyboardEvent, useRef } from "react";
+import { useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useBoard } from "../board/boardData";
-import { closeSprintMessage, recentVelocity, spOrdered, sprintDue, sprintLifecycle } from "../board/boardModel";
+import { closeSprintMessage, spOrdered, sprintDue, sprintLifecycle } from "../board/boardModel";
 import { useBoardMutations } from "../board/boardMutations";
 import { BurndownDetails } from "../board/Burndown";
 import { CommentButton, DeliveryStatusSelect, DueChip, IdChip, ProgressBar } from "../board/chips";
-import { DEFAULT_CAPACITY_HOURS } from "../board/constants";
 import { useDialogs } from "../board/dialogs";
 import { useDropTarget } from "../board/dnd";
-import { fmtEffort, rollup } from "../board/effort";
+import { rollup } from "../board/effort";
 import { InlineText } from "../board/InlineText";
 import type { Requirement } from "../board/requirementsApi";
 import type { Sprint, SprintPatch } from "../board/sprintsApi";
@@ -31,7 +30,7 @@ interface SprintCardProps {
 }
 
 export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, onComments }: SprintCardProps) {
-  const { data, index, paths, canWrite } = useBoard();
+  const { index, paths, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
   const toast = useToast();
@@ -47,13 +46,6 @@ export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, on
   const p = rollup(reqs);
   const due = sprintDue(sprint);
   const life = sprintLifecycle(sprint);
-  // Committed effort counts only the requirements that carry an estimate, so
-  // the bar under-reads while p.unestimated is non-zero -- surfaced next to
-  // it rather than hidden, the same admit-the-gap policy as effortSummary().
-  const cap = sprint.capacity_hours ?? DEFAULT_CAPACITY_HOURS;
-  const over = p.hours > cap;
-  const capPct = cap > 0 ? Math.min(100, (100 * p.hours) / cap) : 0;
-  const vel = data ? recentVelocity(data.sprints, data.requirements) : null;
 
   const isOver = useDropTarget(ref, {
     accepts: (d) => d.kind === "requirement" && d.from !== sprint.id,
@@ -111,25 +103,6 @@ export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, on
     if (!target) return;
     toast(`${sprint.human_id} moved to ${target.human_id} · ${target.title}`);
     navigate(paths.release(target.id));
-  };
-
-  const commitCapacity = (el: HTMLInputElement) => {
-    const v = Number(el.value);
-    if (el.value.trim() === "" || !Number.isFinite(v) || v < 0) {
-      el.value = String(cap);
-      return;
-    }
-    if (v !== cap) void patch({ capacity_hours: v });
-  };
-  const onCapacityKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    e.stopPropagation();
-    if (e.key === "Enter") {
-      e.preventDefault();
-      e.currentTarget.blur();
-    } else if (e.key === "Escape") {
-      e.currentTarget.value = String(cap);
-      e.currentTarget.blur();
-    }
   };
 
   // A date input reads "" while a typed date is still incomplete, so only a
@@ -204,32 +177,6 @@ export function SprintCard({ sprint, folded, onToggleFold, onOpenRequirement, on
         <span className="sp-fig">
           {p.done}/{p.total} done · {p.pct}%
         </span>
-      </div>
-      <div className="sp-cap">
-        <span className="sp-cap-lbl">committed</span>
-        <ProgressBar className="cap-bar" pct={capPct} over={over} title={`${fmtEffort(p.hours)} committed of ${fmtEffort(cap)} capacity`} />
-        <span className={`sp-cap-fig${over ? " over" : ""}`}>
-          {fmtEffort(p.hours)} of {fmtEffort(cap)}
-        </span>
-        <label className="sp-cap-in">
-          capacity{" "}
-          <input
-            type="number"
-            className="mini"
-            min={0}
-            step={8}
-            defaultValue={cap}
-            disabled={!canWrite}
-            onBlur={(e) => commitCapacity(e.currentTarget)}
-            onKeyDown={onCapacityKey}
-          />
-        </label>
-        {vel && (
-          <span className="sp-vel" title={`mean effort delivered by the last ${vel.n} finished sprint(s)`}>
-            avg {fmtEffort(vel.hours)} over last {vel.n}
-          </span>
-        )}
-        {p.unestimated > 0 && <span className="sp-unest">{p.unestimated} unestimated</span>}
       </div>
       <div className="sp-items-head">
         requirements ({p.total})

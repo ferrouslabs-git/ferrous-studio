@@ -73,9 +73,7 @@ export interface SprintUpdateResult {
 
 // Day-by-day burndown, reconstructed from sprint-membership history and
 // status events. Parallel arrays over `dates`; the "actual" series are null
-// for days after today. Hours series sum estimate_hours; an unestimated
-// requirement counts 0 there, which is only honest alongside
-// unestimated_count -- the UI shows item counts unless coverage is complete.
+// for days after today. Counted in requirements, never hours (FS-REQ-106).
 export interface Burndown {
   sprint_id: string;
   note: string | null;
@@ -83,13 +81,7 @@ export interface Burndown {
   remaining: (number | null)[];
   ideal: number[];
   total: number;
-  remaining_hours: (number | null)[];
-  ideal_hours: number[];
-  total_hours: number;
   scope: (number | null)[];
-  scope_hours: (number | null)[];
-  estimated_count: number;
-  unestimated_count: number;
 }
 
 export interface SprintQuestion {

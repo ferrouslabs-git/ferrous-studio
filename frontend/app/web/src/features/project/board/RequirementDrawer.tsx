@@ -18,7 +18,6 @@ import { IdChip } from "./chips";
 import { CommentsList } from "./CommentsList";
 import { ST_ICON, ST_LABEL } from "./constants";
 import { useDialogs } from "./dialogs";
-import { EstimateField } from "./EstimateField";
 import {
   Requirement,
   REQUIREMENT_PRIORITIES,
@@ -73,8 +72,6 @@ interface FormState {
   assignee_id: string | null;
   release_id: string | null;
   sprint_id: string | null;
-  estimate_hours: number | null;
-  actual_hours: number | null;
 }
 
 function DrawerBody({
@@ -107,8 +104,6 @@ function DrawerBody({
           assignee_id: requirement.assignee_id,
           release_id: requirement.release_id,
           sprint_id: requirement.sprint_id,
-          estimate_hours: requirement.estimate_hours,
-          actual_hours: requirement.actual_hours,
         }
       : {
           title: "",
@@ -120,8 +115,6 @@ function DrawerBody({
           assignee_id: null,
           release_id: null,
           sprint_id: null,
-          estimate_hours: null,
-          actual_hours: null,
         },
   );
   const [saving, setSaving] = useState(false);
@@ -209,7 +202,6 @@ function DrawerBody({
         assignee_id: form.assignee_id,
         release_id: form.release_id,
         sprint_id: form.sprint_id,
-        estimate_hours: form.estimate_hours,
       };
       const saved = await mutations.createRequirement(input);
       onSaved?.(saved);
@@ -354,7 +346,14 @@ function DrawerBody({
         </div>
         <div>
           <label>Release</label>
-          <select className="select" value={form.release_id ?? ""} disabled={!canWrite || !!epic} onChange={(e) => patch({ release_id: e.target.value || null })}>
+          {/* Under an epic the release is the epic's, so the locked select
+              shows that one rather than the requirement's own (unused) value. */}
+          <select
+            className="select"
+            value={(epic ? inheritedRelease?.id : form.release_id) ?? ""}
+            disabled={!canWrite || !!epic}
+            onChange={(e) => patch({ release_id: e.target.value || null })}
+          >
             <option value="">— none —</option>
             {index.releases.map((r) => (
               <option key={r.id} value={r.id}>
@@ -362,11 +361,7 @@ function DrawerBody({
               </option>
             ))}
           </select>
-          {epic && (
-            <span className="rqp-note">
-              inherited from {epic.human_id}: {inheritedRelease ? `${inheritedRelease.human_id} · ${inheritedRelease.title}` : "— none —"}
-            </span>
-          )}
+          {epic && <span className="rqp-note">from {epic.human_id}</span>}
         </div>
         <div>
           <label>Sprint</label>
@@ -381,22 +376,6 @@ function DrawerBody({
             ))}
           </select>
         </div>
-        <div>
-          <label>Estimate</label>
-          <EstimateField value={form.estimate_hours} disabled={!canWrite} onChange={(h) => patch({ estimate_hours: h })} />
-        </div>
-        {requirement && (
-          <div>
-            <label>Actual time</label>
-            <EstimateField
-              value={form.actual_hours}
-              step={0.1}
-              emptyLabel="not recorded"
-              disabled={!canWrite}
-              onChange={(h) => patch({ actual_hours: h })}
-            />
-          </div>
-        )}
       </div>
       {requirement && (
         <>

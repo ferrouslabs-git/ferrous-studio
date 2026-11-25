@@ -16,7 +16,6 @@ import { IdChip, StatusChip } from "../board/chips";
 import { ST_LABEL } from "../board/constants";
 import { useDialogs } from "../board/dialogs";
 import { useDraggable, useDropTarget } from "../board/dnd";
-import { fmtEffort } from "../board/effort";
 import type { Epic } from "../board/epicsApi";
 import type { Release } from "../board/releasesApi";
 import { REQUIREMENT_STATUSES, type Requirement, type RequirementStatus } from "../board/requirementsApi";
@@ -123,7 +122,7 @@ export function ReleaseBacklog({ release, sprints, onOpen }: ReleaseBacklogProps
           <div className="hempty">
             {all.length
               ? `${all.length} requirement(s) here, none matching the filter.`
-              : `Everything in ${release.human_id} is in a sprint — or nothing is in ${release.human_id} yet. Add epics to it with “＋ Add epic” above, or from the Epics page.`}
+              : `Everything in ${release.human_id} is in a sprint — or nothing is in ${release.human_id} yet. Add epics to it with “＋ Add epics” above, or from the Epics page.`}
           </div>
         )}
         {shown > 0 && shown < all.length && <div className="sp-bl-count">{shown} of {all.length} shown</div>}
@@ -169,7 +168,6 @@ function BacklogRow({ requirement: r, open, onOpen }: { requirement: Requirement
         {r.human_id}
       </IdChip>
       <span className="t">{r.title}</span>
-      <span className={`est-sum${r.estimate_hours == null ? " est-partial" : ""}`}>{fmtEffort(r.estimate_hours)}</span>
       <span className="r">
         <StatusChip status={r.status} />
       </span>

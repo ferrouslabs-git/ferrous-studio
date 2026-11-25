@@ -50,10 +50,17 @@ export interface PickOptions {
   items: PickItem[];
 }
 
+export interface PickManyOptions extends PickOptions {
+  /** The confirming button's label for n ticked items; defaults to "Add n". */
+  ok?: (n: number) => string;
+}
+
 export interface Dialogs {
   confirm(opts: ConfirmOptions): Promise<boolean>;
   form(opts: FormOptions): Promise<Record<string, string> | null>;
   pick(opts: PickOptions): Promise<string | null>;
+  /** Tick any number of items; resolves their values in list order, or null if cancelled. */
+  pickMany(opts: PickManyOptions): Promise<string[] | null>;
   /** True while any dialog is up; a drawer underneath uses it to ignore Escape. */
   isOpen: boolean;
   /**
@@ -68,7 +75,8 @@ export interface Dialogs {
 type Pending =
   | { kind: "confirm"; opts: ConfirmOptions; resolve: (v: boolean) => void }
   | { kind: "form"; opts: FormOptions; resolve: (v: Record<string, string> | null) => void }
-  | { kind: "pick"; opts: PickOptions; resolve: (v: string | null) => void };
+  | { kind: "pick"; opts: PickOptions; resolve: (v: string | null) => void }
+  | { kind: "pickMany"; opts: PickManyOptions; resolve: (v: string[] | null) => void };
 
 const DialogContext = createContext<Dialogs | null>(null);
 
@@ -113,6 +121,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       confirm: (opts) => new Promise<boolean>((resolve) => open({ kind: "confirm", opts, resolve })),
       form: (opts) => new Promise<Record<string, string> | null>((resolve) => open({ kind: "form", opts, resolve })),
       pick: (opts) => new Promise<string | null>((resolve) => open({ kind: "pick", opts, resolve })),
+      pickMany: (opts) => new Promise<string[] | null>((resolve) => open({ kind: "pickMany", opts, resolve })),
       isOpen: pending !== null || held > 0,
       hold,
     }),
@@ -139,6 +148,9 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       )}
       {pending?.kind === "pick" && (
         <PickerDrawer opts={pending.opts} onCancel={close} onPick={(value) => settle(value, pending.resolve)} />
+      )}
+      {pending?.kind === "pickMany" && (
+        <MultiPickerDrawer opts={pending.opts} onCancel={close} onPick={(values) => settle(values, pending.resolve)} />
       )}
     </DialogContext.Provider>
   );
@@ -268,6 +280,62 @@ function PickerDrawer({
             <span>{it.label}</span>
             {it.hint && <span className="dlg-hint">{it.hint}</span>}
           </button>
+        ))}
+      </div>
+    </Drawer>
+  );
+}
+
+// ── a multi-picker: each item toggles a tick, the footer adds them all ──────
+
+function MultiPickerDrawer({
+  opts,
+  onCancel,
+  onPick,
+}: {
+  opts: PickManyOptions;
+  onCancel: () => void;
+  onPick: (values: string[]) => void;
+}) {
+  const [ticked, setTicked] = useState<Set<string>>(() => new Set());
+  const toggle = (v: string) =>
+    setTicked((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(v)) next.add(v);
+      return next;
+    });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (ticked.size) onPick(opts.items.filter((it) => ticked.has(it.value)).map((it) => it.value));
+  };
+  return (
+    <Drawer
+      open
+      title={opts.title}
+      onClose={onCancel}
+      onSubmit={submit}
+      width={440}
+      className="board-drawer"
+      footer={
+        <>
+          <button type="button" className="btn ghost" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={!ticked.size}>
+            {(opts.ok ?? ((n) => `Add ${n}`))(ticked.size)}
+          </button>
+        </>
+      }
+    >
+      {opts.message && <div className="board-dialog-message">{opts.message}</div>}
+      <div className="dlg-list">
+        {opts.items.length === 0 && <div className="hempty">Nothing to pick from.</div>}
+        {opts.items.map((it) => (
+          <label key={it.value} className={`dlg-item dlg-check${ticked.has(it.value) ? " on" : ""}`}>
+            <input type="checkbox" checked={ticked.has(it.value)} onChange={() => toggle(it.value)} />
+            <span>{it.label}</span>
+            {it.hint && <span className="dlg-hint">{it.hint}</span>}
+          </label>
         ))}
       </div>
     </Drawer>

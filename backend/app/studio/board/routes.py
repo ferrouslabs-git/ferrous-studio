@@ -173,7 +173,7 @@ _SPRINT_EVENT_FIELDS = ("name", "goal", "start_date", "end_date", "status", "rel
 # reconstructs status history from detail["status"]["to"].
 _REQUIREMENT_EVENT_FIELDS = (
     "title", "body", "epic_id", "feature_id", "status", "priority", "assignee_id",
-    "release_id", "sprint_id", "queue_position", "estimate_hours", "actual_hours",
+    "release_id", "sprint_id", "queue_position", "estimate_hours",
 )
 _DOC_EVENT_FIELDS = ("title", "body", "tags", "epic_id")
 
@@ -727,36 +727,46 @@ async def delete_feature(
     ctx: ScopeContext = Depends(require_permission("board:write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Soft delete. Requirements under it are only unlinked, never deleted --
-    they carry real workflow state, same principle as delete_epic. Their
-    comments/attachments aren't touched either, since the requirements
-    aren't going anywhere -- only the feature's own comments/attachments
-    cascade to soft-deleted. Ported deletion semantics, software-management
-    store.py's delete_feature."""
+    """Soft delete, taking its requirements with it (FS-REQ-99): every
+    requirement under the feature, live or archived, is soft-deleted as
+    delete_requirement does, with its comments/attachments. Unlike
+    delete_epic, which only unlinks -- an epic is a theme, a feature is the
+    unit of work its requirements make up. Each requirement gets its own
+    requirement.deleted event so its history says where it went."""
     project = await get_project(db, project_id, ctx)
     board = await _board(db, project, ctx)
     feature = await _get_feature(db, board, feature_id)
     requirements = (
-        await db.execute(select(Requirement).where(Requirement.feature_id == feature.id))
+        await db.execute(
+            select(Requirement).where(
+                Requirement.board_id == board.id,
+                Requirement.feature_id == feature.id,
+                Requirement.deleted_at.is_(None),
+            )
+        )
     ).scalars().all()
-    for r in requirements:
-        r.feature_id = None
-        r.updated_at = utc_now()
     now = utc_now()
+    doomed_entity_ids = [feature.id, *(r.id for r in requirements)]
     await db.execute(
         Comment.__table__.update()
-        .where(Comment.board_id == board.id, Comment.entity_id == feature.id)
+        .where(Comment.board_id == board.id, Comment.entity_id.in_(doomed_entity_ids))
         .values(deleted_at=now)
     )
     await db.execute(
         Attachment.__table__.update()
-        .where(Attachment.board_id == board.id, Attachment.entity_id == feature.id)
+        .where(Attachment.board_id == board.id, Attachment.entity_id.in_(doomed_entity_ids))
         .values(deleted_at=now)
     )
+    for r in requirements:
+        r.deleted_at = now
+        await service.write_event(
+            db, board, ctx.user_id, "requirement.deleted", "requirement", r.id,
+            {"title": r.title, "with_feature": feature.human_id},
+        )
     feature.deleted_at = now
     await service.write_event(
         db, board, ctx.user_id, "feature.deleted", "feature", feature.id,
-        {"title": feature.title, "unlinked_requirements": len(requirements)},
+        {"title": feature.title, "deleted_requirements": len(requirements)},
     )
     await db.commit()
 

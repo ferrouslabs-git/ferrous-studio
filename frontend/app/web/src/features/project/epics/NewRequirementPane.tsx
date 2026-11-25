@@ -13,7 +13,6 @@ import { PendingAttachments, pasteFiles } from "../board/AttachmentsSection";
 import { useBoard } from "../board/boardData";
 import { useBoardMutations } from "../board/boardMutations";
 import { ST_ICON, ST_LABEL } from "../board/constants";
-import { EstimateField } from "../board/EstimateField";
 import type { Epic } from "../board/epicsApi";
 import { Requirement, REQUIREMENT_PRIORITIES, REQUIREMENT_STATUSES, RequirementPriority, RequirementStatus } from "../board/requirementsApi";
 import { useToast } from "../board/toast";
@@ -40,7 +39,6 @@ export function NewRequirementPane({ epic, featureId, onCreated, onCancel }: New
   const [priority, setPriority] = useState<RequirementPriority>("Medium");
   const [assignee, setAssignee] = useState<string | null>(null);
   const [sprint, setSprint] = useState<string | null>(null);
-  const [estimate, setEstimate] = useState<number | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -68,7 +66,6 @@ export function NewRequirementPane({ epic, featureId, onCreated, onCancel }: New
         assignee_id: assignee,
         release_id: null,
         sprint_id: sprint,
-        estimate_hours: estimate,
       });
       if (files.length) {
         setSaving(`Uploading 1 of ${files.length}…`);
@@ -172,10 +169,6 @@ export function NewRequirementPane({ epic, featureId, onCreated, onCancel }: New
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <label>Estimate</label>
-            <EstimateField value={estimate} disabled={busy} onChange={setEstimate} />
           </div>
         </div>
       </div>

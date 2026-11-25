@@ -29,6 +29,7 @@ import { ScreenshotField, ScreenshotItem } from "../../screenshot/ScreenshotFiel
 import { listAttachments, loadAttachmentBitmap } from "../attachmentsApi";
 import { AssigneeSelect } from "../board/AssigneeSelect";
 import { useBoard } from "../board/boardData";
+import { useBoardMutations } from "../board/boardMutations";
 import { IdChip } from "../board/chips";
 import { CommentsList } from "../board/CommentsList";
 import { EstimateField } from "../board/EstimateField";
@@ -141,6 +142,7 @@ export function FeedbackPage() {
   // environment is worth offering a way in to.
   const { canWrite: canPublish } = useSession();
   const board = useBoard();
+  const mutations = useBoardMutations();
   const toast = useToast();
   const hrefFor = useEntityHref();
   const environments = useLoad(() => listEnvironments(project.id), [project.id]);
@@ -815,10 +817,14 @@ export function FeedbackPage() {
                     <span key={r.id} className="fb-requirement">
                       <IdChip of={{ type: "requirement", id: r.id }}>{r.human_id}</IdChip>
                       {href ? <Link to={href}>{r.title}</Link> : <span>{r.title}</span>}
-                      <span className="badge muted">
-                        {r.estimate_hours != null ? `${r.estimate_hours}h` : "No estimate"}
-                        {r.actual_hours != null && ` · ${r.actual_hours}h actual`}
-                      </span>
+                      {/* The only place a requirement's estimate is set (FS-REQ-106):
+                          the maintenance log charges this report their sum. */}
+                      <EstimateField
+                        value={r.estimate_hours}
+                        step={0.1}
+                        disabled={!canWrite}
+                        onChange={(hours) => void mutations.patchRequirement(r.id, { estimate_hours: hours }).catch(() => undefined)}
+                      />
                     </span>
                   );
                 })}

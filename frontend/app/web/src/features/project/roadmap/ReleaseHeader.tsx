@@ -1,6 +1,6 @@
 // The release page's header: the release itself -- title and description
 // edited in place, the derived date, its delivery status, comments, delete -- and
-// its epics, with "＋ Add epic" to file an unassigned one here and "↩" on
+// its epics, with "＋ Add epics" to file unassigned ones here and "↩" on
 // each row to unfile it. The epic list folds away (the count stays on the
 // heading) so a release carrying a dozen epics does not push its sprints off
 // the screen; the choice is remembered per release. The date is read-only on purpose: it is the end of
@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { useBoard } from "../board/boardData";
 import { releaseDue, releaseSchedule, shipGaps } from "../board/boardModel";
 import { useBoardMutations } from "../board/boardMutations";
-import { CommentButton, DeliveryStatusSelect, DueChip, EffortFigure, IdChip, ProgressBar, ProgressFigure } from "../board/chips";
+import { CommentButton, DeliveryStatusSelect, DueChip, IdChip, ProgressBar, ProgressFigure } from "../board/chips";
 import { useDialogs } from "../board/dialogs";
 import { rollup } from "../board/effort";
 import { InlineText } from "../board/InlineText";
@@ -94,17 +94,20 @@ export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, on
       toast("Every epic is already in a release — make a new one on the Epics page");
       return;
     }
-    const eid = await dialogs.pick({
-      title: `Add an epic to ${release.human_id}`,
+    const ids = await dialogs.pickMany({
+      title: `Add epics to ${release.human_id}`,
       message: release.title,
+      ok: (n) => (n === 1 ? "Add 1 epic" : `Add ${n} epics`),
       items: free.map((e) => ({
         value: e.id,
         label: `${e.human_id} · ${e.title}`,
         hint: `${rollup(index.epicRequirements(e.id)).total} requirement(s)`,
       })),
     });
-    if (!eid) return;
-    void mutations.assignEpicToRelease(eid, release.id).catch(() => {});
+    if (!ids) return;
+    // One at a time: each assignment refetches the board, and a failure is
+    // toasted per epic without stopping the rest.
+    for (const eid of ids) await mutations.assignEpicToRelease(eid, release.id).catch(() => {});
   };
 
   return (
@@ -149,7 +152,6 @@ export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, on
         <span className="fig">
           {p.done}/{p.total} done · {p.pct}% · {p.total} requirement{p.total === 1 ? "" : "s"}
         </span>
-        <EffortFigure rollup={p} />
       </div>
       <div className={`rel-epics${epicsFolded ? " rel-epics-folded" : ""}`}>
         <div className="rel-epics-head">
@@ -163,8 +165,8 @@ export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, on
             {epicsFolded ? "▸" : "▾"} epics ({epics.length})
           </button>
           {canWrite && (
-            <button type="button" className="btn mini-x rel-addep" title="file an unassigned epic under this release" onClick={() => void addEpic()}>
-              ＋ Add epic
+            <button type="button" className="btn mini-x rel-addep" title="file unassigned epics under this release" onClick={() => void addEpic()}>
+              ＋ Add epics
             </button>
           )}
         </div>
@@ -200,7 +202,7 @@ export function ReleaseHeader({ release, sprints, epicsFolded, onToggleEpics, on
           ))}
           {!epics.length && (
             <div className="hempty">
-              No epics yet — “＋ Add epic” files an unassigned one here, or pick {release.human_id} in an epic's release menu on the Epics page.
+              No epics yet — “＋ Add epics” files unassigned ones here, or pick {release.human_id} in an epic's release menu on the Epics page.
             </div>
           )}
         </div>
