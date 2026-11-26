@@ -1,7 +1,7 @@
 FROM node:20-alpine AS frontend-build
 WORKDIR /workspace/frontend/app/web
-COPY frontend/app/web/package.json ./
-RUN npm install
+COPY frontend/app/web/package.json frontend/app/web/package-lock.json ./
+RUN npm ci
 COPY frontend/app/web ./
 COPY backend/app/studio/catalog.json /workspace/backend/app/studio/catalog.json
 ARG VITE_COGNITO_DOMAIN
