@@ -74,6 +74,8 @@ export function SprintBoardPage() {
 
   const reqId = params.get("req");
   const openRequirement = reqId ? index.requirementById.get(reqId) ?? null : null;
+  /** The drawer is open on a new requirement for this sprint. */
+  const [creating, setCreating] = useState(false);
   const openDrawer = useCallback(
     (r: Requirement) =>
       setParams(
@@ -156,6 +158,7 @@ export function SprintBoardPage() {
         requirements={requirements}
         refresh={refresh}
         onComments={() => setComments({ type: "sprint", id: sprint.id, label: `${sprint.human_id} · ${sprint.name}` })}
+        onNewRequirement={() => setCreating(true)}
       />
       <SprintBoardFilters filter={filter} onChange={setFilter} total={requirements.length} shown={shown.length} />
       <div className="sb-lanetabs" role="tablist" aria-label="Lane">
@@ -200,9 +203,13 @@ export function SprintBoardPage() {
         </section>
       </div>
       <RequirementDrawer
-        open={openRequirement !== null}
+        open={openRequirement !== null || creating}
         requirement={openRequirement}
-        onClose={closeDrawer}
+        preset={{ sprintId: sprint.id }}
+        onClose={() => {
+          setCreating(false);
+          closeDrawer();
+        }}
         onSaved={() => void refresh(true)}
       />
       <CommentsPanel target={comments} onClose={() => setComments(null)} />

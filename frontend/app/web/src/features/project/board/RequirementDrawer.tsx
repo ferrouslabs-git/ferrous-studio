@@ -30,7 +30,12 @@ import {
 export interface RequirementPreset {
   epicId?: string | null;
   featureId?: string | null;
+  /** A new requirement made from a sprint board starts in that sprint. */
+  sprintId?: string | null;
 }
+
+/** The Epic and Feature selects' last option: make one there and then. */
+const NEW_OPTION = "__new__";
 
 interface RequirementDrawerProps {
   open: boolean;
@@ -114,7 +119,7 @@ function DrawerBody({
           priority: "Medium",
           assignee_id: null,
           release_id: null,
-          sprint_id: null,
+          sprint_id: preset.sprintId ?? null,
         },
   );
   const [saving, setSaving] = useState(false);
@@ -183,6 +188,52 @@ function DrawerBody({
   // requirement's own -- otherwise the select would silently read "backlog".
   const sprints = index.sprints.filter((s) => !s.closed_at || s.id === form.sprint_id);
   const inheritedRelease = epic ? (epic.release_id ? index.releaseById.get(epic.release_id) : null) : undefined;
+
+  // No suitable epic or feature: make one without leaving the drawer, and
+  // pick it. Cancelling leaves the choice as it was (the select is controlled).
+  const newEpic = async () => {
+    // A requirement headed for a sprint most likely belongs to that sprint's release.
+    const sprintRelease = form.sprint_id ? index.sprintById.get(form.sprint_id)?.release_id ?? "" : "";
+    const v = await dialogs.form({
+      title: "New epic",
+      ok: "Create",
+      fields: [
+        { key: "title", label: "Title", required: true, placeholder: "e.g. Bulk import" },
+        {
+          key: "release",
+          label: "Release",
+          type: "select",
+          value: sprintRelease,
+          placeholder: "— unassigned —",
+          options: index.releases.map((m) => ({ value: m.id, label: `${m.human_id} · ${m.title}` })),
+        },
+      ],
+    });
+    if (!v) return;
+    try {
+      const epic = await mutations.createEpic({ title: v.title, summary: "", release_id: v.release || null });
+      patch({ epic_id: epic.id, feature_id: null });
+    } catch {
+      // Toasted by the mutation layer.
+    }
+  };
+  const newFeature = async () => {
+    if (!form.epic_id) return;
+    const epic = index.epicById.get(form.epic_id);
+    const v = await dialogs.form({
+      title: "New feature",
+      message: epic ? `In ${epic.human_id} · ${epic.title}` : undefined,
+      ok: "Create",
+      fields: [{ key: "title", label: "Title", required: true }],
+    });
+    if (!v) return;
+    try {
+      const feature = await mutations.createFeature(form.epic_id, v.title);
+      patch({ feature_id: feature.id });
+    } catch {
+      // Toasted by the mutation layer.
+    }
+  };
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
@@ -299,7 +350,9 @@ function DrawerBody({
             className="select"
             value={form.epic_id ?? ""}
             disabled={!canWrite}
-            onChange={(e) => patch({ epic_id: e.target.value || null, feature_id: null })}
+            onChange={(e) =>
+              e.target.value === NEW_OPTION ? void newEpic() : patch({ epic_id: e.target.value || null, feature_id: null })
+            }
           >
             <option value="">— none —</option>
             {index.epics.map((ep) => (
@@ -307,17 +360,24 @@ function DrawerBody({
                 {ep.human_id} · {ep.title}
               </option>
             ))}
+            {canWrite && <option value={NEW_OPTION}>＋ New epic…</option>}
           </select>
         </div>
         <div>
           <label>Feature</label>
-          <select className="select" value={form.feature_id ?? ""} disabled={!canWrite || !form.epic_id} onChange={(e) => patch({ feature_id: e.target.value || null })}>
+          <select
+            className="select"
+            value={form.feature_id ?? ""}
+            disabled={!canWrite || !form.epic_id}
+            onChange={(e) => (e.target.value === NEW_OPTION ? void newFeature() : patch({ feature_id: e.target.value || null }))}
+          >
             <option value="">{form.epic_id ? "— none —" : "— no epic —"}</option>
             {features.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.human_id} · {f.title}
               </option>
             ))}
+            {canWrite && form.epic_id && <option value={NEW_OPTION}>＋ New feature…</option>}
           </select>
         </div>
         <div>
