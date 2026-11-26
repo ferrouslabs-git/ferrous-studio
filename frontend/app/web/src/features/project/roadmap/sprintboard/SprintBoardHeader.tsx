@@ -20,9 +20,11 @@ interface SprintBoardHeaderProps {
   requirements: Requirement[];
   refresh: (force?: boolean) => Promise<void>;
   onComments: () => void;
+  /** Open the drawer for a new requirement in this sprint. */
+  onNewRequirement: () => void;
 }
 
-export function SprintBoardHeader({ sprint, requirements, refresh, onComments }: SprintBoardHeaderProps) {
+export function SprintBoardHeader({ sprint, requirements, refresh, onComments, onNewRequirement }: SprintBoardHeaderProps) {
   const { index, paths, canWrite } = useBoard();
   const mutations = useBoardMutations();
   const dialogs = useDialogs();
@@ -118,6 +120,11 @@ export function SprintBoardHeader({ sprint, requirements, refresh, onComments }:
         {p.done}/{p.total} done · {p.pct}%{p.to_test ? ` · ${p.to_test} to test` : ""}
       </span>
       <span className="tk-right">
+        {canWrite && !sprint.closed_at && (
+          <button type="button" className="btn mini-x" onClick={onNewRequirement}>
+            ＋ Requirement
+          </button>
+        )}
         {canWrite && (
           <button type="button" className={`btn mini-x${life.primary ? " primary" : ""}`} onClick={() => void runLifecycle()}>
             {life.label}
