@@ -8,7 +8,7 @@ import { ListTable, NameCell } from "../../../components/ListTable";
 import { errorMessage } from "../../../core/api";
 import { formatDateTime } from "../../../core/format";
 import { addParticipant, Participant, ParticipantInput, removeParticipant, Study, updateParticipant } from "./usabilityApi";
-import { participantLink, progressLabel, WEB_ADDRESS_ERROR, webAddress } from "./usabilityModel";
+import { participantLink, progressLabel } from "./usabilityModel";
 
 export function StudyParticipants({
   projectId,
@@ -132,7 +132,6 @@ function ParticipantDrawer({
     role: participant?.role ?? "",
     company: participant?.company ?? "",
     characteristics: participant?.characteristics ?? "",
-    app_url: participant?.app_url ?? study.app_url ?? "",
     account_email: participant?.account_email ?? "",
     account_password: participant?.account_password ?? "",
     account_notes: participant?.account_notes ?? "",
@@ -143,10 +142,6 @@ function ParticipantDrawer({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (form.app_url?.trim() && !webAddress(form.app_url)) {
-      setError(WEB_ADDRESS_ERROR);
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
@@ -164,7 +159,10 @@ function ParticipantDrawer({
     <Drawer
       open
       title={participant ? `Edit ${participant.code}` : "Add participant"}
-      description="Nothing is sent to the participant. Copy their link from the list and send it yourself."
+      // The application address is the study's, shared by every participant; it is changed on the study.
+      description={`Nothing is sent to the participant. Copy their link from the list and send it yourself. They open ${
+        study.app_url || "the study's application address (not set yet)"
+      }.`}
       onClose={onClose}
       onSubmit={submit}
       width={520}
@@ -195,9 +193,6 @@ function ParticipantDrawer({
       </Field>
       <Field label="Other characteristics">
         <textarea className="input textarea" rows={2} value={form.characteristics} onChange={set("characteristics")} />
-      </Field>
-      <Field label="Application address">
-        <input className="input" value={form.app_url} onChange={set("app_url")} />
       </Field>
       <Field label="Test account email">
         <input className="input" autoComplete="off" value={form.account_email} onChange={set("account_email")} />

@@ -32,8 +32,13 @@ password (see below).
    sent**; copy the link and send it yourself.
 3. The participant opens `/study/<token>` with no account. They read the
    protocol and the consent form, type their name and agree. Then they see the
-   test account, each task (scenario, notes, files, an answer box where the
+   test account to sign in with (**Signing in**) or, when the study's
+   *Testing includes signing up* is ticked, **Get ready to begin**: the
+   address, the email to use and the study's sign-up instructions, with no
+   password. Then each task (the task, notes, files, an answer box where the
    task asks a question, a 1 to 10 ease rating) and the word choice exercise.
+   A markdown file a task hands out is shown on the page beside the task;
+   other files are downloads.
 4. The moderator opens the participant under Observation capture and runs the
    session from that screen. The participant's rating and answer appear within
    about five seconds.
@@ -150,5 +155,6 @@ there only after a deploy and a session restart.
 
 - Raising an observation as a board requirement or feedback item.
 - Choosing the application address from the project's environments (it is a
-  plain field on the study, copied to each new participant).
+  plain field on the study, and every participant opens that one address;
+  a participant has no address of their own).
 - Sending links, recording, and the final report.

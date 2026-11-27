@@ -117,10 +117,12 @@
 .ustudy-main .section-head { flex-wrap: wrap; }
 .ustudy-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px; }
 .ustudy-lead { margin: 8px 0 12px; font-size: 14px; line-height: 1.55; color: var(--text-dim); }
-.ustudy-scenario {
-  margin: 12px 0 4px; padding: 14px 16px; border-left: 3px solid var(--accent);
-  background: var(--panel); font-size: 15px; line-height: 1.55;
-}
+.ustudy-scenario { margin: 0; font-size: 15px; line-height: 1.55; }
+/* With a markdown file beside them, the cards take the narrower column. */
+.ustudy-cols-doc { grid-template-columns: minmax(320px, 2fr) minmax(320px, 3fr); }
+@media (max-width: 760px) { .ustudy-cols-doc { grid-template-columns: 1fr; } }
+.section-head h2.ustudy-file-name { text-transform: none; letter-spacing: 0; }
+.ustudy-doc { max-height: 75vh; overflow: auto; }
 .ustudy-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; align-items: start; }
 .ustudy-prose p { margin: 0 0 10px; font-size: 13px; line-height: 1.6; }
 .ustudy-prose .input, .ustudy-main .drawer-field .input { width: 100%; min-width: 0; }
@@ -133,6 +135,7 @@
 .ustudy-kv + .ustudy-kv { border-top: 1px solid var(--border); }
 .ustudy-k { flex: none; width: 110px; font-size: 12px; color: var(--text-dim); }
 .ustudy-v { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+a.ustudy-v { color: var(--accent); }
 .ustudy-scale { display: flex; flex-wrap: wrap; gap: 4px; }
 .ustudy-scale .btn { min-width: 36px; justify-content: center; }
 .ustudy-nav { display: flex; justify-content: space-between; gap: 8px; margin-top: 18px; }

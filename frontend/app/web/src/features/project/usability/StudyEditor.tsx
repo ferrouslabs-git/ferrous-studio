@@ -169,6 +169,27 @@ export function StudyEditor({
         />
       </Card>
 
+      {/* Whether participants are given an account to sign in with, or sign up themselves as part of the testing. */}
+      <Card title="Signing in">
+        <label className="row">
+          <input type="checkbox" checked={content.sign_up} onChange={(e) => setContent({ sign_up: e.target.checked })} />
+          Testing includes signing up
+        </label>
+        <p className="muted">
+          {content.sign_up
+            ? "Participants see a Get ready to begin page with the application address, the email to use (set on each participant) and these instructions. They choose their own password."
+            : "Participants see a Signing in page with the test account set on each participant."}
+        </p>
+        {content.sign_up && (
+          <Paragraphs
+            label="Instruction"
+            value={content.sign_up_text}
+            onChange={(sign_up_text) => setContent({ sign_up_text })}
+            addLabel="Add instruction"
+          />
+        )}
+      </Card>
+
       <Card
         title="Tasks"
         note={`${content.tasks.length} ${content.tasks.length === 1 ? "task" : "tasks"}`}

@@ -1140,6 +1140,8 @@ def update_study(
     protocol: list[str] | None = None,
     consent_title: str | None = None,
     consent_text: list[str] | None = None,
+    sign_up: bool | None = None,
+    sign_up_text: list[str] | None = None,
     script: dict | None = None,
     words: list[str] | None = None,
     top_words: int | None = None,
@@ -1154,7 +1156,12 @@ def update_study(
     reads before consenting, one paragraph per line. consent_title /
     consent_text: the consent form; changing either makes a new consent
     version (participants keep the one they agreed to) -- only change it
-    when the user asked to. script: the moderator's script by section, any
+    when the user asked to. sign_up: true when the testing includes signing
+    up -- a participant's page then says "Get ready to begin" and gives the
+    app_url, the email to use (the participant's account_email) and
+    sign_up_text (the instructions, one paragraph per line), and no
+    password; false gives a test account to sign in with. script: the
+    moderator's script by section, any
     of before, welcome, per_task, wrap_up, after (each a list of lines); a
     section sent replaces that section only. words: the word-choice list;
     top_words: how many of them a participant marks as top, 1 to 10.
@@ -1162,7 +1169,8 @@ def update_study(
     return _studio_call("PATCH", f"/usability/agent/studies/{study_id}", _patch_of(
         name=name, status=status, persona=persona, duration=duration, app_url=app_url,
         research_questions=research_questions, protocol=protocol, consent_title=consent_title,
-        consent_text=consent_text, script=script, words=words, top_words=top_words,
+        consent_text=consent_text, sign_up=sign_up, sign_up_text=sign_up_text, script=script, words=words,
+        top_words=top_words,
     ))
 
 
@@ -1223,7 +1231,7 @@ def import_study(file_path: str, name: str | None = None) -> dict:
 @mcp.tool()
 def list_study_participants(study_id: str) -> dict:
     """Who takes part in a study: id, code (P1, P2, ...), scheduled_at,
-    role, company, characteristics, app_url, account_email,
+    role, company, characteristics, app_url (always the study's), account_email,
     account_password_set, account_notes, consent (name, at), words,
     top_words, completed_at, session_notes and progress. Never their link or
     password -- a person copies the link from Studio and sends it."""
@@ -1237,7 +1245,6 @@ def add_study_participant(
     role: str | None = None,
     company: str | None = None,
     characteristics: str | None = None,
-    app_url: str | None = None,
     account_email: str | None = None,
     account_password: str | None = None,
     account_notes: str | None = None,
@@ -1245,13 +1252,17 @@ def add_study_participant(
     """Add a participant; they get the next code (P1, P2, ...) and a
     personal link. NOTHING is sent to them, and the link is not returned:
     tell the user to copy it from the study's Participants in Studio.
-    scheduled_at: free text, e.g. "2026-12-03 14:00". app_url defaults to
-    the study's. account_email / account_password / account_notes: the TEST
-    account they sign in with, which their page shows them -- test
+    When the study tests signing up (get_study's sign_up), give
+    account_email only: the participant signs up with it and picks a
+    password.
+    scheduled_at: free text, e.g. "2026-12-03 14:00". Every participant opens
+    the study's app_url; change it on the study (update_study).
+    account_email / account_password / account_notes: the TEST account they
+    sign in with, which their page shows them -- test
     credentials only, never a real person's. Returns the participant."""
     return _studio_call("POST", f"/usability/agent/studies/{study_id}/participants", _patch_of(
         scheduled_at=scheduled_at, role=role, company=company, characteristics=characteristics,
-        app_url=app_url, account_email=account_email, account_password=account_password,
+        account_email=account_email, account_password=account_password,
         account_notes=account_notes,
     ))
 
@@ -1264,7 +1275,6 @@ def update_study_participant(
     role: str | None = None,
     company: str | None = None,
     characteristics: str | None = None,
-    app_url: str | None = None,
     account_email: str | None = None,
     account_password: str | None = None,
     account_notes: str | None = None,
@@ -1276,7 +1286,7 @@ def update_study_participant(
     session. Removing a participant stays with a person."""
     return _studio_call("PATCH", f"/usability/agent/studies/{study_id}/participants/{participant_id}", _patch_of(
         scheduled_at=scheduled_at, role=role, company=company, characteristics=characteristics,
-        app_url=app_url, account_email=account_email, account_password=account_password,
+        account_email=account_email, account_password=account_password,
         account_notes=account_notes, session_notes=session_notes,
     ))
 

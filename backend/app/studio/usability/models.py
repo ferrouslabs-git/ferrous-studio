@@ -29,7 +29,7 @@ class Study(Base):
     status = Column(String(16), nullable=False, default="open")  # open | closed
     persona = Column(String(255), nullable=True)   # who the study is for, by name
     duration = Column(String(64), nullable=True)   # as shown to a participant: "about 60 minutes"
-    app_url = Column(String(500), nullable=True)   # the default address a new participant is given
+    app_url = Column(String(500), nullable=True)   # the address every participant opens
     #: Research questions, protocol, consent form, tasks, script and word list.
     content = Column(JSONB, nullable=False, default=dict)
     #: Raised whenever the consent wording changes; each participant keeps the
@@ -89,6 +89,8 @@ class Participant(Base):
     role = Column(String(255), nullable=True)
     company = Column(String(255), nullable=True)
     characteristics = Column(Text, nullable=True)
+    # No longer read or written: a participant opens the study's app_url. Kept
+    # so old rows and running instances are untouched; safe to drop later.
     app_url = Column(String(500), nullable=True)
     account_email = Column(String(255), nullable=True)
     account_password = Column(String(255), nullable=True)

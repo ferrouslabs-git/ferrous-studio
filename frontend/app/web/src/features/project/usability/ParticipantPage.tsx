@@ -18,9 +18,12 @@ import {
   saveSessionTask,
   saveSessionWords,
   Session,
+  getSessionFileText,
   sessionFileUrl,
   SessionTask,
 } from "./usabilityApi";
+// The app's escape-first markdown renderer, shared with the project docs pages.
+import { MarkdownWithMermaid } from "../epics/MarkdownWithMermaid";
 import { webAddress } from "./usabilityModel";
 
 interface Step {
@@ -76,12 +79,12 @@ export function ParticipantPage() {
   const steps: Step[] = useMemo(
     () => [
       { id: "consent", label: "Welcome and consent" },
-      { id: "account", label: "Signing in" },
+      { id: "account", label: session?.account?.sign_up ? "Get ready to begin" : "Signing in" },
       ...tasks.map((t, i) => ({ id: `task-${t.id}`, label: `Task ${i + 1}` })),
       { id: "words", label: "Word choice" },
       { id: "done", label: "Finished" },
     ],
-    [tasks],
+    [tasks, session?.account?.sign_up],
   );
 
   if (error) {
@@ -305,16 +308,20 @@ function Copyable({ label, value, secret }: { label: string; value: string; secr
 }
 
 function AccountStep({ account, onNext }: { account: NonNullable<Session["account"]>; onNext: () => void }) {
+  // A study that tests signing up has the participant make the account: they get
+  // the address, the email to use and the study's instructions, but no password.
+  const signUp = account.sign_up;
   return (
     <section>
-      <h1>Signing in</h1>
+      <h1>{signUp ? "Get ready to begin" : "Signing in"}</h1>
       <p className="ustudy-lead">
-        You will use a test account, not your own. Open the application in a new tab, sign in with these details, and
-        keep this page open beside it.
+        {signUp
+          ? "You will sign up to the application as part of the tasks. Here is everything you need for it."
+          : "You will use a test account, not your own. Open the application in a new tab, sign in with these details, and keep this page open beside it."}
       </p>
       <div className="section">
         <div className="section-head">
-          <h2>Your test account</h2>
+          <h2>{signUp ? "What you will use" : "Your test account"}</h2>
         </div>
         <div className="section-body">
           <div className="ustudy-kv">
@@ -327,8 +334,8 @@ function AccountStep({ account, onNext }: { account: NonNullable<Session["accoun
               <span className="ustudy-v mono">{account.app_url || "—"}</span>
             )}
           </div>
-          <Copyable label="Email" value={account.email} />
-          <Copyable label="Password" value={account.password} secret />
+          <Copyable label={signUp ? "Email to use" : "Email"} value={account.email} />
+          {!signUp && <Copyable label="Password" value={account.password} secret />}
           {account.notes && (
             <div className="ustudy-kv">
               <span className="ustudy-k">Also</span>
@@ -337,10 +344,24 @@ function AccountStep({ account, onNext }: { account: NonNullable<Session["accoun
           )}
         </div>
       </div>
+      {signUp && account.instructions.length > 0 && (
+        <div className="section">
+          <div className="section-head">
+            <h2>Before you start</h2>
+          </div>
+          <div className="section-body ustudy-prose">
+            <ol>
+              {account.instructions.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      )}
       <div className="ustudy-nav">
         <span />
         <button type="button" className="btn primary" onClick={onNext}>
-          I am signed in, show the first task
+          {signUp ? "I am ready, show the first task" : "I am signed in, show the first task"}
         </button>
       </div>
     </section>
@@ -382,88 +403,123 @@ function TaskStep({
         Task {number} of {total}
       </div>
       <h1>{task.title}</h1>
-      <p className="ustudy-scenario" data-testid="task-scenario">
-        {task.scenario}
-      </p>
-
-      <div className="ustudy-cols">
-        <div className="stack">
-          {task.notes.length > 0 && (
-            <div className="section">
-              <div className="section-head">
-                <h2>Notes</h2>
-              </div>
-              <div className="section-body">
-                <ul className="usab-lines">
-                  {task.notes.map((n, i) => (
-                    <li key={i}>{n}</li>
+      {(() => {
+        // The task, its notes and the questions are cards on the left. A markdown
+        // file is read on the page, in a column to the right; any other file is a download.
+        const shown = task.files.filter(isMarkdown);
+        const downloads = task.files.filter((name) => !isMarkdown(name));
+        const taskCard = (
+          <div className="section">
+            <div className="section-head">
+              <h2>Task</h2>
+            </div>
+            <div className="section-body">
+              <p className="ustudy-scenario" data-testid="task-scenario">
+                {task.scenario}
+              </p>
+            </div>
+          </div>
+        );
+        const notesCard = task.notes.length > 0 && (
+          <div className="section">
+            <div className="section-head">
+              <h2>Notes</h2>
+            </div>
+            <div className="section-body">
+              <ul className="usab-lines">
+                {task.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        );
+        const filesCard = downloads.length > 0 && (
+          <div className="section">
+            <div className="section-head">
+              <h2>Files for this task</h2>
+            </div>
+            <div className="section-body ustudy-files">
+              {downloads.map((name) => (
+                <a key={name} className="btn" href={sessionFileUrl(token, name)} download={name}>
+                  Download <span className="mono">{name}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        );
+        const finishedCard = (
+          <div className="section">
+            <div className="section-head">
+              <h2>When you have finished</h2>
+            </div>
+            <div className="section-body">
+              {task.answer_prompt && (
+                <label className="drawer-field">
+                  <span className="drawer-field-label">{task.answer_prompt}</span>
+                  <textarea
+                    className="input textarea"
+                    rows={3}
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    onBlur={() => {
+                      if (answer !== task.answer) void save({ answer });
+                    }}
+                  />
+                </label>
+              )}
+              <div className="drawer-field">
+                <span className="drawer-field-label" id={`rating-${task.id}`}>
+                  How easy did you find this task? 10 is easiest
+                </span>
+                <div className="ustudy-scale" role="radiogroup" aria-labelledby={`rating-${task.id}`}>
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      role="radio"
+                      aria-checked={task.rating === n}
+                      className={`btn${task.rating === n ? " primary" : ""}`}
+                      onClick={() => void save({ rating: n })}
+                    >
+                      {n}
+                    </button>
                   ))}
-                </ul>
+                </div>
               </div>
+              {error && (
+                <div className="usab-warning" role="alert">
+                  {error}
+                </div>
+              )}
             </div>
-          )}
-          {task.files.length > 0 && (
-            <div className="section">
-              <div className="section-head">
-                <h2>Files for this task</h2>
-              </div>
-              <div className="section-body ustudy-files">
-                {task.files.map((name) => (
-                  <a key={name} className="btn" href={sessionFileUrl(token, name)} download={name}>
-                    Download <span className="mono">{name}</span>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="section">
-          <div className="section-head">
-            <h2>When you have finished</h2>
           </div>
-          <div className="section-body">
-            {task.answer_prompt && (
-              <label className="drawer-field">
-                <span className="drawer-field-label">{task.answer_prompt}</span>
-                <textarea
-                  className="input textarea"
-                  rows={3}
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                  onBlur={() => {
-                    if (answer !== task.answer) void save({ answer });
-                  }}
-                />
-              </label>
-            )}
-            <div className="drawer-field">
-              <span className="drawer-field-label" id={`rating-${task.id}`}>
-                How easy did you find this task? 10 is easiest
-              </span>
-              <div className="ustudy-scale" role="radiogroup" aria-labelledby={`rating-${task.id}`}>
-                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    role="radio"
-                    aria-checked={task.rating === n}
-                    className={`btn${task.rating === n ? " primary" : ""}`}
-                    onClick={() => void save({ rating: n })}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
+        );
+        return shown.length > 0 ? (
+          <div className="ustudy-cols ustudy-cols-doc">
+            <div className="stack">
+              {taskCard}
+              {notesCard}
+              {finishedCard}
+              {filesCard}
             </div>
-            {error && (
-              <div className="usab-warning" role="alert">
-                {error}
-              </div>
-            )}
+            <div className="stack">
+              {shown.map((name) => (
+                <MarkdownFile key={name} token={token} name={name} />
+              ))}
+            </div>
           </div>
-        </div>
-      </div>
+        ) : (
+          <div className="ustudy-cols">
+            <div className="stack">
+              {taskCard}
+              {notesCard}
+              {filesCard}
+            </div>
+            {finishedCard}
+          </div>
+        );
+      })()}
 
       <div className="ustudy-nav">
         <button type="button" className="btn ghost" onClick={onBack}>
@@ -474,6 +530,47 @@ function TaskStep({
         </button>
       </div>
     </section>
+  );
+}
+
+const isMarkdown = (name: string) => /\.(md|markdown)$/i.test(name);
+
+/** A markdown file a task hands out, read on the page instead of downloaded. */
+function MarkdownFile({ token, name }: { token: string; name: string }) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getSessionFileText(token, name)
+      .then((t) => {
+        if (!cancelled) setText(t);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(errorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, name]);
+  return (
+    <div className="section">
+      <div className="section-head">
+        <h2 className="mono ustudy-file-name">{name}</h2>
+        <span className="shell-spacer" />
+        <a className="btn small ghost" href={sessionFileUrl(token, name)} download={name}>
+          Download
+        </a>
+      </div>
+      <div className="section-body ustudy-doc">
+        {error ? (
+          <span className="muted">{error}</span>
+        ) : text === null ? (
+          <span className="muted">Loading…</span>
+        ) : (
+          <MarkdownWithMermaid body={text} />
+        )}
+      </div>
+    </div>
   );
 }
 

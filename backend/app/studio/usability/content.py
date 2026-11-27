@@ -44,6 +44,22 @@ PARTICIPANT_TASK_KEYS = ("id", "title", "scenario", "notes", "files", "answer_pr
 
 SUCCESS_VALUES = ("complete", "help", "fail")
 
+#: What a participant reads before the first task when the study tests signing
+#: up: they create the account themselves, so they are given an address and an
+#: email to use instead of a test account to sign in with.
+SIGN_UP_TEXT = [
+    "Open the application in a new tab using the link above, and keep this page open beside it.",
+    "Do not create an account yet. A task will ask you to when the time comes.",
+    "When you are asked for an email address, use the one shown here, not your own.",
+    "You will choose your own password. Write it down, in case you need to sign in again during the session.",
+]
+
+
+def with_defaults(content: dict[str, Any]) -> dict[str, Any]:
+    """A stored study's content with the fields added since it was written
+    filled in, so a study made before them reads as it always did."""
+    return {"sign_up": False, "sign_up_text": list(SIGN_UP_TEXT), **(content or {})}
+
 
 def new_task_id() -> str:
     """A short stable id. Results are keyed on it, so reordering or renaming
@@ -78,6 +94,8 @@ def default_content(organisation: str) -> dict[str, Any]:
             "By typing my name below I confirm that I have read and understood this form, and that any "
             "questions I had about the session have been answered.",
         ],
+        "sign_up": False,
+        "sign_up_text": list(SIGN_UP_TEXT),
         "tasks": [],
         "script": {
             "before": [

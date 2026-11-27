@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
-from .content import SUCCESS_VALUES, TOP_WORDS, WORDS, new_task_id
+from .content import SIGN_UP_TEXT, SUCCESS_VALUES, TOP_WORDS, WORDS, new_task_id
 
 Line = Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)]
 Short = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
@@ -81,6 +81,10 @@ class StudyContent(Lines):
     protocol: list[Line] = []
     consent_title: Short = "Consent and recording release"
     consent_text: list[Line] = []
+    #: The testing includes signing up: a participant is given an address and
+    #: an email to use (and ``sign_up_text``), not a test account to sign in with.
+    sign_up: bool = False
+    sign_up_text: list[Line] = Field(default_factory=lambda: list(SIGN_UP_TEXT))
     tasks: list[StudyTask] = []
     script: StudyScript = StudyScript()
     words: list[Short] = Field(default_factory=lambda: list(WORDS))
@@ -137,7 +141,6 @@ class ParticipantWrite(BaseModel):
     role: Short | None = None
     company: Short | None = None
     characteristics: str | None = None
-    app_url: AppUrl | None = None
     account_email: Short | None = None
     account_password: Annotated[str, StringConstraints(max_length=255)] | None = None
     account_notes: str | None = None
@@ -287,6 +290,8 @@ class AgentStudyPatch(Lines):
     protocol: list[Line] | None = None
     consent_title: Short | None = None
     consent_text: list[Line] | None = None
+    sign_up: bool | None = None
+    sign_up_text: list[Line] | None = None
     script: AgentScriptPatch | None = None
     words: list[Short] | None = None
     top_words: int | None = Field(None, ge=1, le=10)

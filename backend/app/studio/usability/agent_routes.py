@@ -97,7 +97,7 @@ def _summary(study: Study) -> dict[str, Any]:
 async def _out(db: AsyncSession, study: Study) -> dict[str, Any]:
     """The study as an agent sees it: its details and its whole content. Who
     takes part is read separately (``list_participants``)."""
-    content = study.content or {}
+    content = rules.with_defaults(study.content)
     return {
         **_summary(study),
         "research_questions": content.get("research_questions", []),
@@ -105,6 +105,8 @@ async def _out(db: AsyncSession, study: Study) -> dict[str, Any]:
         "consent_title": content.get("consent_title", ""),
         "consent_text": content.get("consent_text", []),
         "consent_version": study.consent_version,
+        "sign_up": content["sign_up"],
+        "sign_up_text": content["sign_up_text"],
         "tasks": content.get("tasks", []),
         "script": content.get("script", {}),
         "words": content.get("words", []),
@@ -256,7 +258,8 @@ async def update_usability_study_for_agent(
         if name in sent:
             setattr(study, name, getattr(payload, name) or None)
     content = dict(study.content or {})
-    for name in ("research_questions", "protocol", "consent_title", "consent_text", "words", "top_words"):
+    for name in ("research_questions", "protocol", "consent_title", "consent_text", "sign_up", "sign_up_text",
+                 "words", "top_words"):
         if name in sent and getattr(payload, name) is not None:
             content[name] = getattr(payload, name)
     if "script" in sent and payload.script is not None:

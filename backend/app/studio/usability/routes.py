@@ -174,7 +174,8 @@ def _participant_out(study: Study, p: Participant, results: dict[str, TaskResult
         "role": p.role or "",
         "company": p.company or "",
         "characteristics": p.characteristics or "",
-        "app_url": p.app_url or "",
+        # every participant opens the study's address; there is no per-participant one
+        "app_url": study.app_url or "",
         "account_email": p.account_email or "",
         "account_password": p.account_password or "",
         "account_notes": p.account_notes or "",
@@ -262,7 +263,7 @@ async def _study_detail(db: AsyncSession, study: Study) -> dict[str, Any]:
     done = sum(1 for p in people if p.completed_at is not None)
     return {
         **_study_summary(study, len(people), done),
-        "content": study.content,
+        "content": rules.with_defaults(study.content),
         "consent_version": study.consent_version,
         "files": [_file_out(f) for f in await _files(db, study)],
         "participant_list": [_participant_out(study, p, results[p.id]) for p in people],
@@ -440,7 +441,7 @@ async def _export(db: AsyncSession, study: Study) -> dict[str, Any]:
         "persona": study.persona,
         "duration": study.duration,
         "app_url": study.app_url,
-        "content": study.content,
+        "content": rules.with_defaults(study.content),
         "files": [
             {"name": f.name, "content_type": f.content_type, "data_base64": base64.b64encode(f.data).decode("ascii")}
             for f in await _files(db, study)
@@ -540,7 +541,7 @@ async def delete_usability_file(
 # ── participants ────────────────────────────────────────────────────────────
 
 _PARTICIPANT_FIELDS = (
-    "scheduled_at", "role", "company", "characteristics", "app_url",
+    "scheduled_at", "role", "company", "characteristics",
     "account_email", "account_password", "account_notes", "session_notes",
 )
 
@@ -569,7 +570,6 @@ async def _new_participant(db: AsyncSession, study: Study, payload: ParticipantW
         study_id=study.id,
         code=f"P{study.participant_seq}",
         token=secrets.token_urlsafe(32),
-        app_url=study.app_url,
     )
     for field_name in payload.model_fields_set:
         setattr(participant, field_name, getattr(payload, field_name))
@@ -905,7 +905,7 @@ async def _session(db: AsyncSession, token: str, *, consented: bool = False) -> 
 
 
 async def _session_out(db: AsyncSession, participant: Participant, study: Study) -> dict[str, Any]:
-    content = study.content or {}
+    content = rules.with_defaults(study.content)
     out: dict[str, Any] = {
         "title": study.name,
         "organisation": await _organisation_name(db, study.account_id),
@@ -938,10 +938,14 @@ async def _session_out(db: AsyncSession, participant: Participant, study: Study)
         )
     out.update(
         {
+            # When the study tests signing up, the participant makes the account
+            # themselves: they get an email to use and instructions, no password.
             "account": {
-                "app_url": participant.app_url or "",
+                "sign_up": content["sign_up"],
+                "instructions": content["sign_up_text"] if content["sign_up"] else [],
+                "app_url": study.app_url or "",
                 "email": participant.account_email or "",
-                "password": participant.account_password or "",
+                "password": "" if content["sign_up"] else participant.account_password or "",
                 "notes": participant.account_notes or "",
             },
             "tasks": tasks,

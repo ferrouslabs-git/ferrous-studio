@@ -35,6 +35,9 @@ export interface StudyContent {
   protocol: string[];
   consent_title: string;
   consent_text: string[];
+  /** The testing includes signing up: participants get an email to use and `sign_up_text`, not a test account. */
+  sign_up: boolean;
+  sign_up_text: string[];
   tasks: StudyTask[];
   script: StudyScript;
   words: string[];
@@ -78,6 +81,7 @@ export interface Participant {
   role: string;
   company: string;
   characteristics: string;
+  /** Always the study's address: every participant opens the same one. */
   app_url: string;
   account_email: string;
   account_password: string;
@@ -98,7 +102,6 @@ export type ParticipantInput = Partial<
     | "role"
     | "company"
     | "characteristics"
-    | "app_url"
     | "account_email"
     | "account_password"
     | "account_notes"
@@ -254,7 +257,15 @@ export interface Session {
   code: string;
   protocol: string[];
   consent: { title: string; text: string[]; given: boolean; name: string | null; at: string | null };
-  account?: { app_url: string; email: string; password: string; notes: string };
+  /** With `sign_up`, the participant makes the account: no password, and `instructions` to follow. */
+  account?: {
+    sign_up: boolean;
+    instructions: string[];
+    app_url: string;
+    email: string;
+    password: string;
+    notes: string;
+  };
   tasks?: SessionTask[];
   word_list?: string[];
   top_words_count?: number;
@@ -296,3 +307,10 @@ export const saveSessionWords = (token: string, words: string[], topWords: strin
   sessionRequest<{ words: string[]; top_words: string[] }>("PUT", token, "/words", { words, top_words: topWords });
 export const completeSession = (token: string) => sessionRequest<{ completed: boolean }>("POST", token, "/complete");
 export const sessionFileUrl = (token: string, name: string) => `${sessionBase(token)}/files/${encodeURIComponent(name)}`;
+
+/** A task file's text, for one shown on the page rather than downloaded (markdown). */
+export async function getSessionFileText(token: string, name: string): Promise<string> {
+  const response = await fetch(sessionFileUrl(token, name));
+  if (!response.ok) throw new ApiError(response.status, null, `${name} could not be loaded.`);
+  return response.text();
+}

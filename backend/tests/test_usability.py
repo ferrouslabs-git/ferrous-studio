@@ -124,7 +124,7 @@ def test_a_study_needs_a_name_and_a_known_status():
     assert StudyUpdate(status="closed").model_fields_set == {"status"}
 
 
-@pytest.mark.parametrize("schema", [StudyCreate, StudyUpdate, ParticipantWrite], ids=lambda s: s.__name__)
+@pytest.mark.parametrize("schema", [StudyCreate, StudyUpdate], ids=lambda s: s.__name__)
 def test_the_application_address_is_a_web_address_because_a_participant_is_given_it_as_a_link(schema):
     base = {"name": "Pilot"} if schema is StudyCreate else {}
     for bad in ("javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,x", "app.example.com", "https://a b"):
@@ -133,6 +133,29 @@ def test_the_application_address_is_a_web_address_because_a_participant_is_given
     assert schema(**base, app_url="  HTTPS://app.example.com/x ").app_url == "HTTPS://app.example.com/x"
     assert schema(**base, app_url="http://localhost:5173").app_url == "http://localhost:5173"
     assert schema(**base, app_url="").app_url == ""           # clearing it
+
+
+def test_every_participant_opens_the_studys_address_not_one_of_their_own():
+    from app.studio.usability.models import Participant, Study
+
+    assert "app_url" not in ParticipantWrite.model_fields
+    assert ParticipantWrite(app_url="https://elsewhere.example.com").model_fields_set == set()   # an old form's field is dropped
+    study = Study(name="Pilot", app_url="https://app.example.com", content={"tasks": []})
+    old = Participant(code="P1", token="t", app_url="https://stale.example.com")   # set before the field went
+    assert routes._participant_out(study, old, {})["app_url"] == "https://app.example.com"
+    assert "participant.app_url" not in inspect.getsource(routes._session_out)
+    assert "study.app_url" in inspect.getsource(routes._session_out)
+
+
+def test_a_study_that_tests_signing_up_gives_an_email_and_instructions_not_a_password():
+    assert rules.default_content("Acme")["sign_up"] is False
+    assert StudyContent().sign_up_text == rules.SIGN_UP_TEXT
+    older = {"protocol": ["Welcome."]}                      # stored before sign_up existed
+    assert rules.with_defaults(older)["sign_up"] is False and rules.with_defaults(older)["protocol"] == ["Welcome."]
+    assert rules.with_defaults({"sign_up": True, "sign_up_text": []})["sign_up_text"] == []
+    source = inspect.getsource(routes._session_out)
+    assert '"password": "" if content["sign_up"]' in source
+    assert AgentStudyPatch(sign_up=True, sign_up_text=["Use this email", " "]).sign_up_text == ["Use this email"]
 
 
 def test_a_file_is_named_not_pathed_and_capped_in_size():
@@ -326,6 +349,7 @@ def test_an_agents_study_change_takes_content_fields_but_not_tasks():
 def test_an_agents_participant_capture_and_observation_refuse_unknown_fields():
     assert AgentParticipantWrite(account_password="pw").model_fields_set == {"account_password"}
     for schema, bad in ((AgentParticipantWrite, {"token": "x"}), (AgentParticipantWrite, {"code": "P9"}),
+                        (AgentParticipantWrite, {"app_url": "https://app.example.com"}),
                         (AgentCaptureWrite, {"rating": 5}), (AgentObservationWrite, {"id": "x"})):
         with pytest.raises(ValidationError):
             schema(**bad)
