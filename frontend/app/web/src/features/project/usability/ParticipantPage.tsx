@@ -498,12 +498,25 @@ function TaskStep({
             </div>
           </div>
         );
+        // Back and Next sit right under the rating they depend on, so they are
+        // in reach on any screen, however long the file beside the task.
+        const nav = (
+          <div className="ustudy-nav ustudy-nav-task">
+            <button type="button" className="btn ghost" onClick={onBack}>
+              Back
+            </button>
+            <button type="button" className="btn primary" disabled={task.rating == null} onClick={onNext}>
+              {number === total ? "Continue to the word choice" : "Next task"}
+            </button>
+          </div>
+        );
         return shown.length > 0 ? (
           <div className="ustudy-cols ustudy-cols-doc">
             <div className="stack">
               {taskCard}
               {notesCard}
               {finishedCard}
+              {nav}
               {filesCard}
             </div>
             <div className="stack">
@@ -519,19 +532,13 @@ function TaskStep({
               {notesCard}
               {filesCard}
             </div>
-            {finishedCard}
+            <div className="stack">
+              {finishedCard}
+              {nav}
+            </div>
           </div>
         );
       })()}
-
-      <div className="ustudy-nav">
-        <button type="button" className="btn ghost" onClick={onBack}>
-          Back
-        </button>
-        <button type="button" className="btn primary" disabled={task.rating == null} onClick={onNext}>
-          {number === total ? "Continue to the word choice" : "Next task"}
-        </button>
-      </div>
     </section>
   );
 }

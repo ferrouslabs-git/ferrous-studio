@@ -198,3 +198,5 @@ a.ustudy-v { color: var(--accent); }
 .md-table table { border-collapse: collapse; width: 100%; font-size: 13px; }
 .md-table th, .md-table td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--border); }
 .md-table th { font-weight: 600; color: var(--text); background: var(--panel); }
+/* Under the rating, not at the foot of the page. */
+.ustudy-nav.ustudy-nav-task { margin-top: 0; flex-wrap: wrap; }
