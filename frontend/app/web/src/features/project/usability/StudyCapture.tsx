@@ -189,7 +189,7 @@ function ParticipantCapture({ projectId, study, participantId }: { projectId: st
       <Card title="Before you start">
         <Lines items={script.before} />
         <p className="usab-fact">
-          <b>Test account</b> {capture.account_email || "not set"} at {capture.app_url || "no address set"}
+          <b>Test account</b> {capture.account_email || study.account_email || "not set"} at {capture.app_url || "no address set"}
         </p>
       </Card>
 

@@ -32,7 +32,8 @@ password (see below).
    sent**; copy the link and send it yourself.
 3. The participant opens `/study/<token>` with no account. They read the
    protocol and the consent form, type their name and agree. Then they see the
-   test account to sign in with (**Signing in**) or, when the study's
+   test account to sign in with (**Signing in**) -- the study's test account,
+   or a participant's own details where they are set -- or, when the study's
    *Testing includes signing up* is ticked, **Get ready to begin**: the
    address, the email to use and the study's sign-up instructions, with no
    password. Then each task (the task, notes, files, an answer box where the

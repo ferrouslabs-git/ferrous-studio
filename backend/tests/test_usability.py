@@ -158,6 +158,24 @@ def test_a_study_that_tests_signing_up_gives_an_email_and_instructions_not_a_pas
     assert AgentStudyPatch(sign_up=True, sign_up_text=["Use this email", " "]).sign_up_text == ["Use this email"]
 
 
+def test_a_participant_uses_the_studys_test_account_unless_their_own_details_differ():
+    from app.studio.usability.models import Participant, Study
+
+    study = Study(name="Pilot", account_email="study@example.com", account_password="pw", account_notes="Ask for a code")
+    assert routes.account_for(study, Participant(code="P1", token="t")) == {
+        "account_email": "study@example.com", "account_password": "pw", "account_notes": "Ask for a code",
+    }
+    own = Participant(code="P2", token="u", account_email="p2@example.com", account_notes="")
+    assert routes.account_for(study, own) == {
+        "account_email": "p2@example.com", "account_password": "pw", "account_notes": "Ask for a code",
+    }
+    assert "account_for(study, participant)" in inspect.getsource(routes._session_out)
+    # an agent sets the study's test account but never reads its password back
+    assert AgentStudyPatch(account_password="pw").model_fields_set == {"account_password"}
+    assert '"account_password_set": bool(study.account_password)' in inspect.getsource(agent_routes._out)
+    assert "account_password" not in inspect.getsource(routes._export)
+
+
 def test_a_file_is_named_not_pathed_and_capped_in_size():
     with pytest.raises(ValidationError):
         StudyFileIn(name="../secrets.txt", data_base64="")

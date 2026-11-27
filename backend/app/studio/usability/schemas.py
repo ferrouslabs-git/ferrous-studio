@@ -129,6 +129,9 @@ class StudyUpdate(BaseModel):
     persona: Short | None = None
     duration: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
     app_url: AppUrl | None = None
+    account_email: Short | None = None
+    account_password: Annotated[str, StringConstraints(max_length=255)] | None = None
+    account_notes: str | None = None
     content: StudyContent | None = None
 
 
@@ -289,6 +292,9 @@ class AgentStudyPatch(Lines):
     protocol: list[Line] | None = None
     sign_up: bool | None = None
     sign_up_text: list[Line] | None = None
+    account_email: Short | None = None
+    account_password: Annotated[str, StringConstraints(max_length=255)] | None = None
+    account_notes: str | None = None
     script: AgentScriptPatch | None = None
     words: list[Short] | None = None
     top_words: int | None = Field(None, ge=1, le=10)

@@ -30,6 +30,11 @@ class Study(Base):
     persona = Column(String(255), nullable=True)   # who the study is for, by name
     duration = Column(String(64), nullable=True)   # as shown to a participant: "about 60 minutes"
     app_url = Column(String(500), nullable=True)   # the address every participant opens
+    #: The test account a participant is given unless their own row says
+    #: otherwise (``account_for``): their value when set, else this one.
+    account_email = Column(String(255), nullable=True)
+    account_password = Column(String(255), nullable=True)
+    account_notes = Column(Text, nullable=True)
     #: Research questions, protocol, consent form, tasks, script and word list.
     content = Column(JSONB, nullable=False, default=dict)
     #: Raised whenever the consent wording changes; each participant keeps the

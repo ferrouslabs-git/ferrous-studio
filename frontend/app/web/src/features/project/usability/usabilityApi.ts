@@ -109,7 +109,7 @@ export type ParticipantInput = Partial<
   >
 >;
 
-export interface Study extends StudySummary {
+export interface Study extends StudySummary, Pick<StudyDetails, "account_email" | "account_password" | "account_notes"> {
   content: StudyContent;
   consent_version: number;
   files: StudyFile[];
@@ -185,6 +185,10 @@ export interface StudyDetails {
   persona: string;
   duration: string;
   app_url: string;
+  /** The test account every participant uses unless their own details say otherwise. */
+  account_email: string;
+  account_password: string;
+  account_notes: string;
 }
 
 const base = (projectId: string) => `/studio/projects/${projectId}/usability/studies`;

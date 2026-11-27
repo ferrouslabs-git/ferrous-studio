@@ -1142,6 +1142,9 @@ def update_study(
     protocol: list[str] | None = None,
     sign_up: bool | None = None,
     sign_up_text: list[str] | None = None,
+    account_email: str | None = None,
+    account_password: str | None = None,
+    account_notes: str | None = None,
     script: dict | None = None,
     words: list[str] | None = None,
     top_words: int | None = None,
@@ -1159,7 +1162,11 @@ def update_study(
     page then says "Get ready to begin" and gives the study's address, the
     email to use (the participant's account_email) and sign_up_text (the
     instructions, one paragraph per line), and no password; false gives a
-    test account to sign in with. script: the moderator's script by
+    test account to sign in with. account_email / account_password /
+    account_notes: the study's TEST account, which every participant gets
+    unless their own details say otherwise -- test credentials only; the
+    password is never returned (get_study shows account_password_set).
+    script: the moderator's script by
     section, any
     of before, welcome, per_task, wrap_up, after (each a list of lines); a
     section sent replaces that section only. words: the word-choice list;
@@ -1168,7 +1175,9 @@ def update_study(
     return _studio_call("PATCH", f"/usability/agent/studies/{study_id}", _patch_of(
         name=name, status=status, persona=persona, duration=duration,
         research_questions=research_questions, protocol=protocol,
-        sign_up=sign_up, sign_up_text=sign_up_text, script=script, words=words, top_words=top_words,
+        sign_up=sign_up, sign_up_text=sign_up_text, account_email=account_email,
+        account_password=account_password, account_notes=account_notes, script=script, words=words,
+        top_words=top_words,
     ))
 
 
@@ -1252,9 +1261,10 @@ def add_study_participant(
     """Add a participant; they get the next code (P1, P2, ...) and a
     personal link. NOTHING is sent to them, and the link is not returned:
     tell the user to copy it from the study's Participants in Studio.
-    When the study tests signing up (get_study's sign_up), give
-    account_email only: the participant signs up with it and picks a
-    password.
+    account_email / account_password / account_notes left out use the
+    study's (update_study); give one only where this participant differs.
+    When the study tests signing up (get_study's sign_up), the participant
+    signs up with the email and picks their own password.
     scheduled_at: free text, e.g. "2026-12-03 14:00". Their application
     address is the study's; a person changes it in Studio.
     account_email / account_password / account_notes: the TEST account they

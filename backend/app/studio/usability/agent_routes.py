@@ -113,6 +113,10 @@ async def _out(db: AsyncSession, study: Study) -> dict[str, Any]:
         "consent_title": content.get("consent_title", ""),
         "consent_text": content.get("consent_text", []),
         "consent_version": study.consent_version,
+        # the study's default test account; its password is never returned
+        "account_email": study.account_email or "",
+        "account_password_set": bool(study.account_password),
+        "account_notes": study.account_notes or "",
         "sign_up": content["sign_up"],
         "sign_up_text": content["sign_up_text"],
         "tasks": content.get("tasks", []),
@@ -272,7 +276,7 @@ async def update_usability_study_for_agent(
         _open(study)
     if "name" in sent and payload.name is not None:
         study.name = payload.name
-    for name in ("persona", "duration"):
+    for name in ("persona", "duration", "account_email", "account_password", "account_notes"):
         if name in sent:
             setattr(study, name, getattr(payload, name) or None)
     content = dict(study.content or {})

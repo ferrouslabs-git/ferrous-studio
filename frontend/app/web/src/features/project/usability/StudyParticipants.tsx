@@ -195,13 +195,31 @@ function ParticipantDrawer({
         <textarea className="input textarea" rows={2} value={form.characteristics} onChange={set("characteristics")} />
       </Field>
       <Field label="Test account email">
-        <input className="input" autoComplete="off" value={form.account_email} onChange={set("account_email")} />
+        <input
+          className="input"
+          autoComplete="off"
+          value={form.account_email}
+          placeholder={study.account_email}
+          onChange={set("account_email")}
+        />
       </Field>
       <Field label="Test account password">
-        <input className="input" autoComplete="off" value={form.account_password} onChange={set("account_password")} />
+        <input
+          className="input"
+          autoComplete="off"
+          value={form.account_password}
+          placeholder={study.account_password}
+          onChange={set("account_password")}
+        />
       </Field>
       <Field label="Anything else they need to sign in">
-        <textarea className="input textarea" rows={2} value={form.account_notes} onChange={set("account_notes")} />
+        <textarea
+          className="input textarea"
+          rows={2}
+          value={form.account_notes}
+          placeholder={study.account_notes}
+          onChange={set("account_notes")}
+        />
       </Field>
     </Drawer>
   );

@@ -164,6 +164,15 @@ def _progress(study: Study, participant: Participant, results: dict[str, TaskRes
     }
 
 
+ACCOUNT_FIELDS = ("account_email", "account_password", "account_notes")
+
+
+def account_for(study: Study, p: Participant) -> dict[str, str]:
+    """The test account a participant uses: each detail is their own when
+    set, else the study's default."""
+    return {name: getattr(p, name) or getattr(study, name) or "" for name in ACCOUNT_FIELDS}
+
+
 def _participant_out(study: Study, p: Participant, results: dict[str, TaskResult]) -> dict[str, Any]:
     return {
         "id": p.id,
@@ -265,6 +274,7 @@ async def _study_detail(db: AsyncSession, study: Study) -> dict[str, Any]:
         **_study_summary(study, len(people), done),
         "content": rules.with_defaults(study.content),
         "consent_version": study.consent_version,
+        **{name: getattr(study, name) or "" for name in ACCOUNT_FIELDS},
         "files": [_file_out(f) for f in await _files(db, study)],
         "participant_list": [_participant_out(study, p, results[p.id]) for p in people],
     }
@@ -355,7 +365,7 @@ async def update_usability_study(
     for field_name in ("name", "status"):
         if field_name in sent and getattr(payload, field_name) is not None:
             setattr(study, field_name, getattr(payload, field_name))
-    for field_name in ("persona", "duration", "app_url"):
+    for field_name in ("persona", "duration", "app_url", *ACCOUNT_FIELDS):
         if field_name in sent:
             setattr(study, field_name, getattr(payload, field_name) or None)
     if "content" in sent and payload.content is not None:
@@ -406,6 +416,9 @@ async def _clone(db: AsyncSession, source: Study, name: str | None, user_id: UUI
         persona=source.persona,
         duration=source.duration,
         app_url=source.app_url,
+        account_email=source.account_email,
+        account_password=source.account_password,
+        account_notes=source.account_notes,
         content=StudyContent.model_validate(source.content).model_dump(),
         created_by=user_id,
     )
@@ -906,6 +919,7 @@ async def _session(db: AsyncSession, token: str, *, consented: bool = False) -> 
 
 async def _session_out(db: AsyncSession, participant: Participant, study: Study) -> dict[str, Any]:
     content = rules.with_defaults(study.content)
+    account = account_for(study, participant)
     out: dict[str, Any] = {
         "title": study.name,
         "organisation": await _organisation_name(db, study.account_id),
@@ -944,9 +958,9 @@ async def _session_out(db: AsyncSession, participant: Participant, study: Study)
                 "sign_up": content["sign_up"],
                 "instructions": content["sign_up_text"] if content["sign_up"] else [],
                 "app_url": study.app_url or "",
-                "email": participant.account_email or "",
-                "password": "" if content["sign_up"] else participant.account_password or "",
-                "notes": participant.account_notes or "",
+                "email": account["account_email"],
+                "password": "" if content["sign_up"] else account["account_password"],
+                "notes": account["account_notes"],
             },
             "tasks": tasks,
             "word_list": content.get("words", []),

@@ -59,7 +59,16 @@ export function StudyEditor({
 }) {
   const personas = useLoad(() => listPersonas(projectId), [projectId]);
   const auto = useAutosave<Form>(
-    { name: study.name, persona: study.persona, duration: study.duration, app_url: study.app_url, content: study.content },
+    {
+      name: study.name,
+      persona: study.persona,
+      duration: study.duration,
+      app_url: study.app_url,
+      account_email: study.account_email,
+      account_password: study.account_password,
+      account_notes: study.account_notes,
+      content: study.content,
+    },
     {
       validate: (f) => {
         if (!f.name.trim()) return { name: "A study needs a name." };
@@ -175,11 +184,35 @@ export function StudyEditor({
           <input type="checkbox" checked={content.sign_up} onChange={(e) => setContent({ sign_up: e.target.checked })} />
           Testing includes signing up
         </label>
-        <p className="muted">
-          {content.sign_up
-            ? "Participants see a Get ready to begin page with the application address, the email to use (set on each participant) and these instructions. They choose their own password."
-            : "Participants see a Signing in page with the test account set on each participant."}
-        </p>
+        {/* The study's test account: every participant gets it unless their own details say otherwise. */}
+        <div className="usab-grid">
+          <Labelled label={content.sign_up ? "Email to sign up with" : "Test account email"}>
+            <input
+              className="input"
+              autoComplete="off"
+              value={form.account_email}
+              onChange={(e) => auto.set({ account_email: e.target.value })}
+            />
+          </Labelled>
+          {!content.sign_up && (
+            <Labelled label="Test account password">
+              <input
+                className="input"
+                autoComplete="off"
+                value={form.account_password}
+                onChange={(e) => auto.set({ account_password: e.target.value })}
+              />
+            </Labelled>
+          )}
+        </div>
+        <Labelled label="Anything else they need to sign in">
+          <textarea
+            className="input textarea"
+            rows={2}
+            value={form.account_notes}
+            onChange={(e) => auto.set({ account_notes: e.target.value })}
+          />
+        </Labelled>
         {content.sign_up && (
           <Paragraphs
             label="Instruction"
