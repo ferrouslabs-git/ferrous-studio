@@ -11,7 +11,15 @@ import { errorMessage } from "../../../core/api";
 import { formatDate } from "../../../core/format";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
-import { cloneStudy, createStudy, deleteStudy, listStudies, StudyExport, StudySummary } from "./usabilityApi";
+import {
+  cloneStudy,
+  createStudy,
+  deleteStudy,
+  listStudies,
+  StudyExport,
+  StudySummary,
+  updateStudy,
+} from "./usabilityApi";
 import { parseStudyFile } from "./usabilityModel";
 
 export function UsabilityPage() {
@@ -21,6 +29,7 @@ export function UsabilityPage() {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState<{ from: StudyExport | null } | null>(null);
   const [cloning, setCloning] = useState<StudySummary | null>(null);
+  const [renaming, setRenaming] = useState<StudySummary | null>(null);
   const [deleting, setDeleting] = useState<StudySummary | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -107,6 +116,7 @@ export function UsabilityPage() {
         rowLabel={(s) => s.name}
         actions={(s) => [
           { label: "Open", onSelect: () => open(s.id) },
+          { label: "Rename", onSelect: () => setRenaming(s) },
           { label: "Clone", onSelect: () => setCloning(s) },
           { label: "Delete", danger: true, onSelect: () => setDeleting(s) },
         ]}
@@ -153,6 +163,19 @@ export function UsabilityPage() {
           }}
         />
       )}
+      {renaming && (
+        <NameDrawer
+          title="Rename study"
+          initial={renaming.name}
+          action="Rename study"
+          onClose={() => setRenaming(null)}
+          onSubmit={async (name) => {
+            await updateStudy(project.id, renaming.id, { name });
+            await studies.reload();
+            setRenaming(null);
+          }}
+        />
+      )}
       <ConfirmDrawer
         open={deleting !== null}
         title="Delete study"
@@ -182,7 +205,7 @@ function NameDrawer({
   onSubmit,
 }: {
   title: string;
-  description: string;
+  description?: string;
   initial: string;
   action: string;
   onClose: () => void;

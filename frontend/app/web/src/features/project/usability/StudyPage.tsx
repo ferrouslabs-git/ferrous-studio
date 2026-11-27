@@ -73,11 +73,7 @@ export function StudyPage() {
   return (
     <div className="page stack usab-page">
       <div className="page-head">
-        <button className="btn ghost small" onClick={() => navigate(root)}>
-          All studies
-        </button>
         <h1>{data.name}</h1>
-        <span className={`badge ${closed ? "" : "good"}`}>{closed ? "Closed" : "Open"}</span>
         <span className="shell-spacer" />
         <button className="btn ghost" onClick={() => void setStatus(closed ? "open" : "closed")}>
           {closed ? "Reopen study" : "Close study"}
