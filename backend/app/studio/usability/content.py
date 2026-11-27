@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import secrets
+from datetime import datetime, timedelta
 from typing import Any
 
 #: How many of their ticked words a participant picks as most descriptive.
@@ -55,10 +56,79 @@ SIGN_UP_TEXT = [
 ]
 
 
+#: The placeholders email copy may use. Anything else in braces is left as written.
+EMAIL_PLACEHOLDERS = ("name", "study", "moderator", "organisation", "duration")
+
+#: The two emails a participant is sent. Studio adds the parts that must always
+#: be there (the booking button; the time, Meet link and rebooking link), so
+#: the copy is only the words around them.
+DEFAULT_EMAILS: dict[str, dict[str, Any]] = {
+    "invite": {
+        "subject": "Thank you for taking part in our research",
+        "body": [
+            "Hi {name},",
+            "Thank you for agreeing to take part in a usability session with {organisation}. "
+            "Your time and honest feedback make a real difference to what we build.",
+            "The session takes {duration} on a video call with {moderator}. "
+            "Please choose a time that suits you using the button below.",
+        ],
+    },
+    "confirmation": {
+        "subject": "Your usability session is booked",
+        "body": [
+            "Hi {name},",
+            "Thank you for booking. Your session details are below, and a calendar invite is on its way.",
+            "To prepare: join from a laptop or desktop computer with a reliable internet connection, "
+            "in a quiet place. Please use Chrome, and have your camera and microphone ready, as we "
+            "will ask you to share your screen.",
+            "You do not need to prepare anything else. We are testing the product, not you.",
+        ],
+    },
+}
+
+
 def with_defaults(content: dict[str, Any]) -> dict[str, Any]:
     """A stored study's content with the fields added since it was written
     filled in, so a study made before them reads as it always did."""
-    return {"sign_up": False, "sign_up_text": list(SIGN_UP_TEXT), **(content or {})}
+    stored = content or {}
+    emails = {
+        kind: {**default, **((stored.get("emails") or {}).get(kind) or {})}
+        for kind, default in DEFAULT_EMAILS.items()
+    }
+    return {"sign_up": False, "sign_up_text": list(SIGN_UP_TEXT), **stored, "emails": emails}
+
+
+def render_copy(template: str, values: dict[str, str]) -> str:
+    """Fill the known placeholders in one line of email copy. Plain text in,
+    plain text out: the email escapes it, so a value cannot inject markup.
+    An unknown or unbalanced placeholder is left exactly as written."""
+    out = template
+    for key in EMAIL_PLACEHOLDERS:
+        out = out.replace("{" + key + "}", values.get(key, "") or "")
+    return out
+
+
+def slots(
+    windows: list[tuple[datetime, datetime]],
+    minutes: int,
+    taken: list[tuple[datetime, datetime]],
+    now: datetime,
+) -> list[datetime]:
+    """The free slot start times: each window cut into ``minutes``-long slots
+    from its start (a remainder too short for a slot is dropped), less any
+    that have started, and any overlapping a ``taken`` interval (a booking, or
+    a busy event on the moderator's calendar). Sorted, without duplicates."""
+    if minutes <= 0:
+        return []
+    step = timedelta(minutes=minutes)
+    found: set[datetime] = set()
+    for start, end in windows:
+        at = start
+        while at + step <= end:
+            if at > now and not any(at < t_end and t_start < at + step for t_start, t_end in taken):
+                found.add(at)
+            at += step
+    return sorted(found)
 
 
 def new_task_id() -> str:
@@ -96,6 +166,7 @@ def default_content(organisation: str) -> dict[str, Any]:
         ],
         "sign_up": False,
         "sign_up_text": list(SIGN_UP_TEXT),
+        "emails": {kind: {"subject": e["subject"], "body": list(e["body"])} for kind, e in DEFAULT_EMAILS.items()},
         "tasks": [],
         "script": {
             "before": [

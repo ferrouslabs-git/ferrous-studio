@@ -74,6 +74,17 @@ sed \
   -e "s#{{PLATFORM_ADMIN_EMAILS}}#$PLATFORM_ADMIN_EMAILS#g" \
   -e "s#{{CLOUDOPS_ENABLED}}#$CLOUDOPS_ENABLED#g" \
   "$REPO_ROOT/infra/ecs/taskdef.template.json" > "$RENDERED"
+# Optional secrets: ECS will not start a task whose secret parameter is
+# missing, so one not yet created in this environment is left out (the app
+# runs without that feature) rather than breaking the deploy.
+for OPTIONAL in GOOGLE_SERVICE_ACCOUNT_JSON; do
+  PARAM="/$PRODUCT/$ENV_NAME/$OPTIONAL"
+  FOUND=$(aws ssm describe-parameters --region "$REGION" --parameter-filters "Key=Name,Values=$PARAM" --query "length(Parameters)" --output text)
+  if [ "$FOUND" != "1" ]; then
+    echo "  $PARAM not set -- deploying without it"
+    sed -i.bak "/\"$OPTIONAL\"/d" "$RENDERED" && rm -f "$RENDERED.bak"
+  fi
+done
 aws ecs register-task-definition --region "$REGION" --cli-input-json "file://$RENDERED" >/dev/null
 echo "  registered $PRODUCT-$ENV_NAME"
 

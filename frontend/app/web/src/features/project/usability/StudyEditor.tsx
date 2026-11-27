@@ -1,7 +1,9 @@
-// The Study sub-section: everything a study tests with. Details, research
-// questions, the protocol and consent form a participant reads, the tasks,
-// the files tasks hand out, the moderator's script and the word list.
-// Saved as you go, like the other project forms; files save when chosen.
+// The Study sub-section: everything a study tests with. Details and
+// moderator, research questions, the protocol and consent form a participant
+// reads, the tasks, the files tasks hand out, the moderator's script and the
+// word list. (The booking emails and bookable times are sections of their
+// own: StudyEmails, StudySlots.) Saved as you go, like the other project
+// forms; files save when chosen.
 import { ReactNode, useRef, useState } from "react";
 import { AutosaveStatus } from "../../../components/AutosaveStatus";
 import { ComboBox } from "../../../components/ComboBox";
@@ -13,6 +15,7 @@ import { listPersonas } from "../personas/personasApi";
 import {
   deleteStudyFile,
   exportStudy,
+  listModerators,
   Study,
   StudyContent,
   StudyDetails,
@@ -34,7 +37,8 @@ import {
   webAddress,
 } from "./usabilityModel";
 
-interface Form extends StudyDetails {
+// The time zone is the Slots section's to save, so this form never sends it.
+interface Form extends Omit<StudyDetails, "timezone"> {
   content: StudyContent;
 }
 
@@ -58,6 +62,8 @@ export function StudyEditor({
   onSaved: () => Promise<unknown>;
 }) {
   const personas = useLoad(() => listPersonas(projectId), [projectId]);
+  // Who may moderate: the Studio super admins.
+  const moderators = useLoad(() => listModerators(projectId), [projectId]);
   const auto = useAutosave<Form>(
     {
       name: study.name,
@@ -67,6 +73,8 @@ export function StudyEditor({
       account_email: study.account_email,
       account_password: study.account_password,
       account_notes: study.account_notes,
+      moderator_user_id: study.moderator_user_id,
+      session_minutes: study.session_minutes,
       content: study.content,
     },
     {
@@ -148,6 +156,31 @@ export function StudyEditor({
               value={form.app_url}
               placeholder="https://"
               onChange={(e) => auto.set({ app_url: e.target.value })}
+            />
+          </Labelled>
+          <Labelled label="Moderator">
+            <select
+              className="input"
+              value={form.moderator_user_id ?? ""}
+              onChange={(e) => auto.set({ moderator_user_id: e.target.value || null })}
+            >
+              <option value="">Not chosen</option>
+              {(moderators.data ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name ? `${m.name} (${m.email})` : m.email}
+                </option>
+              ))}
+            </select>
+          </Labelled>
+          <Labelled label="Session length (minutes)">
+            <input
+              className="input"
+              type="number"
+              min={5}
+              max={480}
+              step={5}
+              value={form.session_minutes ?? ""}
+              onChange={(e) => auto.set({ session_minutes: e.target.value ? Number(e.target.value) : null })}
             />
           </Labelled>
         </div>
@@ -323,7 +356,7 @@ export function Card({ title, note, action, children }: { title: string; note?: 
   );
 }
 
-function Labelled({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
+export function Labelled({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
   return (
     <label className="drawer-field">
       <span className="drawer-field-label">{label}</span>
@@ -334,7 +367,7 @@ function Labelled({ label, error, children }: { label: string; error?: string; c
 }
 
 /** A list of paragraphs: one growing text box each, with remove and add. */
-function Paragraphs({
+export function Paragraphs({
   label,
   value,
   onChange,

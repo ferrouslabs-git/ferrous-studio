@@ -24,6 +24,11 @@ routes:
   must not be able to point participants at another site or rewrite what
   they agree to. An imported study gets no address and the organisation's
   default consent wording.
+* **Nothing is emailed from here.** The booking emails (and their copy), the
+  moderator and the bookable times are set and sent by a person in Studio.
+  An agent may record a participant's name and contact email, and reads
+  whether and when they were invited and booked, never their booking link.
+  An imported study gets the default email copy.
 
 A person signed in as an organisation admin reaches them too (``data:write``),
 which is what a board token also carries -- only an admin can mint one.
@@ -40,9 +45,11 @@ from app.auth.database import get_db
 from app.auth.security.scope_context import ScopeContext
 
 from ..common import get_project, require_studio_permission
+from . import booking_service as booking
 from . import content as rules
 from .models import Study, StudyFile
 from .routes import (
+    _iso,
     BASE,
     _capture,
     _change_observation,
@@ -87,7 +94,7 @@ router = APIRouter()
 AGENT = f"{BASE}/agent"
 
 #: Never returned to an agent (see the module docstring).
-SECRET_PARTICIPANT_FIELDS = ("token", "account_password")
+SECRET_PARTICIPANT_FIELDS = ("token", "booking_token", "account_password")
 
 
 def _summary(study: Study) -> dict[str, Any]:
@@ -119,12 +126,25 @@ async def _out(db: AsyncSession, study: Study) -> dict[str, Any]:
         "account_notes": study.account_notes or "",
         "sign_up": content["sign_up"],
         "sign_up_text": content["sign_up_text"],
+        # booking: read only here; the moderator, times and email copy are set in Studio
+        "moderator": await _moderator_name(db, study),
+        "session_minutes": study.session_minutes,
+        "timezone": study.timezone or "Europe/London",
+        "availability": [
+            {"starts_at": _iso(w.starts_at), "ends_at": _iso(w.ends_at)}
+            for w in await booking.windows_of(db, study)
+        ],
         "tasks": content.get("tasks", []),
         "script": content.get("script", {}),
         "words": content.get("words", []),
         "top_words": content.get("top_words", rules.TOP_WORDS),
         "files": [_file_out(f) for f in await _files(db, study)],
     }
+
+
+async def _moderator_name(db: AsyncSession, study: Study) -> str:
+    moderator = await booking.moderator_of(db, study)
+    return (moderator.name or moderator.email) if moderator else ""
 
 
 def _participant_view(out: dict[str, Any]) -> dict[str, Any]:
@@ -244,6 +264,8 @@ async def import_usability_study_for_agent(
         **payload.content.model_dump(),
         "consent_title": default["consent_title"],
         "consent_text": default["consent_text"],
+        # what participants are emailed is a person's to write, like the consent form
+        "emails": default["emails"],
     }
     study = await _new_study(
         db, project,

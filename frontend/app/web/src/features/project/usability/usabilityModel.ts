@@ -24,6 +24,33 @@ export function progressLabel(p: Pick<Participant, "progress">): { text: string;
   return { text: `${p.progress.tasks_rated} of ${p.progress.tasks_total} tasks rated`, tone: "accent" };
 }
 
+/** "Thu 3 Dec, 14:00" for an instant, in a time zone. */
+export function shortWhen(iso: string, timeZone: string, withTime = true): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    ...(withTime ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : {}),
+  }).format(new Date(iso));
+}
+
+/** Where a participant's booking stands, for the participants list. `detail` is the full error, if any. */
+export function bookingStatus(
+  p: Pick<Participant, "contact_email" | "booked_start" | "invite_sent_at" | "invite_error">,
+  timeZone: string,
+): { text: string; tone: "" | "accent" | "good" | "warn"; detail?: string } {
+  if (p.booked_start) {
+    const when = shortWhen(p.booked_start, timeZone);
+    if (p.invite_error) return { text: `Booked ${when}, email failed`, tone: "warn", detail: p.invite_error };
+    return { text: `Booked ${when}`, tone: "good" };
+  }
+  if (p.invite_error) return { text: "Email not sent", tone: "warn", detail: p.invite_error };
+  if (p.invite_sent_at) return { text: `Invited ${shortWhen(p.invite_sent_at, timeZone, false)}`, tone: "accent" };
+  if (!p.contact_email) return { text: "No contact email", tone: "" };
+  return { text: "Not invited", tone: "" };
+}
+
 /** The link an admin copies and sends to a participant themselves. */
 export function participantLink(token: string, origin = window.location.origin): string {
   return `${origin}/study/${token}`;
@@ -175,4 +202,80 @@ export function parseStudyFile(text: string): StudyExport | { error: string } {
     content: d.content as StudyContent,
     files: Array.isArray(d.files) ? (d.files as StudyExport["files"]) : [],
   };
+}
+
+// ── booking times ───────────────────────────────────────────────────────────
+
+/** How far a time zone is ahead of UTC at one instant, in milliseconds. */
+function zoneOffset(utcMs: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(utcMs));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")) - utcMs;
+}
+
+/**
+ * A wall-clock date and time ("2026-12-03", "14:00") in a time zone, as a UTC
+ * ISO instant. Checked twice so a time either side of a clock change lands right.
+ */
+export function zonedToUtc(date: string, time: string, timeZone: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  const wall = Date.UTC(y, m - 1, d, hh, mm);
+  let utc = wall - zoneOffset(wall, timeZone);
+  utc = wall - zoneOffset(utc, timeZone);
+  return new Date(utc).toISOString();
+}
+
+/** "14:00" for an instant, in a time zone. */
+export function timeIn(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(
+    new Date(iso),
+  );
+}
+
+/** "Thursday 3 December" for an instant, in a time zone. */
+export function dayIn(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone, weekday: "long", day: "numeric", month: "long" }).format(
+    new Date(iso),
+  );
+}
+
+/** The short name of a zone at an instant, e.g. "GMT" or "EST". */
+export function zoneName(iso: string, timeZone: string): string {
+  const part = new Intl.DateTimeFormat("en-GB", { timeZone, timeZoneName: "short" })
+    .formatToParts(new Date(iso))
+    .find((p) => p.type === "timeZoneName");
+  return part?.value ?? timeZone;
+}
+
+/** Slot instants grouped by the day they fall on in a time zone, in order. */
+export function slotsByDay(slots: string[], timeZone: string): { day: string; slots: string[] }[] {
+  const out: { day: string; slots: string[] }[] = [];
+  for (const iso of [...slots].sort()) {
+    const day = dayIn(iso, timeZone);
+    const last = out[out.length - 1];
+    if (last && last.day === day) last.slots.push(iso);
+    else out.push({ day, slots: [iso] });
+  }
+  return out;
+}
+
+/** The viewer's own time zone, e.g. Europe/London. */
+export function localZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+/** Every time zone the browser knows, for a picker; a short list if it cannot say. */
+export function timeZones(): string[] {
+  const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
+  return supported ? supported("timeZone") : ["Europe/London", "Europe/Dublin", "Europe/Paris", "America/New_York", "UTC"];
 }

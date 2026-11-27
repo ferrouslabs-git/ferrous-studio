@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Insights, StudyTask } from "./usabilityApi";
 import {
+  bookingStatus,
   clock,
+  dayIn,
   formatSize,
   linesToList,
   metricsCsv,
@@ -13,10 +15,14 @@ import {
   parseStudyFile,
   participantLink,
   progressLabel,
+  slotsByDay,
   slug,
   successMark,
+  timeIn,
   toCsv,
   webAddress,
+  zonedToUtc,
+  zoneName,
 } from "./usabilityModel";
 
 describe("times", () => {
@@ -177,5 +183,42 @@ describe("exports", () => {
     expect(lines[0]).toBe("Task,Observation,P1,P2,Participants,Possible solution,Notes");
     expect(lines[1]).toBe('Task 1,"Did not find ""Import"", gave up",,x,1,Label it,');
     expect(lines[2]).toBe("General,Liked the layout,x,x,2,,");
+  });
+});
+
+describe("booking times", () => {
+  it("reads a wall-clock time in the study's zone as a UTC instant, either side of a clock change", () => {
+    expect(zonedToUtc("2026-12-03", "14:00", "Europe/London")).toBe("2026-12-03T14:00:00.000Z");
+    expect(zonedToUtc("2026-07-03", "14:00", "Europe/London")).toBe("2026-07-03T13:00:00.000Z");
+    expect(zonedToUtc("2026-12-03", "09:00", "America/New_York")).toBe("2026-12-03T14:00:00.000Z");
+  });
+  it("shows an instant in a zone", () => {
+    expect(timeIn("2026-12-03T14:00:00Z", "America/New_York")).toBe("09:00");
+    expect(dayIn("2026-12-03T14:00:00Z", "Europe/London")).toBe("Thursday 3 December");
+    expect(zoneName("2026-12-03T14:00:00Z", "Europe/London")).toBe("GMT");
+  });
+  it("groups slots by the day they fall on in the viewer's zone, in order", () => {
+    const slots = ["2026-12-04T09:00:00Z", "2026-12-03T23:30:00Z", "2026-12-03T14:00:00Z"];
+    expect(slotsByDay(slots, "Europe/London")).toEqual([
+      { day: "Thursday 3 December", slots: ["2026-12-03T14:00:00Z", "2026-12-03T23:30:00Z"] },
+      { day: "Friday 4 December", slots: ["2026-12-04T09:00:00Z"] },
+    ]);
+    // 23:30 UTC is already Friday in Paris
+    expect(slotsByDay(slots, "Europe/Paris").map((d) => d.slots.length)).toEqual([1, 2]);
+  });
+});
+
+describe("booking status", () => {
+  const p = { contact_email: "sam@example.com", booked_start: null, invite_sent_at: null, invite_error: null };
+  it("says where each participant's booking stands", () => {
+    expect(bookingStatus({ ...p, contact_email: "" }, "Europe/London").text).toBe("No contact email");
+    expect(bookingStatus(p, "Europe/London").text).toBe("Not invited");
+    expect(bookingStatus({ ...p, invite_sent_at: "2026-11-27T10:00:00Z" }, "Europe/London").text).toBe("Invited Fri 27 Nov");
+    const failed = bookingStatus({ ...p, invite_error: "Before booking emails can go: choose a moderator" }, "Europe/London");
+    expect(failed).toMatchObject({ text: "Email not sent", tone: "warn" });
+    expect(bookingStatus({ ...p, booked_start: "2026-12-03T14:00:00Z" }, "Europe/London")).toMatchObject({
+      text: "Booked Thu 3 Dec, 14:00",
+      tone: "good",
+    });
   });
 });

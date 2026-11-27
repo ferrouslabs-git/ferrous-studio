@@ -7,12 +7,14 @@ participant) that the editor could not have produced.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
-from .content import SIGN_UP_TEXT, SUCCESS_VALUES, TOP_WORDS, WORDS, new_task_id
+from .content import DEFAULT_EMAILS, SIGN_UP_TEXT, SUCCESS_VALUES, TOP_WORDS, WORDS, new_task_id
 
 Line = Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)]
 Short = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
@@ -29,6 +31,36 @@ def _web_address(value: str) -> str:
 
 
 AppUrl = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500), AfterValidator(_web_address)]
+
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _contact_email(value: str) -> str:
+    """Where the booking emails go. Blank clears it."""
+    if value and not _EMAIL.match(value):
+        raise ValueError("The contact email is not an email address")
+    return value
+
+
+ContactEmail = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255), AfterValidator(_contact_email)]
+
+
+def _time_zone(value: str) -> str:
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ValueError(f"{value} is not a time zone (use a name like Europe/London)")
+    return value
+
+
+TimeZone = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64), AfterValidator(_time_zone)]
+
+
+def _naive_utc(value: datetime) -> datetime:
+    """Every DateTime here is naive UTC. A time without an offset is taken as UTC."""
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.replace(second=0, microsecond=0)
 
 #: A study file is a dataset or a definition a participant downloads, not media.
 MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -76,6 +108,25 @@ class StudyScript(Lines):
     after: list[Line] = []
 
 
+class StudyEmail(Lines):
+    subject: Short = ""
+    body: list[Line] = []
+
+
+def _default_email(kind: str) -> StudyEmail:
+    default = DEFAULT_EMAILS[kind]
+    return StudyEmail(subject=default["subject"], body=list(default["body"]))
+
+
+class StudyEmails(BaseModel):
+    """The invite (thank you, choose a time) and the confirmation (what to
+    prepare). Studio adds the booking button, the session details and the
+    rebooking link itself, so the copy cannot leave them out."""
+
+    invite: StudyEmail = Field(default_factory=lambda: _default_email("invite"))
+    confirmation: StudyEmail = Field(default_factory=lambda: _default_email("confirmation"))
+
+
 class StudyContent(Lines):
     research_questions: list[Line] = []
     protocol: list[Line] = []
@@ -85,6 +136,8 @@ class StudyContent(Lines):
     #: an email to use (and ``sign_up_text``), not a test account to sign in with.
     sign_up: bool = False
     sign_up_text: list[Line] = Field(default_factory=lambda: list(SIGN_UP_TEXT))
+    #: The words of the booking emails; set by a person in Studio, never an agent.
+    emails: StudyEmails = Field(default_factory=lambda: StudyEmails())
     tasks: list[StudyTask] = []
     script: StudyScript = StudyScript()
     words: list[Short] = Field(default_factory=lambda: list(WORDS))
@@ -132,6 +185,10 @@ class StudyUpdate(BaseModel):
     account_email: Short | None = None
     account_password: Annotated[str, StringConstraints(max_length=255)] | None = None
     account_notes: str | None = None
+    #: A Studio super admin; checked against their platform role by the route.
+    moderator_user_id: UUID | None = None
+    session_minutes: int | None = Field(None, ge=5, le=480)
+    timezone: TimeZone | None = None
     content: StudyContent | None = None
 
 
@@ -139,7 +196,37 @@ class StudyClone(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)] | None = None
 
 
+class AvailabilityIn(BaseModel):
+    """A window participants may book in. Sent with an offset (ISO 8601);
+    stored as naive UTC."""
+
+    starts_at: datetime
+    ends_at: datetime
+
+    @model_validator(mode="after")
+    def _a_window_runs_forwards(self) -> "AvailabilityIn":
+        self.starts_at, self.ends_at = _naive_utc(self.starts_at), _naive_utc(self.ends_at)
+        if self.ends_at <= self.starts_at:
+            raise ValueError("A window must end after it starts")
+        if self.ends_at - self.starts_at > timedelta(hours=24):
+            raise ValueError("A window can be at most a day long")
+        return self
+
+
+class BookingIn(BaseModel):
+    """The slot a participant picked: one of the starts the booking page offered."""
+
+    start: datetime
+
+    @field_validator("start", mode="after")
+    @classmethod
+    def _utc(cls, value: datetime) -> datetime:
+        return _naive_utc(value)
+
+
 class ParticipantWrite(BaseModel):
+    name: Short | None = None
+    contact_email: ContactEmail | None = None
     scheduled_at: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
     role: Short | None = None
     company: Short | None = None
@@ -324,10 +411,13 @@ class AgentStudyImport(BaseModel):
 
 class AgentParticipantWrite(BaseModel):
     """ParticipantWrite, refusing unknown fields. A participant has no
-    address of their own: they open the study's, which a person sets."""
+    address of their own: they open the study's, which a person sets. An
+    agent may record a contact email, but only a person in Studio sends to it."""
 
     model_config = ConfigDict(extra="forbid")
 
+    name: Short | None = None
+    contact_email: ContactEmail | None = None
     scheduled_at: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
     role: Short | None = None
     company: Short | None = None

@@ -1,6 +1,7 @@
 // One usability study. Everything about a round of testing lives under it, as
-// four sub-sections: the study itself (what is tested), its participants, the
-// observation capture for each participant, and the study's insights.
+// sub-sections: the study itself (what is tested), the booking emails and the
+// times participants can book, its participants, the observation capture for
+// each participant, and the study's insights.
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { errorMessage } from "../../../core/api";
@@ -8,12 +9,16 @@ import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
 import { StudyCapture } from "./StudyCapture";
 import { StudyEditor } from "./StudyEditor";
+import { StudyEmails } from "./StudyEmails";
 import { StudyInsights } from "./StudyInsights";
 import { StudyParticipants } from "./StudyParticipants";
+import { StudySlots } from "./StudySlots";
 import { getStudy, updateStudy } from "./usabilityApi";
 
 const SECTIONS = [
   { id: "study", label: "Study" },
+  { id: "emails", label: "Emails" },
+  { id: "slots", label: "Slots" },
   { id: "participants", label: "Participants" },
   { id: "capture", label: "Observation capture" },
   { id: "insights", label: "Study insights" },
@@ -107,6 +112,8 @@ export function StudyPage() {
       </div>
 
       {active === "study" && <StudyEditor key={data.id} projectId={project.id} study={data} onSaved={study.reload} />}
+      {active === "emails" && <StudyEmails key={data.id} projectId={project.id} study={data} onSaved={study.reload} />}
+      {active === "slots" && <StudySlots key={data.id} projectId={project.id} study={data} onSaved={study.reload} />}
       {active === "participants" && (
         <StudyParticipants
           projectId={project.id}

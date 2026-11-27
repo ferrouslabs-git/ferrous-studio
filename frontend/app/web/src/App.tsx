@@ -33,6 +33,7 @@ import { ProjectDetailsPage } from "./features/project/ProjectDetailsPage";
 import { ReleasePage } from "./features/project/roadmap/ReleasePage";
 import { PlannedWorkPage } from "./features/project/roadmap/PlannedWorkPage";
 import { SprintBoardPage } from "./features/project/roadmap/SprintBoardPage";
+import { BookingPage } from "./features/project/usability/BookingPage";
 import { ParticipantPage } from "./features/project/usability/ParticipantPage";
 import { StudyPage } from "./features/project/usability/StudyPage";
 import { UsabilityPage } from "./features/project/usability/UsabilityPage";
@@ -65,6 +66,8 @@ export function App() {
         <Route path="/invite/:token" element={<InvitePage />} />
         {/* A usability study participant has no account: the link is the proof. */}
         <Route path="/study/:token" element={<ParticipantPage />} />
+        {/* Booking a session: its own link, not the session link. */}
+        <Route path="/book/:token" element={<BookingPage />} />
 
         {/* Signed in, no chrome */}
         <Route element={<ProtectedRoute />}>

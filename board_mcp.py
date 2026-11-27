@@ -975,7 +975,9 @@ def get_study(study_id: str) -> dict:
     (with its id and both the participant's and the moderator's halves) and
     the files it holds (name, size). Read it before adding tasks, so new ones
     follow on from what is there, and to find a task's real id for
-    update_study_task."""
+    update_study_task. Also, read only: moderator, session_minutes, timezone
+    and availability (the windows participants may book in, UTC) -- a person
+    sets these, and the booking email copy, in Studio."""
     return _studio_call("GET", f"/usability/agent/studies/{study_id}")
 
 
@@ -1239,17 +1241,22 @@ def import_study(file_path: str, name: str | None = None) -> dict:
 
 @mcp.tool()
 def list_study_participants(study_id: str) -> dict:
-    """Who takes part in a study: id, code (P1, P2, ...), scheduled_at,
-    role, company, characteristics, app_url (always the study's), account_email,
-    account_password_set, account_notes, consent (name, at), words,
-    top_words, completed_at, session_notes and progress. Never their link or
-    password -- a person copies the link from Studio and sends it."""
+    """Who takes part in a study: id, code (P1, P2, ...), name,
+    contact_email, scheduled_at, role, company, characteristics, app_url
+    (always the study's), account_email, account_password_set,
+    account_notes, consent (name, at), words, top_words, completed_at,
+    session_notes, progress, and their booking: booked_start (UTC),
+    meet_url, invite_sent_at, invite_error, confirmation_sent_at. Never
+    their session or booking link or password -- a person copies the
+    session link from Studio and sends it."""
     return {"participants": _studio_call("GET", f"/usability/agent/studies/{study_id}/participants")}
 
 
 @mcp.tool()
 def add_study_participant(
     study_id: str,
+    name: str | None = None,
+    contact_email: str | None = None,
     scheduled_at: str | None = None,
     role: str | None = None,
     company: str | None = None,
@@ -1259,8 +1266,12 @@ def add_study_participant(
     account_notes: str | None = None,
 ) -> dict:
     """Add a participant; they get the next code (P1, P2, ...) and a
-    personal link. NOTHING is sent to them, and the link is not returned:
-    tell the user to copy it from the study's Participants in Studio.
+    personal link. NOTHING is sent to them from here, and no link is
+    returned: adding someone in Studio emails them a booking invite, but an
+    agent's add never does -- tell the user to send it from the study's
+    Participants in Studio (Send booking email). name / contact_email: who
+    they are and the inbox the booking emails go to (their own, not the
+    test account).
     account_email / account_password / account_notes left out use the
     study's (update_study); give one only where this participant differs.
     When the study tests signing up (get_study's sign_up), the participant
@@ -1271,6 +1282,7 @@ def add_study_participant(
     sign in with, which their page shows them -- test
     credentials only, never a real person's. Returns the participant."""
     return _studio_call("POST", f"/usability/agent/studies/{study_id}/participants", _patch_of(
+        name=name, contact_email=contact_email,
         scheduled_at=scheduled_at, role=role, company=company, characteristics=characteristics,
         account_email=account_email, account_password=account_password,
         account_notes=account_notes,
@@ -1281,6 +1293,8 @@ def add_study_participant(
 def update_study_participant(
     study_id: str,
     participant_id: str,
+    name: str | None = None,
+    contact_email: str | None = None,
     scheduled_at: str | None = None,
     role: str | None = None,
     company: str | None = None,
@@ -1295,6 +1309,7 @@ def update_study_participant(
     to clear one. session_notes: the moderator's notes on the whole
     session. Removing a participant stays with a person."""
     return _studio_call("PATCH", f"/usability/agent/studies/{study_id}/participants/{participant_id}", _patch_of(
+        name=name, contact_email=contact_email,
         scheduled_at=scheduled_at, role=role, company=company, characteristics=characteristics,
         account_email=account_email, account_password=account_password,
         account_notes=account_notes, session_notes=session_notes,

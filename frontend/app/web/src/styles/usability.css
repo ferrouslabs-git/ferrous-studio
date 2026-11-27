@@ -151,3 +151,27 @@ a.ustudy-v { color: var(--accent); }
   .ustudy-rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
   .ustudy-main { padding: 18px 16px 48px; }
 }
+
+
+/* Slots tab: add a window, the windows, and the slot preview. */
+.usab-window-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 8px 0 12px; }
+.usab-window-form .drawer-field { flex: 1 1 140px; min-width: 0; }
+.usab-windows { list-style: none; margin: 0; padding: 0; }
+.usab-windows li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; font-size: 13px; }
+.usab-windows li + li { border-top: 1px solid var(--border); }
+.usab-held { color: var(--good); font-size: 12px; }
+.usab-slots { display: flex; flex-wrap: wrap; gap: 6px; }
+.usab-slot { padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; }
+.usab-slot.booked { border-color: var(--good); color: var(--good); }
+.usab-slot.busy { color: var(--text-dim); text-decoration: line-through; }
+.usab-slot b, .usab-slot i { font-family: var(--font-body, inherit); font-weight: 500; font-style: normal; }
+
+/* The public booking page. */
+.book-card { width: min(640px, 100%); }
+.book-card h2 { font-size: 16px; margin: 18px 0 6px; }
+.book-day h3 { font-size: 13px; margin: 14px 0 6px; color: var(--text-dim); font-weight: 500; }
+.book-slots { display: flex; flex-wrap: wrap; gap: 6px; }
+.book-slots .btn { min-width: 72px; justify-content: center; }
+.book-when { font-size: 16px; font-weight: 600; color: var(--text); }
+.book-card .ustudy-nav { flex-wrap: wrap; }
+.book-card .ustudy-nav .btn { white-space: normal; text-align: center; }

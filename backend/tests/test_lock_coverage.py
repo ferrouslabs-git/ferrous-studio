@@ -83,6 +83,9 @@ EXEMPT = {
     "upload_usability_file_for_agent", "add_usability_participant_for_agent",
     "update_usability_participant_for_agent", "capture_usability_task_for_agent",
     "add_usability_observation_for_agent", "update_usability_observation_for_agent",
+    # A study's bookable times and booking emails: the same live round.
+    "add_usability_availability", "remove_usability_availability", "sync_usability_holds",
+    "send_usability_booking_email",
 }
 
 

@@ -37,6 +37,7 @@ from app.auth.security.scope_context import ScopeContext
 
 from ..common import adopt_account_scope, allow_cross_account, get_project
 from ..models import Project, utc_now
+from . import booking_service as booking
 from . import content as rules
 from .models import Observation, Participant, Study, StudyFile, TaskResult
 from .schemas import (
@@ -195,7 +196,22 @@ def _participant_out(study: Study, p: Participant, results: dict[str, TaskResult
         "completed_at": p.completed_at,
         "session_notes": p.session_notes or "",
         "progress": _progress(study, p, results),
+        # booking: who to write to, their booking link, and how it went
+        "name": p.name or "",
+        "contact_email": p.contact_email or "",
+        "booking_token": p.booking_token or "",
+        "booked_start": _iso(p.booked_start),
+        "meet_url": p.meet_url or "",
+        "calendar_error": p.calendar_error,
+        "invite_sent_at": _iso(p.invite_sent_at),
+        "invite_error": p.invite_error,
+        "confirmation_sent_at": _iso(p.confirmation_sent_at),
     }
+
+
+def _iso(at: Any) -> str | None:
+    """A naive-UTC time out as an unambiguous instant."""
+    return None if at is None else at.replace(microsecond=0).isoformat() + "Z"
 
 
 def _file_out(f: StudyFile) -> dict[str, Any]:
@@ -275,6 +291,9 @@ async def _study_detail(db: AsyncSession, study: Study) -> dict[str, Any]:
         "content": rules.with_defaults(study.content),
         "consent_version": study.consent_version,
         **{name: getattr(study, name) or "" for name in ACCOUNT_FIELDS},
+        "moderator_user_id": study.moderator_user_id,
+        "session_minutes": study.session_minutes,
+        "timezone": study.timezone or "Europe/London",
         "files": [_file_out(f) for f in await _files(db, study)],
         "participant_list": [_participant_out(study, p, results[p.id]) for p in people],
     }
@@ -368,6 +387,18 @@ async def update_usability_study(
     for field_name in ("persona", "duration", "app_url", *ACCOUNT_FIELDS):
         if field_name in sent:
             setattr(study, field_name, getattr(payload, field_name) or None)
+    if "session_minutes" in sent:
+        study.session_minutes = payload.session_minutes
+    if "timezone" in sent and payload.timezone:
+        study.timezone = payload.timezone
+    if "moderator_user_id" in sent and payload.moderator_user_id != study.moderator_user_id:
+        # A moderator is a Studio super admin: sessions go on their calendar.
+        if payload.moderator_user_id is not None and not await booking.is_moderator(db, payload.moderator_user_id):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A moderator must be a Studio super admin")
+        old = study.moderator_user_id
+        study.moderator_user_id = payload.moderator_user_id
+        await db.flush()
+        await booking.rehold_for_new_moderator(db, study, old)
     if "content" in sent and payload.content is not None:
         _set_content(study, payload.content.model_dump())
     await db.flush()
@@ -419,6 +450,10 @@ async def _clone(db: AsyncSession, source: Study, name: str | None, user_id: UUI
         account_email=source.account_email,
         account_password=source.account_password,
         account_notes=source.account_notes,
+        # the same moderator and session length; its bookable times are its own
+        moderator_user_id=source.moderator_user_id,
+        session_minutes=source.session_minutes,
+        timezone=source.timezone,
         content=StudyContent.model_validate(source.content).model_dump(),
         created_by=user_id,
     )
@@ -554,7 +589,7 @@ async def delete_usability_file(
 # ── participants ────────────────────────────────────────────────────────────
 
 _PARTICIPANT_FIELDS = (
-    "scheduled_at", "role", "company", "characteristics",
+    "name", "contact_email", "scheduled_at", "role", "company", "characteristics",
     "account_email", "account_password", "account_notes", "session_notes",
 )
 
@@ -567,10 +602,19 @@ async def add_usability_participant(
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Add a participant and mint their link. Nothing is sent to them."""
+    """Add a participant and mint their links. With a contact email, they are
+    sent the thank-you with their booking link; whether it went is on the
+    participant (``invite_sent_at`` / ``invite_error``), and adding them never
+    fails on it. The session link is never emailed."""
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
     participant = await _new_participant(db, study, payload)
+    if participant.contact_email:
+        await booking.send_invite(
+            study, participant, await booking.moderator_of(db, study), await booking.windows_of(db, study),
+            await _organisation_name(db, study.account_id),
+        )
+        await db.flush()
     out = _participant_out(study, participant, {})
     await db.commit()
     return out
@@ -583,6 +627,7 @@ async def _new_participant(db: AsyncSession, study: Study, payload: ParticipantW
         study_id=study.id,
         code=f"P{study.participant_seq}",
         token=secrets.token_urlsafe(32),
+        booking_token=secrets.token_urlsafe(32),
     )
     for field_name in payload.model_fields_set:
         setattr(participant, field_name, getattr(payload, field_name))
@@ -644,10 +689,13 @@ async def remove_usability_participant(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Remove the participant and what was captured for them, and take them
-    off every observation they were marked against. Their link stops working."""
+    off every observation they were marked against. Their links stop working,
+    and a booked session comes off the moderator's calendar (Google tells
+    them)."""
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
     participant = await _participant(db, study, participant_id)
+    await booking.cancel_session(participant, await booking.moderator_of(db, study))
     gone = str(participant.id)
     observations = await db.execute(
         select(Observation).where(Observation.study_id == study.id, Observation.account_id == study.account_id)

@@ -89,6 +89,18 @@ $rendered = $template `
     -replace "{{DOCUMENTS_BUCKET}}", $documentsBucket `
     -replace "{{PLATFORM_ADMIN_EMAILS}}", $Config.platform_admin_emails `
     -replace "{{CLOUDOPS_ENABLED}}", "$env:CLOUDOPS_ENABLED"
+# Optional secrets: ECS will not start a task whose secret parameter is
+# missing, so one not yet created in this environment is left out (the app
+# runs without that feature) rather than breaking the deploy.
+foreach ($optional in @("GOOGLE_SERVICE_ACCOUNT_JSON")) {
+    $paramName = "/$Product/$Env/$optional"
+    $found = aws ssm describe-parameters --region $Region --parameter-filters "Key=Name,Values=$paramName" --query "length(Parameters)" --output text
+    Assert-Exit "aws ssm describe-parameters"
+    if ("$found".Trim() -ne "1") {
+        Write-Host "  $paramName not set -- deploying without it" -ForegroundColor Yellow
+        $rendered = (($rendered -split "`n") | Where-Object { $_ -notmatch "`"$optional`"" }) -join "`n"
+    }
+}
 $genDir = Join-Path $RepoRoot "infra\ecs\generated"
 New-Item -ItemType Directory -Force -Path $genDir | Out-Null
 $renderedPath = Join-Path $genDir "$Product-$Env.taskdef.json"

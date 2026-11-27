@@ -30,6 +30,14 @@ export interface StudyScript {
   after: string[];
 }
 
+export interface StudyEmail {
+  subject: string;
+  body: string[];
+}
+
+/** What email copy may use; anything else in braces is sent as written. */
+export const EMAIL_PLACEHOLDERS = ["name", "study", "moderator", "organisation", "duration"] as const;
+
 export interface StudyContent {
   research_questions: string[];
   protocol: string[];
@@ -38,6 +46,8 @@ export interface StudyContent {
   /** The testing includes signing up: participants get an email to use and `sign_up_text`, not a test account. */
   sign_up: boolean;
   sign_up_text: string[];
+  /** The words of the two booking emails. Studio adds the button, session details and rebooking link itself. */
+  emails: { invite: StudyEmail; confirmation: StudyEmail };
   tasks: StudyTask[];
   script: StudyScript;
   words: string[];
@@ -93,11 +103,23 @@ export interface Participant {
   completed_at: string | null;
   session_notes: string;
   progress: Progress;
+  // Booking: who to write to, their booking link, and how it went. Times are UTC instants.
+  name: string;
+  contact_email: string;
+  booking_token: string;
+  booked_start: string | null;
+  meet_url: string;
+  calendar_error: string | null;
+  invite_sent_at: string | null;
+  invite_error: string | null;
+  confirmation_sent_at: string | null;
 }
 
 export type ParticipantInput = Partial<
   Pick<
     Participant,
+    | "name"
+    | "contact_email"
     | "scheduled_at"
     | "role"
     | "company"
@@ -109,7 +131,12 @@ export type ParticipantInput = Partial<
   >
 >;
 
-export interface Study extends StudySummary, Pick<StudyDetails, "account_email" | "account_password" | "account_notes"> {
+export interface Study
+  extends StudySummary,
+    Pick<
+      StudyDetails,
+      "account_email" | "account_password" | "account_notes" | "moderator_user_id" | "session_minutes" | "timezone"
+    > {
   content: StudyContent;
   consent_version: number;
   files: StudyFile[];
@@ -189,6 +216,32 @@ export interface StudyDetails {
   account_email: string;
   account_password: string;
   account_notes: string;
+  /** A Studio super admin: sessions and holds go on their Google calendar. */
+  moderator_user_id: string | null;
+  /** How long a bookable slot is. */
+  session_minutes: number | null;
+  /** What emails and Studio show times in, e.g. Europe/London. */
+  timezone: string;
+}
+
+export interface Moderator {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/** A study's bookable times, for the Slots tab. Times are UTC instants. */
+export interface Availability {
+  calendar_connected: boolean;
+  calendar_error: string | null;
+  /** What stops participants booking, e.g. "choose a moderator". */
+  problems: string[];
+  windows: { id: string; starts_at: string; ends_at: string; held: boolean; hold_error: string | null }[];
+  slots: {
+    start: string;
+    state: "free" | "booked" | "busy";
+    participant: { id: string; code: string; name: string } | null;
+  }[];
 }
 
 const base = (projectId: string) => `/studio/projects/${projectId}/usability/studies`;
@@ -232,6 +285,22 @@ export const captureTask = (
   taskId: string,
   input: CaptureInput,
 ) => apiPut<TaskResult>(`${one(projectId, studyId)}/participants/${participantId}/tasks/${taskId}`, input);
+
+export const sendBookingEmail = (projectId: string, studyId: string, participantId: string) =>
+  apiPost<Participant>(`${one(projectId, studyId)}/participants/${participantId}/send-booking-email`, {});
+
+export const listModerators = (projectId: string) =>
+  apiGet<Moderator[]>(`/studio/projects/${projectId}/usability/moderators`);
+export const getAvailability = (projectId: string, studyId: string) =>
+  apiGet<Availability>(`${one(projectId, studyId)}/availability`);
+export const addAvailability = (projectId: string, studyId: string, window: { starts_at: string; ends_at: string }) =>
+  apiPost<Availability>(`${one(projectId, studyId)}/availability`, window);
+export const removeAvailability = async (projectId: string, studyId: string, windowId: string) => {
+  await apiDelete(`${one(projectId, studyId)}/availability/${windowId}`);
+  return getAvailability(projectId, studyId);
+};
+export const syncHolds = (projectId: string, studyId: string) =>
+  apiPost<Availability>(`${one(projectId, studyId)}/availability/sync-holds`, {});
 
 export const getInsights = (projectId: string, studyId: string) =>
   apiGet<Insights>(`${one(projectId, studyId)}/insights`);
@@ -280,8 +349,12 @@ export interface Session {
 
 const sessionBase = (token: string) => `/api/studio/usability/session/${encodeURIComponent(token)}`;
 
-async function sessionRequest<T>(method: string, token: string, path = "", body?: unknown): Promise<T> {
-  const response = await fetch(`${sessionBase(token)}${path}`, {
+const sessionRequest = <T,>(method: string, token: string, path = "", body?: unknown) =>
+  publicRequest<T>(method, `${sessionBase(token)}${path}`, body);
+
+/** A call from a public page: no bearer token, no scope headers, and a 401 never redirects. */
+async function publicRequest<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, {
     method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -311,6 +384,27 @@ export const saveSessionWords = (token: string, words: string[], topWords: strin
   sessionRequest<{ words: string[]; top_words: string[] }>("PUT", token, "/words", { words, top_words: topWords });
 export const completeSession = (token: string) => sessionRequest<{ completed: boolean }>("POST", token, "/complete");
 export const sessionFileUrl = (token: string, name: string) => `${sessionBase(token)}/files/${encodeURIComponent(name)}`;
+
+// ── the booking page ────────────────────────────────────────────────────────
+
+/** What the public booking page is given. Times are UTC instants. */
+export interface Booking {
+  title: string;
+  organisation: string;
+  duration: string;
+  session_minutes: number;
+  timezone: string;
+  moderator: string;
+  name: string;
+  /** Free slot starts, earliest first. */
+  slots: string[];
+  booked: { start: string; meet_url: string } | null;
+}
+
+const bookingUrl = (token: string) => `/api/studio/usability/booking/${encodeURIComponent(token)}`;
+
+export const getBooking = (token: string) => publicRequest<Booking>("GET", bookingUrl(token));
+export const bookSlot = (token: string, start: string) => publicRequest<Booking>("POST", bookingUrl(token), { start });
 
 /** A task file's text, for one shown on the page rather than downloaded (markdown). */
 export async function getSessionFileText(token: string, name: string): Promise<string> {

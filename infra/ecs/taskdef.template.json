@@ -49,6 +49,7 @@
       ],
       "secrets": [
         { "name": "DATABASE_URL", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/DATABASE_URL" },
+        { "name": "GOOGLE_SERVICE_ACCOUNT_JSON", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GOOGLE_SERVICE_ACCOUNT_JSON" },
         { "name": "GITHUB_APP_ID", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_ID" },
         { "name": "GITHUB_APP_SLUG", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_SLUG" },
         { "name": "GITHUB_APP_PRIVATE_KEY", "valueFrom": "arn:aws:ssm:{{AWS_REGION}}:{{ACCOUNT_ID}}:parameter/{{PRODUCT_NAME}}/{{ENV}}/GITHUB_APP_PRIVATE_KEY" },

@@ -9,12 +9,12 @@ neither copies nor skips them.
 """
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from ..models import Base, utc_now
 
-__all__ = ["Study", "StudyFile", "Participant", "TaskResult", "Observation"]
+__all__ = ["Study", "StudyFile", "Participant", "TaskResult", "Observation", "Availability"]
 
 
 class Study(Base):
@@ -35,6 +35,13 @@ class Study(Base):
     account_email = Column(String(255), nullable=True)
     account_password = Column(String(255), nullable=True)
     account_notes = Column(Text, nullable=True)
+    #: The Studio super admin who runs the sessions. Booked sessions, and holds
+    #: on the times offered, go on their Google calendar.
+    moderator_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    #: How long a bookable slot is: availability windows are cut into slots this long.
+    session_minutes = Column(Integer, nullable=True)
+    #: What emails and Studio show times in (an IANA name, e.g. Europe/London).
+    timezone = Column(String(64), nullable=False, default="Europe/London")
     #: Research questions, protocol, consent form, tasks, script and word list.
     content = Column(JSONB, nullable=False, default=dict)
     #: Raised whenever the consent wording changes; each participant keeps the
@@ -78,10 +85,13 @@ class Participant(Base):
     """A participant in a study and their session: who they are, the test
     account they use, their consent and their word choices.
 
-    ``token`` is kept readable because an admin copies the link from Studio
-    whenever they need it; nothing is emailed. ``account_password`` is a test
-    account's password, shown to the participant after consent -- never a real
-    person's."""
+    ``token`` is kept readable because an admin copies the session link from
+    Studio and sends it at the start of the call; it is never emailed. The
+    booking email carries ``booking_token`` instead, a separate link that only
+    books a time. ``account_password`` is a test account's password, shown to
+    the participant after consent -- never a real person's.
+
+    Times are naive UTC, like every other DateTime here."""
 
     __tablename__ = "usability_participants"
 
@@ -107,12 +117,48 @@ class Participant(Base):
     top_words = Column(JSONB, nullable=False, default=list)
     completed_at = Column(DateTime, nullable=True)
     session_notes = Column(Text, nullable=True)
+    # Booking: who to write to, their booking link, the slot they chose, its
+    # calendar event, and when each email went out (or why it did not).
+    name = Column(String(255), nullable=True)
+    contact_email = Column(String(255), nullable=True)
+    booking_token = Column(String(64), nullable=True, unique=True)
+    booked_start = Column(DateTime, nullable=True)
+    google_event_id = Column(String(255), nullable=True)
+    meet_url = Column(String(500), nullable=True)
+    calendar_error = Column(Text, nullable=True)
+    invite_sent_at = Column(DateTime, nullable=True)
+    invite_error = Column(Text, nullable=True)
+    confirmation_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("study_id", "code", name="uq_usability_participants_code"),
         Index("ix_usability_participants_account_study", "account_id", "study_id"),
+        # Two participants can never hold the same slot, even booking at once.
+        Index(
+            "uq_usability_participants_booked_slot", "study_id", "booked_start",
+            unique=True, postgresql_where=text("booked_start IS NOT NULL"),
+        ),
     )
+
+
+class Availability(Base):
+    """A window of time participants may book in, cut into the study's
+    ``session_minutes`` slots. ``google_hold_id`` is the busy event that holds
+    the window on the moderator's calendar so nothing else is booked over it."""
+
+    __tablename__ = "usability_availability"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    account_id = Column(UUID(as_uuid=True), nullable=False)
+    study_id = Column(UUID(as_uuid=True), ForeignKey("usability_studies.id", ondelete="CASCADE"), nullable=False)
+    starts_at = Column(DateTime, nullable=False)
+    ends_at = Column(DateTime, nullable=False)
+    google_hold_id = Column(String(255), nullable=True)
+    hold_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (Index("ix_usability_availability_account_study", "account_id", "study_id"),)
 
 
 class TaskResult(Base):

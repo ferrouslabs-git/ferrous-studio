@@ -185,6 +185,184 @@ only works for the address it was sent to.
 """
 
 
+def _branded_html(
+    *, subject: str, eyebrow: str, heading: str, paragraphs: list[str], facts: list[tuple[str, str]],
+    button: tuple[str, str] | None, closing: list[str], closing_link: str | None, footer: str,
+    product_name: str, legal: str,
+) -> str:
+    """The invitation's look for any message: mark, card, eyebrow, heading,
+    paragraphs, an optional facts table, an optional button and closing
+    words. Every argument is plain text and is escaped here; a fact whose
+    value is a web address becomes a link."""
+    e = html.escape
+    para = "".join(
+        f'<p style="margin:0 0 14px; font-size:15px; line-height:1.6; color:{_TEXT_SECONDARY};">{e(p)}</p>'
+        for p in paragraphs
+    )
+    rows = ""
+    for label, value in facts:
+        shown = (
+            f'<a href="{e(value)}" style="color:{_ORANGE}; text-decoration:none;">{e(value)}</a>'
+            if value.startswith(("https://", "http://")) else e(value)
+        )
+        rows += (
+            f'<tr><td style="padding:8px 12px 8px 0; font-family:{_FONT_MONO}; font-size:10px; letter-spacing:0.12em; '
+            f'text-transform:uppercase; color:{_TEXT_MUTED}; vertical-align:top; white-space:nowrap;">{e(label)}</td>'
+            f'<td style="padding:8px 0; font-size:14px; line-height:1.5; color:{_TEXT};">{shown}</td></tr>'
+        )
+    facts_html = (
+        f'<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 22px; width:100%; '
+        f'border-top:1px solid {_BORDER}; border-bottom:1px solid {_BORDER};">{rows}</table>'
+        if rows else ""
+    )
+    button_html = ""
+    if button:
+        label, url = button
+        button_html = f"""<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 0;">
+                <tr>
+                  <td style="background:{_ORANGE}; border-radius:4px;">
+                    <a href="{e(url)}" style="display:inline-block; padding:14px 22px; font-family:{_FONT_MONO}; font-size:12px; font-weight:500; letter-spacing:0.12em; text-transform:uppercase; color:#FFFFFF; text-decoration:none;">{e(label)} &rarr;</a>
+                  </td>
+                </tr>
+              </table>"""
+    closing_html = "".join(
+        f'<p style="margin:22px 0 0; font-size:14px; line-height:1.6; color:{_TEXT_SECONDARY};">{e(p)}</p>' for p in closing
+    )
+    if closing_link:
+        closing_html += (
+            f'<p style="margin:10px 0 0; padding:12px 14px; background:{_BG_ELEMENT}; border:1px solid {_BORDER}; '
+            f'border-radius:4px; font-family:{_FONT_MONO}; font-size:12px; line-height:1.5; word-break:break-all;">'
+            f'<a href="{e(closing_link)}" style="color:{_TEXT_SECONDARY}; text-decoration:none;">{e(closing_link)}</a></p>'
+        )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
+  <title>{e(subject)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+</head>
+<body style="margin:0; padding:0; background:{_BG_DEEP}; color:{_TEXT}; font-family:{_FONT_DISPLAY}; -webkit-font-smoothing:antialiased;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">{e(heading)}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_BG_DEEP};">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px; width:100%;">
+          <tr>
+            <td style="padding:0 0 24px;">
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="width:34px; vertical-align:middle;"><img src="cid:{_SYMBOL_CID}" width="34" height="37" alt="Fe" style="display:block; width:34px; height:37px; border:0;"></td>
+                  <td style="padding-left:12px; vertical-align:middle; font-family:{_FONT_DISPLAY}; font-weight:600; font-size:16px; color:{_TEXT}; letter-spacing:-0.01em;">{e(product_name)}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:{_BG_RAISED}; border:1px solid {_BORDER}; border-radius:6px; padding:36px 36px 32px;">
+              <p style="margin:0 0 14px; font-family:{_FONT_MONO}; font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:{_ORANGE};">{e(eyebrow)}</p>
+              <h1 style="margin:0 0 18px; font-family:{_FONT_DISPLAY}; font-weight:600; font-size:26px; line-height:1.15; letter-spacing:-0.03em; color:{_TEXT};">{e(heading)}</h1>
+              {para}
+              {facts_html}
+              {button_html}
+              {closing_html}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 0 20px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+                <td style="height:1px; background:{_ORANGE}; background-image:linear-gradient(90deg, #2540E8 0%, #7C5CFF 50%, {_ORANGE} 100%); font-size:0; line-height:0;">&nbsp;</td>
+              </tr></table>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:12px; line-height:1.6; color:{_TEXT_MUTED};">
+              <p style="margin:0 0 6px;">{e(footer)}</p>
+              <p style="margin:0; font-family:{_FONT_MONO}; font-size:10px; letter-spacing:0.06em;">{e(legal)}</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def _branded_text(
+    *, heading: str, paragraphs: list[str], facts: list[tuple[str, str]], button: tuple[str, str] | None,
+    closing: list[str], closing_link: str | None, footer: str, legal: str,
+) -> str:
+    parts = [heading, "", *[p + "\n" for p in paragraphs]]
+    parts += [f"{label}: {value}" for label, value in facts]
+    if button:
+        parts += ["", f"{button[0]}: {button[1]}"]
+    if closing:
+        parts += ["", *closing]
+    if closing_link:
+        parts.append(closing_link)
+    parts += ["", footer, "", legal]
+    return "\n".join(parts) + "\n"
+
+
+async def send_branded_email(
+    to_email: str,
+    subject: str,
+    *,
+    eyebrow: str,
+    heading: str,
+    paragraphs: list[str],
+    facts: list[tuple[str, str]] | None = None,
+    button: tuple[str, str] | None = None,
+    closing: list[str] | None = None,
+    closing_link: str | None = None,
+    footer: str = "",
+    reply_to: str | None = None,
+) -> EmailSendResult:
+    """Send one message in the invitation's look through SES (plain text and
+    HTML). Every argument is plain text. ``reply_to`` lets a recipient's
+    reply reach a person rather than the sending address."""
+    settings = get_settings()
+    if not settings.ses_region or not settings.ses_sender_email:
+        logger.warning("SES config missing; email not sent", extra={"to_email": to_email, "subject": subject})
+        return EmailSendResult(sent=False, provider="ses", detail="Email is not configured (SES_SENDER_EMAIL is not set)")
+    facts = facts or []
+    closing = closing or []
+    product_name = settings.product_display_name
+    html_body = _branded_html(
+        subject=subject, eyebrow=eyebrow, heading=heading, paragraphs=paragraphs, facts=facts, button=button,
+        closing=closing, closing_link=closing_link, footer=footer, product_name=product_name, legal=settings.email_legal,
+    )
+    text_body = _branded_text(
+        heading=heading, paragraphs=paragraphs, facts=facts, button=button, closing=closing,
+        closing_link=closing_link, footer=footer, legal=settings.email_legal,
+    )
+    msg = _build_message(
+        sender=formataddr((product_name, settings.ses_sender_email)),
+        to_email=to_email, subject=subject, text_body=text_body, html_body=html_body,
+    )
+    if reply_to:
+        msg["Reply-To"] = reply_to
+
+    def send() -> EmailSendResult:
+        try:
+            response = boto3.client("ses", region_name=settings.ses_region).send_raw_email(
+                Source=settings.ses_sender_email, Destinations=[to_email], RawMessage={"Data": msg.as_bytes()},
+            )
+        except ClientError as e:
+            detail = f"{e.response['Error']['Code']}: {e.response['Error']['Message']}"
+            logger.error("SES email send failed", extra={"to_email": to_email, "detail": detail})
+            return EmailSendResult(sent=False, provider="ses", detail=detail)
+        except Exception as e:  # network, credentials
+            logger.exception("SES email send failed", extra={"to_email": to_email})
+            return EmailSendResult(sent=False, provider="ses", detail=str(e) or e.__class__.__name__)
+        return EmailSendResult(sent=True, provider="ses", detail="sent", message_id=response.get("MessageId"))
+
+    return await asyncio.to_thread(send)
+
+
 async def send_invitation_email(
     to_email: str, invite_url: str, tenant_name: str | None, recipient_name: str | None = None
 ) -> EmailSendResult:

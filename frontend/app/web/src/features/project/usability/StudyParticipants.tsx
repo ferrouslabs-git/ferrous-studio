@@ -1,14 +1,24 @@
 // The Participants sub-section of a study: who is taking part, the test
-// account each one uses, and their personal link. Nothing is sent to anyone;
-// an admin copies the link and sends it themselves.
+// account each one uses, their booking and their personal session link.
+// A participant with a contact email is sent the booking invite when added
+// (and again on request); the session link is never emailed: an admin copies
+// it and sends it at the start of the call.
 import { FormEvent, useState } from "react";
 import { ConfirmDrawer } from "../../../components/ConfirmDrawer";
 import { Drawer, Field } from "../../../components/Drawer";
 import { ListTable, NameCell } from "../../../components/ListTable";
 import { errorMessage } from "../../../core/api";
 import { formatDateTime } from "../../../core/format";
-import { addParticipant, Participant, ParticipantInput, removeParticipant, Study, updateParticipant } from "./usabilityApi";
-import { participantLink, progressLabel } from "./usabilityModel";
+import {
+  addParticipant,
+  Participant,
+  ParticipantInput,
+  removeParticipant,
+  sendBookingEmail,
+  Study,
+  updateParticipant,
+} from "./usabilityApi";
+import { bookingStatus, participantLink, progressLabel } from "./usabilityModel";
 
 export function StudyParticipants({
   projectId,
@@ -24,6 +34,18 @@ export function StudyParticipants({
   const [drawer, setDrawer] = useState<{ participant: Participant | null } | null>(null);
   const [removing, setRemoving] = useState<Participant | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // Send (or send again) the thank-you with the booking link; the list shows how it went.
+  const send = async (p: Participant) => {
+    setSendError(null);
+    try {
+      await sendBookingEmail(projectId, study.id, p.id);
+    } catch (err) {
+      setSendError(errorMessage(err));
+    }
+    await onChanged();
+  };
 
   const copy = (p: Participant) => {
     void navigator.clipboard?.writeText(participantLink(p.token));
@@ -39,6 +61,11 @@ export function StudyParticipants({
           Add participant
         </button>
       </div>
+      {sendError && (
+        <div className="usab-warning" role="alert">
+          {sendError}
+        </div>
+      )}
       <ListTable
         columns={[
           {
@@ -46,9 +73,20 @@ export function StudyParticipants({
             className: "primary",
             render: (p) => (
               <NameCell sub={[p.role, p.company].filter(Boolean).join(" · ") || undefined} onOpen={() => onOpenCapture(p.id)}>
-                {p.code}
+                {p.name ? `${p.code} · ${p.name}` : p.code}
               </NameCell>
             ),
+          },
+          {
+            header: "Booking",
+            render: (p) => {
+              const booking = bookingStatus(p, study.timezone);
+              return (
+                <span className={`badge ${booking.tone}`} title={booking.detail}>
+                  {booking.text}
+                </span>
+              );
+            },
           },
           {
             header: "Progress",
@@ -74,6 +112,10 @@ export function StudyParticipants({
         actions={(p) => [
           { label: "Observation capture", onSelect: () => onOpenCapture(p.id) },
           { label: "Edit", onSelect: () => setDrawer({ participant: p }) },
+          ...(p.contact_email
+            ? [{ label: p.invite_sent_at ? "Resend booking email" : "Send booking email", onSelect: () => void send(p) }]
+            : []),
+          ...(p.meet_url ? [{ label: "Open Meet link", onSelect: () => window.open(p.meet_url, "_blank", "noopener") }] : []),
           { label: "Remove", danger: true, onSelect: () => setRemoving(p) },
         ]}
         empty={
@@ -128,6 +170,8 @@ function ParticipantDrawer({
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState<Form>({
+    name: participant?.name ?? "",
+    contact_email: participant?.contact_email ?? "",
     scheduled_at: participant?.scheduled_at ?? "",
     role: participant?.role ?? "",
     company: participant?.company ?? "",
@@ -161,9 +205,13 @@ function ParticipantDrawer({
       open
       title={participant ? `Edit ${participant.code}` : "Add participant"}
       // The application address is the study's, shared by every participant; it is changed on the study.
-      description={`Nothing is sent to the participant. Copy their link from the list and send it yourself. They open ${
-        study.app_url || "the study's application address (not set yet)"
-      }.`}
+      description={
+        participant
+          ? `They open ${study.app_url || "the study's application address (not set yet)"}.`
+          : `With a contact email, they are sent the booking invite when you add them. They open ${
+              study.app_url || "the study's application address (not set yet)"
+            }.`
+      }
       onClose={onClose}
       onSubmit={submit}
       width={520}
@@ -183,6 +231,13 @@ function ParticipantDrawer({
           {error}
         </div>
       )}
+      <Field label="Name">
+        <input className="input" value={form.name} onChange={set("name")} />
+      </Field>
+      {/* Where the booking emails go: their own inbox, not the test account. */}
+      <Field label="Contact email">
+        <input className="input" type="email" value={form.contact_email} onChange={set("contact_email")} />
+      </Field>
       <Field label="Scheduled session">
         <input className="input" type="datetime-local" value={form.scheduled_at} onChange={set("scheduled_at")} />
       </Field>

@@ -260,6 +260,10 @@ def _is_participant_route(route) -> bool:
     return route.path.startswith("/studio/usability/session")
 
 
+def _is_booking_route(route) -> bool:
+    return route.path.startswith("/studio/usability/booking")
+
+
 def _is_agent_route(route) -> bool:
     return "/usability/agent/" in route.path
 
@@ -267,11 +271,13 @@ def _is_agent_route(route) -> bool:
 def test_there_are_routes_on_both_sides():
     all_routes = list(_usability_routes())
     assert [r for r in all_routes if _is_participant_route(r)]
-    assert [r for r in all_routes if not _is_participant_route(r)]
+    assert [r for r in all_routes if _is_booking_route(r)]
+    assert [r for r in all_routes if not _is_participant_route(r) and not _is_booking_route(r)]
 
 
 @pytest.mark.parametrize(
-    "route", [r for r in _usability_routes() if not _is_participant_route(r)], ids=lambda r: r.endpoint.__name__
+    "route", [r for r in _usability_routes() if not _is_participant_route(r) and not _is_booking_route(r)],
+    ids=lambda r: r.endpoint.__name__,
 )
 def test_the_organisations_side_is_admin_only_reads_included(route):
     """A participant's row holds a test account's password, so even a read
@@ -310,6 +316,30 @@ def test_the_session_confines_itself_to_one_organisation_before_reading_the_stud
     adopted = source.index("await adopt_account_scope(db, participant.account_id)")
     read_study = source.index("select(Study)")
     assert source.index("await allow_cross_account(db)") < found < adopted < read_study
+
+
+@pytest.mark.parametrize(
+    "route", [r for r in _usability_routes() if _is_booking_route(r)], ids=lambda r: r.endpoint.__name__
+)
+def test_the_booking_page_resolves_its_organisation_from_the_booking_link_first(route):
+    source = inspect.getsource(route.endpoint)
+    body = source[source.index('"""') if '"""' in source else 0 :]
+    assert "await _booking(db, token)" in body, f"{route.endpoint.__name__} does not go through _booking"
+    assert "require_permission" not in source
+    assert route.include_in_schema is False
+
+
+def test_the_booking_link_confines_itself_to_one_organisation_and_is_not_the_session_link():
+    from app.studio.usability import booking as booking_routes
+
+    source = inspect.getsource(booking_routes._booking)
+    found = source.index("select(Participant).where(Participant.booking_token == token)")
+    adopted = source.index("await adopt_account_scope(db, participant.account_id)")
+    read_study = source.index("select(Study)")
+    assert source.index("await allow_cross_account(db)") < found < adopted < read_study
+    assert "Participant.token" not in source
+    # the booking page never hands out the session link
+    assert '"token"' not in inspect.getsource(booking_routes._booking_out)
 
 
 # ── an agent's side ─────────────────────────────────────────────────────────
