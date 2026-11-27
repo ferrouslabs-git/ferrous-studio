@@ -327,27 +327,26 @@ def test_only_a_studio_super_admin_chooses_the_moderator_or_sees_who_they_could_
     assert '{"can_choose": False, "moderators": []}' in listing
 
 
-async def test_invites_are_capped_per_participant_and_per_study():
-    class Rows:
-        def __init__(self, n):
-            self.n = n
-
-        def all(self):
-            return [object()] * self.n
-
-    class Db:
-        def __init__(self, n):
-            self.n = n
-
-        async def execute(self, _query):
-            return Rows(self.n)
+async def test_invites_are_capped_per_participant_and_every_send_counts_per_study():
+    """The daily cap counts sends on the study, so re-sending to the same few
+    people uses up the allowance like sending to new ones."""
+    from datetime import timedelta as td
 
     from app.studio.models import utc_now
 
-    study = Study(name="Pilot", account_id=None)
+    study = Study(name="Pilot", invites_in_window=0)
     fresh = Participant(code="P1", token="t")
-    assert await booking_service.invite_refusal(Db(0), study, fresh) is None
+    assert await booking_service.invite_refusal(None, study, fresh) is None
     just_sent = Participant(code="P2", token="u", invite_sent_at=utc_now())
-    assert "a moment ago" in await booking_service.invite_refusal(Db(0), study, just_sent)
-    full = await booking_service.invite_refusal(Db(booking_service.INVITES_PER_STUDY_PER_DAY), study, fresh)
-    assert "in the last day" in full
+    assert "a moment ago" in await booking_service.invite_refusal(None, study, just_sent)
+    # one participant, re-sent over and over (past the cooldown), still hits the cap
+    for _ in range(booking_service.INVITES_PER_STUDY_PER_DAY):
+        booking_service.count_invite(study)
+    assert study.invites_in_window == booking_service.INVITES_PER_STUDY_PER_DAY
+    assert "in the last day" in await booking_service.invite_refusal(None, study, fresh)
+    # a day later the window starts again
+    study.invites_window_start = utc_now() - td(days=1, minutes=1)
+    assert await booking_service.invite_refusal(None, study, fresh) is None
+    booking_service.count_invite(study)
+    assert study.invites_in_window == 1
+    assert "count_invite(study)" in open(booking_service.__file__, encoding="utf-8").read()

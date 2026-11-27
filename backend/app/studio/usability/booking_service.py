@@ -87,21 +87,32 @@ INVITES_PER_STUDY_PER_DAY = 50
 RESEND_AFTER = timedelta(minutes=5)
 
 
+INVITE_WINDOW = timedelta(days=1)
+
+
+def _invites_in_window(study: Study, now: datetime) -> int:
+    """Sends counted in the study's current window; none once it has run out."""
+    if study.invites_window_start is None or now - study.invites_window_start >= INVITE_WINDOW:
+        return 0
+    return study.invites_in_window or 0
+
+
+def count_invite(study: Study) -> None:
+    """Record one invite sent: every send counts, resends included."""
+    now = utc_now()
+    if _invites_in_window(study, now) == 0:
+        study.invites_window_start, study.invites_in_window = now, 0
+    study.invites_in_window = (study.invites_in_window or 0) + 1
+
+
 async def invite_refusal(db: AsyncSession, study: Study, participant: Participant) -> str | None:
-    """Why this invite may not go now, if it may not."""
+    """Why this invite may not go now, if it may not. The study's sends are
+    counted on the study itself (``count_invite``), so re-sending to the same
+    people uses up the day's allowance like sending to new ones."""
     now = utc_now()
     if participant.invite_sent_at and now - participant.invite_sent_at < RESEND_AFTER:
         return "An invite was sent to them a moment ago. Wait a few minutes before sending another."
-    sent_today = (
-        await db.execute(
-            select(Participant.id).where(
-                Participant.study_id == study.id,
-                Participant.account_id == study.account_id,
-                Participant.invite_sent_at > now - timedelta(days=1),
-            )
-        )
-    ).all()
-    if len(sent_today) >= INVITES_PER_STUDY_PER_DAY:
+    if _invites_in_window(study, now) >= INVITES_PER_STUDY_PER_DAY:
         return f"This study has sent {INVITES_PER_STUDY_PER_DAY} invites in the last day. Try again tomorrow."
     return None
 
@@ -231,6 +242,7 @@ async def send_invite(
     )
     if result.sent:
         participant.invite_sent_at, participant.invite_error = utc_now(), None
+        count_invite(study)
     else:
         participant.invite_error = result.detail
     return result.sent
