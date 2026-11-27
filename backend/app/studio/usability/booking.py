@@ -52,10 +52,17 @@ async def list_usability_moderators(
     project_id: UUID,
     ctx: ScopeContext = Depends(require_permission("data:write")),
     db: AsyncSession = Depends(get_db),
-) -> list[dict[str, Any]]:
-    """The Studio super admins, any of whom may moderate a study."""
+) -> dict[str, Any]:
+    """The Studio super admins who may moderate a study -- shown only to a
+    Studio super admin, the only person who may choose one. An organisation's
+    own admin gets ``can_choose: false`` and no list (staff emails stay put)."""
     await get_project(db, project_id, ctx)
-    return [{"id": u.id, "name": u.name or "", "email": u.email} for u in await svc.moderators(db)]
+    if not await svc.is_moderator(db, ctx.user_id):
+        return {"can_choose": False, "moderators": []}
+    return {
+        "can_choose": True,
+        "moderators": [{"id": u.id, "name": u.name or "", "email": u.email} for u in await svc.moderators(db)],
+    }
 
 
 async def _availability_out(db: AsyncSession, study: Study) -> dict[str, Any]:
@@ -227,6 +234,9 @@ async def send_usability_booking_email(
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
     participant = await _participant(db, study, participant_id)
+    refusal = await svc.invite_refusal(db, study, participant)
+    if refusal:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=refusal)
     await svc.send_invite(
         study, participant, await svc.moderator_of(db, study), await svc.windows_of(db, study),
         await _organisation_name(db, study.account_id),

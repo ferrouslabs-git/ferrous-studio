@@ -75,6 +75,37 @@ async def moderator_of(db: AsyncSession, study: Study) -> User | None:
     return (await db.execute(select(User).where(User.id == study.moderator_user_id))).scalar_one_or_none()
 
 
+async def moderator_name(db: AsyncSession, study: Study) -> str:
+    """The moderator by name only (their email stays with Studio staff)."""
+    moderator = await moderator_of(db, study)
+    return (moderator.name or "Studio moderator") if moderator else ""
+
+
+#: Booking invites a study may send in a day, and how soon one participant may
+#: be sent another: a backstop against Studio's email being used to spam.
+INVITES_PER_STUDY_PER_DAY = 50
+RESEND_AFTER = timedelta(minutes=5)
+
+
+async def invite_refusal(db: AsyncSession, study: Study, participant: Participant) -> str | None:
+    """Why this invite may not go now, if it may not."""
+    now = utc_now()
+    if participant.invite_sent_at and now - participant.invite_sent_at < RESEND_AFTER:
+        return "An invite was sent to them a moment ago. Wait a few minutes before sending another."
+    sent_today = (
+        await db.execute(
+            select(Participant.id).where(
+                Participant.study_id == study.id,
+                Participant.account_id == study.account_id,
+                Participant.invite_sent_at > now - timedelta(days=1),
+            )
+        )
+    ).all()
+    if len(sent_today) >= INVITES_PER_STUDY_PER_DAY:
+        return f"This study has sent {INVITES_PER_STUDY_PER_DAY} invites in the last day. Try again tomorrow."
+    return None
+
+
 async def windows_of(db: AsyncSession, study: Study) -> list[Availability]:
     rows = await db.execute(
         select(Availability)

@@ -308,3 +308,46 @@ def test_a_window_with_a_booking_in_it_cannot_change():
     assert StudyUpdate(slot_gap_minutes=15).slot_gap_minutes == 15
     with pytest.raises(ValidationError):
         StudyUpdate(slot_gap_minutes=-5)
+
+
+def test_only_a_studio_super_admin_chooses_the_moderator_or_sees_who_they_could_be():
+    """A moderator's Google calendar is written to and read for the study, and
+    invites go out in their name, so an organisation's own admin must not be
+    able to pick (or list) Ferrous staff."""
+    import inspect
+
+    from app.studio.usability import booking, routes
+
+    update = inspect.getsource(routes.update_usability_study)
+    caller_check = update.index("await booking.is_moderator(db, ctx.user_id)")
+    assert caller_check < update.index("study.moderator_user_id = payload.moderator_user_id")
+    assert "HTTP_403_FORBIDDEN" in update[caller_check:]
+    listing = inspect.getsource(booking.list_usability_moderators)
+    assert listing.index("svc.is_moderator(db, ctx.user_id)") < listing.index("await svc.moderators(db)")
+    assert '{"can_choose": False, "moderators": []}' in listing
+
+
+async def test_invites_are_capped_per_participant_and_per_study():
+    class Rows:
+        def __init__(self, n):
+            self.n = n
+
+        def all(self):
+            return [object()] * self.n
+
+    class Db:
+        def __init__(self, n):
+            self.n = n
+
+        async def execute(self, _query):
+            return Rows(self.n)
+
+    from app.studio.models import utc_now
+
+    study = Study(name="Pilot", account_id=None)
+    fresh = Participant(code="P1", token="t")
+    assert await booking_service.invite_refusal(Db(0), study, fresh) is None
+    just_sent = Participant(code="P2", token="u", invite_sent_at=utc_now())
+    assert "a moment ago" in await booking_service.invite_refusal(Db(0), study, just_sent)
+    full = await booking_service.invite_refusal(Db(booking_service.INVITES_PER_STUDY_PER_DAY), study, fresh)
+    assert "in the last day" in full

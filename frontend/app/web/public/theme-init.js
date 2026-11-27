@@ -6,5 +6,7 @@
   try {
     if (localStorage.getItem("ferrous-theme") === "light") theme = "light";
   } catch (_) {}
+  // A usability participant's pages are always light (useFixedTheme).
+  if (/^\/(study|book)\//.test(location.pathname)) theme = "light";
   document.documentElement.setAttribute("data-theme", theme);
 })();

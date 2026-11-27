@@ -294,7 +294,7 @@ export function LandingPage() {
             </nav>
           </div>
           <p className="landing-legal">
-            Entendex Ltd trading as Ferrous Labs · 1 Empire Mews, Streatham, London SW16 2BF · London-based.
+            Entendex Ltd trading as Ferrous Labs · 41 Pitfield Street, Shoreditch, London N1 6DA · London-based.
             Building globally.
           </p>
         </div>

@@ -2,7 +2,7 @@
 // <html data-theme="..."> so the CSS custom properties in styles/tokens.css
 // switch. public/theme-init.js applies the stored value before first paint;
 // this module owns it from then on. Ported from legacy/js/app.global.js.
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type Theme = "dark" | "light";
 
@@ -45,4 +45,18 @@ export function useTheme(): [Theme, () => void] {
   }, []);
 
   return [theme, toggle];
+}
+
+/**
+ * Show this page in one theme whatever the viewer last chose, without
+ * storing it as their choice; the previous theme comes back when the page
+ * unmounts. For public pages (a usability participant's links) that always
+ * look the same to everyone.
+ */
+export function useFixedTheme(theme: Theme): void {
+  useEffect(() => {
+    const before = currentTheme();
+    document.documentElement.setAttribute("data-theme", theme);
+    return () => document.documentElement.setAttribute("data-theme", before);
+  }, [theme]);
 }

@@ -154,6 +154,16 @@ default consent form covers it.
     booking email*, sends the invite; an agent can record a contact email but
     its routes never send, and it cannot set the email copy, the moderator or
     the bookable times.
+13. **Only a Studio super admin chooses the moderator**, and only another
+    super admin (or themselves). The moderator's Google calendar is written
+    to and read for the study, and invites go out with their name, so an
+    organisation's own admin can neither pick Ferrous staff nor list them
+    (they see the moderator's name only). Until a super admin has put
+    themselves on a study, nothing is emailed and no calendar is touched.
+    Invites are capped at 50 per study per day, and one participant can be
+    re-sent one only after 5 minutes.
+14. **A participant's pages are always light**, whatever theme the browser
+    last used (`useFixedTheme`), without changing anyone's saved preference.
 
 ## Files
 

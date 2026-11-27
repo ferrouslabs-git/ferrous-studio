@@ -158,19 +158,24 @@ export function StudyEditor({
               onChange={(e) => auto.set({ app_url: e.target.value })}
             />
           </Labelled>
+          {/* Only a Studio super admin chooses the moderator: their calendar and name are used. */}
           <Labelled label="Moderator">
-            <select
-              className="input"
-              value={form.moderator_user_id ?? ""}
-              onChange={(e) => auto.set({ moderator_user_id: e.target.value || null })}
-            >
-              <option value="">Not chosen</option>
-              {(moderators.data ?? []).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name ? `${m.name} (${m.email})` : m.email}
-                </option>
-              ))}
-            </select>
+            {moderators.data?.can_choose ? (
+              <select
+                className="input"
+                value={form.moderator_user_id ?? ""}
+                onChange={(e) => auto.set({ moderator_user_id: e.target.value || null })}
+              >
+                <option value="">Not chosen</option>
+                {moderators.data.moderators.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name ? `${m.name} (${m.email})` : m.email}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input className="input" readOnly value={study.moderator_name || "Set by Ferrous Labs"} />
+            )}
           </Labelled>
           <Labelled label="Session length (minutes)">
             <input

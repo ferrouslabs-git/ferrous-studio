@@ -145,6 +145,8 @@ export interface Study
     > {
   content: StudyContent;
   consent_version: number;
+  /** The moderator by name, for those who cannot choose one. */
+  moderator_name: string;
   files: StudyFile[];
   participant_list: Participant[];
 }
@@ -299,8 +301,9 @@ export const captureTask = (
 export const sendBookingEmail = (projectId: string, studyId: string, participantId: string) =>
   apiPost<Participant>(`${one(projectId, studyId)}/participants/${participantId}/send-booking-email`, {});
 
+/** Only a Studio super admin may choose a moderator; anyone else gets `can_choose: false` and no list. */
 export const listModerators = (projectId: string) =>
-  apiGet<Moderator[]>(`/studio/projects/${projectId}/usability/moderators`);
+  apiGet<{ can_choose: boolean; moderators: Moderator[] }>(`/studio/projects/${projectId}/usability/moderators`);
 export const getAvailability = (projectId: string, studyId: string) =>
   apiGet<Availability>(`${one(projectId, studyId)}/availability`);
 export const addAvailability = (projectId: string, studyId: string, window: { starts_at: string; ends_at: string }) =>

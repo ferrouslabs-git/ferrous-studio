@@ -8,10 +8,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { errorMessage } from "../../../core/api";
+import { useFixedTheme } from "../../../core/theme";
 import { bookSlot, Booking, getBooking } from "./usabilityApi";
 import { dayIn, localZone, slotsByDay, timeIn, zoneName } from "./usabilityModel";
 
 export function BookingPage() {
+  // Participants always see Studio's light theme.
+  useFixedTheme("light");
   const { token = "" } = useParams();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { errorMessage } from "../../../core/api";
+import { useFixedTheme } from "../../../core/theme";
 import { formatDate } from "../../../core/format";
 import {
   completeSession,
@@ -50,6 +51,8 @@ function writeStep(token: string, id: string): void {
 }
 
 export function ParticipantPage() {
+  // Participants always see Studio's light theme.
+  useFixedTheme("light");
   const { token = "" } = useParams();
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);

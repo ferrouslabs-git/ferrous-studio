@@ -1,7 +1,7 @@
 // Minimal safe markdown renderer, ported from software-management's
 // mdToHtml (static/js/docs.js): escape everything first, then rebuild a
 // small subset (headings, bold/italic/code/links, lists, blockquotes, hr,
-// paragraphs, fenced code). ```mermaid fences are the one special-cased
+// paragraphs, fenced code, pipe tables). ```mermaid fences are the one special-cased
 // language -- rendered as diagrams once the HTML is in the DOM.
 //
 // mermaid is dynamically imported so it's only pulled into a separate chunk
@@ -22,17 +22,33 @@ function inline(s: string): string {
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, `<a href="$2" target="_blank" rel="noopener">$1</a>`);
 }
 
-function mdToHtml(md: string): string {
+export function mdToHtml(md: string): string {
   let html = "";
   let inCode = false;
   let codeLang = "";
   let list: "ul" | "ol" | null = null;
   let para: string[] = [];
+  // A pipe table: its rows so far, and whether the first is a header (a
+  // |---|---| separator follows it). Cells are escaped like every other line.
+  let table: string[][] = [];
+  let tableHead = false;
   const closeList = () => {
     if (list) {
       html += `</${list}>`;
       list = null;
     }
+  };
+  const closeTable = () => {
+    if (!table.length) return;
+    const row = (cells: string[], tag: "th" | "td") =>
+      "<tr>" + cells.map((c) => `<${tag}>${inline(c)}</${tag}>`).join("") + "</tr>";
+    const [first, ...rest] = table;
+    html +=
+      '<div class="md-table"><table>' +
+      (tableHead ? `<thead>${row(first, "th")}</thead><tbody>${rest.map((r) => row(r, "td")).join("")}</tbody>` : `<tbody>${table.map((r) => row(r, "td")).join("")}</tbody>`) +
+      "</table></div>";
+    table = [];
+    tableHead = false;
   };
   const flush = () => {
     if (para.length) {
@@ -43,6 +59,15 @@ function mdToHtml(md: string): string {
   for (const raw of String(md ?? "").split("\n")) {
     const line = esc(raw);
     const fence = line.trim().match(/^```(\S*)/);
+    if (!inCode && line.trim().startsWith("|")) {
+      flush();
+      closeList();
+      const cells = line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+      if (cells.every((c) => /^:?-{3,}:?$/.test(c))) tableHead = table.length === 1;
+      else table.push(cells);
+      continue;
+    }
+    closeTable();
     if (fence) {
       flush();
       closeList();
@@ -102,6 +127,7 @@ function mdToHtml(md: string): string {
   }
   flush();
   closeList();
+  closeTable();
   if (inCode) html += codeLang === "mermaid" ? "</pre>" : "</code></pre>";
   return html;
 }

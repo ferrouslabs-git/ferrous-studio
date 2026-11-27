@@ -292,6 +292,9 @@ async def _study_detail(db: AsyncSession, study: Study) -> dict[str, Any]:
         "consent_version": study.consent_version,
         **{name: getattr(study, name) or "" for name in ACCOUNT_FIELDS},
         "moderator_user_id": study.moderator_user_id,
+        # Who runs the sessions, by name: what an organisation's admin is shown
+        # in place of the list of super admins they cannot choose from.
+        "moderator_name": await booking.moderator_name(db, study),
         "session_minutes": study.session_minutes,
         "slot_gap_minutes": study.slot_gap_minutes or 0,
         "timezone": study.timezone or "Europe/London",
@@ -395,7 +398,14 @@ async def update_usability_study(
     if "timezone" in sent and payload.timezone:
         study.timezone = payload.timezone
     if "moderator_user_id" in sent and payload.moderator_user_id != study.moderator_user_id:
-        # A moderator is a Studio super admin: sessions go on their calendar.
+        # The moderator's Google calendar is written to and read on the
+        # study's behalf, and booking emails go out in their name, so only a
+        # Studio super admin may set or clear one -- never an organisation's
+        # own admin -- and only to a Studio super admin.
+        if not await booking.is_moderator(db, ctx.user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Only a Studio super admin can choose the moderator"
+            )
         if payload.moderator_user_id is not None and not await booking.is_moderator(db, payload.moderator_user_id):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A moderator must be a Studio super admin")
         old = study.moderator_user_id
@@ -619,7 +629,11 @@ async def add_usability_participant(
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
     participant = await _new_participant(db, study, payload)
-    if participant.contact_email:
+    refusal = await booking.invite_refusal(db, study, participant) if participant.contact_email else None
+    if refusal:
+        participant.invite_error = refusal
+        await db.flush()
+    elif participant.contact_email:
         await booking.send_invite(
             study, participant, await booking.moderator_of(db, study), await booking.windows_of(db, study),
             await _organisation_name(db, study.account_id),

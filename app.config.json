@@ -12,7 +12,7 @@
   "email": {
     "sender": "noreply@ferrouslabs.co.uk",
     "from_name": "Ferrous Studio",
-    "legal": "Entendex Ltd trading as Ferrous Labs \u00b7 1 Empire Mews, Streatham, London SW16 2BF"
+    "legal": "Entendex Ltd trading as Ferrous Labs \u00b7 41 Pitfield Street, Shoreditch, London N1 6DA"
   },
   "_platform_admin_comment": "Addresses granted platform admin at their next sign-in (PLATFORM_ADMIN_EMAILS -> app/auth/config.py). This is how a deployed environment gets admins without reaching the private RDS. Removing someone here does not demote them -- demote from Admin > Users.",
   "platform_admin_emails": "ali.nadian.82@gmail.com,ali@ferrouslabs.co.uk",

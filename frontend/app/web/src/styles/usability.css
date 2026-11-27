@@ -178,3 +178,23 @@ a.ustudy-v { color: var(--accent); }
 .usab-slot.past { color: var(--text-dim); opacity: .6; }
 .usab-window-edit { width: 100%; margin: 0; }
 .usab-booking-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+/* The card's primary buttons are taller and pushed down (sign-in); a picked slot must stay the size of the others. */
+.auth-card .book-slots .btn, .auth-card .book-slots .btn.primary { height: 34px; margin-top: 0; }
+
+/* The participant page uses the whole screen. With a file beside the task, the
+   file column stays in view while the cards scroll, and fills the height. */
+.ustudy-main { max-width: none; }
+.ustudy-cols-doc > .stack:last-child { position: sticky; top: 16px; }
+.ustudy-cols-doc .ustudy-doc { max-height: calc(100vh - 140px); }
+/* Too narrow for two columns beside the step rail: one column, file below. */
+@media (max-width: 1100px) {
+  .ustudy-cols-doc { grid-template-columns: 1fr; }
+  .ustudy-cols-doc > .stack:last-child { position: static; }
+  .ustudy-cols-doc .ustudy-doc { max-height: 70vh; }
+}
+
+/* Tables in a markdown file (here and on the docs pages). */
+.md-table { overflow-x: auto; margin: 8px 0 14px; }
+.md-table table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.md-table th, .md-table td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.md-table th { font-weight: 600; color: var(--text); background: var(--panel); }
