@@ -279,6 +279,13 @@ async def create_usability_study(
     """A blank study with the default protocol, consent form and script, or --
     when ``content`` is given -- one imported from an exported study file."""
     project = await get_project(db, project_id, ctx)
+    study = await _new_study(db, project, payload, ctx.user_id)
+    out = await _study_detail(db, study)
+    await db.commit()
+    return out
+
+
+async def _new_study(db: AsyncSession, project: Project, payload: StudyCreate, user_id: UUID) -> Study:
     if payload.content is not None:
         content = payload.content.model_dump()
     else:
@@ -291,7 +298,7 @@ async def create_usability_study(
         duration=payload.duration,
         app_url=payload.app_url,
         content=content,
-        created_by=ctx.user_id,
+        created_by=user_id,
     )
     db.add(study)
     await db.flush()
@@ -308,9 +315,18 @@ async def create_usability_study(
             )
         )
     await db.flush()
-    out = await _study_detail(db, study)
-    await db.commit()
-    return out
+    return study
+
+
+def _set_content(study: Study, new_content: dict[str, Any]) -> None:
+    """Replace the study's content. A participant keeps the wording they
+    agreed to, so any change to the consent form is a new version of it."""
+    old = study.content or {}
+    if (new_content["consent_title"], new_content["consent_text"]) != (
+        old.get("consent_title"), old.get("consent_text"),
+    ):
+        study.consent_version = (study.consent_version or 1) + 1
+    study.content = new_content
 
 
 @router.get(f"{BASE}/studies/{{study_id}}")
@@ -342,15 +358,7 @@ async def update_usability_study(
         if field_name in sent:
             setattr(study, field_name, getattr(payload, field_name) or None)
     if "content" in sent and payload.content is not None:
-        new_content = payload.content.model_dump()
-        old = study.content or {}
-        # A participant keeps the wording they agreed to, so any change to the
-        # consent form is a new version of it.
-        if (new_content["consent_title"], new_content["consent_text"]) != (
-            old.get("consent_title"), old.get("consent_text"),
-        ):
-            study.consent_version = (study.consent_version or 1) + 1
-        study.content = new_content
+        _set_content(study, payload.content.model_dump())
     await db.flush()
     out = await _study_detail(db, study)
     await db.commit()
@@ -383,16 +391,22 @@ async def clone_usability_study(
     """A new study with this one's content and files and nobody in it: its
     participants, captures and observations belong to the round they came from."""
     project = await get_project(db, project_id, ctx)
-    source = await _study(db, project, study_id)
+    clone = await _clone(db, await _study(db, project, study_id), payload.name, ctx.user_id)
+    out = await _study_detail(db, clone)
+    await db.commit()
+    return out
+
+
+async def _clone(db: AsyncSession, source: Study, name: str | None, user_id: UUID) -> Study:
     clone = Study(
         account_id=source.account_id,
         lineage_id=source.lineage_id,
-        name=payload.name or f"{source.name} (copy)",
+        name=name or f"{source.name} (copy)",
         persona=source.persona,
         duration=source.duration,
         app_url=source.app_url,
         content=StudyContent.model_validate(source.content).model_dump(),
-        created_by=ctx.user_id,
+        created_by=user_id,
     )
     db.add(clone)
     await db.flush()
@@ -404,9 +418,7 @@ async def clone_usability_study(
             )
         )
     await db.flush()
-    out = await _study_detail(db, clone)
-    await db.commit()
-    return out
+    return clone
 
 
 @router.get(f"{BASE}/studies/{{study_id}}/export")
@@ -419,7 +431,10 @@ async def export_usability_study(
     """The study's content and files as one document ``create_usability_study``
     accepts back -- to keep in a repository, or to carry to another project."""
     project = await get_project(db, project_id, ctx)
-    study = await _study(db, project, study_id)
+    return await _export(db, await _study(db, project, study_id))
+
+
+async def _export(db: AsyncSession, study: Study) -> dict[str, Any]:
     return {
         "name": study.name,
         "persona": study.persona,
@@ -541,6 +556,13 @@ async def add_usability_participant(
     """Add a participant and mint their link. Nothing is sent to them."""
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
+    participant = await _new_participant(db, study, payload)
+    out = _participant_out(study, participant, {})
+    await db.commit()
+    return out
+
+
+async def _new_participant(db: AsyncSession, study: Study, payload: ParticipantWrite) -> Participant:
     study.participant_seq = (study.participant_seq or 0) + 1
     participant = Participant(
         account_id=study.account_id,
@@ -553,9 +575,13 @@ async def add_usability_participant(
         setattr(participant, field_name, getattr(payload, field_name))
     db.add(participant)
     await db.flush()
-    out = _participant_out(study, participant, {})
-    await db.commit()
-    return out
+    return participant
+
+
+def _change_participant(participant: Participant, payload: ParticipantWrite) -> None:
+    for field_name in payload.model_fields_set:
+        if field_name in _PARTICIPANT_FIELDS:
+            setattr(participant, field_name, getattr(payload, field_name))
 
 
 @router.get(f"{BASE}/studies/{{study_id}}/participants/{{participant_id}}")
@@ -589,9 +615,7 @@ async def update_usability_participant(
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
     participant = await _participant(db, study, participant_id)
-    for field_name in payload.model_fields_set:
-        if field_name in _PARTICIPANT_FIELDS:
-            setattr(participant, field_name, getattr(payload, field_name))
+    _change_participant(participant, payload)
     await db.flush()
     out = _participant_out(study, participant, (await _results(db, study, [participant.id]))[participant.id])
     await db.commit()
@@ -635,15 +659,21 @@ async def capture_usability_task(
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
     participant = await _participant(db, study, participant_id)
+    out = await _capture(db, study, participant, task_id, payload)
+    await db.commit()
+    return out
+
+
+async def _capture(
+    db: AsyncSession, study: Study, participant: Participant, task_id: str, payload: CaptureWrite
+) -> dict[str, Any]:
     if task_id not in rules.task_ids(study.content):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such task in this study")
     row = await _result_row(db, participant, task_id)
     for field_name in payload.model_fields_set:
         setattr(row, field_name, getattr(payload, field_name))
     await db.flush()
-    out = _result_out(task_id, row)
-    await db.commit()
-    return out
+    return _result_out(task_id, row)
 
 
 # ── insights ────────────────────────────────────────────────────────────────
@@ -671,7 +701,10 @@ async def get_usability_insights(
     participants, the measures for every participant and task with their
     averages, and how often each word was chosen."""
     project = await get_project(db, project_id, ctx)
-    study = await _study(db, project, study_id)
+    return await _insights(db, await _study(db, project, study_id))
+
+
+async def _insights(db: AsyncSession, study: Study) -> dict[str, Any]:
     people = await _participants(db, study)
     results = await _results(db, study, [p.id for p in people])
     observations = (
@@ -748,6 +781,12 @@ async def add_usability_observation(
 ) -> dict[str, Any]:
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
+    out = _observation_out(await _new_observation(db, study, payload))
+    await db.commit()
+    return out
+
+
+async def _new_observation(db: AsyncSession, study: Study, payload: ObservationWrite) -> Observation:
     if not payload.text:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Say what was observed")
     await _check_observation(db, study, payload)
@@ -762,9 +801,7 @@ async def add_usability_observation(
     )
     db.add(observation)
     await db.flush()
-    out = _observation_out(observation)
-    await db.commit()
-    return out
+    return observation
 
 
 @router.patch(f"{BASE}/studies/{{study_id}}/observations/{{observation_id}}")
@@ -778,6 +815,14 @@ async def update_usability_observation(
 ) -> dict[str, Any]:
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
+    out = _observation_out(await _change_observation(db, study, observation_id, payload))
+    await db.commit()
+    return out
+
+
+async def _change_observation(
+    db: AsyncSession, study: Study, observation_id: UUID, payload: ObservationWrite
+) -> Observation:
     observation = (
         await db.execute(
             select(Observation).where(
@@ -804,9 +849,7 @@ async def update_usability_observation(
     if "participant_ids" in sent:
         observation.participant_ids = _id_strings(payload.participant_ids)
     await db.flush()
-    out = _observation_out(observation)
-    await db.commit()
-    return out
+    return observation
 
 
 @router.delete(f"{BASE}/studies/{{study_id}}/observations/{{observation_id}}", status_code=status.HTTP_204_NO_CONTENT)

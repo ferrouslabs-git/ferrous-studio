@@ -22,7 +22,8 @@ files and no participants. **Export** gives the same as one JSON file, which
 
 Only organisation admins can use it (`data:write`), reads included: a
 participant's row holds a test account's password. An agent holding a board
-token can write a study's tasks, and nothing else (see below).
+token can do everything but delete, and never sees a participant's link or
+password (see below).
 
 ## How a round runs
 
@@ -93,32 +94,47 @@ each, not in the documents bucket: they are small, a study must clone and
 export whole, and a participant has no session to presign a download for.
 They are always served as a download, never rendered.
 
-## Writing tasks from a repository (the MCP server)
+## The MCP server
 
-An agent connected through `board_mcp.py` can write a study's tasks from what
-a project's product really does. Ask it, in the product's repository, to
-"write usability study tasks for …"; it reads the code, then uses:
+An agent connected through `board_mcp.py` can do what the Usability section
+of Studio does, except delete. The main use is writing a study's tasks from
+what a project's product really does: ask it, in the product's repository, to
+"write usability study tasks for …"; it reads the code first. It can also run
+the rest of a round: add participants, record captures during or after a
+session, and write up observations from the insights.
 
 | Tool | What it does |
 |---|---|
 | `study_task_guide` | How to write tasks: the fields, which half the participant sees, what makes a good set. Read first |
-| `list_studies`, `get_study` | What exists: details, research questions, tasks, file names |
+| `list_studies`, `get_study` | What exists: details and the whole content (research questions, protocol, consent form, tasks, script, words), file names |
 | `create_study` | A new study with the default protocol, consent form and script, and no tasks |
-| `add_study_file` | Upload a file a task hands out: at most 2 MB, a data or text file from inside the project, never a hidden file or folder |
+| `update_study` | Details, status (open/closed), research questions, protocol, consent form, script (by section), word list |
+| `clone_study` | A copy with the content and files and nobody in it |
+| `export_study`, `import_study` | The Export document, written to / read from a JSON file in the project |
+| `add_study_file`, `download_study_file` | Upload a file a task hands out (at most 2 MB, a data or text file from inside the project, never a hidden file or folder); save one locally |
 | `add_study_tasks` | Append tasks in order. All or nothing, with the precise errors |
 | `update_study_task` | Correct one task by id |
+| `reorder_study_tasks` | A new order naming every task id once |
+| `list_study_participants`, `add_study_participant`, `update_study_participant` | Who takes part, their test account and session notes |
+| `get_participant_capture`, `capture_study_task` | One participant's capture; the moderator's time, errors, outcome and notes per task |
+| `get_study_insights` | The study across its participants: observations, measures and averages, word choices |
+| `add_study_observation`, `update_study_observation` | What was seen, against which task and participants, and a proposed fix |
 
 These call their own routes (`backend/app/studio/usability/agent_routes.py`,
-under `…/usability/agent/…`), not the editor's:
+under `…/usability/agent/…`), not the editor's, which stay closed to a board
+token. The differences:
 
-- **Nothing about a participant is returned or changed.** The editor's routes
-  stay closed to a board token because they return each participant's link
-  and test account password.
-- **An agent adds and corrects; it does not delete or replace.** Removing or
-  reordering tasks, and deleting a study, stay with a person.
-- **The protocol, consent form and script stay with a person.**
-- **A closed study refuses changes.**
+- **No link or password comes back.** A participant is returned without
+  their link token, and the test account password is write-only (an agent
+  sees `account_password_set`). Both would land in the agent's transcript. A
+  person copies links from Studio and sends them.
+- **Nothing is deleted** -- no study, task, participant, observation or file
+  -- and tasks are never replaced wholesale. A reorder must name every task.
+- **A closed study refuses changes** until `update_study(status="open")`.
+  Creating, importing and cloning are the other writes it allows.
 - A task may only list a file the study holds.
+- The participant's own rating, answer, consent and word choices come only
+  from their page.
 
 A board token is confined to the project it was minted for, and only an
 organisation admin can mint one. If the editor is open on the same study while
@@ -126,12 +142,13 @@ an agent writes to it, reload the page before editing: the editor saves the
 whole content and would otherwise put back what it loaded.
 
 The guide's text is `TASK_GUIDE` in `content.py`. The reachable routes are
-listed, with the reason, in `tests/test_board_token_routes.py`.
+listed, with the reason, in `tests/test_board_token_routes.py`. The MCP server
+the team's sessions use runs the deployed `board_mcp.py`, so new tools appear
+there only after a deploy and a session restart.
 
 ## Not built
 
 - Raising an observation as a board requirement or feedback item.
-- MCP tools that read a study's results (participants, captures, insights).
 - Choosing the application address from the project's environments (it is a
   plain field on the study, copied to each new participant).
 - Sending links, recording, and the final report.

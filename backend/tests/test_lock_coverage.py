@@ -78,8 +78,11 @@ EXEMPT = {
     "capture_usability_task",
     "add_usability_observation", "update_usability_observation", "delete_usability_observation",
     # The same studies, written by an agent through a board token.
-    "create_usability_study_for_agent", "add_usability_tasks", "update_usability_task",
-    "upload_usability_file_for_agent",
+    "create_usability_study_for_agent", "import_usability_study_for_agent", "update_usability_study_for_agent",
+    "clone_usability_study_for_agent", "add_usability_tasks", "update_usability_task", "reorder_usability_tasks",
+    "upload_usability_file_for_agent", "add_usability_participant_for_agent",
+    "update_usability_participant_for_agent", "capture_usability_task_for_agent",
+    "add_usability_observation_for_agent", "update_usability_observation_for_agent",
 }
 
 

@@ -198,11 +198,10 @@ class WordsIn(BaseModel):
 
 # ── an agent's side (a board token, through the MCP server) ─────────────────
 #
-# Narrower than the editor's on purpose. An agent writes what is tested --
-# research questions, tasks and the files tasks hand out -- and nothing a
-# participant agrees to (the protocol and consent form) or that belongs to a
-# round (participants, captures, observations). Unknown fields are refused
-# rather than dropped, so a misnamed one comes back as an error it can fix.
+# The editor's reach less deletion (agent_routes.py says why). Tasks have no
+# "replace all": they are appended, patched by id, or reordered. Unknown
+# fields are refused rather than dropped, so a misnamed one comes back as an
+# error the agent can fix.
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 MAX_AGENT_TASKS = 30
@@ -257,3 +256,65 @@ class AgentTasksIn(Lines):
     tasks: list[AgentTask] = Field(min_length=1, max_length=MAX_AGENT_TASKS)
     #: Replaces the study's research questions when given; left alone when not.
     research_questions: list[Line] | None = None
+
+
+class AgentScriptPatch(Lines):
+    """The moderator's script, section by section: a section sent replaces
+    that section, one not sent is left as it is."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    before: list[Line] | None = None
+    welcome: list[Line] | None = None
+    per_task: list[Line] | None = None
+    wrap_up: list[Line] | None = None
+    after: list[Line] | None = None
+
+
+class AgentStudyPatch(Lines):
+    """A study's details and content, field by field. Tasks are not here:
+    they are added, corrected and reordered by their own routes, so results
+    captured against one stay attached to it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Name | None = None
+    status: str | None = Field(None, pattern="^(open|closed)$")
+    persona: Short | None = None
+    duration: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
+    app_url: AppUrl | None = None
+    research_questions: list[Line] | None = None
+    protocol: list[Line] | None = None
+    consent_title: Short | None = None
+    consent_text: list[Line] | None = None
+    script: AgentScriptPatch | None = None
+    words: list[Short] | None = None
+    top_words: int | None = Field(None, ge=1, le=10)
+
+
+class AgentTaskOrder(BaseModel):
+    """Every task id of the study, once each, in the new order."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_ids: list[str] = Field(min_length=1)
+
+
+class AgentStudyImport(StudyCreate):
+    """A study made from an exported study document: content is required."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: StudyContent
+
+
+class AgentParticipantWrite(ParticipantWrite):
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentCaptureWrite(CaptureWrite):
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentObservationWrite(ObservationWrite):
+    model_config = ConfigDict(extra="forbid")
