@@ -17,8 +17,14 @@ from app.main import app
 from app.studio.usability import content as rules
 from app.studio.usability import agent_routes, routes
 from app.studio.usability.schemas import (
+    AgentCaptureWrite,
+    AgentObservationWrite,
+    AgentParticipantWrite,
     AgentStudyCreate,
+    AgentStudyImport,
+    AgentStudyPatch,
     AgentTask,
+    AgentTaskOrder,
     AgentTaskPatch,
     AgentTasksIn,
     CaptureWrite,
@@ -276,21 +282,93 @@ def test_a_board_token_reaches_only_the_agent_routes():
         assert ("require_studio_permission(" in source) == _is_agent_route(route), route.endpoint.__name__
 
 
-def test_an_agent_sees_and_touches_nothing_of_a_participant():
-    code = inspect.getsource(agent_routes).split('"""', 2)[2]     # past the module docstring, which names them
-    for name in ("Participant", "TaskResult", "Observation", "account_password", "token", "_study_detail"):
-        assert name not in code, f"agent_routes mentions {name}"
-    out = inspect.getsource(agent_routes._out).split('"""', 2)[2]
-    for key in ("consent", "protocol", "script", "participant"):
-        assert key not in out
+def test_an_agent_never_receives_a_participants_link_or_password():
+    """Anything an agent reads lands in its transcript."""
+    out = {"id": "p1", "code": "P1", "token": "secret-link", "account_password": "hunter2", "role": "Dev"}
+    view = agent_routes._participant_view(out)
+    assert "token" not in view and "account_password" not in view
+    assert view["account_password_set"] is True and view["role"] == "Dev"
+    assert agent_routes._participant_view({**out, "account_password": ""})["account_password_set"] is False
+    # every agent route that hands back a participant goes through the view
+    for route in _usability_routes():
+        source = inspect.getsource(route.endpoint)
+        if _is_agent_route(route) and "_participant_out(" in source:
+            assert source.count("_participant_out(") == source.count("_participant_view(_participant_out("), (
+                route.endpoint.__name__
+            )
+    # and nothing an agent reaches returns the editor's full study
+    assert "_study_detail" not in inspect.getsource(agent_routes)
 
 
 def test_an_agent_cannot_delete_or_replace_and_cannot_write_to_a_closed_study():
     agent = [r for r in _usability_routes() if _is_agent_route(r)]
     assert agent and not any("DELETE" in r.methods or "PUT" in r.methods for r in agent)
+    # new studies, a copy of a closed one, and reopening are the writes a closed study allows
+    exempt = {
+        "create_usability_study_for_agent", "import_usability_study_for_agent",
+        "clone_usability_study_for_agent", "update_usability_study_for_agent",
+    }
     for route in agent:
-        if route.methods & {"POST", "PATCH"} and route.endpoint.__name__ != "create_usability_study_for_agent":
+        if route.methods & {"POST", "PATCH"} and route.endpoint.__name__ not in exempt:
             assert "_open(await _study(" in inspect.getsource(route.endpoint), route.endpoint.__name__
+    assert "_open(study)" in inspect.getsource(agent_routes.update_usability_study_for_agent)
+
+
+def test_an_agents_study_change_takes_content_fields_but_not_tasks():
+    patch = AgentStudyPatch(protocol=["Read me", " "], script={"welcome": ["Hi"]}, status="closed")
+    assert patch.protocol == ["Read me"] and patch.script.model_fields_set == {"welcome"}
+    for bad in ({"tasks": []}, {"status": "archived"}, {"top_words": 0}, {"script": {"intro": []}}):
+        with pytest.raises(ValidationError):
+            AgentStudyPatch(**bad)
+
+
+@pytest.mark.parametrize(
+    "schema, field, value",
+    [
+        (AgentStudyCreate, "app_url", "https://elsewhere.example"),
+        (AgentStudyPatch, "app_url", "https://elsewhere.example"),
+        (AgentStudyPatch, "consent_title", "New terms"),
+        (AgentStudyPatch, "consent_text", ["You agree to anything"]),
+        (AgentParticipantWrite, "app_url", "https://elsewhere.example"),
+        (AgentStudyImport, "app_url", "https://elsewhere.example"),
+    ],
+)
+def test_an_agent_cannot_set_where_participants_go_or_what_they_sign(schema, field, value):
+    """An agent reads what participants typed, and anyone with a link can
+    type it; text steering the agent must not redirect participants or
+    rewrite their consent."""
+    base = {"name": "x"} if schema in (AgentStudyCreate, AgentStudyImport) else {}
+    if schema is AgentStudyImport:
+        base["content"] = rules.default_content("Acme Ltd")
+    with pytest.raises(ValidationError):
+        schema(**base, **{field: value})
+
+
+def test_an_imported_study_takes_the_default_consent_wording():
+    source = inspect.getsource(agent_routes.import_usability_study_for_agent)
+    assert '"consent_text": default["consent_text"]' in source and "app_url" not in source
+
+
+def test_an_agents_participant_capture_and_observation_refuse_unknown_fields():
+    assert AgentParticipantWrite(account_password="pw").model_fields_set == {"account_password"}
+    for schema, bad in ((AgentParticipantWrite, {"token": "x"}), (AgentParticipantWrite, {"code": "P9"}),
+                        (AgentCaptureWrite, {"rating": 5}), (AgentObservationWrite, {"id": "x"})):
+        with pytest.raises(ValidationError):
+            schema(**bad)
+    with pytest.raises(ValidationError):
+        AgentCaptureWrite(success="nearly")
+
+
+def test_an_agent_imports_only_a_whole_exported_study():
+    with pytest.raises(ValidationError):
+        AgentStudyImport(name="x")
+    made = AgentStudyImport(name="x", content=rules.default_content("Acme Ltd"))
+    assert made.content.consent_text
+
+
+def test_a_reorder_names_every_task():
+    with pytest.raises(ValidationError):
+        AgentTaskOrder(task_ids=[])
 
 
 def test_an_agents_task_needs_a_title_and_a_scenario_and_no_unknown_fields():

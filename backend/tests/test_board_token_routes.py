@@ -56,21 +56,33 @@ BOARD_TOKEN_ROUTES = {
     "list_designs",
     "get_design_brief",
     "set_design_figma",
-    # Usability studies (docs/usability-testing.md): an agent reads a project's
-    # repository and writes the study's tasks from what the product really
-    # does. These are a separate, narrower set than the editor's routes, which
-    # stay closed to a token because they return every participant with their
-    # link and test account password. Here an agent sees and writes only what
-    # is tested -- details, research questions, tasks, files -- and can add
-    # and correct but not delete or replace. The protocol, consent form,
-    # script, participants and everything captured stay with a person.
+    # Usability studies (docs/usability-testing.md): everything the editor
+    # does except delete, through a separate set of routes. The editor's stay
+    # closed to a token because they return every participant's link token
+    # and test account password; these never return either (the password is
+    # write-only), and nothing here removes a study, task, participant,
+    # observation or file.
     "usability_task_guide",
     "list_usability_studies_for_agent",
     "get_usability_study_for_agent",
     "create_usability_study_for_agent",
+    "import_usability_study_for_agent",
+    "update_usability_study_for_agent",
+    "clone_usability_study_for_agent",
+    "export_usability_study_for_agent",
     "add_usability_tasks",
     "update_usability_task",
+    "reorder_usability_tasks",
     "upload_usability_file_for_agent",
+    "download_usability_file_for_agent",
+    "list_usability_participants_for_agent",
+    "add_usability_participant_for_agent",
+    "get_usability_capture_for_agent",
+    "update_usability_participant_for_agent",
+    "capture_usability_task_for_agent",
+    "get_usability_insights_for_agent",
+    "add_usability_observation_for_agent",
+    "update_usability_observation_for_agent",
 }
 
 
