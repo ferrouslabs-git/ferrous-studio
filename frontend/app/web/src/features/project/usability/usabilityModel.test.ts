@@ -12,6 +12,7 @@ import {
   newTask,
   num,
   observationsCsv,
+  answersCsv,
   parseClock,
   parseStudyFile,
   participantLink,
@@ -142,12 +143,12 @@ describe("exports", () => {
     research_questions: [],
     tasks: [{ id: "t1", title: "Create the function" }],
     participants: [
-      { id: "p1", code: "P1", role: "", company: "", completed: true },
-      { id: "p2", code: "P2", role: "", company: "", completed: false },
+      { id: "p1", code: "P1", role: "", company: "", completed: true, session_notes: "" },
+      { id: "p2", code: "P2", role: "", company: "", completed: false, session_notes: "" },
     ],
     observations: [
-      { id: "o1", task_id: "t1", text: 'Did not find "Import", gave up', solution: "Label it", notes: "", participant_ids: ["p2"] },
-      { id: "o2", task_id: "gone", text: "Liked the layout", solution: "", notes: "", participant_ids: ["p1", "p2"] },
+      { id: "o1", task_id: "t1", text: 'Did not find "Import", gave up', solution: "Label it", notes: "", participant_ids: ["p2"], count: 1, seen_by: ["P2"] },
+      { id: "o2", task_id: "gone", text: "Liked the layout", solution: "", notes: "", participant_ids: ["p1", "p2"], count: 2, seen_by: ["P1", "P2"] },
     ],
     metrics: [
       {
@@ -164,8 +165,22 @@ describe("exports", () => {
       },
     ],
     words: [],
+    answers: [
+      {
+        task_id: "t1",
+        title: "Create the function",
+        prompt: "What is it called?",
+        answers: [{ participant_id: "p1", code: "P1", answer: "Revenue, by month" }],
+      },
+    ],
   };
 
+  it("writes one row per free-text answer, with the task and its question", () => {
+    const lines = answersCsv(insights).split("\r\n");
+    expect(lines[0]).toBe("Task,Question,Participant,Answer");
+    expect(lines[1]).toBe('Task 1 · Create the function,What is it called?,P1,"Revenue, by month"');
+    expect(lines).toHaveLength(2);
+  });
   it("quotes only the cells that need it", () => {
     expect(toCsv([["a", "b,c", 'say "hi"', null, 3]])).toBe('a,"b,c","say ""hi""",,3');
   });

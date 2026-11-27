@@ -14,8 +14,9 @@ under it:
 | Emails | The booking invite and confirmation copy |
 | Slots | When participants can book: the time zone, the gap between slots, windows of time (editable until someone books in one), and the slots they make |
 | Participants | Who takes part, their booking, the test account each uses, and their personal session link |
-| Observation capture | One capture per participant: the script to read, and per task a stopwatch, error count, outcome and notes |
+| Observation capture | One capture per participant: the script to read, and per task a stopwatch, error count, outcome, the study's observations to tick (or add to) and notes |
 | Study insights | The study across its participants: observations against participants, the measures with their averages, and the word choices |
+| Answers | What participants typed in answer to each task's question, task by task |
 
 There is no separate "test" object. To reuse or adjust a protocol, a consent
 form, tasks or a script, **clone** the study: the copy has the content and
@@ -56,8 +57,15 @@ password (see below).
    other files are downloads.
 5. The moderator opens the participant under Observation capture and runs the
    session from that screen. The participant's rating and answer appear within
-   about five seconds.
-6. Study insights collects the round. Observations and measures export as CSV.
+   about five seconds. Observations are one at a time and shared across the
+   study: each task lists every observation made for it in earlier sessions,
+   the moderator ticks the ones seen again, and anything new is added there
+   (ticked for this participant) for the next session to tick in turn.
+   General observations, not tied to a task, sit above the session notes.
+6. Study insights collects the round: each observation with who it was seen
+   with and how many. Answers shows the participants' free-text answers per
+   task. Observations, measures and answers export as CSV, and an agent reads
+   all of it through `get_study_insights` to write a findings report.
 
 ## Booking and the moderator's calendar
 
@@ -196,7 +204,7 @@ session, and write up observations from the insights.
 | `reorder_study_tasks` | A new order naming every task id once |
 | `list_study_participants`, `add_study_participant`, `update_study_participant` | Who takes part, their name and contact email, their test account, booking and session notes. Never sends a booking email |
 | `get_participant_capture`, `capture_study_task` | One participant's capture; the moderator's time, errors, outcome and notes per task |
-| `get_study_insights` | The study across its participants: observations, measures and averages, word choices |
+| `get_study_insights` | The study across its participants: observations (with count and who saw them), measures and averages, free-text answers per task, session notes, word choices |
 | `add_study_observation`, `update_study_observation` | What was seen, against which task and participants, and a proposed fix |
 
 These call their own routes (`backend/app/studio/usability/agent_routes.py`,

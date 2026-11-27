@@ -5,15 +5,24 @@
 // The participant's own rating and answer arrive from their page, so this
 // re-reads them every few seconds and merges in ONLY those fields: whatever
 // the moderator is typing is never overwritten.
-import { useCallback, useEffect, useRef, useState } from "react";
+//
+// Observations are the study's, not the participant's: one list per task,
+// shared by every capture. The moderator ticks the ones seen in this session
+// or adds a new one (ticked for this participant), and Study insights counts
+// them across participants.
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../../core/api";
 import { formatDateTime } from "../../../core/format";
 import { Card } from "./StudyEditor";
 import {
+  addObservation,
   Capture,
   CaptureInput,
   captureTask,
   getCapture,
+  listObservations,
+  markObservation,
+  Observation,
   Study,
   StudyTask,
   Success,
@@ -83,6 +92,19 @@ function ParticipantCapture({ projectId, study, participantId }: { projectId: st
   const [capture, setCapture] = useState<Capture | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [observations, setObservations] = useState<Observation[]>([]);
+  // Ticks still being saved: a poll that started before them would undo them on screen.
+  const saving = useRef(0);
+
+  const loadObservations = useCallback(() => {
+    if (saving.current > 0) return Promise.resolve();
+    return listObservations(projectId, study.id).then((list) => {
+      if (saving.current === 0) setObservations(list);
+    });
+  }, [projectId, study.id]);
+  useEffect(() => {
+    loadObservations().catch((err) => setError(errorMessage(err)));
+  }, [loadObservations]);
 
   const load = useCallback(() => {
     getCapture(projectId, study.id, participantId)
@@ -118,9 +140,48 @@ function ParticipantCapture({ projectId, study, participantId }: { projectId: st
         .catch(() => {
           // A missed poll is retried in a few seconds.
         });
+      // Another moderator (or another capture) may have added observations.
+      loadObservations().catch(() => undefined);
     }, POLL_MS);
     return () => clearInterval(timer);
-  }, [projectId, study.id, participantId]);
+  }, [projectId, study.id, participantId, loadObservations]);
+
+  const mark = async (o: Observation, seen: boolean) => {
+    setError(null);
+    saving.current += 1;
+    // Tick at once; a failed save puts back the server's list.
+    setObservations((list) =>
+      list.map((x) =>
+        x.id === o.id
+          ? {
+              ...x,
+              participant_ids: seen ? [...x.participant_ids, participantId] : x.participant_ids.filter((id) => id !== participantId),
+              count: x.count + (seen ? 1 : -1),
+            }
+          : x,
+      ),
+    );
+    let failed = false;
+    try {
+      const saved = await markObservation(projectId, study.id, o.id, participantId, seen);
+      if (saved) setObservations((list) => list.map((x) => (x.id === saved.id ? saved : x)));
+    } catch (err) {
+      setError(`Not saved: ${errorMessage(err)}`);
+      failed = true;
+    } finally {
+      saving.current -= 1;
+    }
+    if (failed) await loadObservations().catch(() => undefined);
+  };
+  const add = async (taskId: string | null, text: string) => {
+    setError(null);
+    try {
+      const made = await addObservation(projectId, study.id, { task_id: taskId, text, participant_ids: [participantId] });
+      setObservations((list) => [...list, made]);
+    } catch (err) {
+      setError(`Not saved: ${errorMessage(err)}`);
+    }
+  };
 
   const save = async (taskId: string, input: CaptureInput) => {
     setError(null);
@@ -209,7 +270,26 @@ function ParticipantCapture({ projectId, study, participantId }: { projectId: st
 
       {study.content.tasks.map((task, i) => {
         const result = capture.tasks.find((t) => t.task_id === task.id);
-        return result && <TaskCapture key={task.id} index={i} task={task} result={result} onSave={(input) => void save(task.id, input)} />;
+        return (
+          result && (
+            <TaskCapture
+              key={task.id}
+              index={i}
+              task={task}
+              result={result}
+              onSave={(input) => void save(task.id, input)}
+              observations={
+                <ObservationList
+                  label={`Task ${i + 1}`}
+                  items={observations.filter((o) => o.task_id === task.id)}
+                  participantId={participantId}
+                  onMark={(o, seen) => void mark(o, seen)}
+                  onAdd={(text) => void add(task.id, text)}
+                />
+              }
+            />
+          )
+        );
       })}
 
       <Card title="Wrap-up" note="Read aloud">
@@ -220,6 +300,16 @@ function ParticipantCapture({ projectId, study, participantId }: { projectId: st
             {capture.words.length > capture.top_words.length && ` (from ${capture.words.length} ticked)`}
           </p>
         )}
+      </Card>
+
+      <Card title="General observations" note="Not tied to one task">
+        <ObservationList
+          label="General"
+          items={observations.filter((o) => o.task_id === null || !study.content.tasks.some((t) => t.id === o.task_id))}
+          participantId={participantId}
+          onMark={(o, seen) => void mark(o, seen)}
+          onAdd={(text) => void add(null, text)}
+        />
       </Card>
 
       <Card title="Session notes">
@@ -250,16 +340,87 @@ function Lines({ items, read }: { items: string[]; read?: boolean }) {
   );
 }
 
+/** The study's observations for one task (or general ones), each ticked if
+ * seen with this participant, and a box to add another (seen with them).
+ * Shared across every participant's capture, so the next session just ticks
+ * what recurs. */
+function ObservationList({
+  label,
+  items,
+  participantId,
+  onMark,
+  onAdd,
+}: {
+  label: string;
+  items: Observation[];
+  participantId: string;
+  onMark: (o: Observation, seen: boolean) => void;
+  onAdd: (text: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const submit = () => {
+    if (!text.trim()) return;
+    onAdd(text.trim());
+    setText("");
+  };
+  return (
+    <div className="usab-obs" data-testid={`observations-${label}`}>
+      {items.length > 0 && (
+        <ul className="usab-obs-list">
+          {items.map((o) => {
+            const seen = o.participant_ids.includes(participantId);
+            const others = o.count - (seen ? 1 : 0);
+            return (
+              <li key={o.id}>
+                <label className={`usab-obs-item${seen ? " seen" : ""}`}>
+                  <input type="checkbox" checked={seen} onChange={() => onMark(o, !seen)} aria-label={`Seen: ${o.text}`} />
+                  <span className="usab-grow">{o.text}</span>
+                  {others > 0 && (
+                    <span className="muted usab-obs-count">
+                      +{others} other{others === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="row">
+        <input
+          className="input usab-grow"
+          placeholder={items.length ? "Add another observation" : "Add an observation"}
+          aria-label={`New observation for ${label}`}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button type="button" className="btn small" disabled={!text.trim()} onClick={submit}>
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TaskCapture({
   index,
   task,
   result,
   onSave,
+  observations,
 }: {
   index: number;
   task: StudyTask;
   result: TaskResult;
   onSave: (input: CaptureInput) => void;
+  /** The task's shared observation list. */
+  observations: ReactNode;
 }) {
   // The stopwatch counts on top of whatever time is already saved, so a task
   // that was paused (or a page that was reloaded) carries on rather than restarting.
@@ -399,12 +560,16 @@ function TaskCapture({
               ))}
             </div>
           </div>
-          <label className="drawer-field">
+          <div className="drawer-field">
             <span className="drawer-field-label">Observations</span>
+            {observations}
+          </div>
+          <label className="drawer-field">
+            <span className="drawer-field-label">Notes for this participant</span>
             <textarea
               className="input textarea usab-wide"
-              rows={5}
-              aria-label={`Task ${no} observations`}
+              rows={2}
+              aria-label={`Task ${no} notes`}
               defaultValue={result.observations}
               onBlur={(e) => {
                 if (e.target.value !== result.observations) onSave({ observations: e.target.value });

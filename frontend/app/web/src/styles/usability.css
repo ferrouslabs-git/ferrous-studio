@@ -200,3 +200,23 @@ a.ustudy-v { color: var(--accent); }
 .md-table th { font-weight: 600; color: var(--text); background: var(--panel); }
 /* Under the rating, not at the foot of the page. */
 .ustudy-nav.ustudy-nav-task { margin-top: 0; flex-wrap: wrap; }
+
+/* Capture: the study's observations for a task, ticked when seen with this participant. */
+.usab-obs { display: flex; flex-direction: column; gap: 8px; }
+.usab-obs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.usab-obs-item {
+  display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 13px; line-height: 1.45;
+}
+.usab-obs-item input[type="checkbox"] {
+  margin: 2px 0 0; flex: none; width: 16px; height: 16px; min-height: 0; padding: 0;
+  border: 0; background: none; box-shadow: none; accent-color: var(--accent);
+}
+.usab-obs-item.seen { border-color: var(--accent); background: var(--panel); }
+.usab-obs-count { flex: none; font-size: 12px; white-space: nowrap; }
+
+/* Answers: what participants typed, task by task. */
+.usab-answers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.usab-answers li { display: flex; gap: 10px; font-size: 13px; line-height: 1.5; }
+.usab-answers li b { flex: none; min-width: 32px; }
+.usab-answers li span { white-space: pre-wrap; }

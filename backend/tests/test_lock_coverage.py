@@ -77,6 +77,7 @@ EXEMPT = {
     "add_usability_participant", "update_usability_participant", "remove_usability_participant",
     "capture_usability_task",
     "add_usability_observation", "update_usability_observation", "delete_usability_observation",
+    "mark_usability_observation", "unmark_usability_observation",
     # The same studies, written by an agent through a board token.
     "create_usability_study_for_agent", "import_usability_study_for_agent", "update_usability_study_for_agent",
     "clone_usability_study_for_agent", "add_usability_tasks", "update_usability_task", "reorder_usability_tasks",

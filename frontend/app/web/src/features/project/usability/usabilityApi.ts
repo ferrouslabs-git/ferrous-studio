@@ -179,6 +179,15 @@ export interface Observation {
   solution: string;
   notes: string;
   participant_ids: string[];
+  count: number;
+}
+
+/** What participants typed in answer to one task's question. */
+export interface TaskAnswers {
+  task_id: string;
+  title: string;
+  prompt: string;
+  answers: { participant_id: string; code: string; answer: string }[];
 }
 
 export interface Stat {
@@ -191,8 +200,8 @@ export interface Stat {
 export interface Insights {
   research_questions: string[];
   tasks: { id: string; title: string }[];
-  participants: { id: string; code: string; role: string; company: string; completed: boolean }[];
-  observations: Observation[];
+  participants: { id: string; code: string; role: string; company: string; completed: boolean; session_notes: string }[];
+  observations: (Observation & { seen_by: string[] })[];
   metrics: {
     task_id: string;
     title: string;
@@ -203,6 +212,7 @@ export interface Insights {
     rating: Stat;
   }[];
   words: { word: string; chosen: number; top: number }[];
+  answers: TaskAnswers[];
 }
 
 /** A study as one document: what Export gives and Import takes. */
@@ -331,6 +341,19 @@ export const updateObservation = (
   observationId: string,
   patch: Partial<Omit<Observation, "id">>,
 ) => apiPatch<Observation>(`${one(projectId, studyId)}/observations/${observationId}`, patch);
+export const listObservations = (projectId: string, studyId: string) =>
+  apiGet<Observation[]>(`${one(projectId, studyId)}/observations`);
+/** Tick (seen) or untick one participant on one observation. */
+export const markObservation = (
+  projectId: string,
+  studyId: string,
+  observationId: string,
+  participantId: string,
+  seen: boolean,
+) => {
+  const path = `${one(projectId, studyId)}/observations/${observationId}/participants/${participantId}`;
+  return seen ? apiPut<Observation>(path, {}) : apiDelete(path);
+};
 export const deleteObservation = (projectId: string, studyId: string, observationId: string) =>
   apiDelete(`${one(projectId, studyId)}/observations/${observationId}`);
 

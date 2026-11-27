@@ -148,6 +148,15 @@ export function observationsCsv(ins: Insights): string {
   return toCsv([head, ...rows]);
 }
 
+/** Every free-text answer, one row per answer: Task, Question, Participant, Answer. */
+export function answersCsv(ins: Insights): string {
+  const taskNo = new Map(ins.tasks.map((t, i) => [t.id, i + 1]));
+  const rows = ins.answers.flatMap((t) =>
+    t.answers.map((a) => [`Task ${taskNo.get(t.task_id) ?? "?"}${t.title ? ` · ${t.title}` : ""}`, t.prompt, a.code, a.answer]),
+  );
+  return toCsv([["Task", "Question", "Participant", "Answer"], ...rows]);
+}
+
 export function slug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "study";
 }

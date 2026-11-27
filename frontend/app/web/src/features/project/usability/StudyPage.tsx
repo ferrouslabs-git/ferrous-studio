@@ -1,12 +1,13 @@
 // One usability study. Everything about a round of testing lives under it, as
 // sub-sections: the study itself (what is tested), the booking emails and the
 // times participants can book, its participants, the observation capture for
-// each participant, and the study's insights.
+// each participant, the study's insights, and the participants' answers.
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { errorMessage } from "../../../core/api";
 import { useLoad } from "../../../core/useLoad";
 import { useProject } from "../ProjectLayout";
+import { StudyAnswers } from "./StudyAnswers";
 import { StudyCapture } from "./StudyCapture";
 import { StudyEditor } from "./StudyEditor";
 import { StudyEmails } from "./StudyEmails";
@@ -22,6 +23,7 @@ const SECTIONS = [
   { id: "participants", label: "Participants" },
   { id: "capture", label: "Observation capture" },
   { id: "insights", label: "Study insights" },
+  { id: "answers", label: "Answers" },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -131,6 +133,7 @@ export function StudyPage() {
         />
       )}
       {active === "insights" && <StudyInsights projectId={project.id} study={data} />}
+      {active === "answers" && <StudyAnswers projectId={project.id} study={data} />}
     </div>
   );
 }

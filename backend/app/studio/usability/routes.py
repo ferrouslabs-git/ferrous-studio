@@ -772,6 +772,7 @@ def _observation_out(observation: Observation) -> dict[str, Any]:
         "solution": observation.solution or "",
         "notes": observation.notes or "",
         "participant_ids": observation.participant_ids or [],
+        "count": len(observation.participant_ids or []),
     }
 
 
@@ -826,16 +827,36 @@ async def _insights(db: AsyncSession, study: Study) -> dict[str, Any]:
         key=lambda w: (-w["top"], -w["chosen"], w["word"]),
     )
 
+    codes = {str(p.id): p.code for p in people}
+    observations_out = [
+        {**_observation_out(o), "seen_by": [codes[pid] for pid in (o.participant_ids or []) if pid in codes]}
+        for o in observations
+    ]
+
+    # What participants typed in answer to a task's question, task by task.
+    answers = []
+    for task in study.content.get("tasks", []):
+        given = [
+            {"participant_id": p.id, "code": p.code, "answer": row.answer}
+            for p in people
+            if (row := results[p.id].get(task["id"])) is not None and (row.answer or "").strip()
+        ]
+        if task.get("answer_prompt") or given:
+            answers.append(
+                {"task_id": task["id"], "title": task.get("title", ""), "prompt": task.get("answer_prompt") or "", "answers": given}
+            )
+
     return {
         "research_questions": study.content.get("research_questions", []),
         "tasks": [{"id": t["id"], "title": t.get("title", "")} for t in study.content.get("tasks", [])],
         "participants": [
             {"id": p.id, "code": p.code, "role": p.role or "", "company": p.company or "",
-             "completed": p.completed_at is not None}
+             "completed": p.completed_at is not None, "session_notes": p.session_notes or ""}
             for p in people
         ],
-        "observations": [_observation_out(o) for o in observations],
+        "observations": observations_out,
         "metrics": metrics,
+        "answers": answers,
         "words": words,
     }
 
@@ -935,6 +956,83 @@ async def _change_observation(
         observation.participant_ids = _id_strings(payload.participant_ids)
     await db.flush()
     return observation
+
+
+@router.get(f"{BASE}/studies/{{study_id}}/observations")
+async def list_usability_observations(
+    project_id: UUID,
+    study_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:write")),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Every observation in the study, oldest first: what the capture form
+    offers to tick for the next participant."""
+    project = await get_project(db, project_id, ctx)
+    study = await _study(db, project, study_id)
+    rows = await db.execute(
+        select(Observation)
+        .where(Observation.study_id == study.id, Observation.account_id == study.account_id)
+        .order_by(Observation.created_at.asc())
+    )
+    return [_observation_out(o) for o in rows.scalars()]
+
+
+async def _mark(
+    db: AsyncSession, study: Study, observation_id: UUID, participant_id: UUID, seen: bool
+) -> dict[str, Any]:
+    """Tick or untick one participant on one observation. The row is locked so
+    two moderators ticking the same observation at once both count."""
+    await _participant(db, study, participant_id)
+    observation = (
+        await db.execute(
+            select(Observation)
+            .where(
+                Observation.id == observation_id,
+                Observation.study_id == study.id,
+                Observation.account_id == study.account_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if observation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
+    ids = set(observation.participant_ids or [])
+    (ids.add if seen else ids.discard)(str(participant_id))
+    observation.participant_ids = sorted(ids)
+    await db.flush()
+    return _observation_out(observation)
+
+
+@router.put(f"{BASE}/studies/{{study_id}}/observations/{{observation_id}}/participants/{{participant_id}}")
+async def mark_usability_observation(
+    project_id: UUID,
+    study_id: UUID,
+    observation_id: UUID,
+    participant_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Seen with this participant too."""
+    project = await get_project(db, project_id, ctx)
+    out = await _mark(db, await _study(db, project, study_id), observation_id, participant_id, True)
+    await db.commit()
+    return out
+
+
+@router.delete(f"{BASE}/studies/{{study_id}}/observations/{{observation_id}}/participants/{{participant_id}}")
+async def unmark_usability_observation(
+    project_id: UUID,
+    study_id: UUID,
+    observation_id: UUID,
+    participant_id: UUID,
+    ctx: ScopeContext = Depends(require_permission("data:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Not seen with this participant after all."""
+    project = await get_project(db, project_id, ctx)
+    out = await _mark(db, await _study(db, project, study_id), observation_id, participant_id, False)
+    await db.commit()
+    return out
 
 
 @router.delete(f"{BASE}/studies/{{study_id}}/observations/{{observation_id}}", status_code=status.HTTP_204_NO_CONTENT)

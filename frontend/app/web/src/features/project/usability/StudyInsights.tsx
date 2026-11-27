@@ -12,6 +12,7 @@ import {
   deleteObservation,
   getInsights,
   Insights,
+  markObservation,
   Observation,
   Stat,
   Study,
@@ -83,12 +84,12 @@ export function StudyInsights({ projectId, study }: { projectId: string; study: 
   const patch = (o: Observation, body: Partial<Omit<Observation, "id">>) =>
     act(() => updateObservation(projectId, study.id, o.id, body));
   const toggle = (o: Observation, participantId: string) => {
-    const participant_ids = o.participant_ids.includes(participantId)
-      ? o.participant_ids.filter((id) => id !== participantId)
-      : [...o.participant_ids, participantId];
+    const seen = !o.participant_ids.includes(participantId);
+    const participant_ids = seen ? [...o.participant_ids, participantId] : o.participant_ids.filter((id) => id !== participantId);
     // Tick at once; the reload after the save puts back the truth if it failed.
+    // One participant at a time, so a tick made in a capture meanwhile is kept.
     setIns((cur) => cur && { ...cur, observations: cur.observations.map((x) => (x.id === o.id ? { ...x, participant_ids } : x)) });
-    return patch(o, { participant_ids });
+    return act(() => markObservation(projectId, study.id, o.id, participantId, seen));
   };
 
   const people = ins.participants;
