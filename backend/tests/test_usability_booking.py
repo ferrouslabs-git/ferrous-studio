@@ -268,3 +268,13 @@ def test_free_slots_reads_the_moderators_calendar_only_when_connected():
     source = open(booking_service.__file__, encoding="utf-8").read()
     assert "if moderator is not None and calendar.configured() and reach:" in source
     assert timedelta(minutes=1) == calendar.range_of([(at(9), at(10))])[1] - at(10)
+
+
+def test_deleting_a_study_takes_its_sessions_and_holds_off_the_calendar():
+    import inspect
+
+    from app.studio.usability import routes
+
+    source = inspect.getsource(routes.delete_usability_study)
+    assert source.index("booking.cancel_session(") < source.index("await db.delete(study)")
+    assert source.index("booking.release(") < source.index("await db.delete(study)")

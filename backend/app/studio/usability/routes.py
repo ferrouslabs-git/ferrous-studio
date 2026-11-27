@@ -415,9 +415,15 @@ async def delete_usability_study(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Deletes the study with its files, participants, captures and
-    observations (they cascade)."""
+    observations (they cascade). Its booked sessions come off the
+    moderator's calendar (Google tells the participants) and its holds go."""
     project = await get_project(db, project_id, ctx)
     study = await _study(db, project, study_id)
+    moderator = await booking.moderator_of(db, study)
+    for participant in await _participants(db, study):
+        await booking.cancel_session(participant, moderator)
+    for window in await booking.windows_of(db, study):
+        await booking.release(window, moderator)
     await db.delete(study)
     await db.commit()
 

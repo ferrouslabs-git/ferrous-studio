@@ -79,7 +79,8 @@ sed \
 # runs without that feature) rather than breaking the deploy.
 for OPTIONAL in GOOGLE_SERVICE_ACCOUNT_JSON; do
   PARAM="/$PRODUCT/$ENV_NAME/$OPTIONAL"
-  FOUND=$(aws ssm describe-parameters --region "$REGION" --parameter-filters "Key=Name,Values=$PARAM" --query "length(Parameters)" --output text)
+  # MSYS_NO_PATHCONV: Git Bash on Windows would rewrite the leading / of the name into a Windows path.
+  FOUND=$(MSYS_NO_PATHCONV=1 aws ssm describe-parameters --region "$REGION" --parameter-filters "Key=Name,Values=$PARAM" --query "length(Parameters)" --output text)
   if [ "$FOUND" != "1" ]; then
     echo "  $PARAM not set -- deploying without it"
     sed -i.bak "/\"$OPTIONAL\"/d" "$RENDERED" && rm -f "$RENDERED.bak"
