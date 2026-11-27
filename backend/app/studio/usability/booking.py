@@ -59,25 +59,30 @@ async def list_usability_moderators(
 
 
 async def _availability_out(db: AsyncSession, study: Study) -> dict[str, Any]:
-    """The windows, every slot they make (booked, busy or free) and what stops
-    booking, for the Slots tab."""
+    """The windows, every slot they make (booked, past, busy or free) and what
+    stops booking, for the Slots tab. Slots already started are shown as
+    past, not left out, so the preview always starts at the window's start."""
     moderator = await svc.moderator_of(db, study)
     windows = await svc.windows_of(db, study)
-    booked = {
-        p.booked_start: p for p in await _participants(db, study) if p.booked_start is not None
-    }
-    every = rules.slots([(w.starts_at, w.ends_at) for w in windows], study.session_minutes or 0, [], utc_now())
+    people = await _participants(db, study)
+    booked = {p.booked_start: p for p in people if p.booked_start is not None}
+    now = utc_now()
+    every = rules.slots(
+        [(w.starts_at, w.ends_at) for w in windows], study.session_minutes or 0, [], datetime.min,
+        study.slot_gap_minutes or 0,
+    )
     calendar_error = None
     try:
         free = set(await svc.free_slots(db, study, moderator, windows))
     except calendar.CalendarError as e:
-        free, calendar_error = set(every), str(e)
+        free, calendar_error = {s for s in every if s > now}, str(e)
     slots = []
     for start in sorted(set(every) | set(booked)):
         who = booked.get(start)
+        state = "booked" if who else "past" if start <= now else "free" if start in free else "busy"
         slots.append({
             "start": iso(start),
-            "state": "booked" if who else ("free" if start in free else "busy"),
+            "state": state,
             "participant": {"id": who.id, "code": who.code, "name": who.name or ""} if who else None,
         })
     return {
@@ -88,6 +93,8 @@ async def _availability_out(db: AsyncSession, study: Study) -> dict[str, Any]:
             {
                 "id": w.id, "starts_at": iso(w.starts_at), "ends_at": iso(w.ends_at),
                 "held": bool(w.google_hold_id), "hold_error": w.hold_error,
+                # a window with a booking in it cannot be changed
+                "booked": bool(svc.booked_in(w, people)),
             }
             for w in windows
         ],
@@ -123,6 +130,41 @@ async def add_usability_availability(
     db.add(window)
     await db.flush()
     await svc.hold(study, window, await svc.moderator_of(db, study))
+    await db.flush()
+    out = await _availability_out(db, study)
+    await db.commit()
+    return out
+
+
+@router.patch(f"{BASE}/studies/{{study_id}}/availability/{{window_id}}")
+async def update_usability_availability(
+    project_id: UUID,
+    study_id: UUID,
+    window_id: UUID,
+    payload: AvailabilityIn,
+    ctx: ScopeContext = Depends(require_permission("data:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Move a window or change its times, and move its hold with it. Refused
+    while anyone has a session booked inside it: their booking was made
+    against these times."""
+    project = await get_project(db, project_id, ctx)
+    study = await _study(db, project, study_id)
+    window = next((w for w in await svc.windows_of(db, study) if w.id == window_id), None)
+    if window is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Window not found")
+    if svc.booked_in(window, await _participants(db, study)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Someone has booked a session in these times, so they cannot be changed",
+        )
+    if payload.ends_at <= utc_now():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="That time has passed")
+    moderator = await svc.moderator_of(db, study)
+    await svc.release(window, moderator)
+    window.google_hold_id = None
+    window.starts_at, window.ends_at = payload.starts_at, payload.ends_at
+    await svc.hold(study, window, moderator)
     await db.flush()
     out = await _availability_out(db, study)
     await db.commit()

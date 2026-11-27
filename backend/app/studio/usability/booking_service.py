@@ -148,7 +148,15 @@ async def free_slots(
     if moderator is not None and calendar.configured() and reach:
         own = {participant.google_event_id} if participant and participant.google_event_id else set()
         busy += await calendar.busy(moderator.email, *reach, ignore=own)
-    return rules.slots(spans, study.session_minutes or 0, busy, utc_now())
+    return rules.slots(spans, study.session_minutes or 0, busy, utc_now(), study.slot_gap_minutes or 0)
+
+
+def booked_in(window: Availability, participants: list[Participant]) -> list[Participant]:
+    """Who has a session booked inside a window: such a window cannot change."""
+    return [
+        p for p in participants
+        if p.booked_start is not None and window.starts_at <= p.booked_start < window.ends_at
+    ]
 
 
 # ── emails ──────────────────────────────────────────────────────────────────

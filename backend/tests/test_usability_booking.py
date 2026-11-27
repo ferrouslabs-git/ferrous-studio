@@ -278,3 +278,33 @@ def test_deleting_a_study_takes_its_sessions_and_holds_off_the_calendar():
     source = inspect.getsource(routes.delete_usability_study)
     assert source.index("booking.cancel_session(") < source.index("await db.delete(study)")
     assert source.index("booking.release(") < source.index("await db.delete(study)")
+
+
+def test_slots_start_at_the_windows_start_and_leave_the_gap_between_them():
+    # 14:00 to 17:00, 60-minute sessions
+    assert rules.slots([(at(14), at(17))], 60, [], NOW) == [at(14), at(15), at(16)]
+    # with a 15-minute gap: 14:00, 15:15; 16:30 would end at 17:30, past the window
+    assert rules.slots([(at(14), at(17))], 60, [], NOW, gap=15) == [at(14), at(15, 15)]
+    # the last slot needs no gap after it
+    assert rules.slots([(at(14), at(16, 15))], 60, [], NOW, gap=15) == [at(14), at(15, 15)]
+    # a slot already started is not offered (the Slots preview shows it as past)
+    assert rules.slots([(at(14), at(17))], 60, [], at(14, 5)) == [at(15), at(16)]
+
+
+def test_a_window_with_a_booking_in_it_cannot_change():
+    import inspect
+
+    from app.studio.usability import booking
+
+    window = __import__("app.studio.usability.models", fromlist=["Availability"]).Availability(
+        starts_at=at(14), ends_at=at(17)
+    )
+    inside = Participant(code="P1", token="t", booked_start=at(15))
+    outside = Participant(code="P2", token="u", booked_start=at(17))
+    assert booking_service.booked_in(window, [inside, outside]) == [inside]
+    source = inspect.getsource(booking.update_usability_availability)
+    assert source.index("svc.booked_in(") < source.index("window.starts_at, window.ends_at =")
+    assert source.index("svc.release(") < source.index("svc.hold(")
+    assert StudyUpdate(slot_gap_minutes=15).slot_gap_minutes == 15
+    with pytest.raises(ValidationError):
+        StudyUpdate(slot_gap_minutes=-5)

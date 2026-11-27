@@ -3,6 +3,7 @@ import type { Insights, StudyTask } from "./usabilityApi";
 import {
   bookingStatus,
   clock,
+  dateIn,
   dayIn,
   formatSize,
   linesToList,
@@ -194,6 +195,7 @@ describe("booking times", () => {
   });
   it("shows an instant in a zone", () => {
     expect(timeIn("2026-12-03T14:00:00Z", "America/New_York")).toBe("09:00");
+    expect(dateIn("2026-12-03T23:30:00Z", "Europe/Paris")).toBe("2026-12-04");
     expect(dayIn("2026-12-03T14:00:00Z", "Europe/London")).toBe("Thursday 3 December");
     expect(zoneName("2026-12-03T14:00:00Z", "Europe/London")).toBe("GMT");
   });

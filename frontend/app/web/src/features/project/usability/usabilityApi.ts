@@ -135,7 +135,13 @@ export interface Study
   extends StudySummary,
     Pick<
       StudyDetails,
-      "account_email" | "account_password" | "account_notes" | "moderator_user_id" | "session_minutes" | "timezone"
+      | "account_email"
+      | "account_password"
+      | "account_notes"
+      | "moderator_user_id"
+      | "session_minutes"
+      | "slot_gap_minutes"
+      | "timezone"
     > {
   content: StudyContent;
   consent_version: number;
@@ -220,6 +226,8 @@ export interface StudyDetails {
   moderator_user_id: string | null;
   /** How long a bookable slot is. */
   session_minutes: number | null;
+  /** The break between one slot and the next; 0 is back to back. */
+  slot_gap_minutes: number;
   /** What emails and Studio show times in, e.g. Europe/London. */
   timezone: string;
 }
@@ -236,10 +244,12 @@ export interface Availability {
   calendar_error: string | null;
   /** What stops participants booking, e.g. "choose a moderator". */
   problems: string[];
-  windows: { id: string; starts_at: string; ends_at: string; held: boolean; hold_error: string | null }[];
+  /** `booked`: someone has a session in it, so it cannot be changed. */
+  windows: { id: string; starts_at: string; ends_at: string; held: boolean; hold_error: string | null; booked: boolean }[];
   slots: {
     start: string;
-    state: "free" | "booked" | "busy";
+    /** past: already started, so no longer offered. */
+    state: "free" | "booked" | "busy" | "past";
     participant: { id: string; code: string; name: string } | null;
   }[];
 }
@@ -295,6 +305,12 @@ export const getAvailability = (projectId: string, studyId: string) =>
   apiGet<Availability>(`${one(projectId, studyId)}/availability`);
 export const addAvailability = (projectId: string, studyId: string, window: { starts_at: string; ends_at: string }) =>
   apiPost<Availability>(`${one(projectId, studyId)}/availability`, window);
+export const updateAvailability = (
+  projectId: string,
+  studyId: string,
+  windowId: string,
+  window: { starts_at: string; ends_at: string },
+) => apiPatch<Availability>(`${one(projectId, studyId)}/availability/${windowId}`, window);
 export const removeAvailability = async (projectId: string, studyId: string, windowId: string) => {
   await apiDelete(`${one(projectId, studyId)}/availability/${windowId}`);
   return getAvailability(projectId, studyId);

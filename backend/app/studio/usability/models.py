@@ -40,6 +40,8 @@ class Study(Base):
     moderator_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     #: How long a bookable slot is: availability windows are cut into slots this long.
     session_minutes = Column(Integer, nullable=True)
+    #: The break between one slot and the next (0 = back to back).
+    slot_gap_minutes = Column(Integer, nullable=False, default=0, server_default="0")
     #: What emails and Studio show times in (an IANA name, e.g. Europe/London).
     timezone = Column(String(64), nullable=False, default="Europe/London")
     #: Research questions, protocol, consent form, tasks, script and word list.

@@ -975,7 +975,8 @@ def get_study(study_id: str) -> dict:
     (with its id and both the participant's and the moderator's halves) and
     the files it holds (name, size). Read it before adding tasks, so new ones
     follow on from what is there, and to find a task's real id for
-    update_study_task. Also, read only: moderator, session_minutes, timezone
+    update_study_task. Also, read only: moderator, session_minutes,
+    slot_gap_minutes, timezone
     and availability (the windows participants may book in, UTC) -- a person
     sets these, and the booking email copy, in Studio."""
     return _studio_call("GET", f"/usability/agent/studies/{study_id}")
@@ -1269,7 +1270,7 @@ def add_study_participant(
     personal link. NOTHING is sent to them from here, and no link is
     returned: adding someone in Studio emails them a booking invite, but an
     agent's add never does -- tell the user to send it from the study's
-    Participants in Studio (Send booking email). name / contact_email: who
+    Participants in Studio (Send invite). name / contact_email: who
     they are and the inbox the booking emails go to (their own, not the
     test account).
     account_email / account_password / account_notes left out use the

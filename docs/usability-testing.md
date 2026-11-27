@@ -12,7 +12,7 @@ under it:
 |---|---|
 | Study | What is tested: details and moderator, research questions, the protocol and consent form a participant reads, the tasks, the files tasks hand out, the moderator's script and the word-choice list |
 | Emails | The booking invite and confirmation copy |
-| Slots | When participants can book: the time zone, windows of time, and the slots they make |
+| Slots | When participants can book: the time zone, the gap between slots, windows of time (editable until someone books in one), and the slots they make |
 | Participants | Who takes part, their booking, the test account each uses, and their personal session link |
 | Observation capture | One capture per participant: the script to read, and per task a stopwatch, error count, outcome and notes |
 | Study insights | The study across its participants: observations against participants, the measures with their averages, and the word choices |
@@ -37,7 +37,7 @@ password (see below).
    account), adding them sends the **booking invite**: the thank-you copy and
    a *Choose a time* button. It goes only once the study has a moderator, a
    session length and future times; until then the list says what is
-   missing, and *Send booking email* sends it later.
+   missing, and *Send invite* on the participant's row sends it later (or again).
 3. They open `/book/<booking token>` and pick a free slot, shown in their own
    time zone. The session goes on the moderator's Google calendar with them
    as a guest and a Meet link (Google sends the invite), and they get the
@@ -61,8 +61,9 @@ password (see below).
 
 ## Booking and the moderator's calendar
 
-- **Slots** are each window of bookable time cut into session-long slots,
-  less any already started, booked by another participant, or overlapping
+- **Slots** are each window of bookable time cut, from its start, into
+  session-long slots with the study's gap between them, less any already
+  started (the Slots preview shows those as *past*), booked by another participant, or overlapping
   something on the moderator's Google calendar. The calendar is read when the
   booking page loads and again when a slot is booked.
 - **Each window is held** on the moderator's calendar as a busy event ("Held
@@ -71,7 +72,8 @@ password (see below).
   not, so one moderator is never double-booked across studies. The Slots tab
   shows each window's hold, and *Hold on calendar* holds any that are not
   (added before the calendar was connected, or whose hold failed). Changing
-  the moderator moves the holds; sessions already booked stay put.
+  the moderator moves the holds; sessions already booked stay put. A window
+  can be edited (its hold moves with it) until someone books a session in it.
 - **A booking stands only if its calendar event was made.** If Google refuses,
   nothing is booked and the participant is asked to try again. Removing a
   participant cancels their session (Google tells them).

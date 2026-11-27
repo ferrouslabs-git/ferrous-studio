@@ -113,19 +113,23 @@ def slots(
     minutes: int,
     taken: list[tuple[datetime, datetime]],
     now: datetime,
+    gap: int = 0,
 ) -> list[datetime]:
-    """The free slot start times: each window cut into ``minutes``-long slots
-    from its start (a remainder too short for a slot is dropped), less any
-    that have started, and any overlapping a ``taken`` interval (a booking, or
-    a busy event on the moderator's calendar). Sorted, without duplicates."""
+    """The free slot start times: each window cut, from its start, into
+    ``minutes``-long slots with ``gap`` minutes between them (the last slot
+    needs no gap after it; a remainder too short for a slot is dropped), less
+    any that have started by ``now``, and any overlapping a ``taken`` interval
+    (a booking, or a busy event on the moderator's calendar). Sorted, without
+    duplicates."""
     if minutes <= 0:
         return []
-    step = timedelta(minutes=minutes)
+    length = timedelta(minutes=minutes)
+    step = timedelta(minutes=minutes + max(gap, 0))
     found: set[datetime] = set()
     for start, end in windows:
         at = start
-        while at + step <= end:
-            if at > now and not any(at < t_end and t_start < at + step for t_start, t_end in taken):
+        while at + length <= end:
+            if at > now and not any(at < t_end and t_start < at + length for t_start, t_end in taken):
                 found.add(at)
             at += step
     return sorted(found)

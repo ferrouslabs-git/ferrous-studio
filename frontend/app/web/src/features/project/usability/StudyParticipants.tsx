@@ -35,16 +35,19 @@ export function StudyParticipants({
   const [removing, setRemoving] = useState<Participant | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
 
   // Send (or send again) the thank-you with the booking link; the list shows how it went.
   const send = async (p: Participant) => {
     setSendError(null);
+    setSending(p.id);
     try {
       await sendBookingEmail(projectId, study.id, p.id);
     } catch (err) {
       setSendError(errorMessage(err));
     }
     await onChanged();
+    setSending(null);
   };
 
   const copy = (p: Participant) => {
@@ -82,9 +85,17 @@ export function StudyParticipants({
             render: (p) => {
               const booking = bookingStatus(p, study.timezone);
               return (
-                <span className={`badge ${booking.tone}`} title={booking.detail}>
-                  {booking.text}
-                </span>
+                <div className="usab-booking-cell">
+                  <span className={`badge ${booking.tone}`} title={booking.detail}>
+                    {booking.text}
+                  </span>
+                  {/* Sends the booking invite (again): the thank-you and their booking link. */}
+                  {p.contact_email && (
+                    <button type="button" className="btn small ghost" disabled={sending === p.id} onClick={() => void send(p)}>
+                      {sending === p.id ? "Sending…" : p.invite_sent_at ? "Resend invite" : "Send invite"}
+                    </button>
+                  )}
+                </div>
               );
             },
           },
@@ -112,9 +123,6 @@ export function StudyParticipants({
         actions={(p) => [
           { label: "Observation capture", onSelect: () => onOpenCapture(p.id) },
           { label: "Edit", onSelect: () => setDrawer({ participant: p }) },
-          ...(p.contact_email
-            ? [{ label: p.invite_sent_at ? "Resend booking email" : "Send booking email", onSelect: () => void send(p) }]
-            : []),
           ...(p.meet_url ? [{ label: "Open Meet link", onSelect: () => window.open(p.meet_url, "_blank", "noopener") }] : []),
           { label: "Remove", danger: true, onSelect: () => setRemoving(p) },
         ]}

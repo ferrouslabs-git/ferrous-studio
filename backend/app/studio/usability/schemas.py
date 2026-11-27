@@ -188,6 +188,7 @@ class StudyUpdate(BaseModel):
     #: A Studio super admin; checked against their platform role by the route.
     moderator_user_id: UUID | None = None
     session_minutes: int | None = Field(None, ge=5, le=480)
+    slot_gap_minutes: int | None = Field(None, ge=0, le=240)
     timezone: TimeZone | None = None
     content: StudyContent | None = None
 

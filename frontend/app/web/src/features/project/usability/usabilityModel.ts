@@ -235,6 +235,13 @@ export function zonedToUtc(date: string, time: string, timeZone: string): string
   return new Date(utc).toISOString();
 }
 
+/** "2026-12-03" for an instant, in a time zone: the value a date input takes. */
+export function dateIn(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(
+    new Date(iso),
+  );
+}
+
 /** "14:00" for an instant, in a time zone. */
 export function timeIn(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(

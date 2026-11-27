@@ -37,8 +37,8 @@ import {
   webAddress,
 } from "./usabilityModel";
 
-// The time zone is the Slots section's to save, so this form never sends it.
-interface Form extends Omit<StudyDetails, "timezone"> {
+// The time zone and slot gap are the Slots section's to save, so this form never sends them.
+interface Form extends Omit<StudyDetails, "timezone" | "slot_gap_minutes"> {
   content: StudyContent;
 }
 

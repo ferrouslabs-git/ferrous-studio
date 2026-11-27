@@ -129,6 +129,7 @@ async def _out(db: AsyncSession, study: Study) -> dict[str, Any]:
         # booking: read only here; the moderator, times and email copy are set in Studio
         "moderator": await _moderator_name(db, study),
         "session_minutes": study.session_minutes,
+        "slot_gap_minutes": study.slot_gap_minutes or 0,
         "timezone": study.timezone or "Europe/London",
         "availability": [
             {"starts_at": _iso(w.starts_at), "ends_at": _iso(w.ends_at)}

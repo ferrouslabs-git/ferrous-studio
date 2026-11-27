@@ -293,6 +293,7 @@ async def _study_detail(db: AsyncSession, study: Study) -> dict[str, Any]:
         **{name: getattr(study, name) or "" for name in ACCOUNT_FIELDS},
         "moderator_user_id": study.moderator_user_id,
         "session_minutes": study.session_minutes,
+        "slot_gap_minutes": study.slot_gap_minutes or 0,
         "timezone": study.timezone or "Europe/London",
         "files": [_file_out(f) for f in await _files(db, study)],
         "participant_list": [_participant_out(study, p, results[p.id]) for p in people],
@@ -389,6 +390,8 @@ async def update_usability_study(
             setattr(study, field_name, getattr(payload, field_name) or None)
     if "session_minutes" in sent:
         study.session_minutes = payload.session_minutes
+    if "slot_gap_minutes" in sent:
+        study.slot_gap_minutes = payload.slot_gap_minutes or 0
     if "timezone" in sent and payload.timezone:
         study.timezone = payload.timezone
     if "moderator_user_id" in sent and payload.moderator_user_id != study.moderator_user_id:
@@ -459,6 +462,7 @@ async def _clone(db: AsyncSession, source: Study, name: str | None, user_id: UUI
         # the same moderator and session length; its bookable times are its own
         moderator_user_id=source.moderator_user_id,
         session_minutes=source.session_minutes,
+        slot_gap_minutes=source.slot_gap_minutes or 0,
         timezone=source.timezone,
         content=StudyContent.model_validate(source.content).model_dump(),
         created_by=user_id,
