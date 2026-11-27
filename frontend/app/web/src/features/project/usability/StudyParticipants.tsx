@@ -132,7 +132,8 @@ function ParticipantDrawer({
     role: participant?.role ?? "",
     company: participant?.company ?? "",
     characteristics: participant?.characteristics ?? "",
-    account_email: participant?.account_email ?? "",
+    // A new participant starts with the study's email, which can be changed for them.
+    account_email: participant ? participant.account_email : study.account_email,
     account_password: participant?.account_password ?? "",
     account_notes: participant?.account_notes ?? "",
   });
@@ -194,7 +195,7 @@ function ParticipantDrawer({
       <Field label="Other characteristics">
         <textarea className="input textarea" rows={2} value={form.characteristics} onChange={set("characteristics")} />
       </Field>
-      <Field label="Test account email">
+      <Field label={study.content.sign_up ? "Email to sign up with" : "Test account email"}>
         <input
           className="input"
           autoComplete="off"
@@ -203,15 +204,18 @@ function ParticipantDrawer({
           onChange={set("account_email")}
         />
       </Field>
-      <Field label="Test account password">
-        <input
-          className="input"
-          autoComplete="off"
-          value={form.account_password}
-          placeholder={study.account_password}
-          onChange={set("account_password")}
-        />
-      </Field>
+      {/* A study that tests signing up has participants choose their own password. */}
+      {!study.content.sign_up && (
+        <Field label="Test account password">
+          <input
+            className="input"
+            autoComplete="off"
+            value={form.account_password}
+            placeholder={study.account_password}
+            onChange={set("account_password")}
+          />
+        </Field>
+      )}
       <Field label="Anything else they need to sign in">
         <textarea
           className="input textarea"
