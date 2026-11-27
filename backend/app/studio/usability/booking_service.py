@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -108,7 +109,16 @@ def count_invite(study: Study) -> None:
 async def invite_refusal(db: AsyncSession, study: Study, participant: Participant) -> str | None:
     """Why this invite may not go now, if it may not. The study's sends are
     counted on the study itself (``count_invite``), so re-sending to the same
-    people uses up the day's allowance like sending to new ones."""
+    people uses up the day's allowance like sending to new ones.
+
+    The study row is re-read locked, so two sends at once queue here: the
+    second waits for the first to commit, then reads its count and (re-reading
+    the participant under that lock) its send time. Sending in parallel cannot
+    overshoot the cap or the cooldown."""
+    if db is not None:
+        await db.refresh(study, with_for_update=True)
+        if sa_inspect(participant).has_identity:  # a participant being added has nothing to re-read
+            await db.refresh(participant)
     now = utc_now()
     if participant.invite_sent_at and now - participant.invite_sent_at < RESEND_AFTER:
         return "An invite was sent to them a moment ago. Wait a few minutes before sending another."

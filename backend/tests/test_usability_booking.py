@@ -350,3 +350,12 @@ async def test_invites_are_capped_per_participant_and_every_send_counts_per_stud
     booking_service.count_invite(study)
     assert study.invites_in_window == 1
     assert "count_invite(study)" in open(booking_service.__file__, encoding="utf-8").read()
+
+
+def test_the_invite_cap_is_checked_with_the_study_locked_so_parallel_sends_queue():
+    """Two sends at once must not both read the same count and both go."""
+    import inspect
+
+    source = inspect.getsource(booking_service.invite_refusal)
+    lock = source.index("db.refresh(study, with_for_update=True)")
+    assert lock < source.index("db.refresh(participant)") < source.index("_invites_in_window(study, now)")
