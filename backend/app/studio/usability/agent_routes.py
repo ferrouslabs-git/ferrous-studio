@@ -17,6 +17,13 @@ routes:
   stay attached to it.
 * **A closed study refuses changes** until it is reopened (``update_study``
   with ``status="open"``, the one write a closed study takes).
+* **What a participant is sent to or signs stays with a person**: the
+  application address (study and participant) and the consent wording. An
+  agent reads text a participant typed (answers, consent name), and anyone
+  holding a participant link can type it, so an agent steered by that text
+  must not be able to point participants at another site or rewrite what
+  they agree to. An imported study gets no address and the organisation's
+  default consent wording.
 
 A person signed in as an organisation admin reaches them too (``data:write``),
 which is what a board token also carries -- only an admin can mint one.
@@ -71,6 +78,7 @@ from .schemas import (
     AgentTasksIn,
     StudyClone,
     StudyContent,
+    StudyCreate,
     StudyFileIn,
 )
 
@@ -207,7 +215,6 @@ async def create_usability_study_for_agent(
         name=payload.name,
         persona=payload.persona or None,
         duration=payload.duration or None,
-        app_url=payload.app_url or None,
         content=StudyContent.model_validate(content).model_dump(),
         created_by=ctx.user_id,
     )
@@ -228,7 +235,18 @@ async def import_usability_study_for_agent(
     """A new study from an exported study document (content and files), as
     Import study does in Studio."""
     project = await get_project(db, project_id, ctx)
-    study = await _new_study(db, project, payload, ctx.user_id)
+    default = rules.default_content(await _organisation_name(db, project.account_id))
+    content = {
+        **payload.content.model_dump(),
+        "consent_title": default["consent_title"],
+        "consent_text": default["consent_text"],
+    }
+    study = await _new_study(
+        db, project,
+        StudyCreate(name=payload.name, persona=payload.persona, duration=payload.duration,
+                    content=StudyContent.model_validate(content), files=payload.files),
+        ctx.user_id,
+    )
     out = await _out(db, study)
     await db.commit()
     return out
@@ -254,12 +272,11 @@ async def update_usability_study_for_agent(
         _open(study)
     if "name" in sent and payload.name is not None:
         study.name = payload.name
-    for name in ("persona", "duration", "app_url"):
+    for name in ("persona", "duration"):
         if name in sent:
             setattr(study, name, getattr(payload, name) or None)
     content = dict(study.content or {})
-    for name in ("research_questions", "protocol", "consent_title", "consent_text", "sign_up", "sign_up_text",
-                 "words", "top_words"):
+    for name in ("research_questions", "protocol", "sign_up", "sign_up_text", "words", "top_words"):
         if name in sent and getattr(payload, name) is not None:
             content[name] = getattr(payload, name)
     if "script" in sent and payload.script is not None:

@@ -201,10 +201,11 @@ class WordsIn(BaseModel):
 
 # ── an agent's side (a board token, through the MCP server) ─────────────────
 #
-# The editor's reach less deletion (agent_routes.py says why). Tasks have no
-# "replace all": they are appended, patched by id, or reordered. Unknown
-# fields are refused rather than dropped, so a misnamed one comes back as an
-# error the agent can fix.
+# The editor's reach less deletion, and less the two things a participant is
+# sent to or signs: the application address and the consent wording
+# (agent_routes.py says why). Tasks have no "replace all": they are appended,
+# patched by id, or reordered. Unknown fields are refused rather than
+# dropped, so a misnamed one comes back as an error the agent can fix.
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 MAX_AGENT_TASKS = 30
@@ -249,7 +250,6 @@ class AgentStudyCreate(Lines):
     name: Name
     persona: Short | None = None
     duration: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
-    app_url: AppUrl | None = None
     research_questions: list[Line] = []
 
 
@@ -285,11 +285,8 @@ class AgentStudyPatch(Lines):
     status: str | None = Field(None, pattern="^(open|closed)$")
     persona: Short | None = None
     duration: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
-    app_url: AppUrl | None = None
     research_questions: list[Line] | None = None
     protocol: list[Line] | None = None
-    consent_title: Short | None = None
-    consent_text: list[Line] | None = None
     sign_up: bool | None = None
     sign_up_text: list[Line] | None = None
     script: AgentScriptPatch | None = None
@@ -305,16 +302,34 @@ class AgentTaskOrder(BaseModel):
     task_ids: list[str] = Field(min_length=1)
 
 
-class AgentStudyImport(StudyCreate):
-    """A study made from an exported study document: content is required."""
+class AgentStudyImport(BaseModel):
+    """A study made from an exported study document: content is required.
+    No application address, and the consent wording in the document is
+    replaced with the organisation's default (agent_routes.py)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    name: Name
+    persona: Short | None = None
+    duration: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
     content: StudyContent
+    files: list[StudyFileIn] = []
 
 
-class AgentParticipantWrite(ParticipantWrite):
+class AgentParticipantWrite(BaseModel):
+    """ParticipantWrite, refusing unknown fields. A participant has no
+    address of their own: they open the study's, which a person sets."""
+
     model_config = ConfigDict(extra="forbid")
+
+    scheduled_at: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
+    role: Short | None = None
+    company: Short | None = None
+    characteristics: str | None = None
+    account_email: Short | None = None
+    account_password: Annotated[str, StringConstraints(max_length=255)] | None = None
+    account_notes: str | None = None
+    session_notes: str | None = None
 
 
 class AgentCaptureWrite(CaptureWrite):

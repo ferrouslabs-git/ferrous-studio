@@ -113,7 +113,7 @@ session, and write up observations from the insights.
 | `study_task_guide` | How to write tasks: the fields, which half the participant sees, what makes a good set. Read first |
 | `list_studies`, `get_study` | What exists: details and the whole content (research questions, protocol, consent form, tasks, script, words), file names |
 | `create_study` | A new study with the default protocol, consent form and script, and no tasks |
-| `update_study` | Details, status (open/closed), research questions, protocol, consent form, script (by section), word list |
+| `update_study` | Details, status (open/closed), research questions, protocol, script (by section), word list |
 | `clone_study` | A copy with the content and files and nobody in it |
 | `export_study`, `import_study` | The Export document, written to / read from a JSON file in the project |
 | `add_study_file`, `download_study_file` | Upload a file a task hands out (at most 2 MB, a data or text file from inside the project, never a hidden file or folder); save one locally |
@@ -137,6 +137,13 @@ token. The differences:
   -- and tasks are never replaced wholesale. A reorder must name every task.
 - **A closed study refuses changes** until `update_study(status="open")`.
   Creating, importing and cloning are the other writes it allows.
+- **Where participants go and what they sign stay with a person.** An agent
+  cannot set the application address (study or participant) or the consent
+  wording; an imported study gets no address and the default consent
+  wording. Agents read text participants typed (answers, consent name,
+  words), and anyone holding a link can type it, so text written to steer
+  an agent must not be able to send participants to another site. The tool
+  descriptions also tell the agent to treat that text as data.
 - A task may only list a file the study holds.
 - The participant's own rating, answer, consent and word choices come only
   from their page.
