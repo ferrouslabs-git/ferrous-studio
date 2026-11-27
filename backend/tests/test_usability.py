@@ -315,12 +315,38 @@ def test_an_agent_cannot_delete_or_replace_and_cannot_write_to_a_closed_study():
 
 
 def test_an_agents_study_change_takes_content_fields_but_not_tasks():
-    patch = AgentStudyPatch(consent_text=["I agree", " "], script={"welcome": ["Hi"]}, status="closed")
-    assert patch.consent_text == ["I agree"] and patch.script.model_fields_set == {"welcome"}
-    for bad in ({"tasks": []}, {"status": "archived"}, {"top_words": 0}, {"script": {"intro": []}},
-                {"app_url": "javascript:alert(1)"}):
+    patch = AgentStudyPatch(protocol=["Read me", " "], script={"welcome": ["Hi"]}, status="closed")
+    assert patch.protocol == ["Read me"] and patch.script.model_fields_set == {"welcome"}
+    for bad in ({"tasks": []}, {"status": "archived"}, {"top_words": 0}, {"script": {"intro": []}}):
         with pytest.raises(ValidationError):
             AgentStudyPatch(**bad)
+
+
+@pytest.mark.parametrize(
+    "schema, field, value",
+    [
+        (AgentStudyCreate, "app_url", "https://elsewhere.example"),
+        (AgentStudyPatch, "app_url", "https://elsewhere.example"),
+        (AgentStudyPatch, "consent_title", "New terms"),
+        (AgentStudyPatch, "consent_text", ["You agree to anything"]),
+        (AgentParticipantWrite, "app_url", "https://elsewhere.example"),
+        (AgentStudyImport, "app_url", "https://elsewhere.example"),
+    ],
+)
+def test_an_agent_cannot_set_where_participants_go_or_what_they_sign(schema, field, value):
+    """An agent reads what participants typed, and anyone with a link can
+    type it; text steering the agent must not redirect participants or
+    rewrite their consent."""
+    base = {"name": "x"} if schema in (AgentStudyCreate, AgentStudyImport) else {}
+    if schema is AgentStudyImport:
+        base["content"] = rules.default_content("Acme Ltd")
+    with pytest.raises(ValidationError):
+        schema(**base, **{field: value})
+
+
+def test_an_imported_study_takes_the_default_consent_wording():
+    source = inspect.getsource(agent_routes.import_usability_study_for_agent)
+    assert '"consent_text": default["consent_text"]' in source and "app_url" not in source
 
 
 def test_an_agents_participant_capture_and_observation_refuse_unknown_fields():
